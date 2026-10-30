@@ -1,5 +1,7 @@
 #include "redismodule.h"
+#include <string.h>
 #include <strings.h>
+#include <assert.h>
 int mutable_bool_val, no_prefix_bool, no_prefix_bool2;
 int immutable_bool_val;
 long long longval, no_prefix_longval;
@@ -13,38 +15,37 @@ int flagsval;
  * to point to the config, and they register the configs as such. Note that one could also just
  * use names if they wanted, and store anything in privdata. */
 int getBoolConfigCommand(const char *name, void *privdata) {
-    REDISMODULE_NOT_USED(name);
+    assert(strcmp(name, "mutable_bool") == 0 || strcmp(name, "immutable_bool") == 0);
     return (*(int *)privdata);
 }
 
 int setBoolConfigCommand(const char *name, int new, void *privdata, RedisModuleString **err) {
-    REDISMODULE_NOT_USED(name);
     REDISMODULE_NOT_USED(err);
+    assert(strcmp(name, "mutable_bool") == 0 || strcmp(name, "immutable_bool") == 0);
     *(int *)privdata = new;
     return REDISMODULE_OK;
 }
 
 long long getNumericConfigCommand(const char *name, void *privdata) {
-    REDISMODULE_NOT_USED(name);
+    assert(strcmp(name, "numeric") == 0 || strcmp(name, "memory_numeric") == 0);
     return (*(long long *) privdata);
 }
 
 int setNumericConfigCommand(const char *name, long long new, void *privdata, RedisModuleString **err) {
-    REDISMODULE_NOT_USED(name);
     REDISMODULE_NOT_USED(err);
+    assert(strcmp(name, "numeric") == 0 || strcmp(name, "memory_numeric") == 0);
     *(long long *)privdata = new;
     return REDISMODULE_OK;
 }
 
 RedisModuleString *getStringConfigCommand(const char *name, void *privdata) {
-    REDISMODULE_NOT_USED(name);
     REDISMODULE_NOT_USED(privdata);
+    assert(strcmp(name, "string") == 0);
     return strval;
 }
 int setStringConfigCommand(const char *name, RedisModuleString *new, void *privdata, RedisModuleString **err) {
-    REDISMODULE_NOT_USED(name);
-    REDISMODULE_NOT_USED(err);
     REDISMODULE_NOT_USED(privdata);
+    assert(strcmp(name, "string") == 0);
     size_t len;
     if (!strcasecmp(RedisModule_StringPtrLen(new, &len), "rejectisfreed")) {
         *err = RedisModule_CreateString(NULL, "Cannot set string to 'rejectisfreed'", 36);
@@ -57,29 +58,29 @@ int setStringConfigCommand(const char *name, RedisModuleString *new, void *privd
 }
 
 int getEnumConfigCommand(const char *name, void *privdata) {
-    REDISMODULE_NOT_USED(name);
     REDISMODULE_NOT_USED(privdata);
+    assert(strcmp(name, "enum") == 0);
     return enumval;
 }
 
 int setEnumConfigCommand(const char *name, int val, void *privdata, RedisModuleString **err) {
-    REDISMODULE_NOT_USED(name);
-    REDISMODULE_NOT_USED(err);
     REDISMODULE_NOT_USED(privdata);
+    REDISMODULE_NOT_USED(err);
+    assert(strcmp(name, "enum") == 0);
     enumval = val;
     return REDISMODULE_OK;
 }
 
 int getFlagsConfigCommand(const char *name, void *privdata) {
-    REDISMODULE_NOT_USED(name);
     REDISMODULE_NOT_USED(privdata);
+    assert(strcmp(name, "flags") == 0);
     return flagsval;
 }
 
 int setFlagsConfigCommand(const char *name, int val, void *privdata, RedisModuleString **err) {
-    REDISMODULE_NOT_USED(name);
     REDISMODULE_NOT_USED(err);
     REDISMODULE_NOT_USED(privdata);
+    assert(strcmp(name, "flags") == 0);
     flagsval = val;
     return REDISMODULE_OK;
 }
@@ -102,34 +103,60 @@ int longlongApplyFunc(RedisModuleCtx *ctx, void *privdata, RedisModuleString **e
         return REDISMODULE_ERR;
     }
     return REDISMODULE_OK;
-}
+}    
 
 RedisModuleString *getStringConfigUnprefix(const char *name, void *privdata) {
-    REDISMODULE_NOT_USED(name);
     REDISMODULE_NOT_USED(privdata);
+    assert(strcmp(name, "unprefix-string") == 0 || strcmp(name, "unprefix.string-alias") == 0);
     return strval2;
 }
 
 int setStringConfigUnprefix(const char *name, RedisModuleString *new, void *privdata, RedisModuleString **err) {
-    REDISMODULE_NOT_USED(name);
-    REDISMODULE_NOT_USED(err);
     REDISMODULE_NOT_USED(privdata);
+    REDISMODULE_NOT_USED(err);
+    assert(strcmp(name, "unprefix-string") == 0 || strcmp(name, "unprefix.string-alias") == 0);
     if (strval2) RedisModule_FreeString(NULL, strval2);
     RedisModule_RetainString(NULL, new);
     strval2 = new;
     return REDISMODULE_OK;
 }
 
+int getBoolConfigUnprefix(const char *name, void *privdata) {
+    assert(strcmp(name, "unprefix-bool") == 0 || strcmp(name, "unprefix-bool-alias") == 0 ||
+           strcmp(name, "unprefix-noalias-bool") == 0);
+    return (*(int *)privdata);
+}
+
+int setBoolConfigUnprefix(const char *name, int new, void *privdata, RedisModuleString **err) {
+    REDISMODULE_NOT_USED(err);
+    assert(strcmp(name, "unprefix-bool") == 0 || strcmp(name, "unprefix-bool-alias") == 0 ||
+           strcmp(name, "unprefix-noalias-bool") == 0);
+    *(int *)privdata = new;
+    return REDISMODULE_OK;
+}
+
+long long getNumericConfigUnprefix(const char *name, void *privdata) {
+    assert(strcmp(name, "unprefix.numeric") == 0 || strcmp(name, "unprefix.numeric-alias") == 0);
+    return (*(long long *) privdata);
+}
+
+int setNumericConfigUnprefix(const char *name, long long new, void *privdata, RedisModuleString **err) {
+    REDISMODULE_NOT_USED(err);
+    assert(strcmp(name, "unprefix.numeric") == 0 || strcmp(name, "unprefix.numeric-alias") == 0);
+    *(long long *)privdata = new;
+    return REDISMODULE_OK;
+}
+
 int getEnumConfigUnprefix(const char *name, void *privdata) {
-    REDISMODULE_NOT_USED(name);
     REDISMODULE_NOT_USED(privdata);
+    assert(strcmp(name, "unprefix-enum") == 0 || strcmp(name, "unprefix-enum-alias") == 0);
     return no_prefix_enumval;
 }
 
 int setEnumConfigUnprefix(const char *name, int val, void *privdata, RedisModuleString **err) {
-    REDISMODULE_NOT_USED(name);
-    REDISMODULE_NOT_USED(err);
     REDISMODULE_NOT_USED(privdata);
+    REDISMODULE_NOT_USED(err);
+    assert(strcmp(name, "unprefix-enum") == 0 || strcmp(name, "unprefix-enum-alias") == 0);
     no_prefix_enumval = val;
     return REDISMODULE_OK;
 }
@@ -222,21 +249,21 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     }
 
     /*** unprefixed and aliased configuration ***/
-    if (RedisModule_RegisterBoolConfig(ctx, "unprefix-bool|unprefix-bool-alias", 1, REDISMODULE_CONFIG_DEFAULT|REDISMODULE_CONFIG_UNPREFIXED, 
-                                       getBoolConfigCommand, setBoolConfigCommand, NULL, &no_prefix_bool) == REDISMODULE_ERR) {
+    if (RedisModule_RegisterBoolConfig(ctx, "unprefix-bool|unprefix-bool-alias", 1, REDISMODULE_CONFIG_DEFAULT|REDISMODULE_CONFIG_UNPREFIXED,
+                                       getBoolConfigUnprefix, setBoolConfigUnprefix, NULL, &no_prefix_bool) == REDISMODULE_ERR) {
         RedisModule_Log(ctx, "warning", "Failed to register unprefix-bool");
         return REDISMODULE_ERR;
     }
     if (RedisModule_RegisterBoolConfig(ctx, "unprefix-noalias-bool", 1, REDISMODULE_CONFIG_DEFAULT|REDISMODULE_CONFIG_UNPREFIXED,
-                                       getBoolConfigCommand, setBoolConfigCommand, NULL, &no_prefix_bool2) == REDISMODULE_ERR) {
+                                       getBoolConfigUnprefix, setBoolConfigUnprefix, NULL, &no_prefix_bool2) == REDISMODULE_ERR) {
         RedisModule_Log(ctx, "warning", "Failed to register unprefix-noalias-bool");
         return REDISMODULE_ERR;
-    }    
-    if (RedisModule_RegisterNumericConfig(ctx, "unprefix.numeric|unprefix.numeric-alias", -1, REDISMODULE_CONFIG_DEFAULT|REDISMODULE_CONFIG_UNPREFIXED, 
-                                          -5, 2000, getNumericConfigCommand, setNumericConfigCommand, NULL, &no_prefix_longval) == REDISMODULE_ERR) {
+    }
+    if (RedisModule_RegisterNumericConfig(ctx, "unprefix.numeric|unprefix.numeric-alias", -1, REDISMODULE_CONFIG_DEFAULT|REDISMODULE_CONFIG_UNPREFIXED,
+                                          -5, 2000, getNumericConfigUnprefix, setNumericConfigUnprefix, NULL, &no_prefix_longval) == REDISMODULE_ERR) {
         RedisModule_Log(ctx, "warning", "Failed to register unprefix.numeric");
         return REDISMODULE_ERR;
-    }    
+    }
     if (RedisModule_RegisterStringConfig(ctx, "unprefix-string|unprefix.string-alias", "secret unprefix", REDISMODULE_CONFIG_DEFAULT|REDISMODULE_CONFIG_UNPREFIXED, 
                                          getStringConfigUnprefix, setStringConfigUnprefix, NULL, NULL) == REDISMODULE_ERR) {
         RedisModule_Log(ctx, "warning", "Failed to register unprefix-string");

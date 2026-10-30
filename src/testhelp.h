@@ -30,14 +30,17 @@ extern int __test_num;
 
 #define test_cond(descr,_c) do { \
     __test_num++; printf("%d - %s: ", __test_num, descr); \
-    if(_c) printf("PASSED\n"); else {printf("FAILED\n"); __failed_tests++;} \
+    if(_c) printf("\033[32mPASSED\033[0m\n"); else {printf("\033[31mFAILED\033[0m\n"); __failed_tests++;} \
 } while(0)
 #define test_report() do { \
-    printf("%d tests, %d passed, %d failed\n", __test_num, \
-                    __test_num-__failed_tests, __failed_tests); \
     if (__failed_tests) { \
-        printf("=== WARNING === We have failed tests here...\n"); \
+        printf("  Tests:       %d passed, \033[31m%d failed\033[0m, %d total\n", \
+                        __test_num-__failed_tests, __failed_tests, __test_num); \
+        printf("\033[31m=== WARNING === We have failed tests here...\033[0m\n"); \
         exit(1); \
+    } else { \
+        printf("  Tests:       \033[32m%d passed\033[0m, %d failed, %d total\n", \
+                        __test_num-__failed_tests, __failed_tests, __test_num); \
     } \
 } while(0)
 

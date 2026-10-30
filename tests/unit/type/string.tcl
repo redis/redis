@@ -256,6 +256,47 @@ start_server {tags {"string"}} {
         list [r msetnx x1{t} xxx x1{t} zzz] [r get x1{t}]
     } {0 yyy}
 
+    test {MSET spanning multiple prefetch batches (batch size 16)} {
+        # Exercise the batched prefetch loop across the 16-key boundary.
+        # Test sizes chosen to hit: last batch only (16), boundary+1 (17),
+        # two full batches (32), and partial-tail (33, 40).
+        foreach n {16 17 32 33 40} {
+            r flushdb
+            set cmd [list mset]
+            for {set i 0} {$i < $n} {incr i} {
+                lappend cmd "k:${i}{t}" "v:$i"
+            }
+            assert_equal [r {*}$cmd] "OK"
+            for {set i 0} {$i < $n} {incr i} {
+                assert_equal [r get "k:${i}{t}"] "v:$i"
+            }
+        }
+    }
+
+    test {MSET overwrites expired keys across batch boundary} {
+        # Regression test for dict-pointer staleness across batches
+        # (see src/t_string.c:prefetchKeysBatch). When lookupKeyWrite in
+        # batch 1 expires a pre-existing key, under cluster mode the slot
+        # dict may be freed (KVSTORE_FREE_EMPTY_DICTS) and recreated
+        # mid-command; msetGenericCommand must re-fetch the slot dict per
+        # batch. This test exercises the same code path in standalone mode.
+        r flushdb
+        r debug set-active-expire 0
+        for {set i 0} {$i < 8} {incr i} {
+            r set "k:${i}{t}" "old:$i" px 1
+        }
+        after 20
+        set cmd [list mset]
+        for {set i 0} {$i < 20} {incr i} {
+            lappend cmd "k:${i}{t}" "new:$i"
+        }
+        assert_equal [r {*}$cmd] "OK"
+        for {set i 0} {$i < 20} {incr i} {
+            assert_equal [r get "k:${i}{t}"] "new:$i"
+        }
+        r debug set-active-expire 1
+    } {OK} {needs:debug}
+
     test {MSETEX - all expiration flags} {
         # Test each expiration type separately (EX, PX, EXAT, PXAT)
         set future_sec [expr [clock seconds] + 10]
@@ -311,7 +352,7 @@ start_server {tags {"string"}} {
     test {MSETEX - error cases} {
         assert_error {*wrong number of arguments*} {r msetex}
         assert_error {*invalid numkeys value*} {r msetex key1 val1 ex 10}
-        assert_error {*wrong number of key-value pairs*} {r msetex 2 key1 val1 key2}
+        assert_error {*wrong number of key-value pairs*} {r msetex 2 key1{t} val1 key2{t}}
         assert_error {*syntax error*} {r msetex 1 key1 val1 invalid_flag}
     }
 
@@ -635,6 +676,14 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         list $old_value $new_value
     } {{} bar}
 
+    test {Extended SET GET option accepts repeated GET tokens} {
+        r del foo
+        r set foo bar
+        set old_value [r set foo baz GET GET]
+        set new_value [r get foo]
+        list $old_value $new_value
+    } {bar baz}
+
     test {Extended SET GET option with XX} {
         r del foo
         r set foo bar
@@ -665,6 +714,21 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         list $old_value $new_value
     } {bar bar}
 
+    test {Extended SET GET option with a past expiration time and no previous value} {
+        r del foo
+        r debug set-active-expire 0
+        set now [clock milliseconds]
+        set expiredkeys [s expired_keys]
+        set old_value [r set foo baz GET PXAT [expr $now-3000]]
+        assert_equal $old_value {}
+        # Verify that expired_keys was incremented, even though
+        # the key was not added to the DB actually.
+        assert_equal [expr $expiredkeys + 1] [s expired_keys]
+        catch {r debug object foo} e
+        r debug set-active-expire 1
+        set e
+    } {ERR no such key} {needs:debug}
+
     test {Extended SET GET with incorrect type should result in wrong type error} {
       r del foo
       r rpush foo waffle
@@ -687,6 +751,16 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         assert {$ttl <= 10 && $ttl > 5}
     }
 
+    test {Extended SET PX option with a TTL that overflows when added to the current time} {
+        r del foo
+        r set foo bar
+        assert_error "ERR invalid expire time in 'set' command" {
+            r set foo baz px 9223372036854775807
+        }
+        assert_equal bar [r get foo]
+        assert_equal -1 [r pttl foo]
+    }
+
     test "Extended SET EXAT option" {
         r del foo
         r set foo bar exat [expr [clock seconds] + 10]
@@ -698,6 +772,43 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         r set foo bar pxat [expr [clock milliseconds] + 10000]
         assert_range [r ttl foo] 5 10
     }
+
+    test {Extended SET PXAT option with a past expiration time} {
+        r set foo bar
+        r debug set-active-expire 0
+        set now [clock milliseconds]
+        set expiredkeys [s expired_keys]
+        r set foo baz PXAT [expr $now-3000]
+        # Verify that expired_keys was incremented, even though
+        # the key was not added to the DB actually.
+        assert_equal [expr $expiredkeys + 1] [s expired_keys]
+        catch {r debug object foo} e
+        r debug set-active-expire 1
+        set e
+    } {ERR no such key} {needs:debug}
+
+    test {SET PXAT with a past expiration time will propagate it as DEL or UNLINK} {
+        r flushall
+        r set foo foo
+        r set bar bar
+        set repl [attach_to_replication_stream]
+
+        # Keys that have expired timestamp will be deleted immediately
+        set now [clock milliseconds]
+        r config set lazyfree-lazy-server-del no
+        assert_equal {OK} [r set foo foo PXAT [expr $now-3000]]
+        r config set lazyfree-lazy-server-del yes
+        assert_equal {OK} [r set bar bar PXAT [expr $now-3000]]
+
+        # Verify the propagate of DEL and UNLINK.
+        assert_replication_stream $repl {
+            {select *}
+            {del foo}
+            {unlink bar}
+        }
+        close_replication_stream $repl
+    } {} {needs:repl}
+
     test {Extended SET using multiple options at once} {
         r set foo val
         assert {[r set foo bar xx px 10000] eq {OK}}
@@ -826,28 +937,28 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
     test {DIGEST basic usage with plain string} {
         r set mykey "hello world"
         set digest [r digest mykey]
-        # Ensure reply is hex string
-        assert {[string is wideinteger -strict "0x$digest"]}
+        # Ensure reply is exactly 16 hex characters (works across all Tcl versions)
+        assert {[string length $digest] == 16 && [string is xdigit -strict $digest]}
     }
 
     test {DIGEST with empty string} {
         r set mykey ""
         set digest [r digest mykey]
-        assert {[string is wideinteger -strict "0x$digest"]}
+        assert {[string length $digest] == 16 && [string is xdigit -strict $digest]}
     }
 
     test {DIGEST with integer-encoded value} {
         r set mykey 12345
         assert_encoding int mykey
         set digest [r digest mykey]
-        assert {[string is wideinteger -strict "0x$digest"]}
+        assert {[string length $digest] == 16 && [string is xdigit -strict $digest]}
     }
 
     test {DIGEST with negative integer} {
         r set mykey -999
         assert_encoding int mykey
         set digest [r digest mykey]
-        assert {[string is wideinteger -strict "0x$digest"]}
+        assert {[string length $digest] == 16 && [string is xdigit -strict $digest]}
     }
 
     test {DIGEST returns consistent hash for same value} {
@@ -876,20 +987,20 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
     test {DIGEST with binary data} {
         r set mykey "\x00\x01\x02\x03\xff\xfe"
         set digest [r digest mykey]
-        assert {[string is wideinteger -strict "0x$digest"]}
+        assert {[string length $digest] == 16 && [string is xdigit -strict $digest]}
     }
 
     test {DIGEST with unicode characters} {
         r set mykey "Hello 世界"
         set digest [r digest mykey]
-        assert {[string is wideinteger -strict "0x$digest"]}
+        assert {[string length $digest] == 16 && [string is xdigit -strict $digest]}
     }
 
     test {DIGEST with very long string} {
         set longstring [string repeat "Lorem ipsum dolor sit amet. " 1000]
         r set mykey $longstring
         set digest [r digest mykey]
-        assert {[string is wideinteger -strict "0x$digest"]}
+        assert {[string length $digest] == 16 && [string is xdigit -strict $digest]}
     }
 
     test {DIGEST against non-existing key} {
@@ -929,7 +1040,7 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
     test {DIGEST with special characters and whitespace} {
         r set mykey "  spaces  \t\n\r"
         set digest [r digest mykey]
-        assert {[string is wideinteger -strict "0x$digest"]}
+        assert {[string length $digest] == 16 && [string is xdigit -strict $digest]}
     }
 
     test {DIGEST consistency across SET operations} {
@@ -985,7 +1096,7 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         assert_equal 0 [r exists mykey]
 
         r set mykey "hello"
-        set wrong_digest [format %x [expr [scan [r digest mykey] %x] + 1]]
+        set wrong_digest [format %016x [expr ([scan [r digest mykey] %x] + 1) & 0xffffffffffffffff]]
         assert_equal 0 [r delex mykey IFDEQ $wrong_digest]
         assert_equal 1 [r exists mykey]
         assert_equal "hello" [r get mykey]
@@ -993,7 +1104,7 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
 
     test {DELEX basic usage with IFDNE} {
         r set mykey "hello"
-        set wrong_digest [format %x [expr [scan [r digest mykey] %x] + 1]]
+        set wrong_digest [format %016x [expr ([scan [r digest mykey] %x] + 1) & 0xffffffffffffffff]]
         assert_equal 1 [r delex mykey IFDNE $wrong_digest]
         assert_equal 0 [r exists mykey]
 
@@ -1215,14 +1326,13 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
     test {Extended SET with IFDEQ - key exists and digest matches} {
         r set mykey "hello"
         set digest [r digest mykey]
-        puts $digest
         assert_equal "OK" [r set mykey "world" IFDEQ $digest]
         assert_equal "world" [r get mykey]
     }
 
     test {Extended SET with IFDEQ - key exists but digest doesn't match} {
         r set mykey "hello"
-        set wrong_digest [format %x [expr [scan [r digest mykey] %x] + 1]]
+        set wrong_digest [format %016x [expr ([scan [r digest mykey] %x] + 1) & 0xffffffffffffffff]]
         assert_equal {} [r set mykey "world" IFDEQ $wrong_digest]
         assert_equal "hello" [r get mykey]
     }
@@ -1236,7 +1346,7 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
 
     test {Extended SET with IFDNE - key exists and digest doesn't match} {
         r set mykey "hello"
-        set wrong_digest [format %x [expr [scan [r digest mykey] %x] + 1]]
+        set wrong_digest [format %016x [expr ([scan [r digest mykey] %x] + 1) & 0xffffffffffffffff]]
         assert_equal "OK" [r set mykey "world" IFDNE $wrong_digest]
         assert_equal "world" [r get mykey]
     }
@@ -1300,7 +1410,7 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
 
     test {Extended SET with IFDEQ and GET - key exists but digest doesn't match} {
         r set mykey "hello"
-        set wrong_digest [format %x [expr [scan [r digest mykey] %x] + 1]]
+        set wrong_digest [format %016x [expr ([scan [r digest mykey] %x] + 1) & 0xffffffffffffffff]]
         assert_equal "hello" [r set mykey "world" IFDEQ $wrong_digest GET]
         assert_equal "hello" [r get mykey]
     }
@@ -1314,7 +1424,7 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
 
     test {Extended SET with IFDNE and GET - key exists and digest doesn't match} {
         r set mykey "hello"
-        set wrong_digest [format %x [expr [scan [r digest mykey] %x] + 1]]
+        set wrong_digest [format %016x [expr ([scan [r digest mykey] %x] + 1) & 0xffffffffffffffff]]
         assert_equal "hello" [r set mykey "world" IFDNE $wrong_digest GET]
         assert_equal "world" [r get mykey]
     }
@@ -1357,7 +1467,7 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
 
     test {Extended SET with IFDNE and expiration} {
         r set mykey "hello"
-        set wrong_digest [format %x [expr [scan [r digest mykey] %x] + 1]]
+        set wrong_digest [format %016x [expr ([scan [r digest mykey] %x] + 1) & 0xffffffffffffffff]]
         assert_equal "OK" [r set mykey "world" IFDNE $wrong_digest EX 10]
         assert_equal "world" [r get mykey]
         assert_range [r ttl mykey] 5 10
@@ -1489,9 +1599,39 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
     test {Extended SET with negative digest} {
         r set mykey "test"
         set digest [r digest mykey]
-        set wrong_digest [format %x [expr [scan [r digest mykey] %x] + 1]]
+        set wrong_digest [format %016x [expr ([scan [r digest mykey] %x] + 1) & 0xffffffffffffffff]]
         assert_equal "OK" [r set mykey "world" IFDNE $wrong_digest]
         assert_equal "world" [r get mykey]
+    }
+
+    test {Extended SET - mutually exclusive flags} {
+        r set mykey "hello"
+
+        assert_error "*syntax error*" {r set mykey "world" NX IFEQ "hello"}
+        assert_error "*syntax error*" {r set mykey "world" IFEQ "hello" NX}
+
+        assert_error "*syntax error*" {r set mykey "world" XX IFEQ "hello"}
+        assert_error "*syntax error*" {r set mykey "world" IFEQ "hello" XX}
+
+        assert_error "*syntax error*" {r set mykey "world" NX IFNE "hello"}
+        assert_error "*syntax error*" {r set mykey "world" IFNE "hello" NX}
+
+        assert_error "*syntax error*" {r set mykey "world" XX IFNE "hello"}
+        assert_error "*syntax error*" {r set mykey "world" IFNE "hello" XX}
+
+        assert_error "*syntax error*" {r set mykey "world" NX IFDEQ 0123456789abcdef}
+        assert_error "*syntax error*" {r set mykey "world" IFDEQ 0123456789abcdef NX}
+
+        assert_error "*syntax error*" {r set mykey "world" XX IFDNE 0123456789abcdef}
+        assert_error "*syntax error*" {r set mykey "world" IFDNE 0123456789abcdef XX}
+
+        # IF* conditions are mutually exclusive with each other
+        assert_error "*syntax error*" {r set mykey "world" IFEQ "hello" IFNE "world"}
+        assert_error "*syntax error*" {r set mykey "world" IFNE "world" IFEQ "hello"}
+        assert_error "*syntax error*" {r set mykey "world" IFEQ "hello" IFDEQ 0123456789abcdef}
+        assert_error "*syntax error*" {r set mykey "world" IFDEQ 0123456789abcdef IFDNE fedcba9876543210}
+
+        assert_equal "hello" [r get mykey]
     }
 
     test {DIGEST always returns exactly 16 hex characters with leading zeros} {

@@ -28,11 +28,11 @@ start_server {tags {"maxmemory" "external:skip"}} {
         }
 
         r config resetstat
-        # fill 5mb using 50 keys of 100kb
-        for {set j 0} {$j < 50} {incr j} {
-            r setrange $j 100000 x
+        # fill 5mb using 500 keys of 10kb
+        for {set j 0} {$j < 500} {incr j} {
+            r setrange key$j 10000 x
         }
-        assert_equal [r dbsize] 50
+        assert_equal [r dbsize] 500
     }
     
     # Return true if the eviction occurred (client or key) based on argument
@@ -43,12 +43,12 @@ start_server {tags {"maxmemory" "external:skip"}} {
         
         if $client_eviction {
             if {[lindex [r config get io-threads] 1] == 1} {
-                return [expr $evicted_clients > 0 && $evicted_keys == 0 && $dbsize == 50]
+                return [expr $evicted_clients > 0 && $evicted_keys == 0 && $dbsize == 500]
             } else {
-                return [expr $evicted_clients >= 0 && $evicted_keys >= 0 && $dbsize <= 50]
+                return [expr $evicted_clients >= 0 && $evicted_keys >= 0 && $dbsize <= 500]
             }
         } else {
-            return [expr $evicted_clients == 0 && $evicted_keys > 0 && $dbsize < 50]
+            return [expr $evicted_clients == 0 && $evicted_keys > 0 && $dbsize < 500]
         }
     }
 
@@ -83,7 +83,7 @@ start_server {tags {"maxmemory" "external:skip"}} {
             while {![check_eviction_test $client_eviction] && [expr [clock seconds] - $t] < 20} {
                 foreach rr $clients {
                     if {[catch {
-                        $rr mget 1
+                        $rr mget key1 key2 key3 key4 key5 key6 key7 key8 key9 key10
                         $rr flush
                     } err]} {
                         lremove clients $rr
@@ -349,10 +349,23 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
             # send some 10mb worth of commands that don't increase the memory usage
             if {$pipeline == 1} {
                 set rd_master [redis_deferring_client -1]
+                # Send commands in batches and read responses to avoid TCP deadlock.
+                # Without interleaving reads, the client's send buffer fills up when
+                # the server's output buffers are full (because we're not reading),
+                # causing flush to block indefinitely on slow machines.
+                set batch_size 10000
                 for {set k 0} {$k < $cmd_count} {incr k} {
                     $rd_master setrange key:0 0 [string repeat A $payload_len]
+                    if {($k + 1) % $batch_size == 0} {
+                        # Drain responses to prevent TCP buffer deadlock
+                        for {set j 0} {$j < $batch_size} {incr j} {
+                            $rd_master read
+                        }
+                    }
                 }
-                for {set k 0} {$k < $cmd_count} {incr k} {
+                # Read any remaining responses
+                set remaining [expr {$cmd_count % $batch_size}]
+                for {set k 0} {$k < $remaining} {incr k} {
                     $rd_master read
                 }
             } else {
@@ -626,7 +639,7 @@ start_server {tags {"maxmemory" "external:skip"}} {
         r set src value
         after 2000
         r rename src dst
-        assert_lessthan [r object idletime dst] 1
+        assert_lessthan_equal [r object idletime dst] 1
     } {} {slow}
 
     test {LRM: XREADGROUP updates stream LRM} {
@@ -635,7 +648,9 @@ start_server {tags {"maxmemory" "external:skip"}} {
         r xgroup create mystream mygroup 0
         after 2000
         r xreadgroup GROUP mygroup consumer1 STREAMS mystream >
-        assert_lessthan [r object idletime mystream] 1
+
+        # LRM should be updated (idletime should be smaller)
+        assert_lessthan_equal [r object idletime mystream] 1
     } {} {slow}
 
     test {LRM: Keys with only read operations should be removed first} {

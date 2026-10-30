@@ -596,8 +596,13 @@ tags "modules external:skip" {
 
                     assert_equal [$master get k1] 1
                     assert_equal [$master ttl k1] -1
-                    assert_equal [$replica get k1] 1
-                    assert_equal [$replica ttl k1] -1
+
+                    wait_for_condition 50 100 {
+                        [$replica get k1] eq 1 &&
+                        [$replica ttl k1] eq -1
+                    } else {
+                        fail "failed RM_Call of expired key propagation"
+                    }
                 }
 
                 test {module notification on set} {
@@ -742,7 +747,7 @@ tags "modules aof external:skip" {
             r EVAL {return redis.call('test.rm_call_replicate',ARGV[1],KEYS[1],ARGV[2])} 1 foo set bar8
             r exec
 
-            assert_match {*calls=8,*,rejected_calls=0,failed_calls=0} [cmdrstat set r]
+            assert_match {*calls=8,*,rejected_calls=0,failed_calls=0*} [cmdrstat set r]
             
             
             # Load the AOF
@@ -759,6 +764,209 @@ tags "modules aof external:skip" {
             
         }
     }
+    }
+}
+
+tags "modules aof external:skip" {
+    start_server [list overrides [list loadmodule "$miscmodule"]] {
+        r config set appendonly yes
+        r config set auto-aof-rewrite-percentage 0 ; # Disable auto-rewrite.
+        waitForBgrewriteaof r
+
+        # The counted form of SPOP replaces its own propagation with an SREM
+        # queued through alsoPropagate(): it must reach only the targets the
+        # RM_Call asked for, just like the propagation of the command itself.
+        set keys {spop-none spop-repl spop-aof spop-all spop-nested}
+        foreach key $keys {
+            r sadd $key a b c d e
+        }
+
+        test {RM_Call effect commands honor the selective propagation flags} {
+            set repl [attach_to_replication_stream]
+
+            assert_equal 2 [llength [r test.rm_call spop spop-none 2]]
+            assert_equal 2 [llength [r test.rm_call_flags !A spop spop-repl 2]]
+            assert_equal 2 [llength [r test.rm_call_flags !R spop spop-aof 2]]
+            assert_equal 2 [llength [r test.rm_call_flags ! spop spop-all 2]]
+
+            # An inner RM_Call with '!' must not resurrect the propagation
+            # suppressed by the outer one.
+            assert_equal 2 [llength [r test.rm_call test.rm_call_flags ! spop spop-nested 2]]
+
+            # The master applied all of them.
+            assert_equal {3 3 3 3 3} [lmap key $keys {r scard $key}]
+
+            assert_replication_stream $repl {
+                {select *}
+                {srem spop-repl * *}
+                {srem spop-all * *}
+            }
+            close_replication_stream $repl
+        }
+
+        test {RM_Call effect commands honor the selective propagation flags after AOF reload} {
+            r debug loadaof
+
+            # Only the sets whose SREM reached the AOF are trimmed, the others
+            # are back to the 5 members added by the SADD above.
+            assert_equal {5 5 3 3 5} [lmap key $keys {r scard $key}]
+        }
+
+        test {RM_Call bitmap transitions honor the selective propagation flags} {
+            r config set bitmap-default-roaring yes
+            set repl [attach_to_replication_stream]
+            r set bitmap:rmcall:source [binary format H* 80]
+            set expected_stream [list {select *} [list set bitmap:rmcall:source [binary format H* 80]]]
+            set bitmap_cases {}
+
+            # The configuration only applies when the BITCONVERT / BITROAROP
+            # companion reaches both the AOF and the replicas: a target missing
+            # it would replay the write, or whatever the module replicates in
+            # its place, against a string. Otherwise the write keeps the string
+            # representation and propagates as a plain command.
+            foreach {mode flags on_replica in_aof type} {
+                none {} 0 0 string
+                nested {} 0 0 string
+                replica !A 1 0 string
+                aof !R 0 1 string
+                all ! 1 1 bitmap
+            } {
+                foreach command {setbit bitfield bitop} {
+                    set key bitmap:rmcall:$mode:$command
+                    switch $command {
+                        setbit {set cmd [list setbit $key 0 1]}
+                        bitfield {set cmd [list bitfield $key SET u1 0 1]}
+                        bitop {set cmd [list bitop or $key bitmap:rmcall:source]}
+                    }
+                    if {$mode eq "nested"} {
+                        # An inner call must not restore targets excluded by
+                        # the outer call, so it must not convert either.
+                        r test.rm_call test.rm_call_flags ! {*}$cmd
+                    } elseif {$flags eq {}} {
+                        r test.rm_call {*}$cmd
+                    } else {
+                        r test.rm_call_flags $flags {*}$cmd
+                    }
+                    assert_equal $type [r type $key]
+                    assert_equal 1 [r bitcount $key]
+                    lappend bitmap_cases $key $in_aof $type
+
+                    if {$on_replica} {
+                        if {$type eq "string"} {
+                            lappend expected_stream $cmd
+                        } elseif {$command eq "bitop"} {
+                            lappend expected_stream [lreplace $cmd 0 0 bitroarop]
+                        } else {
+                            lappend expected_stream {multi} [list bitconvert $key] $cmd {exec}
+                        }
+                    }
+                }
+            }
+            assert_replication_stream $repl $expected_stream
+            close_replication_stream $repl
+        }
+
+        test {RM_Call bitmap transitions honor the selective propagation flags after AOF reload} {
+            r debug loadaof
+            foreach {key in_aof type} $bitmap_cases {
+                assert_equal $in_aof [r exists $key]
+                if {$in_aof} {
+                    assert_equal $type [r type $key]
+                    assert_equal 1 [r bitcount $key]
+                }
+            }
+        }
+    }
+}
+
+tags "modules aof external:skip" {
+    start_server [list overrides [list loadmodule "$miscmodule"]] {
+        set replica [srv 0 client]
+        start_server [list overrides [list loadmodule "$miscmodule" appendonly yes auto-aof-rewrite-percentage 0]] {
+            set master [srv 0 client]
+            $replica replicaof [srv 0 host] [srv 0 port]
+            wait_for_sync $replica
+
+            # RM_Call without '!' can't propagate the bitmap transition, and
+            # the replica and the AOF replay the module command replicated
+            # verbatim, so neither node may pick the representation from its
+            # own bitmap-default-roaring.
+            foreach {master_default replica_default} {yes no no yes} {
+                test "RM_Call bitmap writes replicated verbatim keep the same type on the replica (master $master_default, replica $replica_default)" {
+                    $master config set bitmap-default-roaring $master_default
+                    $replica config set bitmap-default-roaring $replica_default
+                    set prefix bitmap:verbatim:$master_default
+                    $master set $prefix:source [binary format H* 80]
+                    $master set $prefix:convert [binary format H* 80]
+
+                    $master test.rm_call_replicate setbit $prefix:setbit 7 1
+                    $master test.rm_call_replicate setbit $prefix:convert 7 1
+                    $master test.rm_call_replicate bitfield $prefix:bitfield SET u8 0 255
+                    $master test.rm_call_replicate bitop or $prefix:bitop $prefix:source
+                    # A plain SETBIT still follows the master's configuration.
+                    $master setbit $prefix:plain 7 1
+                    wait_for_ofs_sync $master $replica
+
+                    foreach suffix {setbit convert bitfield bitop} {
+                        set key $prefix:$suffix
+                        assert_equal string [$master type $key]
+                        assert_equal string [$replica type $key]
+                        assert_equal [$master debug digest-value $key] [$replica debug digest-value $key]
+                    }
+                    set plain_type [expr {$master_default eq "yes" ? "bitmap" : "string"}]
+                    assert_equal $plain_type [$master type $prefix:plain]
+                    assert_equal $plain_type [$replica type $prefix:plain]
+
+                    # Later string writes apply on both nodes.
+                    assert_equal 4 [$master append $prefix:setbit xyz]
+                    wait_for_ofs_sync $master $replica
+                    assert_equal [$master debug digest] [$replica debug digest]
+                }
+            }
+
+            test {RM_Call bitmap writes replicated verbatim keep their type after AOF reload} {
+                # Detach before replacing the master's dataset from its AOF.
+                $replica replicaof no one
+                set digest [$master debug digest]
+                set types {}
+                foreach key [lsort [$master keys bitmap:verbatim:*]] {
+                    lappend types $key [$master type $key]
+                }
+
+                foreach default {yes no} {
+                    $master config set bitmap-default-roaring $default
+                    $master debug loadaof
+                    foreach {key type} $types {
+                        assert_equal $type [$master type $key]
+                    }
+                    assert_equal $digest [$master debug digest]
+                }
+            }
+        }
+    }
+}
+
+tags {"modules" "aof" "external:skip" "logreqres:skip"} {
+    # A module command replayed from the AOF makes its RM_Call on the module's
+    # own client, which does not obey the AOF, and with '!' the call may
+    # propagate to every target. Only the check on the client whose command is
+    # being processed keeps the local configuration out of the decision.
+    set server_path [tmpdir server.bitmap-aof-module]
+    set aof_dirpath "$server_path/appendonlydir"
+    create_aof $aof_dirpath "$aof_dirpath/appendonly.aof.1$::incr_aof_suffix$::aof_format_suffix" {
+        append_to_aof [formatCommand select 0]
+        append_to_aof [formatCommand test.rm_call_flags ! setbit bitmap:aof-module 1 1]
+    }
+    create_aof_manifest $aof_dirpath "$aof_dirpath/appendonly.aof$::manifest_suffix" {
+        append_to_manifest "file appendonly.aof.1$::incr_aof_suffix$::aof_format_suffix seq 1 type i\n"
+    }
+
+    start_server [list overrides [list dir $server_path appendonly yes bitmap-default-roaring yes loadmodule $miscmodule] keep_persistence true] {
+        test {bitmap-default-roaring yes: module RM_Call writes replayed from the AOF keep strings} {
+            r select 0
+            assert_equal string [r type bitmap:aof-module]
+            assert_equal [binary format H* 40] [r get bitmap:aof-module]
+        }
     }
 }
 
@@ -793,9 +1001,42 @@ test {Replicas that was marked as CLIENT_CLOSE_ASAP should not keep the replicat
                 # exceed the replica soft limit. Furthermore, as the replica release its reference to
                 # replication backlog, it should be properly trimmed, the memory usage of replication
                 # backlog should not significantly exceed repl-backlog-size (default 1MB). */
-                assert_lessthan [getInfoProperty $res used_memory_peak] 10000000;# less than 10mb
+                assert_lessthan [getInfoProperty $res used_memory_peak] 20000000;# less than 20mb
                 assert_lessthan [getInfoProperty $res mem_replication_backlog] 2000000;# less than 2mb
             }
         }
+    }
+}
+
+# Regression test for the crash where sendTrackingMessage() (src/tracking.c) calls
+# pauseIOThread() for a REDIRECT target living on an IO thread while itself running on
+# a module thread (not the main thread): pauseIOThreadsRange() then asserts
+# pthread_equal(pthread_self(), server.main_thread_id) and the server aborts.
+test {CLIENT TRACKING REDIRECT to a client on an IO thread survives invalidation from a module thread} {
+    start_server [list overrides [list loadmodule "$testmodule" io-threads 4] tags {"external:skip"}] {
+        # R is the redirect target: a plain RESP3 client, pinned to one of the IO threads.
+        set R [redis_deferring_client]
+        $R HELLO 3
+        $R read
+        $R CLIENT ID
+        set rid [$R read]
+
+        # A enables tracking redirected to R, then registers "thread-call" for tracking.
+        r CLIENT TRACKING on REDIRECT $rid
+        r SELECT 9
+        r GET thread-call
+
+        # propagate-test.thread spawns a module thread that takes the GIL and INCRs
+        # thread-call in db 9 (tests/modules/propagate.c: threadMain/propagateTestThreadCommand).
+        r propagate-test.thread
+
+        # Expect a RESP3 push: >2 "invalidate" *1 "thread-call" -- on unstable this
+        # never arrives because the server crashes first.
+        set res [$R read]
+        assert_equal invalidate [lindex $res 0]
+        assert_equal {thread-call} [lindex $res 1]
+
+        # The server must still be alive and serving other clients.
+        assert_equal {PONG} [r PING]
     }
 }

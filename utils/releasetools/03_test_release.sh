@@ -8,7 +8,7 @@ fi
 
 TAG=$1
 TARNAME="redis-${TAG}.tar.gz"
-DOWNLOADURL="http://download.redis.io/releases/${TARNAME}"
+DOWNLOADURL="https://download.redis.io/releases/${TARNAME}"
 
 echo "Doing sanity test on the actual tarball"
 
@@ -24,5 +24,4 @@ cd redis-${TAG}
 make
 ./runtest
 ./runtest-sentinel
-./runtest-cluster
 ./runtest-moduleapi

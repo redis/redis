@@ -1,5 +1,29 @@
 tags {"rdb external:skip"} {
 
+start_server {overrides {save ""}} {
+    test {DEBUG RELOAD rejects an active background save without losing writes} {
+        r set reload-key before
+        r save
+        r config set rdb-key-save-delay 1000000
+        r bgsave
+        assert_equal 1 [s rdb_bgsave_in_progress]
+        r set reload-key after
+        foreach options {{} {NOFLUSH} {NOFLUSH MERGE}} {
+            assert_error {*Background save already in progress*} {r debug reload {*}$options}
+            assert_equal after [r get reload-key]
+        }
+        # NOSAVE deliberately loads the on-disk snapshot; it does not promise
+        # to preserve the current dataset and must remain usable during BGSAVE.
+        assert_equal OK [r debug reload NOSAVE]
+        assert_equal before [r get reload-key]
+        r set reload-key after
+        waitForBgsave r
+        r config set rdb-key-save-delay 0
+        assert_equal OK [r debug reload]
+        assert_equal after [r get reload-key]
+    }
+}
+
 set server_path [tmpdir "server.rdb-encoding-test"]
 
 # Copy RDB with different encodings in server path
@@ -78,6 +102,23 @@ start_server [list overrides [list "dir" $server_path] keep_persistence true] {
     }
     # delete the stream, maybe valgrind will find something
     r del stream
+}
+
+start_server {overrides {loglevel verbose}} {
+    test {RDB load applies RESIZEDB hint to expand hash tables} {
+        # Populate keys and save RDB
+        r flushall sync
+        regexp {db=(\d+)} [r client info] -> dbid
+        # 500 keys with 3600 second expiration, 500 without
+        populate 500 "key1:" 3 0 false 3600
+        populate 500 "key2:" 3 0 false 0
+        r save
+
+        restart_server 0 true false
+
+        # Verify DB resize log message
+        verify_log_message 0 "*DB $dbid resized*1024 key*512 expire*" 0
+    }
 }
 
 # Helper function to start a server and kill it, just to check the error
@@ -387,7 +428,7 @@ start_server {} {
         # make sure a write command fails
         assert_error {MISCONF *} {r set x y}
 
-        # repeate with script
+        # repeat with script
         assert_error {MISCONF *} {r eval {
             return redis.call('set','x',1)
             } 1 x

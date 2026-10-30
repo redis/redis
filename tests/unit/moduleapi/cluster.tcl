@@ -224,4 +224,39 @@ start_cluster 3 0 [list tags {external:skip cluster modules} config_lines $modul
         assert_equal {PONG} [$node2 PING]
         assert_equal {PONG} [$node3 PING]
     }
+
+    test "RedisModule_GetClusterNodeInfo reports whether the returned port uses TLS" {
+        set info [$node1 test.getclusternodeinfo]
+        set port [lindex $info 0]
+        set flags [lindex $info 1]
+        set tls_port_flag [expr {1 << 6}]
+
+        assert_equal [srv 0 port] $port
+        assert_equal $::tls [expr {($flags & $tls_port_flag) != 0}]
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Test cases for RM_StringTruncate memory tracking.
+# This verifies memory tracking works correctly when module API truncates strings.
+# -----------------------------------------------------------------------------
+
+start_cluster 1 0 [list tags {external:skip cluster needs:debug modules} config_lines $modules overrides {cluster-slot-stats-enabled yes}] {
+    set node1 [srv 0 client]
+
+    # Enable debug assertion that validates memory tracking after each command.
+    # This will cause a panic if tracked memory doesn't match actual memory.
+    $node1 DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+
+    test "RM_StringTruncate memory tracking" {
+        # The test.string.truncate command:
+        # 1. Creates a key "foo" with value "abcde" (5 bytes)
+        # 2. Truncates (expands) to 8 bytes
+        # 3. Truncates (shrinks) to 4 bytes
+        # 4. Truncates (shrinks) to 0 bytes
+        #
+        # Without the fix, memory tracking was missing in RM_StringTruncate,
+        # causing the DEBUG ALLOCSIZE-SLOTS-ASSERT to panic.
+        $node1 test.string.truncate
+    }
 }

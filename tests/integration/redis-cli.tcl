@@ -71,6 +71,31 @@ start_server {tags {"cli"}} {
         set _ [format_output [read_cli $fd]]
     }
 
+    proc read_cli_until {fd regex {timeout_ms 5000}} {
+        set ret ""
+        set deadline [expr {[clock milliseconds] + $timeout_ms}]
+
+        while {[clock milliseconds] < $deadline} {
+            set buf [read $fd]
+            if {[string length $buf] == 0} {
+                after 10
+                continue
+            }
+
+            append ret $buf
+            if {[regexp $regex $ret]} {
+                return $ret
+            }
+        }
+
+        fail "Timed out waiting for pattern '$regex' in redis-cli output: $ret"
+    }
+
+    proc run_command_until {fd cmd regex {timeout_ms 5000}} {
+        write_cli $fd $cmd
+        read_cli_until $fd $regex $timeout_ms
+    }
+
     proc test_interactive_cli_with_prompt {name code} {
         set ::env(FAKETTY_WITH_PROMPT) 1
         test_interactive_cli $name $code
@@ -162,8 +187,7 @@ start_server {tags {"cli"}} {
         read_cli $fd
 
         puts -nonewline $fd "ey"
-        set result [read_cli $fd]
-        assert_equal 1 [regexp {\(reverse-i-search\): \x1B\[0mk\x1B\[1mey\x1B\[0ms two} $result]
+        read_cli_until $fd {\(reverse-i-search\): \x1B\[0mk\x1B\[1mey\x1B\[0ms two}
     }
 
     test_interactive_cli_with_prompt "should find and use the first search result" {
@@ -175,12 +199,10 @@ start_server {tags {"cli"}} {
         read_cli $fd
 
         puts -nonewline $fd "ET b"
-        set result [read_cli $fd]
-        assert_equal 1 [regexp {\(reverse-i-search\): \x1B\[0mG\x1B\[1mET b\x1B\[0mlah} $result]
+        read_cli_until $fd {\(reverse-i-search\): \x1B\[0mG\x1B\[1mET b\x1B\[0mlah}
 
         puts $fd "\x0D" ;# ENTER
-        set result2 [read_cli $fd]
-        assert_equal 1 [regexp {.*"myvalue"\n} $result2]
+        read_cli_until $fd {.*"myvalue"\n}
     }
 
     test_interactive_cli_with_prompt "should be ok if there is no result" {
@@ -188,23 +210,18 @@ start_server {tags {"cli"}} {
 
         set now [clock seconds]
         puts $fd "\x12" ;# CTRL+R
-        set result [read_cli $fd]
-        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
+        read_cli_until $fd {\(reverse-i-search\):}
 
-        set result2 [run_command $fd "keys \"$now\"\x0D"]
-        assert_equal 1 [regexp {.*(empty array).*} $result2]
+        run_command_until $fd "keys \"$now\"\x0D" {.*(empty array).*}
     }
 
     test_interactive_cli_with_prompt "upon submitting search, (reverse-i-search) prompt should go away" {
         puts $fd "\x12" ;# CTRL+R
 
         set now [clock seconds]
-        set result [read_cli $fd]
-        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
+        read_cli_until $fd {\(reverse-i-search\):}
 
-        set result2 [run_command $fd "keys \"$now\"\x0D"]
-
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])?>} $result2]
+        run_command_until $fd "keys \"$now\"\x0D" {127\.0\.0\.1:[0-9]*(\[[0-9]])?>}
     }
 
     test_interactive_cli_with_prompt "should find second search result if user presses ctrl+r again" {
@@ -215,137 +232,117 @@ start_server {tags {"cli"}} {
         read_cli $fd
 
         puts -nonewline $fd "ey"
-        set result [read_cli $fd]
-        assert_equal 1 [regexp {\(reverse-i-search\): \x1B\[0mk\x1B\[1mey\x1B\[0ms two} $result]
+        read_cli_until $fd {\(reverse-i-search\): \x1B\[0mk\x1B\[1mey\x1B\[0ms two}
 
         puts $fd "\x12" ;# CTRL+R
-        set result [read_cli $fd]
-        assert_equal 1 [regexp {\(reverse-i-search\): \x1B\[0mk\x1B\[1mey\x1B\[0ms one} $result]
+        read_cli_until $fd {\(reverse-i-search\): \x1B\[0mk\x1B\[1mey\x1B\[0ms one}
     }
 
     test_interactive_cli_with_prompt "should find second search result if user presses ctrl+s" {
-        run_command $fd "keys one\x0D"
-        run_command $fd "keys two\x0D"
+        set unique [clock microseconds]
+        run_command $fd "keys ${unique}-one\x0D"
+        run_command $fd "keys ${unique}-two\x0D"
 
         puts $fd "\x13" ;# CTRL+S
         read_cli $fd
 
-        puts -nonewline $fd "ey"
-        set result [read_cli $fd]
-        assert_equal 1 [regexp {\(i-search\): \x1B\[0mk\x1B\[1mey\x1B\[0ms one} $result]
+        puts -nonewline $fd $unique
+        read_cli_until $fd [format {\(i-search\): \x1B\[0mkeys \x1B\[1m%s\x1B\[0m-one} $unique]
 
         puts $fd "\x13" ;# CTRL+S
-        set result [read_cli $fd]
-        assert_equal 1 [regexp {\(i-search\): \x1B\[0mk\x1B\[1mey\x1B\[0ms two} $result]
+        read_cli_until $fd [format {\(i-search\): \x1B\[0mkeys \x1B\[1m%s\x1B\[0m-two} $unique]
     }
 
     test_interactive_cli_with_prompt "should exit reverse search if user presses ctrl+g" {
         run_command $fd ""
 
         puts $fd "\x12" ;# CTRL+R
-        set result [read_cli $fd]
-        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
+        read_cli_until $fd {\(reverse-i-search\):}
 
         puts $fd "\x07" ;# CTRL+G
-        set result2 [read_cli $fd]
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])?>} $result2]
+        read_cli_until $fd {127\.0\.0\.1:[0-9]*(\[[0-9]])?>}
     }
 
     test_interactive_cli_with_prompt "should exit reverse search if user presses up arrow" {
         run_command $fd ""
 
         puts $fd "\x12" ;# CTRL+R
-        set result [read_cli $fd]
-        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
+        read_cli_until $fd {\(reverse-i-search\):}
 
         puts $fd "\x1B\x5B\x41" ;# up arrow
-        set result2 [read_cli $fd]
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])?>} $result2]
+        read_cli_until $fd {127\.0\.0\.1:[0-9]*(\[[0-9]])?>}
     }
 
     test_interactive_cli_with_prompt "should exit reverse search if user presses right arrow" {
         run_command $fd ""
 
         puts $fd "\x12" ;# CTRL+R
-        set result [read_cli $fd]
-        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
+        read_cli_until $fd {\(reverse-i-search\):}
 
         puts $fd "\x1B\x5B\x42" ;# right arrow
-        set result2 [read_cli $fd]
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])?>} $result2]
+        read_cli_until $fd {127\.0\.0\.1:[0-9]*(\[[0-9]])?>}
     }
 
     test_interactive_cli_with_prompt "should exit reverse search if user presses down arrow" {
         run_command $fd ""
 
         puts $fd "\x12" ;# CTRL+R
-        set result [read_cli $fd]
-        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
+        read_cli_until $fd {\(reverse-i-search\):}
 
         puts $fd "\x1B\x5B\x43" ;# down arrow
-        set result2 [read_cli $fd]
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])?>} $result2]
+        read_cli_until $fd {127\.0\.0\.1:[0-9]*(\[[0-9]])?>}
     }
 
     test_interactive_cli_with_prompt "should exit reverse search if user presses left arrow" {
         run_command $fd ""
 
         puts $fd "\x12" ;# CTRL+R
-        set result [read_cli $fd]
-        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
+        read_cli_until $fd {\(reverse-i-search\):}
 
         puts $fd "\x1B\x5B\x44" ;# left arrow
-        set result2 [read_cli $fd]
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])?>} $result2]
+        read_cli_until $fd {127\.0\.0\.1:[0-9]*(\[[0-9]])?>}
     }
 
     test_interactive_cli_with_prompt "should disable and persist line if user presses tab" {
         run_command $fd ""
 
         puts $fd "\x12" ;# CTRL+R
-        set result [read_cli $fd]
-        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
+        read_cli_until $fd {\(reverse-i-search\):}
 
         puts -nonewline $fd "GET blah"
         read_cli $fd
 
         puts -nonewline $fd "\x09" ;# TAB
-        set result2 [read_cli $fd]
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])?> GET blah} $result2]
+        read_cli_until $fd {127\.0\.0\.1:[0-9]*(\[[0-9]])?> GET blah}
     }
 
     test_interactive_cli_with_prompt "should disable and persist search result if user presses tab" {
         run_command $fd "GET one\x0D"
 
         puts $fd "\x12" ;# CTRL+R
-        set result [read_cli $fd]
-        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
+        read_cli_until $fd {\(reverse-i-search\):}
 
         puts -nonewline $fd "one"
         read_cli $fd
 
         puts -nonewline $fd "\x09" ;# TAB
-        set result2 [read_cli $fd]
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])?> GET one} $result2]
+        read_cli_until $fd {127\.0\.0\.1:[0-9]*(\[[0-9]])?> GET one}
     }
 
     test_interactive_cli_with_prompt "should disable and persist line and move the cursor if user presses tab" {
         run_command $fd ""
 
         puts $fd "\x12" ;# CTRL+R
-        set result [read_cli $fd]
-        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
+        read_cli_until $fd {\(reverse-i-search\):}
 
         puts -nonewline $fd "GET blah"
         read_cli $fd
 
         puts -nonewline $fd "\x09" ;# TAB
-        set result2 [read_cli $fd]
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])?> GET blah} $result2]
+        read_cli_until $fd {127\.0\.0\.1:[0-9]*(\[[0-9]])?> GET blah}
 
         puts -nonewline $fd "suffix"
-        set result3 [read_cli $fd]
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])?> GET blahsuffix} $result3]
+        read_cli_until $fd {127\.0\.0\.1:[0-9]*(\[[0-9]])?> GET blahsuffix}
     }
 
     test_interactive_cli "INFO response should be printed raw" {
@@ -626,6 +623,48 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         file delete $tmpfile
     }
 
+    test_nontty_cli "Latency mode reports requested percentiles" {
+        # Single-shot --latency in CSV mode samples for one second then exits.
+        # Without percentiles the line is "min,max,avg,count" (4 fields); with
+        # --latency-percentiles one extra column per percentile is appended.
+        set base [run_cli --csv -i 1 --latency]
+        assert_equal 4 [llength [split [string trim $base] ","]]
+
+        set out [run_cli --csv -i 1 --latency --latency-percentiles 50,99]
+        set fields [split [string trim $out] ","]
+        assert_equal 6 [llength $fields]
+
+        # Sanity-check the values: all are non-negative numbers reported in ms
+        # (fields: min,max,avg,count,p50,p99). Percentiles come from an HDR
+        # histogram and are bucket-quantized, so we only assert that they are
+        # monotonic (p50 <= p99); comparing them against the exact min/max
+        # scalars could differ by a quantum and is intentionally avoided.
+        lassign $fields min max avg count p50 p99
+        foreach v [list $min $max $avg $p50 $p99] {
+            assert {[string is double -strict $v]}
+            assert {$v >= 0}
+        }
+        assert {$p50 <= $p99}
+    }
+
+    test_nontty_cli "Latency mode reports percentiles as JSON object" {
+        set out [run_cli --json -i 1 --latency --latency-percentiles 50,99.9]
+        # Labels are echoed verbatim (not reformatted), so "99.9" stays "99.9".
+        assert_match {*"percentiles":*"50":*"99.9":*} $out
+    }
+
+    test_nontty_cli "Latency mode rejects invalid percentiles" {
+        # The argument is validated during option parsing, before any server
+        # connection or the sampling loop, so each invocation exits immediately
+        # with a nonzero status; exec folds the stderr message into $output.
+        foreach bad {bogus nan inf -1 101} {
+            set cmd [rediscli [srv host] [srv port] \
+                [list --latency --latency-percentiles 50,$bad]]
+            catch {exec {*}$cmd} output
+            assert_match "*Invalid percentile*" $output
+        }
+    }
+
     test_nontty_cli "Test command-line hinting - latest server" {
         # cli will connect to the running server and will use COMMAND DOCS
         catch {run_cli --test_hint_file tests/assets/test_cli_hint_suite.txt} output
@@ -646,7 +685,260 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         assert_match "*SUCCESS*" $output
         r acl deluser clitest
     }
-    
+
+if {!$::tls} { ;# fake_redis_node doesn't support TLS
+    # RESP2 encoders for building COMMAND DOCS reply fixtures. Tcl TCP
+    # sockets default to {auto crlf} output translation, so LF-only
+    # separators become \r\n on the wire — valid RESP — without binary
+    # mode. The bulk encoder uses [string length] which counts characters;
+    # this equals the byte count RESP requires only for ASCII text, so
+    # bulk-string contents must not contain CR, LF, or multi-byte chars.
+    proc cmddocs_bulk {s} {
+        return "\$[string length $s]\n$s\n"
+    }
+    proc cmddocs_array {elements} {
+        return "*[llength $elements]\n[join $elements {}]"
+    }
+
+    # A valid command spec whose argument hint ("synarg123") cannot come
+    # from the fallback command table, proving the CLI parsed server docs.
+    proc cmddocs_syntest_spec {} {
+        set argmap [cmddocs_array [list \
+            [cmddocs_bulk name] [cmddocs_bulk synarg123] \
+            [cmddocs_bulk type] [cmddocs_bulk string]]]
+        return [cmddocs_array [list \
+            [cmddocs_bulk summary] [cmddocs_bulk "synthetic test command"] \
+            [cmddocs_bulk since]   [cmddocs_bulk "1.0.0"] \
+            [cmddocs_bulk group]   [cmddocs_bulk generic] \
+            [cmddocs_bulk arguments] [cmddocs_array [list $argmap]]]]
+    }
+
+    # Build a COMMAND DOCS reply for a given fixture. Each malformed
+    # fixture places the defect before the SYNTEST sentinel where
+    # structurally possible, so the sentinel proves that commands
+    # following a malformed spec remain usable. The exception is oddlen,
+    # where the dangling top-level element must be last.
+    proc cmddocs_reply {mode} {
+        set sentinel_entries [list \
+            [cmddocs_bulk SYNTEST] [cmddocs_syntest_spec]]
+
+        switch -- $mode {
+            nested {
+                # foo|bar claims nested "subcommands" with 64 entries.
+                # cliCountCommands() reserves space for one level only,
+                # so an unfixed client overflows during the fill pass.
+                set grandchildren {}
+                for {set i 0} {$i < 64} {incr i} {
+                    lappend grandchildren [cmddocs_bulk "foo|bar|baz$i"]
+                    lappend grandchildren [cmddocs_array {}]
+                }
+                set sub_spec [cmddocs_array [list \
+                    [cmddocs_bulk subcommands] \
+                    [cmddocs_array $grandchildren]]]
+                set subs [cmddocs_array [list \
+                    [cmddocs_bulk "foo|bar"] $sub_spec]]
+                set cmd_spec [cmddocs_array [list \
+                    [cmddocs_bulk subcommands] $subs]]
+                return [cmddocs_array [list \
+                    [cmddocs_bulk foo] $cmd_spec \
+                    {*}$sentinel_entries]]
+            }
+            oddlen {
+                # 5 elements (odd): foo pair, sentinel pair, then a
+                # dangling element with no value — exercises the
+                # i+1 < elements guard in the top-level loop.
+                return [cmddocs_array [list \
+                    [cmddocs_bulk foo] [cmddocs_array {}] \
+                    {*}$sentinel_entries \
+                    [cmddocs_bulk extra]]]
+            }
+            oddspec {
+                # foo's spec map has 3 elements (odd); the dangling key
+                # is "subcommands" — the only key cliCountCommands()
+                # dereferences, so this makes the counting pass itself
+                # read past the array.
+                set cmd_spec [cmddocs_array [list \
+                    [cmddocs_bulk summary] [cmddocs_bulk "a summary"] \
+                    [cmddocs_bulk subcommands]]]
+                return [cmddocs_array [list \
+                    [cmddocs_bulk foo] $cmd_spec \
+                    {*}$sentinel_entries]]
+            }
+            oddsubs {
+                # "subcommands" map has 3 elements (odd): one complete
+                # pair and a trailing name with no spec — exercises the
+                # i+1 < elements guard inside the subcommands loop.
+                set subs [cmddocs_array [list \
+                    [cmddocs_bulk "foo|bar"] [cmddocs_array {}] \
+                    [cmddocs_bulk "foo|extra"]]]
+                set cmd_spec [cmddocs_array [list \
+                    [cmddocs_bulk subcommands] $subs]]
+                return [cmddocs_array [list \
+                    [cmddocs_bulk foo] $cmd_spec \
+                    {*}$sentinel_entries]]
+            }
+            oddargs {
+                # Argument map has 3 elements (odd): "name" has a value
+                # but "type" does not — exercises the i+1 < elements
+                # guard in cliAddCommandDocArg().
+                set argmap [cmddocs_array [list \
+                    [cmddocs_bulk name] [cmddocs_bulk myarg] \
+                    [cmddocs_bulk type]]]
+                set cmd_spec [cmddocs_array [list \
+                    [cmddocs_bulk arguments] \
+                    [cmddocs_array [list $argmap]]]]
+                return [cmddocs_array [list \
+                    [cmddocs_bulk foo] $cmd_spec \
+                    {*}$sentinel_entries]]
+            }
+            wellformed {
+                set child_arg [cmddocs_array [list \
+                    [cmddocs_bulk name] [cmddocs_bulk childval] \
+                    [cmddocs_bulk type] [cmddocs_bulk string]]]
+                set child_spec [cmddocs_array [list \
+                    [cmddocs_bulk summary] [cmddocs_bulk "child command"] \
+                    [cmddocs_bulk since]   [cmddocs_bulk "1.0.0"] \
+                    [cmddocs_bulk group]   [cmddocs_bulk generic] \
+                    [cmddocs_bulk arguments] \
+                    [cmddocs_array [list $child_arg]]]]
+                set parent_arg [cmddocs_array [list \
+                    [cmddocs_bulk name] [cmddocs_bulk parentkey] \
+                    [cmddocs_bulk type] [cmddocs_bulk key]]]
+                set subs [cmddocs_array [list \
+                    [cmddocs_bulk "SYNPARENT|CHILD"] $child_spec]]
+                set parent_spec [cmddocs_array [list \
+                    [cmddocs_bulk summary] [cmddocs_bulk "parent command"] \
+                    [cmddocs_bulk since]   [cmddocs_bulk "1.0.0"] \
+                    [cmddocs_bulk group]   [cmddocs_bulk generic] \
+                    [cmddocs_bulk arguments] \
+                    [cmddocs_array [list $parent_arg]] \
+                    [cmddocs_bulk subcommands] $subs]]
+                return [cmddocs_array [list \
+                    [cmddocs_bulk SYNPARENT] $parent_spec]]
+            }
+            default {
+                error "Unknown COMMAND DOCS fixture: $mode"
+            }
+        }
+    }
+
+    # Shared test runner: starts a fake node with a crafted COMMAND DOCS
+    # reply, runs redis-cli against it, and checks for crashes, sanitizer
+    # diagnostics, and the expected hint output. Cleanup is guaranteed
+    # even when setup fails partway through.
+    #
+    # hints: Tcl list of hint-suite lines, each in {"input" "expected"}
+    #        format.  Joined with newlines before writing to a temp file.
+    proc run_cmddocs_test {mode hints} {
+        set tclsh [info nameofexecutable]
+        set script "tests/helpers/fake_redis_node.tcl"
+        set port [find_available_port $::baseport $::portcount]
+
+        # Strip trailing \n — puts adds one back, and the socket's
+        # default CRLF translation restores \r\n on the wire.
+        set reply [string range [cmddocs_reply $mode] 0 end-1]
+
+        # Isolate authentication: save and clear REDISCLI_AUTH so an
+        # inherited value does not inject an AUTH before COMMAND DOCS.
+        set had_auth [info exists ::env(REDISCLI_AUTH)]
+        if {$had_auth} {
+            set saved_auth $::env(REDISCLI_AUTH)
+            unset ::env(REDISCLI_AUTH)
+        }
+
+        set nodepid ""
+        set suite ""
+        set setup_err [catch {
+            set nodepid [exec $tclsh $script $port \
+                "COMMAND DOCS" $reply &]
+            wait_for_condition 50 50 {
+                [catch {close [socket "127.0.0.1" $port]}] == 0
+            } else {
+                error "Failed to start fake Redis node"
+            }
+
+            set hint_text [join $hints "\n"]
+            set suite [write_tmpfile "$hint_text\n"]
+            # -2: force RESP2.  -n 0: database 0.  Together these
+            # ensure COMMAND DOCS is the only command on the wire.
+            set cmd [rediscli "127.0.0.1" $port \
+                [list -2 -n 0 --test_hint_file $suite]]
+            set code [catch {exec {*}$cmd 2>@1} output opts]
+        } setup_msg setup_opts]
+
+        # Guaranteed cleanup regardless of errors above. Each step is
+        # caught individually so a failure in one does not skip the rest.
+        if {$nodepid ne ""} { catch {exec kill $nodepid} }
+        if {$had_auth} { set ::env(REDISCLI_AUTH) $saved_auth }
+        set cleanup_err [catch {
+            if {$suite ne "" && [file exists $suite]} { file delete $suite }
+        } cleanup_msg cleanup_opts]
+
+        if {$setup_err} { return -options $setup_opts $setup_msg }
+
+        # A fatal signal indicates a crash.
+        if {$code != 0 &&
+            [lindex [dict get $opts -errorcode] 0] eq "CHILDKILLED"} {
+            fail "redis-cli crashed ($mode): $output"
+        }
+        # Match ASan/UBSan diagnostics in the output. These can occur
+        # with or without a nonzero exit; checking both the output and
+        # the exit status catches recoverable findings that exit zero.
+        # LeakSanitizer uses a different title and is caught only by
+        # the exit-status check below.
+        if {[string match "*ERROR: AddressSanitizer*" $output] ||
+            [string match "*runtime error:*" $output]} {
+            fail "Sanitizer report ($mode): $output"
+        }
+        if {$code != 0} {
+            fail "redis-cli exited with error ($mode): $output"
+        }
+        assert_match "*SUCCESS*" $output
+
+        if {$cleanup_err} { return -options $cleanup_opts $cleanup_msg }
+    }
+
+    # Verify that redis-cli handles malformed COMMAND DOCS replies, including
+    # excessive subcommand nesting and incomplete key/value pairs.
+    # Each reply includes a SYNTEST command whose hint confirms that the CLI
+    # used the supplied documentation instead of its built-in fallback table.
+    foreach mode {nested oddlen oddspec oddsubs oddargs} {
+        test "redis-cli survives malformed COMMAND DOCS reply ($mode)" {
+            run_cmddocs_test $mode {{"SYNTEST " "synarg123"}}
+        }
+    }
+
+    # Verify that ordinary first-level subcommands and arguments are
+    # parsed correctly — the defensive guards must not break the normal
+    # case.
+    test "redis-cli parses well-formed COMMAND DOCS with subcommands" {
+        run_cmddocs_test wellformed \
+            {{"SYNPARENT " "parentkey"} {"SYNPARENT CHILD " "childval"}}
+    }
+
+    # cliSwitchProto() walks the HELLO 3 reply in key/value pairs; a
+    # dangling "version" key must not make it read past the element array.
+    test "redis-cli survives an odd-length HELLO 3 reply" {
+        set tclsh [info nameofexecutable]
+        set script "tests/helpers/fake_redis_node.tcl"
+        set port [find_available_port $::baseport $::portcount]
+        set hello [cmddocs_array [list \
+            [cmddocs_bulk server] [cmddocs_bulk redis] \
+            [cmddocs_bulk version]]]
+        set pid [exec $tclsh $script $port \
+            "HELLO 3" [string range $hello 0 end-1] "PING" "+PONG" &]
+        wait_for_condition 50 50 {
+            [catch {close [socket "127.0.0.1" $port]}] == 0
+        } else {
+            catch {exec kill $pid}
+            fail "Failed to start fake Redis node"
+        }
+        catch {exec {*}[rediscli "127.0.0.1" $port {-3 -n 0 PING}] 2>@1} output
+        catch {exec kill $pid}
+        assert_equal "PONG" $output
+    }
+}
+
     proc test_redis_cli_rdb_dump {functions_only} {
         r flushdb
         r function flush
@@ -828,10 +1120,10 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
 
 start_server {tags {"cli external:skip"}} {
     test_interactive_cli_with_prompt "db_num showed in redis-cli after reconnected" {
-        run_command $fd "select 0\x0D"
-        run_command $fd "set a zoo-0\x0D"
-        run_command $fd "select 6\x0D"
-        run_command $fd "set a zoo-6\x0D"
+        run_command_until $fd "select 0\x0D" {OK.*127\.0\.0\.1:[0-9]*>}
+        run_command_until $fd "set a zoo-0\x0D" {OK.*127\.0\.0\.1:[0-9]*>}
+        run_command_until $fd "select 6\x0D" {OK.*127\.0\.0\.1:[0-9]*\[6\]>}
+        run_command_until $fd "set a zoo-6\x0D" {OK.*127\.0\.0\.1:[0-9]*\[6\]>}
         r save
 
         # kill server and restart
@@ -843,9 +1135,268 @@ start_server {tags {"cli external:skip"}} {
         # redis-cli should show '[6]' after reconnected and return 'zoo-6'
         write_cli $fd "GET a\x0D"
         after 100
-        set result [format_output [read_cli $fd]]
         set regex {not connected> GET a.*"zoo-6".*127\.0\.0\.1:[0-9]*\[6\]>}
-        assert_equal 1 [regexp $regex $result]
+        read_cli_until $fd $regex
+    }
+}
+
+start_server {tags {"cli external:skip"}} {
+    test "key size analysis does not alter key LRU metadata" {
+        foreach mode {--bigkeys --memkeys --keystats} {
+            r set key value
+            after 1100
+            set idle_before [r object idletime key]
+
+            set cmd [rediscli [srv host] [srv port] [list -n $::dbnum $mode]]
+            exec {*}$cmd
+
+            assert_morethan_equal [r object idletime key] $idle_before
+        }
+        r del key
+    }
+
+    test "key analysis modes do not alter key LFU metadata" {
+        r config set maxmemory-policy allkeys-lfu
+        r config set lfu-log-factor 0
+
+        foreach mode {--bigkeys --memkeys --keystats --hotkeys} {
+            r set key value
+            set freq_before [r object freq key]
+
+            set cmd [rediscli [srv host] [srv port] [list -n $::dbnum $mode]]
+            exec {*}$cmd
+
+            assert_equal [r object freq key] $freq_before
+        }
+
+        r del key
+        r config set maxmemory-policy noeviction
+        r config set lfu-log-factor 10
+    }
+
+    test "key size analysis continues when CLIENT NO-TOUCH is unavailable" {
+        r acl setuser keystats-user on >password ~* +@all -client
+        r set key value
+
+        set cmd [rediscli [srv host] [srv port] \
+            [list -n $::dbnum --user keystats-user -a password --no-auth-warning --keystats]]
+        assert_equal 0 [catch {exec {*}$cmd 2>@1} result]
+        assert_match "*Scanning the entire keyspace*" $result
+
+        r del key
+        r acl deluser keystats-user
+    }
+}
+
+start_server {tags {"cli external:skip"}} {
+    test_interactive_cli_with_prompt "RESP3 upgrade persists across a forced reconnect" {
+        run_command_until $fd "HELLO 3\x0D" {127\.0\.0\.1:[0-9]*(\[[0-9]+\])?>}
+        run_command_until $fd "CLIENT INFO\x0D" {resp=3}
+
+        # kill server and restart to force redis-cli's forced-reconnect path
+        exec kill [s process_id]
+        wait_for_log_messages 0 {"*Redis is now ready to exit*"} 0 1000 10
+        catch {[run_command $fd "ping\x0D"]}
+        restart_server 0 true false 0
+
+        # without retyping HELLO, the reconnect should have re-negotiated RESP3
+        write_cli $fd "CLIENT INFO\x0D"
+        after 100
+        read_cli_until $fd {resp=3}
+    }
+}
+
+if {!$::force_resp3} {
+start_server {tags {"cli external:skip"}} {
+    test_interactive_cli_with_prompt "explicit HELLO 2 downgrade is not silently reverted by a later reconnect" {
+        run_command_until $fd "HELLO 3\x0D" {127\.0\.0\.1:[0-9]*(\[[0-9]+\])?>}
+        run_command_until $fd "HELLO 2\x0D" {127\.0\.0\.1:[0-9]*(\[[0-9]+\])?>}
+        run_command_until $fd "CLIENT INFO\x0D" {resp=2}
+
+        exec kill [s process_id]
+        wait_for_log_messages 0 {"*Redis is now ready to exit*"} 0 1000 10
+        catch {[run_command $fd "ping\x0D"]}
+        restart_server 0 true false 0
+
+        # must stay on RESP2 -- the explicit downgrade must not be re-promoted
+        write_cli $fd "CLIENT INFO\x0D"
+        after 100
+        read_cli_until $fd {resp=2}
+    }
+}
+}
+
+start_server {tags {"cli external:skip"}} {
+    test "keystats on empty database should not produce garbage stats" {
+        # On an empty DB the keystats histogram has total_count = 0. Verify hdr_mean(), hdr_stddev(),
+        # and the percentile calculation handle this gracefully.
+        set cmd [rediscli [srv host] [srv port] [list --keystats]]
+        catch {exec {*}$cmd 2>@1} result
+        assert_match "*Scanning the entire keyspace*" $result
+
+        # The "Note:" line with Mean/StdDeviation is only printed when displayKeyStatsSizeDist()
+        # compute stats. When keysize_histogram->total_count == 0, it should be skipped entirely.
+        assert_match "*No key size samples collected*" $result
+    }
+}
+
+start_server {tags {"cli" "bitmap" "bitmap-roaring" "external:skip"}} {
+    test "bigkeys reports native bitmap cardinality" {
+        r config set bitmap-default-roaring yes
+        r setbit bitmap:small 0 1
+        r setbit bitmap:small 64 1
+        for {set bit 0} {$bit < 5} {incr bit} {
+            r setbit bitmap:large $bit 1
+        }
+        r config set bitmap-default-roaring no
+        assert_equal bitmap-roaring [r object encoding bitmap:small]
+        assert_equal bitmap-roaring [r object encoding bitmap:large]
+
+        set cmd [rediscli [srv host] [srv port] [list -n $::dbnum --bigkeys]]
+        assert_equal 0 [catch {exec {*}$cmd 2>@1} result]
+        assert_match {*Biggest bitmap found "bitmap:large" has 5 set bits*} $result
+        assert_match {*2 bitmaps with 7 set bits*avg size 3.50*} $result
+        assert_no_match {*bitmaps with 0 ?*} $result
+    }
+
+    test "keystats reports native bitmap cardinality" {
+        r config set bitmap-default-roaring yes
+        r setbit bitmap:small 0 1
+        r setbit bitmap:small 64 1
+        for {set bit 0} {$bit < 5} {incr bit} {
+            r setbit bitmap:large $bit 1
+        }
+        r config set bitmap-default-roaring no
+        assert_equal bitmap-roaring [r object encoding bitmap:small]
+        assert_equal bitmap-roaring [r object encoding bitmap:large]
+
+        set cmd [rediscli [srv host] [srv port] [list -n $::dbnum --keystats]]
+        assert_equal 0 [catch {exec {*}$cmd 2>@1} result]
+        assert_match {*"bitmap:large" has 5 set bits*} $result
+        assert_match {*bitmap*7 set bits*3.50*} $result
+    }
+
+    test "bigkeys and keystats report a zero-cardinality native bitmap" {
+        r flushdb
+        r config set bitmap-default-roaring yes
+        r setbit bitmap:zero 0 0
+        r config set bitmap-default-roaring no
+        assert_equal bitmap-roaring [r object encoding bitmap:zero]
+        assert_equal 0 [r bitcount bitmap:zero]
+
+        set cmd [rediscli [srv host] [srv port] [list -n $::dbnum --bigkeys]]
+        assert_equal 0 [catch {exec {*}$cmd 2>@1} result]
+        assert_match {*Biggest bitmap found "bitmap:zero" has 0 set bits*} $result
+        assert_match {*1 bitmaps with 0 set bits*avg size 0.00*} $result
+
+        set cmd [rediscli [srv host] [srv port] [list -n $::dbnum --keystats]]
+        assert_equal 0 [catch {exec {*}$cmd 2>@1} result]
+        assert_match {*bitmap*"bitmap:zero" has 0 set bits*} $result
+    }
+}
+
+start_server {tags {"cli external:skip"}} {
+    test "bigkeys reports a zero-size key as the biggest key of its type" {
+        # type->biggest starts at 0, so a strict '<' comparison never fires when
+        # every sampled key of a type has size 0, leaving biggest_key unset even
+        # though the key was counted.
+        r set foo ""
+        set cmd [rediscli [srv host] [srv port] [list -n $::dbnum --bigkeys]]
+        set result [exec {*}$cmd]
+        assert_match {*Biggest string found "foo" has 0 bytes*} $result
+    }
+}
+
+start_server {tags {"cli external:skip"}} {
+    # Regression for the parseRedisUri() bug where "redis://:password@host"
+    # produced an empty ACL username and the server replied WRONGPASS.
+    r config set requirepass "uri-no-username-pass"
+    set host [srv host]
+    set port [srv port]
+    if {$::tls} {
+        set scheme "rediss"
+    } else {
+        set scheme "redis"
+    }
+    set tls_args [rediscli_tls_config "tests"]
+
+    test "redis-cli -u with empty username falls back to legacy AUTH" {
+        set cmd [list src/redis-cli --no-auth-warning {*}$tls_args \
+            -u "$scheme://:uri-no-username-pass@$host:$port" PING]
+        assert_equal "PONG" [exec {*}$cmd]
+    }
+
+    test "redis-cli -u with explicit username uses ACL AUTH" {
+        set cmd [list src/redis-cli --no-auth-warning {*}$tls_args \
+            -u "$scheme://default:uri-no-username-pass@$host:$port" PING]
+        assert_equal "PONG" [exec {*}$cmd]
+    }
+
+    test "redis-cli -u after -a overrides auth without leaking" {
+        # -a sets connInfo->auth first, then -u must free the previous
+        # value before assigning the URI-provided one.
+        set cmd [list src/redis-cli --no-auth-warning {*}$tls_args \
+            -a wrong-pass \
+            -u "$scheme://default:uri-no-username-pass@$host:$port" PING]
+        assert_equal "PONG" [exec {*}$cmd]
+    }
+
+    test "redis-cli -u after --user overrides user without leaking" {
+        set cmd [list src/redis-cli --no-auth-warning {*}$tls_args \
+            --user wronguser \
+            -u "$scheme://default:uri-no-username-pass@$host:$port" PING]
+        assert_equal "PONG" [exec {*}$cmd]
+    }
+
+    test "redis-cli -u with explicit empty username clears stale --user" {
+        # A previously set --user must be cleared (not left stale) when
+        # the URI explicitly empties the username component, otherwise
+        # cliAuth() would send ACL AUTH with the stale username instead
+        # of the intended legacy single-argument AUTH.
+        set cmd [list src/redis-cli --no-auth-warning {*}$tls_args \
+            --user wronguser \
+            -u "$scheme://:uri-no-username-pass@$host:$port" PING]
+        assert_equal "PONG" [exec {*}$cmd]
+    }
+
+    test "redis-cli -u with empty userinfo overrides previously set -a" {
+        # "redis://@host" has empty userinfo. Since later parameters
+        # override earlier ones, the URI clears the password supplied via
+        # -a, so cliAuth() sends no AUTH and the password-protected server
+        # rejects the command with NOAUTH.
+        set cmd [list src/redis-cli --no-auth-warning {*}$tls_args \
+            -a uri-no-username-pass \
+            -u "$scheme://@$host:$port" PING]
+        catch {exec {*}$cmd 2>@1} e
+        assert_match "*NOAUTH*" $e
+    }
+
+    r config set requirepass ""
+}
+
+start_server {tags {"cli external:skip"}} {
+    # Regression for empty userinfo URIs: "redis://@host" and
+    # "redis://user:@host" should leave connInfo->auth unset so that
+    # cliAuth() skips AUTH entirely instead of sending an empty password.
+    set host [srv host]
+    set port [srv port]
+    if {$::tls} {
+        set scheme "rediss"
+    } else {
+        set scheme "redis"
+    }
+    set tls_args [rediscli_tls_config "tests"]
+
+    test "redis-cli -u with empty userinfo skips AUTH" {
+        set cmd [list src/redis-cli {*}$tls_args \
+            -u "$scheme://@$host:$port" PING]
+        assert_equal "PONG" [exec {*}$cmd]
+    }
+
+    test "redis-cli -u with empty password skips AUTH" {
+        set cmd [list src/redis-cli {*}$tls_args \
+            -u "$scheme://default:@$host:$port" PING]
+        assert_equal "PONG" [exec {*}$cmd]
     }
 }
 

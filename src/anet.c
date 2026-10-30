@@ -492,11 +492,17 @@ int anetUnixGenericConnect(char *err, const char *path, int flags)
             flags & ANET_CONNECT_NONBLOCK)
             return s;
 
+        int connect_errno = errno;
         anetSetError(err, "connect: %s", strerror(errno));
         close(s);
+        errno = connect_errno;
         return ANET_ERR;
     }
     return s;
+}
+
+int anetUnixNonBlockConnect(char *err, const char *path) {
+    return anetUnixGenericConnect(err,path,ANET_CONNECT_NONBLOCK);
 }
 
 static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len, int backlog, mode_t perm) {
@@ -715,7 +721,7 @@ error:
  * and one of the use cases is O_CLOEXEC|O_NONBLOCK. */
 int anetPipe(int fds[2], int read_flags, int write_flags) {
     int pipe_flags = 0;
-#if defined(__linux__) || defined(__FreeBSD__)
+#ifdef HAVE_PIPE2
     /* When possible, try to leverage pipe2() to apply flags that are common to both ends.
      * There is no harm to set O_CLOEXEC to prevent fd leaks. */
     pipe_flags = O_CLOEXEC | (read_flags & write_flags);

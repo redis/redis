@@ -29,12 +29,13 @@ slowlogEntry *slowlogCreateEntry(client *c, robj **argv, int argc, long long dur
     slowlogEntry *se = zmalloc(sizeof(*se));
     int j, slargc = argc;
 
-    if (slargc > SLOWLOG_ENTRY_MAX_ARGC) slargc = SLOWLOG_ENTRY_MAX_ARGC;
+    if (slargc > server.slowlog_max_argc) slargc = server.slowlog_max_argc;
     se->argc = slargc;
+    se->cmd_argc = argc;
     se->argv = zmalloc(sizeof(robj*)*slargc);
     for (j = 0; j < slargc; j++) {
         /* Logging too many arguments is a useless memory waste, so we stop
-         * at SLOWLOG_ENTRY_MAX_ARGC, but use the last argument to specify
+         * at server.slowlog_max_argc, but use the last argument to specify
          * how many remaining arguments there were in the original command. */
         if (slargc != argc && j == slargc-1) {
             se->argv[j] = createObject(OBJ_STRING,
@@ -44,13 +45,13 @@ slowlogEntry *slowlogCreateEntry(client *c, robj **argv, int argc, long long dur
             /* Trim too long strings as well... */
             if (argv[j]->type == OBJ_STRING &&
                 sdsEncodedObject(argv[j]) &&
-                sdslen(argv[j]->ptr) > SLOWLOG_ENTRY_MAX_STRING)
+                sdslen(argv[j]->ptr) > server.slowlog_max_string_len)
             {
-                sds s = sdsnewlen(argv[j]->ptr, SLOWLOG_ENTRY_MAX_STRING);
+                sds s = sdsnewlen(argv[j]->ptr, server.slowlog_max_string_len);
 
                 s = sdscatprintf(s,"... (%lu more bytes)",
                     (unsigned long)
-                    sdslen(argv[j]->ptr) - SLOWLOG_ENTRY_MAX_STRING);
+                    sdslen(argv[j]->ptr) - server.slowlog_max_string_len);
                 se->argv[j] = createObject(OBJ_STRING,s);
             } else if (argv[j]->refcount == OBJ_SHARED_REFCOUNT) {
                 se->argv[j] = argv[j];
@@ -99,16 +100,20 @@ void slowlogInit(void) {
 
 /* Push a new entry into the slow log.
  * This function will make sure to trim the slow log accordingly to the
- * configured max length. */
-void slowlogPushEntryIfNeeded(client *c, robj **argv, int argc, long long duration) {
-    if (server.slowlog_log_slower_than < 0 || server.slowlog_max_len == 0) return; /* Slowlog disabled */
-    if (duration >= server.slowlog_log_slower_than)
+ * configured max length.
+ * Returns 1 if an entry was added, 0 otherwise. */
+int slowlogPushEntryIfNeeded(client *c, robj **argv, int argc, long long duration) {
+    if (server.slowlog_log_slower_than < 0 || server.slowlog_max_len == 0) return 0;
+    if (duration >= server.slowlog_log_slower_than) {
         listAddNodeHead(server.slowlog,
                         slowlogCreateEntry(c,argv,argc,duration));
 
-    /* Remove old entries if needed. */
-    while (listLength(server.slowlog) > server.slowlog_max_len)
-        listDelNode(server.slowlog,listLast(server.slowlog));
+        /* Remove old entries if needed. */
+        while (listLength(server.slowlog) > server.slowlog_max_len)
+            listDelNode(server.slowlog,listLast(server.slowlog));
+        return 1;
+    }
+    return 0;
 }
 
 /* Remove all the entries from the current slow log. */
@@ -170,7 +175,7 @@ NULL
 
             ln = listNext(&li);
             se = ln->value;
-            addReplyArrayLen(c,6);
+            addReplyArrayLen(c,7);
             addReplyLongLong(c,se->id);
             addReplyLongLong(c,se->time);
             addReplyLongLong(c,se->duration);
@@ -179,6 +184,7 @@ NULL
                 addReplyBulk(c,se->argv[j]);
             addReplyBulkCBuffer(c,se->peerid,sdslen(se->peerid));
             addReplyBulkCBuffer(c,se->cname,sdslen(se->cname));
+            addReplyLongLong(c,se->cmd_argc);
         }
     } else {
         addReplySubcommandSyntaxError(c);

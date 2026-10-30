@@ -38,7 +38,22 @@ static void exitScriptTimedoutMode(scriptRunCtx *run_ctx) {
     run_ctx->flags &= ~SCRIPT_TIMEDOUT;
     blockingOperationEnds();
     /* if we are a replica and we have an active master, set it for continue processing */
-    if (server.masterhost && server.master) queueClientForReprocessing(server.master);
+    if (server.masterhost && server.master) {
+        /* Master running in IO thread needs to be sent to main thread so that
+         * it can process any pending commands ASAP without waiting for the next
+         * read.
+         * We don't queue the client for reprocessing in this case as it will
+         * create contention with main thread when it deals with unblocked
+         * clients - see comment above queueClientForReprocessing. */
+        if (server.master->running_tid != IOTHREAD_MAIN_THREAD_ID) {
+            pauseIOThread(server.master->tid);
+            enqueuePendingClientsToMainThread(server.master, 0);
+            resumeIOThread(server.master->tid);
+            return;
+        }
+
+        queueClientForReprocessing(server.master);
+    }
 }
 
 static void enterScriptTimedoutMode(scriptRunCtx *run_ctx) {
@@ -126,7 +141,7 @@ client* scriptGetCaller(void) {
 int scriptInterrupt(scriptRunCtx *run_ctx) {
     if (run_ctx->flags & SCRIPT_TIMEDOUT) {
         /* script already timedout
-           we just need to precess some events and return */
+           we just need to process some events and return */
         processEventsWhileBlocked();
         return (run_ctx->flags & SCRIPT_KILLED) ? SCRIPT_KILL : SCRIPT_CONTINUE;
     }
@@ -308,6 +323,9 @@ void scriptResetRun(scriptRunCtx *run_ctx) {
     /* After the script done, remove the MULTI state. */
     run_ctx->c->flags &= ~CLIENT_MULTI;
 
+    /* HIMPORT fieldsets are scoped to a single script invocation. */
+    himportFieldsetsFree(run_ctx->c);
+
     if (scriptIsTimedout()) {
         exitScriptTimedoutMode(run_ctx);
         /* Restore the client that was protected when the script timeout
@@ -386,7 +404,9 @@ static int scriptVerifyCommandArity(struct redisCommand *cmd, int argc, sds *err
 static int scriptVerifyACL(client *c, sds *err) {
     /* Check the ACLs. */
     int acl_errpos;
-    int acl_retval = ACLCheckAllPerm(c, &acl_errpos);
+    /* 'c' is the script engine's fake client, which has no pending command, so
+     * the keys are extracted from c->argv. */
+    int acl_retval = ACLCheckAllPerm(c, c->current_pending_cmd, &acl_errpos);
     if (acl_retval != ACL_OK) {
         addACLLogEntry(c,acl_retval,ACL_LOG_CTX_LUA,acl_errpos,NULL,NULL);
         sds msg = getAclErrorMessage(acl_retval, c->user, c->cmd, c->argv[acl_errpos]->ptr, 0);
@@ -508,6 +528,8 @@ static int scriptVerifyClusterState(scriptRunCtx *run_ctx, client *c, client *or
                              c->cmd->fullname); 
         } else if (error_code == CLUSTER_REDIR_DOWN_UNBOUND) {
             *err = sdsnew("Script attempted to access a slot not served"); 
+        } else if (error_code == CLUSTER_REDIR_TRIMMING) {
+            *err = sdsnew("Script attempted to access a slot being trimmed");
         } else {
             /* error_code == CLUSTER_REDIR_MOVED || error_code == CLUSTER_REDIR_ASK */
             *err = sdsnew("Script attempted to access a non local key in a "
@@ -616,7 +638,11 @@ static int scriptVerifyAllowStale(client *c, sds *err) {
 void scriptCall(scriptRunCtx *run_ctx, sds *err) {
     client *c = run_ctx->c;
 
-    /* Setup our fake client for command execution */
+    /* Setup our fake client for command execution. The script client can never
+     * hold Pub/Sub subscriptions (SUBSCRIBE family is CMD_NOSCRIPT), so this
+     * direct identity assignment needs no provenance stamping — assert the
+     * invariant that keeps the flat-lazy owner model sound. */
+    serverAssert(clientTotalPubSubSubscriptionCount(c) == 0);
     c->user = run_ctx->original_client->user;
 
     /* Process module hooks */
@@ -670,6 +696,10 @@ void scriptCall(scriptRunCtx *run_ctx, sds *err) {
     }
     call(c, call_flags);
     serverAssert((c->flags & CLIENT_BLOCKED) == 0);
+
+    if (server.fire_keyed_jobs_between_subcommands)
+        firePerKeyJobsBetweenSubcommands();
+
     clusterSlotStatsInvalidateSlotIfApplicable(run_ctx);
     return;
 

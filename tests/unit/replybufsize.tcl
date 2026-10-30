@@ -9,7 +9,7 @@ proc get_reply_buffer_size {cname} {
 }
 
 start_server {tags {"replybufsize"}} {
-    
+
     test {verify reply buffer limits} {
         # In order to reduce test time we can set the peak reset time very low
         r debug replybuffer peak-reset-time 100
@@ -26,13 +26,13 @@ start_server {tags {"replybufsize"}} {
             fail "reply buffer of idle client is $rbs after 1 seconds"
         }
         
-        r set bigval [string repeat x 32768]
+        r set bigval [string repeat x 8192] ;# Keep value <= 16KB to avoid copy-avoidance, which shares memory and slows tot-mem growth.
         
         # In order to reduce test time we can set the peak reset time very low
         r debug replybuffer peak-reset-time never
         
         wait_for_condition 10 100 {
-            [$tc get bigval ; get_reply_buffer_size test_client] >= 16384 && [get_reply_buffer_size test_client] < 32768
+            [$tc mget bigval bigval bigval bigval ; get_reply_buffer_size test_client] >= 16384 && [get_reply_buffer_size test_client] < 32768
         } else {
             set rbs [get_reply_buffer_size test_client]
             fail "reply buffer of busy client is $rbs after 1 seconds"

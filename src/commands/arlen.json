@@ -1,0 +1,48 @@
+{
+    "ARLEN": {
+        "summary": "Returns the length of an array (max index + 1).",
+        "complexity": "O(1)",
+        "group": "array",
+        "since": "8.8.0",
+        "arity": 2,
+        "function": "arlenCommand",
+        "command_flags": [
+            "READONLY",
+            "FAST"
+        ],
+        "acl_categories": [
+            "ARRAY"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "description": "The length of the array (max index + 1), or 0 if key does not exist.",
+            "type": "integer"
+        },
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            }
+        ]
+    }
+}

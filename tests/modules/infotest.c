@@ -3,9 +3,11 @@
 #include <string.h>
 
 void InfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
+    static int info_func_calls = 0;
     RedisModule_InfoAddSection(ctx, "");
     RedisModule_InfoAddFieldLongLong(ctx, "global", -2);
     RedisModule_InfoAddFieldULongLong(ctx, "uglobal", (unsigned long long)-2);
+    RedisModule_InfoAddFieldLongLong(ctx, "info_calls", ++info_func_calls);
 
     RedisModule_InfoAddSection(ctx, "Spanish");
     RedisModule_InfoAddFieldCString(ctx, "uno", "one");

@@ -55,8 +55,13 @@ test "Master reboot in very short time" {
     kill_instance redis $master_id
     reboot_instance redis $master_id
     
+    set max_tries 1000
+    if {$::tsan} {
+        set max_tries 5000
+    }
+
     foreach_sentinel_id id {        
-        wait_for_condition 1000 100 {
+        wait_for_condition $max_tries 100 {
             [lindex [S $id SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] 1] != $old_port
         } else {
             fail "At least one Sentinel did not receive failover info"

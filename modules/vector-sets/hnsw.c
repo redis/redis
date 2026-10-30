@@ -47,28 +47,45 @@
 #include "hnsw.h"
 #include "mixer.h"
 
-/* Check if we can compile SIMD code with function attributes */
-#if defined (__x86_64__) && ((defined(__GNUC__) && __GNUC__ >= 5) || (defined(__clang__) && __clang_major__ >= 4))
-#if defined(__has_attribute) && __has_attribute(target)
-#define HAVE_AVX2
-#define HAVE_AVX512
-#endif
+/* Check if we can compile SIMD code with function attributes.
+ * This defines HAVE_AVX2, HAVE_AVX512, and HAVE_POPCNT when the compiler
+ * supports the target() attribute for runtime CPU feature dispatch. */
+#if defined(__x86_64__) && ((defined(__GNUC__) && __GNUC__ >= 5) || (defined(__clang__) && __clang_major__ >= 4))
+    #if defined(__has_attribute) && __has_attribute(target)
+        #define HAVE_AVX2
+        #define HAVE_AVX512
+        #define HAVE_POPCNT
+    #endif
 #endif
 
-#if defined (HAVE_AVX2)
+#if defined(HAVE_POPCNT)
+    #define ATTRIBUTE_TARGET_POPCNT __attribute__((target("popcnt")))
+    #define VSET_USE_POPCNT __builtin_cpu_supports("popcnt")
+#else
+    #define ATTRIBUTE_TARGET_POPCNT
+    #define VSET_USE_POPCNT 0
+#endif
+
+#if defined(HAVE_AVX2)
 #define ATTRIBUTE_TARGET_AVX2 __attribute__((target("avx2,fma")))
+#define ATTRIBUTE_TARGET_AVX2_POPCNT __attribute__((target("avx2,fma,popcnt")))
 #define VSET_USE_AVX2 (__builtin_cpu_supports("avx2") && __builtin_cpu_supports("fma"))
 #else
 #define ATTRIBUTE_TARGET_AVX2
+#define ATTRIBUTE_TARGET_AVX2_POPCNT
 #define VSET_USE_AVX2 0
 #endif
 
 #if defined (HAVE_AVX512)
-#define ATTRIBUTE_TARGET_AVX512 __attribute__((target("avx512f,fma")))
-#define VSET_USE_AVX512 (__builtin_cpu_supports("avx512f"))
+#define ATTRIBUTE_TARGET_AVX512 __attribute__((target("avx512f,avx512bw,fma")))
+#define ATTRIBUTE_TARGET_AVX512_VPOPCNT __attribute__((target("avx512f,fma,avx512vpopcntdq,popcnt")))
+#define VSET_USE_AVX512 (__builtin_cpu_supports("avx512f") && __builtin_cpu_supports("avx512bw"))
+#define VSET_USE_AVX512_VPOPCNT (__builtin_cpu_supports("avx512f") && __builtin_cpu_supports("avx512vpopcntdq"))
 #else
 #define ATTRIBUTE_TARGET_AVX512
+#define ATTRIBUTE_TARGET_AVX512_VPOPCNT
 #define VSET_USE_AVX512 0
+#define VSET_USE_AVX512_VPOPCNT 0
 #endif
 
 /* Include SIMD headers when supported */
@@ -88,10 +105,20 @@
 
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 
+/* Define likely macro if not already defined */
+#ifndef likely
+#if __GNUC__ >= 3
+#define likely(x) __builtin_expect(!!(x), 1)
+#else
+#define likely(x) (x)
+#endif
+#endif
+
 /* Algorithm parameters. */
 
 #define HNSW_P 0.25         /* Probability of level increase. */
-#define HNSW_MAX_LEVEL 16   /* Max level nodes can reach. */
+/* HNSW_MAX_LEVEL is defined in hnsw.h (needed by callers to bound
+ * deserialization). */
 #define HNSW_EF_C 200       /* Default size of dynamic candidate list while
                              * inserting a new node, in case 0 is passed to
                              * the 'ef' argument while inserting. This is also
@@ -221,6 +248,55 @@ float pq_max_distance(pqueue *pq) {
 
 /* ============================ HNSW algorithm ============================== */
 
+/* Check if CPU supports POPCNT instruction - cached per thread */
+static inline int hnsw_cpu_supports_popcnt(void) {
+#if defined(HAVE_POPCNT)
+    static __thread int popcnt_supported = -1;
+    if (popcnt_supported == -1) {
+        popcnt_supported = __builtin_cpu_supports("popcnt");
+    }
+    return popcnt_supported;
+#else
+    return 0; /* Assume CPU does not support POPCNT if __builtin_cpu_supports() is not available. */
+#endif
+}
+
+/* Manual popcount implementation for platforms without POPCNT support */
+static inline int hnsw_popcount64(uint64_t x) {
+    x = (x & 0x5555555555555555) + ((x >> 1) & 0x5555555555555555);
+    x = (x & 0x3333333333333333) + ((x >> 2) & 0x3333333333333333);
+    x = (x & 0x0F0F0F0F0F0F0F0F) + ((x >> 4) & 0x0F0F0F0F0F0F0F0F);
+    x = (x & 0x00FF00FF00FF00FF) + ((x >> 8) & 0x00FF00FF00FF00FF);
+    x = (x & 0x0000FFFF0000FFFF) + ((x >> 16) & 0x0000FFFF0000FFFF);
+    x = (x & 0x00000000FFFFFFFF) + ((x >> 32) & 0x00000000FFFFFFFF);
+    return x;
+}
+
+/* Optimized popcount function that uses hardware POPCNT instruction when available,
+ * falling back to a software implementation when necessary. The CPU feature detection
+ * result is cached per thread for better performance. */
+ATTRIBUTE_TARGET_POPCNT
+static inline int hnsw_popcount(uint64_t x) {
+    if (likely(hnsw_cpu_supports_popcnt())) {
+        return __builtin_popcountll(x);
+    } else {
+        return hnsw_popcount64(x);
+    }
+}
+
+/* Binary vectors distance function that uses POPCNT when available */
+ATTRIBUTE_TARGET_POPCNT
+static inline float hnsw_vectors_distance_bin(const uint64_t *x, const uint64_t *y, uint32_t dim) {
+    uint32_t len = (dim+63)/64;
+    uint32_t opposite = 0;
+
+    for (uint32_t j = 0; j < len; j++) {
+        uint64_t xor = x[j]^y[j];
+        opposite += hnsw_popcount(xor);
+    }
+    return (float)opposite*2/dim;
+}
+
 #if defined(HAVE_AVX512)
 /* AVX512 optimized dot product for float vectors */
 ATTRIBUTE_TARGET_AVX512
@@ -347,8 +423,155 @@ float vectors_distance_float(const float *x, const float *y, uint32_t dim) {
 }
 
 /* Q8 quants dotproduct. We do integer math and later fix it by range. */
+#if defined(HAVE_AVX512)
+/* AVX512 optimized dot product for Q8 vectors */
+ATTRIBUTE_TARGET_AVX512
+float vectors_distance_q8_avx512(const int8_t *x, const int8_t *y, uint32_t dim,
+                                  float range_a, float range_b) {
+    // Handle zero vectors special case.
+    if (range_a == 0 || range_b == 0) {
+        return 1.0f;
+    }
+
+    const float scale_product = (range_a/127) * (range_b/127);
+    __m512i sum = _mm512_setzero_si512();
+    uint32_t i;
+
+    /* Process 64 int8 elements at a time with AVX512 */
+    for (i = 0; i + 63 < dim; i += 64) {
+        /* Load 64 int8 values */
+        __m512i vx = _mm512_loadu_si512((__m512i*)&x[i]);
+        __m512i vy = _mm512_loadu_si512((__m512i*)&y[i]);
+        
+        /* Unpack and multiply-add in 32-bit precision
+         * This is done in two steps: lower 32 bytes and upper 32 bytes */
+        
+        /* Process lower 32 bytes (256 bits) */
+        __m256i vx_lo = _mm512_extracti64x4_epi64(vx, 0);
+        __m256i vy_lo = _mm512_extracti64x4_epi64(vy, 0);
+        
+        /* Extend int8 to int16 */
+        __m512i vx_lo_16 = _mm512_cvtepi8_epi16(vx_lo);
+        __m512i vy_lo_16 = _mm512_cvtepi8_epi16(vy_lo);
+        
+        /* Multiply and accumulate to int32 */
+        __m512i prod_lo = _mm512_madd_epi16(vx_lo_16, vy_lo_16);
+        sum = _mm512_add_epi32(sum, prod_lo);
+        
+        /* Process upper 32 bytes (256 bits) */
+        __m256i vx_hi = _mm512_extracti64x4_epi64(vx, 1);
+        __m256i vy_hi = _mm512_extracti64x4_epi64(vy, 1);
+        
+        __m512i vx_hi_16 = _mm512_cvtepi8_epi16(vx_hi);
+        __m512i vy_hi_16 = _mm512_cvtepi8_epi16(vy_hi);
+        
+        __m512i prod_hi = _mm512_madd_epi16(vx_hi_16, vy_hi_16);
+        sum = _mm512_add_epi32(sum, prod_hi);
+    }
+
+    /* Horizontal sum of the 16 int32 elements in sum */
+    int32_t dot = _mm512_reduce_add_epi32(sum);
+
+    /* Handle remaining elements */
+    for (; i < dim; i++) {
+        dot += ((int32_t)x[i]) * ((int32_t)y[i]);
+    }
+
+    /* Convert to original range */
+    float dotf = dot * scale_product;
+    float distance = 1.0f - dotf;
+
+    /* Clamp distance to [0, 2] */
+    if (distance < 0) distance = 0;
+    else if (distance > 2) distance = 2;
+    return distance;
+}
+#endif /* HAVE_AVX512 */
+
+#if defined(HAVE_AVX2)
+/* AVX2 optimized dot product for Q8 vectors */
+ATTRIBUTE_TARGET_AVX2
+float vectors_distance_q8_avx2(const int8_t *x, const int8_t *y, uint32_t dim,
+                                float range_a, float range_b) {
+    // Handle zero vectors special case.
+    if (range_a == 0 || range_b == 0) {
+        return 1.0f;
+    }
+
+    const float scale_product = (range_a/127) * (range_b/127);
+    __m256i sum = _mm256_setzero_si256();
+    uint32_t i;
+
+    /* Process 32 int8 elements at a time with AVX2 */
+    for (i = 0; i + 31 < dim; i += 32) {
+        /* Load 32 int8 values */
+        __m256i vx = _mm256_loadu_si256((__m256i*)&x[i]);
+        __m256i vy = _mm256_loadu_si256((__m256i*)&y[i]);
+        
+        /* Split into lower and upper 16 bytes */
+        __m128i vx_lo = _mm256_extracti128_si256(vx, 0);
+        __m128i vy_lo = _mm256_extracti128_si256(vy, 0);
+        __m128i vx_hi = _mm256_extracti128_si256(vx, 1);
+        __m128i vy_hi = _mm256_extracti128_si256(vy, 1);
+        
+        /* Extend int8 to int16 for lower half */
+        __m256i vx_lo_16 = _mm256_cvtepi8_epi16(vx_lo);
+        __m256i vy_lo_16 = _mm256_cvtepi8_epi16(vy_lo);
+        
+        /* Multiply and accumulate (madd does multiply adjacent pairs and add) */
+        __m256i prod_lo = _mm256_madd_epi16(vx_lo_16, vy_lo_16);
+        sum = _mm256_add_epi32(sum, prod_lo);
+        
+        /* Extend int8 to int16 for upper half */
+        __m256i vx_hi_16 = _mm256_cvtepi8_epi16(vx_hi);
+        __m256i vy_hi_16 = _mm256_cvtepi8_epi16(vy_hi);
+        
+        __m256i prod_hi = _mm256_madd_epi16(vx_hi_16, vy_hi_16);
+        sum = _mm256_add_epi32(sum, prod_hi);
+    }
+
+    /* Horizontal sum of the 8 int32 elements in sum */
+    __m128i sum_hi = _mm256_extracti128_si256(sum, 1);
+    __m128i sum_lo = _mm256_castsi256_si128(sum);
+    __m128i sum_128 = _mm_add_epi32(sum_hi, sum_lo);
+    
+    sum_128 = _mm_hadd_epi32(sum_128, sum_128);
+    sum_128 = _mm_hadd_epi32(sum_128, sum_128);
+    
+    int32_t dot = _mm_cvtsi128_si32(sum_128);
+
+    /* Handle remaining elements */
+    for (; i < dim; i++) {
+        dot += ((int32_t)x[i]) * ((int32_t)y[i]);
+    }
+
+    /* Convert to original range */
+    float dotf = dot * scale_product;
+    float distance = 1.0f - dotf;
+
+    /* Clamp distance to [0, 2] */
+    if (distance < 0) distance = 0;
+    else if (distance > 2) distance = 2;
+    return distance;
+}
+#endif /* HAVE_AVX2 */
+
+/* Q8 dot product: automatically selects best available implementation */
 float vectors_distance_q8(const int8_t *x, const int8_t *y, uint32_t dim,
                         float range_a, float range_b) {
+#if defined(HAVE_AVX512)
+    if (dim >= 64 && VSET_USE_AVX512) {
+        return vectors_distance_q8_avx512(x, y, dim, range_a, range_b);
+    }
+#endif
+
+#if defined(HAVE_AVX2)
+    if (dim >= 32 && VSET_USE_AVX2) {
+        return vectors_distance_q8_avx2(x, y, dim, range_a, range_b);
+    }
+#endif
+
+    /* Fallback to scalar implementation */
     // Handle zero vectors special case.
     if (range_a == 0 || range_b == 0) {
         /* Zero vector distance from anything is 1.0
@@ -389,25 +612,103 @@ float vectors_distance_q8(const int8_t *x, const int8_t *y, uint32_t dim,
     return distance;
 }
 
-static inline int popcount64(uint64_t x) {
-    x = (x & 0x5555555555555555) + ((x >> 1) & 0x5555555555555555);
-    x = (x & 0x3333333333333333) + ((x >> 2) & 0x3333333333333333);
-    x = (x & 0x0F0F0F0F0F0F0F0F) + ((x >> 4) & 0x0F0F0F0F0F0F0F0F);
-    x = (x & 0x00FF00FF00FF00FF) + ((x >> 8) & 0x00FF00FF00FF00FF);
-    x = (x & 0x0000FFFF0000FFFF) + ((x >> 16) & 0x0000FFFF0000FFFF);
-    x = (x & 0x00000000FFFFFFFF) + ((x >> 32) & 0x00000000FFFFFFFF);
-    return x;
-}
-
-/* Binary vectors distance. */
-float vectors_distance_bin(const uint64_t *x, const uint64_t *y, uint32_t dim) {
+#if defined(HAVE_AVX512) && defined(HAVE_POPCNT)
+/* AVX-512 vectorized binary distance calculation using VPOPCNTDQ.
+ * Processes 8 uint64_t (512 bits) per iteration.
+ * 
+ * Uses _mm512_popcnt_epi64 hardware popcount instruction which requires
+ * AVX512VPOPCNTDQ extension
+ */
+ATTRIBUTE_TARGET_AVX512_VPOPCNT
+static float vectors_distance_bin_avx512_vpopcnt(const uint64_t *x, const uint64_t *y, uint32_t dim) {
     uint32_t len = (dim+63)/64;
     uint32_t opposite = 0;
-    for (uint32_t j = 0; j < len; j++) {
-        uint64_t xor = x[j]^y[j];
-        opposite += popcount64(xor);
+    uint32_t j = 0;
+
+    /* Process 8 uint64_t (512 bits) at a time with hardware popcount */
+    if (len >= 8) {
+        __m512i sum = _mm512_setzero_si512();
+        
+        for (; j + 7 < len; j += 8) {
+            __m512i vx = _mm512_loadu_si512((__m512i*)&x[j]);
+            __m512i vy = _mm512_loadu_si512((__m512i*)&y[j]);
+            __m512i vxor = _mm512_xor_si512(vx, vy);
+            
+            /* Hardware popcount for 64-bit integers (AVX512VPOPCNTDQ) */
+            __m512i popcnt = _mm512_popcnt_epi64(vxor);
+            sum = _mm512_add_epi64(sum, popcnt);
+        }
+        
+        /* Horizontal sum: reduce 8x 64-bit integers to scalar */
+        opposite = _mm512_reduce_add_epi64(sum);
     }
-    return (float)opposite*2/dim;
+
+    /* Handle remaining elements */
+    for (; j < len; j++) {
+        uint64_t xor = x[j] ^ y[j];
+        opposite += __builtin_popcountll(xor);
+    }
+
+    return (float)opposite * 2.0f / dim;
+}
+#endif
+
+#if defined(HAVE_AVX2) && defined(HAVE_POPCNT)
+/* AVX2 vectorized binary distance calculation.
+ * Processes 4 uint64_t (256 bits) per iteration. */
+ATTRIBUTE_TARGET_AVX2_POPCNT
+static float vectors_distance_bin_avx2(const uint64_t *x, const uint64_t *y, uint32_t dim) {
+    uint32_t len = (dim+63)/64;
+    uint32_t opposite = 0;
+    uint32_t j = 0;
+
+    /* Process 4 uint64_t (256 bits) at a time */
+    if (len >= 4) {
+        for (; j + 3 < len; j += 4) {
+            __m256i vx = _mm256_loadu_si256((__m256i*)&x[j]);
+            __m256i vy = _mm256_loadu_si256((__m256i*)&y[j]);
+            __m256i vxor = _mm256_xor_si256(vx, vy);
+            
+            /* Extract and use hardware POPCNT instruction */
+            uint64_t xor_vals[4];
+            _mm256_storeu_si256((__m256i*)xor_vals, vxor);
+            
+            opposite += __builtin_popcountll(xor_vals[0]);
+            opposite += __builtin_popcountll(xor_vals[1]);
+            opposite += __builtin_popcountll(xor_vals[2]);
+            opposite += __builtin_popcountll(xor_vals[3]);
+        }
+    }
+
+    /* Handle remaining elements */
+    for (; j < len; j++) {
+        uint64_t xor = x[j] ^ y[j];
+        opposite += __builtin_popcountll(xor);
+    }
+
+    return (float)opposite * 2.0f / dim;
+}
+#endif
+
+/* Binary vectors distance with SIMD dispatch. */
+ATTRIBUTE_TARGET_POPCNT
+float vectors_distance_bin(const uint64_t *x, const uint64_t *y, uint32_t dim) {
+#if defined(HAVE_AVX512) && defined(HAVE_POPCNT)
+    /* AVX-512 with VPOPCNTDQ */
+    if (dim >= 512 && VSET_USE_AVX512_VPOPCNT) {
+        return vectors_distance_bin_avx512_vpopcnt(x, y, dim);
+    }
+#endif
+
+#if defined(HAVE_AVX2) && defined(HAVE_POPCNT)
+    /* AVX2 path: processes 4 uint64_t (256 bits) per iteration */
+    if (dim >= 256 && VSET_USE_AVX2 && VSET_USE_POPCNT) {
+        return vectors_distance_bin_avx2(x, y, dim);
+    }
+#endif
+
+    /* Fallback to scalar implementation with runtime POPCNT detection */
+    return hnsw_vectors_distance_bin(x, y, dim);
 }
 
 /* Dot product between nodes. Will call the right version depending on the
@@ -494,7 +795,7 @@ uint32_t random_level(void) {
     static const int threshold = HNSW_P * RAND_MAX;
     uint32_t level = 0;
 
-    while (rand() < threshold && level < HNSW_MAX_LEVEL)
+    while (rand() < threshold && level < HNSW_MAX_LEVEL - 1)
         level += 1;
     return level;
 }
@@ -603,6 +904,13 @@ uint32_t hnsw_quants_bytes(HNSW *index) {
  * after the node creation (see later for the serialization API that
  * handles this and more). */
 hnswNode *hnsw_node_new(HNSW *index, uint64_t id, const float *vector, const int8_t *qvector, float qrange, uint32_t level, int normalize) {
+    /* Defense in depth: every node level must stay within the architectural
+     * cap. Untrusted input (e.g. a tampered serialized stream) is already
+     * rejected by the caller before reaching this point, so a violation here
+     * can only be an internal bug: fail fast instead of over-allocating the
+     * node and poisoning index->max_level. */
+    assert(level < HNSW_MAX_LEVEL);
+
     hnswNode *node = hmalloc(sizeof(hnswNode)+(sizeof(hnswNodeLayer)*(level+1)));
     if (!node) return NULL;
 
@@ -1401,13 +1709,13 @@ void hnsw_reconnect_nodes(HNSW *index, hnswNode **nodes, int count, uint32_t lay
 
     // Step 5: Pair nodes greedily based on scores.
     int *used = hmalloc(count*sizeof(int));
-    memset(used,0,count*sizeof(int));
     if (!used) {
         hfree(distances);
         hfree(row_avgs);
         hfree(scores);
         return;
     }
+    memset(used,0,count*sizeof(int));
 
     /* Scan the matrix looking each time for the potential
      * link with the best score. */
@@ -2293,6 +2601,12 @@ hnswNode *hnsw_insert_serialized(HNSW *index, void *vector, uint64_t *params, ui
     uint32_t version = (params[1] & 0xff000000) >> 24;  // Format version.
 
     if (version > HNSW_SERIALIZATION_VERSION) return NULL;
+
+    /* A serialized stream coming from an untrusted source (e.g. a tampered
+     * RDB file) could encode an out of range level: reject it here, otherwise
+     * we would over-allocate the node layers and poison index->max_level with
+     * an illegal value. */
+    if (level >= HNSW_MAX_LEVEL) return NULL;
     int has_worst_link_info = version > 0;
 
     /* Keep track of maximum ID seen while loading. */
@@ -2319,9 +2633,12 @@ hnswNode *hnsw_insert_serialized(HNSW *index, void *vector, uint64_t *params, ui
         uint32_t num_links = params[param_idx++];
         uint32_t max_links = params[param_idx++];
 
-        /* Sanity check: links should be less than max links and
-         * in general a reasonable amount. */
-        if (num_links > max_links || max_links > HNSW_MAX_M*4) {
+        /* Sanity check: links should be less than max links, and max links
+         * must not exceed what select_neighbors() can ever grow a layer to.
+         * A larger fan-out can only come from tampered data, and deleting
+         * such a node makes hnsw_reconnect_nodes() quadratic in its size. */
+        uint32_t links_limit = i == 0 ? index->M * 3 : index->M * 2;
+        if (num_links > max_links || max_links > links_limit) {
             hnsw_node_free(node);
             return NULL;
         }
@@ -2403,15 +2720,19 @@ hnswNode *hnsw_insert_serialized(HNSW *index, void *vector, uint64_t *params, ui
     return node;
 }
 
-/* Integer hashing, used by hnsw_deserialize_index().
- * MurmurHash3's 64-bit finalizer function. */
-uint64_t hnsw_hash_node_id(uint64_t id) {
+/* MurmurHash3's 64-bit finalizer function. */
+static inline uint64_t hnsw_fmix64(uint64_t id) {
     id ^= id >> 33;
     id *= 0xff51afd7ed558ccd;
     id ^= id >> 33;
     id *= 0xc4ceb9fe1a85ec53;
     id ^= id >> 33;
     return id;
+}
+
+/* Salted integer hashing, used by hnsw_deserialize_index(). */
+static inline uint64_t hnsw_hash_node_id(uint64_t id, uint64_t salt0, uint64_t salt1) {
+    return hnsw_fmix64(hnsw_fmix64(id ^ salt0) ^ salt1);
 }
 
 /* Helper for duplicated link detection in hnsw_deserialize_index(). */
@@ -2450,7 +2771,7 @@ int hnsw_deserialize_index(HNSW *index, uint64_t salt0, uint64_t salt1) {
     /* First pass: populate the ID -> pointer hash table. */
     hnswNode *node = index->head;
     while(node) {
-        uint64_t bucket = hnsw_hash_node_id(node->id) & (table_size-1);
+        uint64_t bucket = hnsw_hash_node_id(node->id, salt0, salt1) & (table_size-1);
         for (uint64_t j = 0; j < table_size; j++) {
             if (table[bucket] == NULL) {
                 table[bucket] = node;
@@ -2515,10 +2836,16 @@ int hnsw_deserialize_index(HNSW *index, uint64_t salt0, uint64_t salt1) {
                 accumulator[1] ^= mixed_h2;
 
                 // Fix links.
-                uint64_t bucket = hnsw_hash_node_id(linked_id) & (table_size-1);
+                uint64_t bucket = hnsw_hash_node_id(linked_id, salt0, salt1) & (table_size-1);
                 hnswNode *neighbor = NULL;
                 for (uint64_t k = 0; k < table_size; k++) {
-                    if (table[bucket] && table[bucket]->id == linked_id) {
+                    /* The table is insert-only, so every slot between an
+                     * ID's home bucket and its position is occupied: an
+                     * empty slot means the ID is not in the table. This is
+                     * only an early exit, the result is the same as
+                     * scanning the whole table. */
+                    if (table[bucket] == NULL) break;
+                    if (table[bucket]->id == linked_id) {
                         neighbor = table[bucket];
                         break;
                     }
@@ -2797,7 +3124,7 @@ int hnsw_validate_graph(HNSW *index, uint64_t *connected_nodes, int *reciprocal_
     }
 
     printf("Total connected nodes: %llu\n", (unsigned long long)*connected_nodes);
-    printf("All links are bi-directiona? %s\n", (*reciprocal_links)?"yes":"no");
+    printf("All links are bi-directional? %s\n", (*reciprocal_links)?"yes":"no");
     return 0;
 }
 

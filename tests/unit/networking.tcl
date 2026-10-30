@@ -14,6 +14,50 @@
 
 source tests/support/cli.tcl
 
+start_server {tags {"unixsocket external:skip"}} {
+    test {A second server does not replace an active Unix socket} {
+        # Avoid TCP and TLS port conflicts so the second server reaches the
+        # Unix socket check while reusing the socket owned by the outer server.
+        set second_port [find_available_port $::baseport $::portcount]
+
+        assert_equal 1 [catch {
+            exec src/redis-server [srv config_file] \
+                --port $second_port --tls-port 0 \
+                --unixsocket [srv unixsocket]
+        } second_error]
+        assert_match {*Unix socket * is already in use*} $second_error
+
+        # The failed second startup must not disturb the original listener.
+        assert_equal PONG [exec {*}[rediscli_unixsocket [srv unixsocket]] PING]
+    }
+
+    # SIGKILL prevents Valgrind from writing its leak summary, causing the test
+    # harness to report an error even when no memory error occurred.
+    if {!$::valgrind} {
+    test {A stale Unix socket is replaced and accepts connections} {
+        set stale_socket [file normalize [tmpfile stale.sock]]
+
+        # SIGKILL bypasses normal shutdown cleanup, leaving the socket path
+        # behind with no process listening on it.
+        start_server [list overrides [list unixsocket $stale_socket]] {
+            set stale_pid [srv 0 pid]
+            exec kill -9 $stale_pid
+            wait_for_condition 500 10 {
+                ![is_alive $stale_pid]
+            } else {
+                fail "Server did not exit after SIGKILL"
+            }
+        }
+        assert_equal 1 [file exists $stale_socket]
+
+        # A new server should remove the stale path, bind it, and accept clients.
+        start_server [list overrides [list unixsocket $stale_socket]] {
+            assert_equal PONG [exec {*}[rediscli_unixsocket $stale_socket] PING]
+        }
+    }
+    }
+}
+
 test {CONFIG SET port number} {
     start_server {} {
         if {$::tls} { set port_cfg tls-port} else { set port_cfg port }
@@ -331,6 +375,40 @@ start_server {config "minimal.conf" tags {"external:skip"} overrides {enable-deb
             set new_prefetch_entries [getInfoProperty $info io_threaded_total_prefetch_entries]
             # With slower machines, the number of prefetch entries can be lower
             assert_range $new_prefetch_entries [expr {$prefetch_entries + 2}] [expr {$prefetch_entries + 16}]
+        }
+
+        test {Prefetch works with batch size greater than 16 (buffer overflow regression test)} {
+            # save the current value of prefetch entries
+            set info [r info stats]
+            set prefetch_entries [getInfoProperty $info io_threaded_total_prefetch_entries]
+            # set the batch size to a value greater than the old hardcoded limit of 16
+            r config set prefetch-batch-max-size 64
+
+            # Create a batch with more than 16 clients to trigger the old buffer overflow
+            do_prefetch_batch $server_pid 64
+
+            # verify the prefetch entries increased
+            set info [r info stats]
+            set new_prefetch_entries [getInfoProperty $info io_threaded_total_prefetch_entries]
+            # With slower machines, the number of prefetch entries can be lower
+            assert_range $new_prefetch_entries [expr {$prefetch_entries + 2}] [expr {$prefetch_entries + 64}]
+        }
+
+        test {Prefetch works with maximum batch size of 128 and client number larger than batch size} {
+            # save the current value of prefetch entries
+            set info [r info stats]
+            set prefetch_entries [getInfoProperty $info io_threaded_total_prefetch_entries]
+            # set the batch size to the maximum allowed value
+            r config set prefetch-batch-max-size 128
+
+            # Create a batch with 300 clients to test the maximum limit
+            do_prefetch_batch $server_pid 300
+
+            # verify the prefetch entries increased
+            set info [r info stats]
+            set new_prefetch_entries [getInfoProperty $info io_threaded_total_prefetch_entries]
+            # With slower machines, the number of prefetch entries can be lower
+            assert_range $new_prefetch_entries [expr {$prefetch_entries + 2}] [expr {$prefetch_entries + 300}]
         }
     }
 }

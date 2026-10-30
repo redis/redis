@@ -15,6 +15,10 @@ struct asmTask;
 struct slotRangeArray;
 struct slotRange;
 
+#define ASM_TRIM_METHOD_NONE 0
+#define ASM_TRIM_METHOD_BG 1
+#define ASM_TRIM_METHOD_ACTIVE 2
+
 void asmInit(void);
 void asmBeforeSleep(void);
 void asmCron(void);
@@ -27,23 +31,23 @@ int asmImportInProgress(void);
 void asmFeedMigrationClient(robj **argv, int argc);
 int asmDebugSetFailPoint(char * channel, char *state);
 int asmDebugSetTrimMethod(const char *method, int active_trim_delay);
-
+unsigned long long asmGetTaskTotalKeys(struct asmTask *task);
+void asmImportIncrReceivedBytes(struct asmTask *task, size_t bytes);
 void asmImportIncrAppliedBytes(struct asmTask *task, size_t bytes);
 struct slotRangeArray *asmTaskGetSlotRanges(const char *task_id);
-int asmNotifyConfigUpdated(struct asmTask *task, sds *err);
 size_t asmGetPeakSyncBufferSize(void);
 size_t asmGetImportInputBufferSize(void);
-size_t asmGetMigrateOutputBufferSize(void);
+size_t asmGetMigrateOutputMemoryUsage(void);
 int clusterAsmCancel(const char *task_id, const char *reason);
 int clusterAsmCancelBySlot(int slot, const char *reason);
 int clusterAsmCancelBySlotRangeArray(struct slotRangeArray *slots, const char *reason);
-int clusterAsmCancelByNode(void *node, const char *reason);
+int clusterAsmCancelInvalidTasks(void);
 int isSlotInAsmTask(int slot);
 int isSlotInTrimJob(int slot);
 sds asmCatInfoString(sds info);
 void clusterMigrationCommand(client *c);
 void clusterSyncSlotsCommand(client *c);
-struct asmTask *asmLookupTaskBySlotRangeArray(struct slotRangeArray *slots);
+const char *asmLookupTaskBySlotRangeArray(struct slotRangeArray *slots);
 void asmCancelTrimJobs(void);
 sds asmDumpActiveImportTask(void);
 int asmReplicaHandleMasterTask(sds task_info);
@@ -52,6 +56,7 @@ int asmIsTrimInProgress(void);
 int asmGetTrimmingSlotForCommand(struct redisCommand *cmd, robj **argv, int argc);
 void asmActiveTrimCycle(void);
 int asmIsKeyInTrimJob(sds keyname);
-int asmModulePropagateBeforeSlotSnapshot(struct redisCommand *cmd, robj **argv, int argc);
+int asmModulePropagateForSlotMigration(struct redisCommand *cmd, robj **argv, int argc);
+int asmTrimSlots(struct slotRangeArray *slots, uint64_t client_id, int migration_cleanup);
+int asmIsBgTrimRunning(void);
 #endif
-

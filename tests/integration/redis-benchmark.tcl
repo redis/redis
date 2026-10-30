@@ -134,10 +134,29 @@ tags {"benchmark network external:skip logreqres:skip"} {
             r get key
         } {arg}
 
+        test {benchmark: no NaN or Inf in latency report with fast requests} {
+            # With -n 1 on localhost, totlatency can round to 0 ms. Verify showLatencyReport() handles this gracefully.
+            set cmd [redisbenchmark $master_host $master_port "-c 1 -n 1 -t set"]
+            set output [exec {*}$cmd 2>@1]
+            if {[regexp -nocase {nan|(?:^|[^a-z])inf(?:[^o]|$)} $output]} {
+                fail "redis-benchmark output contains NaN or Inf: $output"
+            }
+        }
+
         # tls specific tests
         if {$::tls} {
             test {benchmark: specific tls-ciphers} {
                 set cmd [redisbenchmark $master_host $master_port "-r 50 -t set -n 1000 --tls-ciphers \"DEFAULT:-AES128-SHA256\""]
+                common_bench_setup $cmd
+                assert_match  {*calls=1000,*} [cmdstat set]
+                # assert one of the non benchmarked commands is not present
+                assert_match  {} [cmdstat get]
+            }
+
+            test {benchmark: specific tls-groups} {
+                r flushall
+                r config resetstat
+                set cmd [redisbenchmark $master_host $master_port "-r 50 -t set -n 1000 --tls-groups prime256v1"]
                 common_bench_setup $cmd
                 assert_match  {*calls=1000,*} [cmdstat set]
                 # assert one of the non benchmarked commands is not present

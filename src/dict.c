@@ -28,6 +28,7 @@
 #include "zmalloc.h"
 #include "redisassert.h"
 #include "monotonic.h"
+#include "atomicvar.h"
 #include "util.h"
 
 /* Using dictSetResizeEnabled() we make possible to disable
@@ -41,8 +42,8 @@
  *    of elements and the buckets >= dict_force_resize_ratio.
  *  - A hash table is still allowed to shrink if the ratio between the number
  *    of elements and the buckets <= 1 / (HASHTABLE_MIN_FILL * dict_force_resize_ratio). */
-static dictResizeEnable dict_can_resize = DICT_RESIZE_ENABLE;
-static unsigned int dict_force_resize_ratio = 4;
+static redisAtomic dictResizeEnable dict_can_resize = DICT_RESIZE_ENABLE;
+static const unsigned int dict_force_resize_ratio = 4;
 
 /* -------------------------- types ----------------------------------------- */
 struct dictEntry {
@@ -74,9 +75,9 @@ static int _dictInit(dict *d, dictType *type);
 static dictEntryLink dictGetNextLink(dictEntry *de);
 static void dictSetNext(dictEntry *de, dictEntry *next);
 static int dictDefaultCompare(dictCmpCache *cache, const void *key1, const void *key2);
-static dictEntryLink dictFindLinkInternal(dict *d, const void *key, dictEntryLink *bucket);
+static dictEntryLink dictFindLinkInternal(dict *d, const void *key, uint64_t hash, dictEntryLink *bucket);
 dictEntryLink dictFindLinkForInsert(dict *d, const void *key, dictEntry **existing);
-static dictEntry *dictInsertKeyAtLink(dict *d, void *key, dictEntryLink link);
+static dictEntry *dictInsertKeyAtLink(dict *d, void *key __stored_key, dictEntryLink link);
 
 /* -------------------------- unused  --------------------------- */
 void dictSetSignedIntegerVal(dictEntry *de, int64_t val);
@@ -89,18 +90,13 @@ int64_t dictIncrSignedIntegerVal(dictEntry *de, int64_t val);
 
 typedef int (*keyCmpFunc)(dictCmpCache *cache, const void *key1, const void *key2);
 static inline keyCmpFunc dictGetCmpFunc(dict *d) {
-    if (d->useStoredKeyApi && d->type->storedKeyCompare)
-        return d->type->storedKeyCompare;
     if (d->type->keyCompare)
         return d->type->keyCompare;
     return dictDefaultCompare;
 }
 
-static inline uint64_t dictHashKey(dict *d, const void *key, int isStoredKey) {
-    if (isStoredKey && d->type->storedHashFunction)
-        return d->type->storedHashFunction(key);
-    else
-        return d->type->hashFunction(key);
+static const void *dictStoredKey2Key(dict *d, const void *key __stored_key) {
+    return (d->type->keyFromStoredKey) ? d->type->keyFromStoredKey(key) : key;
 }
 
 /* -------------------------- hash functions -------------------------------- */
@@ -118,7 +114,7 @@ uint64_t siphash(const uint8_t *in, const size_t inlen, const uint8_t *k);
 uint64_t siphash_nocase(const uint8_t *in, const size_t inlen, const uint8_t *k);
 
 uint64_t dictGenHashFunction(const void *key, size_t len) {
-    return siphash(key,len,dict_hash_function_seed);
+    return siphash(key, len, dict_hash_function_seed);
 }
 
 uint64_t dictGenCaseHashFunction(const unsigned char *buf, size_t len) {
@@ -150,7 +146,7 @@ static inline int entryIsNormal(const dictEntry *de) {
 }
 
 /* Creates an entry without a value field. */
-static inline dictEntry *createEntryNoValue(void *key, dictEntry *next) {
+static inline dictEntry *createEntryNoValue(void *key __stored_key, dictEntry *next) {
     dictEntryNoValue *entry = zmalloc(sizeof(*entry));
     entry->key = key;
     entry->next = next;
@@ -164,6 +160,18 @@ static inline dictEntry *encodeMaskedPtr(const void *ptr, unsigned int bits) {
 
 static inline void *decodeMaskedPtr(const dictEntry *de) {
     return (void *)((uintptr_t)(void *)de & ~ENTRY_PTR_MASK);
+}
+
+/* Encode a key pointer for storage in a no_value dict bucket.
+ * For odd keys (like SDS strings), the key can be stored directly.
+ * For even keys, we need to tag it with ENTRY_PTR_IS_EVEN_KEY. */
+static inline dictEntry *encodeEntryKey(dict *d, void *key) {
+    if (d->type->keys_are_odd) {
+        debugAssert(((uintptr_t)key & ENTRY_PTR_IS_ODD_KEY) == ENTRY_PTR_IS_ODD_KEY);
+        return key;
+    } else {
+        return encodeMaskedPtr(key, ENTRY_PTR_IS_EVEN_KEY);
+    }
 }
 
 /* Decodes the pointer to an entry without value, when you know it is an entry
@@ -222,7 +230,6 @@ int _dictInit(dict *d, dictType *type)
     d->rehashidx = -1;
     d->pauserehash = 0;
     d->pauseAutoResize = 0;
-    d->useStoredKeyApi = 0;
     return DICT_OK;
 }
 
@@ -333,10 +340,11 @@ static void rehashEntriesInBucketAtIndex(dict *d, uint64_t idx) {
     dictEntry *nextde;
     while (de) {
         nextde = dictGetNext(de);
-        void *key = dictGetKey(de);
+        void *storedKey = dictGetKey(de);
         /* Get the index in the new hash table */
         if (d->ht_size_exp[1] > d->ht_size_exp[0]) {
-            h = dictHashKey(d, key, 1) & DICTHT_SIZE_MASK(d->ht_size_exp[1]);
+            const void *key = dictStoredKey2Key(d, storedKey);
+            h = dictGetHash(d, key) & DICTHT_SIZE_MASK(d->ht_size_exp[1]);
         } else {
             /* We're shrinking the table. The tables sizes are powers of
              * two, so we simply mask the bucket index in the larger table
@@ -350,14 +358,11 @@ static void rehashEntriesInBucketAtIndex(dict *d, uint64_t idx) {
                  * previously allocated, free its memory. */                
                 if (!entryIsKey(de)) zfree(decodeMaskedPtr(de));
                 
-                if (d->type->keys_are_odd)
-                    de = key; /* ENTRY_PTR_IS_ODD_KEY trivially set by the odd key. */
-                else
-                    de = encodeMaskedPtr(key, ENTRY_PTR_IS_EVEN_KEY);
+                de = encodeEntryKey(d, storedKey);
                 
             } else if (entryIsKey(de)) {
                 /* We don't have an allocated entry but we need one. */
-                de = createEntryNoValue(key, d->ht_table[1][h]);
+                de = createEntryNoValue(storedKey, d->ht_table[1][h]);
             } else {
                 dictSetNext(de, d->ht_table[1][h]);
             }
@@ -402,11 +407,13 @@ int dictRehash(dict *d, int n) {
     int empty_visits = n*10; /* Max number of empty buckets to visit. */
     unsigned long s0 = DICTHT_SIZE(d->ht_size_exp[0]);
     unsigned long s1 = DICTHT_SIZE(d->ht_size_exp[1]);
-    if (dict_can_resize == DICT_RESIZE_FORBID || !dictIsRehashing(d)) return 0;
-    /* If dict_can_resize is DICT_RESIZE_AVOID, we want to avoid rehashing. 
+    dictResizeEnable can_resize;
+    atomicGet(dict_can_resize, can_resize);
+    if (can_resize == DICT_RESIZE_FORBID || !dictIsRehashing(d)) return 0;
+    /* If dict_can_resize is DICT_RESIZE_AVOID, we want to avoid rehashing.
      * - If expanding, the threshold is dict_force_resize_ratio which is 4.
      * - If shrinking, the threshold is 1 / (HASHTABLE_MIN_FILL * dict_force_resize_ratio) which is 1/32. */
-    if (dict_can_resize == DICT_RESIZE_AVOID && 
+    if (can_resize == DICT_RESIZE_AVOID &&
         ((s1 > s0 && s1 < dict_force_resize_ratio * s0) ||
          (s1 < s0 && s0 < HASHTABLE_MIN_FILL * dict_force_resize_ratio * s1)))
     {
@@ -470,11 +477,13 @@ int _dictBucketRehash(dict *d, uint64_t idx) {
     if (d->pauserehash != 0) return 0;
     unsigned long s0 = DICTHT_SIZE(d->ht_size_exp[0]);
     unsigned long s1 = DICTHT_SIZE(d->ht_size_exp[1]);
-    if (dict_can_resize == DICT_RESIZE_FORBID || !dictIsRehashing(d)) return 0;
-    /* If dict_can_resize is DICT_RESIZE_AVOID, we want to avoid rehashing. 
+    dictResizeEnable can_resize;
+    atomicGet(dict_can_resize, can_resize);
+    if (can_resize == DICT_RESIZE_FORBID || !dictIsRehashing(d)) return 0;
+    /* If dict_can_resize is DICT_RESIZE_AVOID, we want to avoid rehashing.
      * - If expanding, the threshold is dict_force_resize_ratio which is 4.
      * - If shrinking, the threshold is 1 / (HASHTABLE_MIN_FILL * dict_force_resize_ratio) which is 1/32. */
-    if (dict_can_resize == DICT_RESIZE_AVOID && 
+    if (can_resize == DICT_RESIZE_AVOID &&
         ((s1 > s0 && s1 < dict_force_resize_ratio * s0) ||
          (s1 < s0 && s0 < HASHTABLE_MIN_FILL * dict_force_resize_ratio * s1)))
     {
@@ -486,7 +495,7 @@ int _dictBucketRehash(dict *d, uint64_t idx) {
 }
 
 /* Add an element to the target hash table */
-int dictAdd(dict *d, void *key, void *val)
+int dictAdd(dict *d, void *key __stored_key, void *val)
 {
     dictEntry *entry = dictAddRaw(d,key,NULL);
 
@@ -519,10 +528,10 @@ int dictCompareKeys(dict *d, const void *key1, const void *key2) {
  *
  * If key was added, the hash entry is returned to be manipulated by the caller.
  */
-dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
+dictEntry *dictAddRaw(dict *d, void *key __stored_key, dictEntry **existing)
 {
     /* Get the position for the new key or NULL if the key already exists. */
-    void *position = dictFindLinkForInsert(d, key, existing);
+    void *position = dictFindLinkForInsert(d, dictStoredKey2Key(d, key), existing);
     if (!position) return NULL;
 
     /* Dup the key if necessary. */
@@ -535,7 +544,7 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
  * call to dictFindLinkForInsert(). This is a low level function which allows
  * splitting dictAddRaw in two parts. Normally, dictAddRaw or dictAdd should be
  * used instead. It assumes that dictExpandIfNeeded() was called before. */
-dictEntry *dictInsertKeyAtLink(dict *d, void *key, dictEntryLink link) {
+dictEntry *dictInsertKeyAtLink(dict *d, void *key __stored_key, dictEntryLink link) {
     dictEntryLink bucket = link; /* It's a bucket, but the API hides that. */
     dictEntry *entry;
     /* If rehashing is ongoing, we insert in table 1, otherwise in table 0.
@@ -548,13 +557,8 @@ dictEntry *dictInsertKeyAtLink(dict *d, void *key, dictEntryLink link) {
             /* We can store the key directly in the destination bucket without 
              * allocating dictEntry.
              */
-            if (d->type->keys_are_odd) {
-                entry = key;
-                assert(entryIsKey(entry));
-                /* The flag ENTRY_PTR_IS_ODD_KEY (=0x1) is already aligned with LSB bit  */
-            } else {
-                entry = encodeMaskedPtr(key, ENTRY_PTR_IS_EVEN_KEY);
-            }
+            entry = encodeEntryKey(d, key);
+            assert(entryIsKey(entry));
         } else {
             /* Allocate an entry without value. */
             entry = createEntryNoValue(key, *bucket);
@@ -580,7 +584,7 @@ dictEntry *dictInsertKeyAtLink(dict *d, void *key, dictEntryLink link) {
  * Return 1 if the key was added from scratch, 0 if there was already an
  * element with such key and dictReplace() just performed a value update
  * operation. */
-int dictReplace(dict *d, void *key, void *val)
+int dictReplace(dict *d, void *key __stored_key, void *val)
 {
     dictEntry *entry, *existing;
 
@@ -611,7 +615,7 @@ int dictReplace(dict *d, void *key, void *val)
  * existing key is returned.)
  *
  * See dictAddRaw() for more information. */
-dictEntry *dictAddOrFind(dict *d, void *key) {
+dictEntry *dictAddOrFind(dict *d, void *key __stored_key) {
     dictEntry *entry, *existing;
     entry = dictAddRaw(d,key,&existing);
     return entry ? entry : existing;
@@ -629,7 +633,7 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
     /* dict is empty */
     if (dictSize(d) == 0) return NULL;
 
-    h = dictHashKey(d, key, d->useStoredKeyApi);
+    h = dictGetHash(d, key);
     idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
 
     /* Rehash the hash table if needed */
@@ -643,7 +647,7 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
         he = d->ht_table[table][idx];
         prevHe = NULL;
         while(he) {
-            void *he_key = dictGetKey(he);
+            const void *he_key = dictStoredKey2Key(d, dictGetKey(he));
             if (key == he_key || cmpFunc(&cmpCache, key, he_key)) {
                 /* Unlink the element from the list */
                 if (prevHe)
@@ -759,20 +763,19 @@ void dictRelease(dict *d)
  * 
  * bucket - return pointer to bucket that the key was mapped. unless dict is empty.
  */
-static dictEntryLink dictFindLinkInternal(dict *d, const void *key, dictEntryLink *bucket) {
+static dictEntryLink dictFindLinkInternal(dict *d, const void *key, uint64_t hash, dictEntryLink *bucket) {
     dictCmpCache cmpCache = {0};
     dictEntryLink link;
     uint64_t idx;
     int table;
-    
+
     if (bucket) {
         *bucket = NULL;
     } else {
         /* If dict is empty and no need to find bucket, return NULL */
-        if (dictSize(d) == 0) return NULL; 
+        if (dictSize(d) == 0) return NULL;
     }
 
-    const uint64_t hash = dictHashKey(d, key, d->useStoredKeyApi);
     idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
     keyCmpFunc cmpFunc = dictGetCmpFunc(d);
 
@@ -784,16 +787,10 @@ static dictEntryLink dictFindLinkInternal(dict *d, const void *key, dictEntryLin
         if (table == 0 && (long)idx < d->rehashidx) continue;
         idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
 
-        /* Prefetch the bucket at the calculated index */
-        redis_prefetch_read(&d->ht_table[table][idx]);
-
         link = &(d->ht_table[table][idx]);
         if (bucket) *bucket = link;
         while(link && *link) {
-            void *visitedKey = dictGetKey(*link);
-
-            /* Prefetch the next entry to improve cache efficiency */
-            redis_prefetch_read(dictGetNext(*link));
+            const void *visitedKey = dictStoredKey2Key(d, dictGetKey(*link));
 
             if (key == visitedKey || cmpFunc( &cmpCache, key, visitedKey))                
                 return link;
@@ -867,10 +864,23 @@ dictEntryLink dictFindLink(dict *d, const void *key, dictEntryLink *bucket) {
     if (unlikely(dictSize(d) == 0))
         return NULL;
     
-    return dictFindLinkInternal(d, key, bucket);
+    return dictFindLinkInternal(d, key, dictGetHash(d, key), bucket);
 }
 
-/* Set the key with link 
+/* Same as dictFindLink(), but for a caller that already computed this exact
+ * key's hash (via dictGetHash(d, key)) for another purpose and wants to avoid
+ * paying for the dict type's hashFunction() a second time. The hash is not
+ * validated against key -- passing a mismatched hash silently searches the
+ * wrong bucket. */
+dictEntryLink dictFindLinkWithHash(dict *d, const void *key, uint64_t hash, dictEntryLink *bucket) {
+    if (bucket) *bucket = NULL;
+    if (unlikely(dictSize(d) == 0))
+        return NULL;
+
+    return dictFindLinkInternal(d, key, hash, bucket);
+}
+
+/* Set the key with link
  *
  * link:    - When `newItem` is set, `link` points to the bucket of the key.
  *          - When `newItem` is not set, `link` points to the link of the key.
@@ -880,7 +890,7 @@ dictEntryLink dictFindLink(dict *d, const void *key, dictEntryLink *bucket) {
  * newItem: 1 = Add a key with a new dictEntry.
  *          0 = Set a key to an existing dictEntry. 
  */
-void dictSetKeyAtLink(dict *d, void *key, dictEntryLink *link, int newItem) {
+void dictSetKeyAtLink(dict *d, void *key __stored_key, dictEntryLink *link, int newItem) {
     dictEntryLink dummy = NULL;
     if (link == NULL) link = &dummy;
     void *addedKey = (d->type->keyDup) ? d->type->keyDup(d, key) : key;
@@ -895,9 +905,8 @@ void dictSetKeyAtLink(dict *d, void *key, dictEntryLink *link, int newItem) {
         if (snap[0] != d->ht_size_exp[0] || snap[1] != d->ht_size_exp[1] || *link == NULL) {
             dictEntryLink bucket;
             /* Bypass dictFindLink() to search bucket even if dict is empty!!! */
-            dictUseStoredKeyApi(d, 1);
-            *link = dictFindLinkInternal(d, key, &bucket);
-            dictUseStoredKeyApi(d, 0);
+            const void *lookup_key = dictStoredKey2Key(d, key);
+            *link = dictFindLinkInternal(d, lookup_key, dictGetHash(d, lookup_key), &bucket);
             assert(bucket != NULL);
             assert(*link == NULL);
             *link = bucket; /* On newItem the link should be the bucket */
@@ -916,13 +925,7 @@ void dictSetKeyAtLink(dict *d, void *key, dictEntryLink *link, int newItem) {
     dictEntry **de = *link;
     if (entryIsKey(*de)) {
         /* `de` opt-out to be actually a key. Replace key but keep the lsb flags */
-        if (d->type->keys_are_odd) {
-            /* For odd keys, just assign directly - LSB is already set */
-            debugAssert(((uintptr_t)addedKey & ENTRY_PTR_IS_ODD_KEY));
-            *de = addedKey;
-        } else {
-            *de = encodeMaskedPtr(addedKey, ENTRY_PTR_IS_EVEN_KEY);
-        }
+        *de = encodeEntryKey(d, addedKey);
     } else {
         /* either dictEntry or dictEntryNoValue */
         (*de)->key = addedKey;
@@ -959,7 +962,7 @@ dictEntryLink dictTwoPhaseUnlinkFind(dict *d, const void *key, int *table_index)
     if (dictSize(d) == 0) return NULL; /* dict is empty */
     if (dictIsRehashing(d)) _dictRehashStep(d);
 
-    h = dictHashKey(d, key, d->useStoredKeyApi);    
+    h = dictGetHash(d, key);    
     keyCmpFunc cmpFunc = dictGetCmpFunc(d);
 
     for (table = 0; table <= 1; table++) {
@@ -967,7 +970,7 @@ dictEntryLink dictTwoPhaseUnlinkFind(dict *d, const void *key, int *table_index)
         if (table == 0 && (long)idx < d->rehashidx) continue;
         dictEntry **ref = &d->ht_table[table][idx];
         while (ref && *ref) {
-            void *de_key = dictGetKey(*ref);
+            const void *de_key = dictStoredKey2Key(d, dictGetKey(*ref));
             if (key == de_key || cmpFunc(&cmpCache, key, de_key)) {
                 *table_index = table;
                 dictPauseRehashing(d);
@@ -993,7 +996,7 @@ void dictTwoPhaseUnlinkFree(dict *d, dictEntryLink plink, int table_index) {
     dictResumeRehashing(d);
 }
 
-void dictSetKey(dict *d, dictEntry* de, void *key) {
+void dictSetKey(dict *d, dictEntry* de, void *key __stored_key) {
     assert(!d->type->no_value);
     if (d->type->keyDup)
         de->key = d->type->keyDup(d, key);
@@ -1099,7 +1102,13 @@ static void dictSetNext(dictEntry *de, dictEntry *next) {
 /* Returns the memory usage in bytes of the dict, excluding the size of the keys
  * and values. */
 size_t dictMemUsage(const dict *d) {
-    return dictSize(d) * sizeof(dictEntry) +
+    /* Account for the actual per-entry structure size: no_value=1 dicts (sets,
+     * the sorted-set element index, hashes) allocate a dictEntryNoValue (or
+     * store the key inline in the bucket), not a full dictEntry. Mirrors what
+     * kvstoreMemUsage() already does via dictEntryMemUsage(). This is a strict
+     * over-estimate still (inline-stored keys allocate nothing), but no longer
+     * charges the value slot that a no_value dict never has. */
+    return dictSize(d) * dictEntryMemUsage(d->type->no_value) +
         dictBuckets(d) * sizeof(dictEntry*);
 }
 
@@ -1153,6 +1162,13 @@ void dictInitIterator(dictIterator *iter, dict *d)
     iter->safe = 0;
     iter->entry = NULL;
     iter->nextEntry = NULL;
+    iter->prefetch = 0;
+}
+
+/* Make dictNext() prefetch entries ahead. Use it for full scans that read
+ * every entry, like the RDB save. */
+void dictIteratorEnablePrefetch(dictIterator *iter) {
+    iter->prefetch = 1;
 }
 
 void dictInitSafeIterator(dictIterator *iter, dict *d)
@@ -1185,6 +1201,38 @@ dictIterator *dictGetSafeIterator(dict *d) {
     return i;
 }
 
+#define DICT_ITER_PREFETCH_AHEAD 16
+
+/* Prefetch each bucket in three steps as the iterator gets closer. */
+static void dictIteratorPrefetchAhead(dictIterator *iter) {
+    dict *d = iter->d;
+    int t = iter->table;
+    long size = DICTHT_SIZE(d->ht_size_exp[t]);
+
+    /* Bucket 2*AHEAD away: prefetch the first dictEntry, if there is one. */
+    long idx = iter->index + 2*DICT_ITER_PREFETCH_AHEAD;
+    if (idx < size) {
+        dictEntry *de = d->ht_table[t][idx];
+        if (de && !entryIsKey(de)) redis_prefetch_read(de);
+    }
+
+    /* Bucket AHEAD away: prefetch the keys, the dictEntry is in cache by now. */
+    idx = iter->index + DICT_ITER_PREFETCH_AHEAD;
+    if (idx < size) {
+        for (dictEntry *de = d->ht_table[t][idx]; de; de = dictGetNext(de))
+            redis_prefetch_read(dictGetKey(de));
+    }
+
+    /* Bucket AHEAD/2 away: prefetch the values, the keys are in cache by now. */
+    idx = iter->index + DICT_ITER_PREFETCH_AHEAD/2;
+    if (idx < size && d->type->prefetchEntryValue) {
+        for (dictEntry *de = d->ht_table[t][idx]; de; de = dictGetNext(de)) {
+            void *addr = d->type->prefetchEntryValue(de);
+            if (addr) redis_prefetch_read(addr);
+        }
+    }
+}
+
 dictEntry *dictNext(dictIterator *iter)
 {
     while (1) {
@@ -1210,6 +1258,7 @@ dictEntry *dictNext(dictIterator *iter)
                 }
             }
             iter->entry = iter->d->ht_table[iter->table][iter->index];
+            if (iter->prefetch) dictIteratorPrefetchAhead(iter);
         } else {
             iter->entry = iter->nextEntry;
         }
@@ -1383,16 +1432,18 @@ static void dictDefragBucket(dict *d, dictEntry **bucketref, dictDefragFunctions
     while (bucketref && *bucketref) {
         dictEntry *de = *bucketref, *newde = NULL;
         void *newkey = defragkey ? defragkey(dictGetKey(de)) : NULL;
-        
-        if (entryIsKey(de)) {
-            if (newkey) *bucketref = newkey;
-        } else if (d->type->no_value) {
-            dictEntryNoValue *entry = decodeEntryNoValue(de), *newentry;
-            if ((newentry = defragalloc(entry))) {
-                newde = (dictEntry *) newentry;
-                entry = newentry;
+
+        if (d->type->no_value) {
+            if (entryIsKey(de)) {
+                if (newkey) *bucketref = encodeEntryKey(d, newkey);
+            } else {
+                dictEntryNoValue *entry = decodeEntryNoValue(de), *newentry;
+                if ((newentry = defragalloc(entry))) {
+                    newde = (dictEntry *) newentry;
+                    entry = newentry;
+                }
+                if (newkey) entry->key = newkey;
             }
-            if (newkey) entry->key = newkey;
         } else {
             void *newval = defragval ? defragval(dictGetVal(de)) : NULL;
             assert(entryIsNormal(de));
@@ -1662,9 +1713,11 @@ int dictExpandIfNeeded(dict *d) {
      * table (global setting) or we should avoid it but the ratio between
      * elements/buckets is over the "safe" threshold, we resize doubling
      * the number of buckets. */
-    if ((dict_can_resize == DICT_RESIZE_ENABLE &&
+    dictResizeEnable can_resize;
+    atomicGet(dict_can_resize, can_resize);
+    if ((can_resize == DICT_RESIZE_ENABLE &&
          d->ht_used[0] >= DICTHT_SIZE(d->ht_size_exp[0])) ||
-        (dict_can_resize != DICT_RESIZE_FORBID &&
+        (can_resize != DICT_RESIZE_FORBID &&
          d->ht_used[0] >= dict_force_resize_ratio * DICTHT_SIZE(d->ht_size_exp[0])))
     {
         if (dictTypeResizeAllowed(d, d->ht_used[0] + 1))
@@ -1695,9 +1748,11 @@ int dictShrinkIfNeeded(dict *d) {
     /* If we reached below 1:8 elements/buckets ratio, and we are allowed to resize
      * the hash table (global setting) or we should avoid it but the ratio is below 1:32,
      * we'll trigger a resize of the hash table. */
-    if ((dict_can_resize == DICT_RESIZE_ENABLE &&
+    dictResizeEnable can_resize;
+    atomicGet(dict_can_resize, can_resize);
+    if ((can_resize == DICT_RESIZE_ENABLE &&
          d->ht_used[0] * HASHTABLE_MIN_FILL <= DICTHT_SIZE(d->ht_size_exp[0])) ||
-        (dict_can_resize != DICT_RESIZE_FORBID &&
+        (can_resize != DICT_RESIZE_FORBID &&
          d->ht_used[0] * HASHTABLE_MIN_FILL * dict_force_resize_ratio <= DICTHT_SIZE(d->ht_size_exp[0])))
     {
         if (dictTypeResizeAllowed(d, d->ht_used[0]))
@@ -1747,7 +1802,7 @@ dictEntryLink dictFindLinkForInsert(dict *d, const void *key, dictEntry **existi
     unsigned long idx, table;
     dictCmpCache cmpCache = {0};
     dictEntry *he;
-    uint64_t hash = dictHashKey(d, key, d->useStoredKeyApi);
+    uint64_t hash = dictGetHash(d, key);
     if (existing) *existing = NULL;
     idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
 
@@ -1764,7 +1819,7 @@ dictEntryLink dictFindLinkForInsert(dict *d, const void *key, dictEntry **existi
         /* Search if this slot does not already contain the given key */
         he = d->ht_table[table][idx];
         while(he) {
-            void *he_key = dictGetKey(he);
+            const void *he_key = dictStoredKey2Key(d, dictGetKey(he));            
             if (key == he_key || cmpFunc(&cmpCache, key, he_key)) {
                 if (existing) *existing = he;
                 return NULL;
@@ -1799,11 +1854,12 @@ void dictEmpty(dict *d, void(callback)(dict*)) {
 }
 
 void dictSetResizeEnabled(dictResizeEnable enable) {
-    dict_can_resize = enable;
+    atomicSet(dict_can_resize, enable);
 }
 
+/* Compiler inlines this for internal calls within dict.c (verified with -O3). */
 uint64_t dictGetHash(dict *d, const void *key) {
-    return dictHashKey(d, key, d->useStoredKeyApi);
+    return d->type->hashFunction(key);
 }
 
 /* Provides the old and new ht size for a given dictionary during rehashing. This method
@@ -2005,6 +2061,15 @@ dictType BenchmarkDictType = {
     NULL
 };
 
+/* Same as BenchmarkDictType, but a no_value=1 (set-style) dict -- used to verify
+ * that dictMemUsage() sizes entries as dictEntryNoValue, not dictEntry. */
+static dictType BenchmarkDictTypeNoValue = {
+    .hashFunction = hashCallback,
+    .keyCompare = compareCallback,
+    .keyDestructor = freeCallback,
+    .no_value = 1,
+};
+
 #define start_benchmark() start = timeInMilliseconds()
 #define end_benchmark(msg) do { \
     elapsed = timeInMilliseconds()-start; \
@@ -2158,6 +2223,39 @@ int dictTest(int argc, char **argv, int flags) {
         dictEmpty(d, NULL);
         dictSetResizeEnabled(DICT_RESIZE_ENABLE);
     }
+
+    TEST("dictMemUsage sizes no_value entries by dictEntryNoValue (not dictEntry)") {
+        /* Regression: MEMORY USAGE used to overcount no_value=1 dicts (sets,
+         * the sorted-set element index, hashes) by charging sizeof(dictEntry)
+         * per entry instead of sizeof(dictEntryNoValue).
+         *
+         * A dictEntry is {next, key, value-union}; a dictEntryNoValue is
+         * {next, key}. Dropping the value makes a no_value entry smaller by
+         * exactly the size of the value union, which is 8 bytes (it holds a
+         * uint64_t/double) on both 64-bit (dictEntry 24 -> dictEntryNoValue 16)
+         * and 32-bit (16 -> 8). dictMemUsage() must reflect that 8 B/entry. */
+        const size_t value_union_bytes = 8;
+        assert(sizeof(dictEntry) - sizeof(dictEntryNoValue) == value_union_bytes);
+
+        long n = 1000;
+        dict *dn = dictCreate(&BenchmarkDictType);          /* no_value = 0 */
+        dict *dv = dictCreate(&BenchmarkDictTypeNoValue);   /* no_value = 1 */
+        for (long i = 0; i < n; i++) {
+            assert(dictAdd(dn, stringFromLongLong(i), (void *)i) == DICT_OK);
+            assert(dictAdd(dv, stringFromLongLong(i), NULL) == DICT_OK);
+        }
+
+        /* Identical keys and resize policy => identical bucket geometry, so the
+         * two dicts' reported memory differs only by the value union that each
+         * of the n no_value entries drops: n * 8 bytes. */
+        assert(dictSize(dn) == (unsigned long)n && dictSize(dv) == (unsigned long)n);
+        assert(dictBuckets(dn) == dictBuckets(dv));
+        assert(dictMemUsage(dn) - dictMemUsage(dv) == (size_t)n * value_union_bytes);
+
+        dictRelease(dn);
+        dictRelease(dv);
+    }
+
     srand(12345);
     start_benchmark();
     for (j = 0; j < count; j++) {

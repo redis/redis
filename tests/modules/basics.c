@@ -109,6 +109,25 @@ int TestGetResp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_OK;
 }
 
+int TestGetClusterNodeInfo(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+
+    if (argc != 1) return RedisModule_WrongArity(ctx);
+
+    int port, flags;
+    const char *id = RedisModule_GetMyClusterID();
+    if (id == NULL ||
+        RedisModule_GetClusterNodeInfo(ctx, id, NULL, NULL, &port, &flags) == REDISMODULE_ERR)
+    {
+        return RedisModule_ReplyWithError(ctx, "ERR cluster node info unavailable");
+    }
+
+    RedisModule_ReplyWithArray(ctx, 2);
+    RedisModule_ReplyWithLongLong(ctx, port);
+    RedisModule_ReplyWithLongLong(ctx, flags);
+    return REDISMODULE_OK;
+}
+
 int TestCallRespAutoMode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -895,7 +914,7 @@ int TestBasics(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (!TestAssertStringReply(ctx,RedisModule_CallReplyArrayElement(reply, 1),"1234",4)) goto fail;
 
     T("foo", "E");
-    if (!TestAssertErrorReply(ctx,reply,"ERR unknown command 'foo', with args beginning with: ",53)) goto fail;
+    if (!TestAssertErrorReply(ctx,reply,"ERR unknown command 'foo'",25)) goto fail;
 
     T("set", "Ec", "x");
     if (!TestAssertErrorReply(ctx,reply,"ERR wrong number of arguments for 'set' command",47)) goto fail;
@@ -1035,6 +1054,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"test.candebug",
         TestCanDebug,"readonly",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"test.getclusternodeinfo",
+        TestGetClusterNodeInfo,"readonly",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     RedisModule_SubscribeToKeyspaceEvents(ctx,

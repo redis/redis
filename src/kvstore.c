@@ -385,9 +385,10 @@ unsigned long long kvstoreScan(kvstore *kvs, unsigned long long cursor,
  */
 int kvstoreExpand(kvstore *kvs, uint64_t newsize, int try_expand, kvstoreExpandShouldSkipDictIndex *skip_cb) {
     for (int i = 0; i < kvs->num_dicts; i++) {
-        dict *d = kvstoreGetDict(kvs, i);
-        if (!d || (skip_cb && skip_cb(i)))
-            continue;
+        if (skip_cb && skip_cb(i)) continue;
+        dict *d = createDictIfNeeded(kvs, i);
+        if (!d) continue;
+
         int result = try_expand ? dictTryExpand(d, newsize) : dictExpand(d, newsize);
         if (try_expand && result == DICT_ERR)
             return 0;
@@ -590,7 +591,13 @@ void kvstoreIteratorInit(kvstoreIterator *kvs_it, kvstore *kvs) {
     kvs_it->kvs = kvs;
     kvs_it->didx = -1;
     kvs_it->next_didx = kvstoreGetFirstNonEmptyDictIndex(kvs_it->kvs); /* Finds first non-empty dict index. */
+    kvs_it->prefetch = 0;
     dictInitSafeIterator(&kvs_it->di, NULL);
+}
+
+/* Prefetch entries ahead of the iteration, see dictIteratorEnablePrefetch(). */
+void kvstoreIteratorEnablePrefetch(kvstoreIterator *kvs_it) {
+    kvs_it->prefetch = 1;
 }
 
 /* Free the kvs_it returned by kvstoreIteratorInit. */
@@ -642,22 +649,25 @@ dictEntry *kvstoreIteratorNext(kvstoreIterator *kvs_it) {
             return NULL;
 
         dictInitSafeIterator(&kvs_it->di, d);
+        if (kvs_it->prefetch) dictIteratorEnablePrefetch(&kvs_it->di);
         de = dictNext(&kvs_it->di);
     }
     return de;
 }
 
-/* This method traverses through kvstore dictionaries and triggers a resize.
- * It first tries to shrink if needed, and if it isn't, it tries to expand. */
-void kvstoreTryResizeDicts(kvstore *kvs, int limit) {
+/* This method traverses through kvstore dictionaries and triggers a resize,
+ * unless skip_cb indicates otherwise. It first tries to shrink if needed, and
+ * if it doesn't try to shrink, it tries to expand. */
+void kvstoreTryResizeDicts(kvstore *kvs, int limit, kvstoreResizeShouldSkipDictIndex *skip_cb) {
     if (limit > kvs->num_dicts)
         limit = kvs->num_dicts;
 
     for (int i = 0; i < limit; i++) {
         int didx = kvs->resize_cursor;
         dict *d = kvstoreGetDict(kvs, didx);
-        if (d && dictShrinkIfNeeded(d) == DICT_ERR) {
-            dictExpandIfNeeded(d);
+        if (d && (!skip_cb || !skip_cb(didx))) {
+            if (dictShrinkIfNeeded(d) == DICT_ERR)
+                dictExpandIfNeeded(d);
         }
         kvs->resize_cursor = (didx + 1) % kvs->num_dicts;
     }
@@ -734,6 +744,11 @@ void kvstoreResetDictIterator(kvstoreDictIterator *kvs_di)
         /* In the safe iterator context, we may delete entries. */
         freeDictIfNeeded(kvs_di->kvs, kvs_di->didx);
     }
+}
+
+/* Prefetch entries ahead of the iteration, see dictIteratorEnablePrefetch(). */
+void kvstoreDictIteratorEnablePrefetch(kvstoreDictIterator *kvs_di) {
+    dictIteratorEnablePrefetch(&kvs_di->di);
 }
 
 /* Get the next element of the dict through kvstoreDictIterator and dictNext. */
@@ -889,9 +904,7 @@ void kvstoreDictSetAtLink(kvstore *kvs, int didx, void *kv, dictEntryLink *link,
 
 dictEntry *kvstoreDictAddRaw(kvstore *kvs, int didx, void *key, dictEntry **existing) {
     dict *d = createDictIfNeeded(kvs, didx);
-    dictUseStoredKeyApi(d, 1);
     dictEntry *ret = dictAddRaw(d, key, existing);
-    dictUseStoredKeyApi(d, 0);
     if (ret)
         cumulativeKeyCountAdd(kvs, didx, 1);
     return ret;
@@ -944,6 +957,8 @@ void *kvstoreGetDictMeta(kvstore *kvs, int didx, int createIfNeeded) {
 }
 
 void *kvstoreGetMetadata(kvstore *kvs) {
+    if (!kvs->type->kvstoreMetadataBytes)
+        return NULL;
     return &kvs->metadata;
 }
 

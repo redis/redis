@@ -52,6 +52,9 @@ set content {} ;# Will be populated with Tcl side copy of the stream content.
 start_server {
     tags {"stream"}
 } {
+    # Also cover the INFO Streams bookkeeping: XADD/XTRIM/XDEL/XSETID paths.
+    arm_stream_stats_assert
+
     test "XADD wrong number of args" {
         assert_error {*wrong number of arguments for 'xadd' command} {r XADD mystream}
         assert_error {*wrong number of arguments for 'xadd' command} {r XADD mystream *}
@@ -290,6 +293,2501 @@ start_server {
         assert {[lindex [r XPENDING mystream mygroup] 0] == 0}
     }
 
+    test {XADD IDMP with invalid syntax} {
+        r DEL mystream
+        assert_error "*ERR Invalid stream ID specified*" {r XADD mystream IDMP p1 * f v}
+        assert_error "*IDMP/IDMPAUTO can be used only with auto-generated IDs*" {r XADD mystream IDMP p1 iid1 1-1 f v}
+        assert_error "*IDMP/IDMPAUTO specified multiple times*" {r XADD mystream IDMP p1 iid1 IDMP p2 iid2 * f v}
+        assert_error "*IDMP/IDMPAUTO specified multiple times*" {r XADD mystream IDMPAUTO p1 IDMP p2 iid2 * f v}
+        assert_error "*IDMP requires a non-empty producer ID*" {r XADD mystream IDMP "" iid1 * f v}
+        assert_error "*IDMP requires a non-empty idempotent ID*" {r XADD mystream IDMP p1 "" * f v}
+        assert_error "*IDMPAUTO requires a non-empty producer ID*" {r XADD mystream IDMPAUTO "" * f v}
+    }
+
+    test {XADD IDMP basic addition} {
+        r DEL mystream
+    
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 1 * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 A * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 B * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 - * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 + * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 * * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 ^ * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 $ * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 # * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 @ * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 ? * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 \\ * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 IDMP * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 123-456 * f v]]}
+        
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 9999999999999-9999999999999 * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 "hello世界" * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 "héllo" * f v]]}
+        
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 "line1\nline2" * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 "tab\there" * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 "quote\"test" * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 "with spaces" * f v]]}
+        
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 [string repeat "long" 100] * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 [string repeat "x" 1000] * f v]]}
+        
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 "special!@#$%^&*()" * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 "path/to/file" * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 "key:value" * f v]]}
+        
+        assert_equal 26 [r XLEN mystream]
+    }
+
+    test "XADD IDMP duplicate request returns same ID" {
+        r DEL mystream
+        
+        # First XADD with IDMP
+        set id1 [r XADD mystream IDMP p1 "payment-abc" * amount "100" currency "USD"]
+        
+        # Second XADD with same iid but different fields
+        set id2 [r XADD mystream IDMP p1 "payment-abc" * amount "200" currency "EUR"]
+        
+        # Verify both IDs are identical
+        assert_equal $id1 $id2
+        
+        # Verify only one entry exists
+        assert_equal 1 [r XLEN mystream]
+        
+        # Verify original fields are preserved
+        set entries [r XRANGE mystream - +]
+        set fields [lindex [lindex $entries 0] 1]
+        assert_equal "100" [dict get $fields amount]
+        assert_equal "USD" [dict get $fields currency]
+    }
+
+    test {XADD IDMP multiple different IIDs create multiple entries} {
+        r DEL mystream
+        
+        # Add entries with different iids
+        set id1 [r XADD mystream IDMP p1 "req-1" * user "alice"]
+        set id2 [r XADD mystream IDMP p1 "req-2" * user "bob"]
+        set id3 [r XADD mystream IDMP p1 "req-3" * user "charlie"]
+        
+        # Verify all IDs are different
+        assert {$id1 != $id2}
+        assert {$id2 != $id3}
+        assert {$id1 != $id3}
+        
+        # Verify all entries exist
+        assert_equal 3 [r XLEN mystream]
+        
+        # Verify each entry has correct data
+        set entries [r XRANGE mystream - +]
+        assert_equal "alice" [dict get [lindex [lindex $entries 0] 1] user]
+        assert_equal "bob" [dict get [lindex [lindex $entries 1] 1] user]
+        assert_equal "charlie" [dict get [lindex [lindex $entries 2] 1] user]
+    }
+
+    test {XADD IDMP with binary-safe iid} {
+        r DEL mystream
+        
+        # Test with null bytes and binary data
+        set binary_iid "\x00\x01\x02\xff"
+        set id1 [r XADD mystream IDMP p1 $binary_iid * field "value"]
+        set id2 [r XADD mystream IDMP p1 $binary_iid * field "dup"]
+        assert_equal $id1 $id2
+    }
+
+    test {XADD IDMP with maximum length iid} {
+        r DEL mystream
+        
+        # Test with very long iid (e.g., 64KB)
+        set long_iid [string repeat "x" 65536]
+        set id [r XADD mystream IDMP p1 $long_iid * field "value"]
+        assert_match {*-*} $id
+    }
+
+    test {XADD IDMP with MAXLEN option} {
+        r DEL mystream
+        
+        # Add entries with IDMP and MAXLEN
+        set id1 [r XADD mystream IDMP p1 "req-1" MAXLEN ~ 100 * field "value1"]
+        set id2 [r XADD mystream IDMP p1 "req-2" MAXLEN ~ 100 * field "value2"]
+        
+        # Attempt duplicate
+        set id1_dup [r XADD mystream IDMP p1 "req-1" MAXLEN ~ 100 * field "value3"]
+        
+        # Verify deduplication works
+        assert_equal $id1 $id1_dup
+        
+        # Verify only 2 entries exist
+        assert_equal 2 [r XLEN mystream]
+    }
+
+    test {XADD IDMP with MINID option} {
+        r DEL mystream
+        
+        # Add entry with IDMP and MINID
+        set id1 [r XADD mystream IDMP p1 "req-1" MINID ~ 1000000000-0 * field "value1"]
+        
+        # Attempt duplicate with MINID
+        set id2 [r XADD mystream IDMP p1 "req-1" MINID ~ 1000000000-0 * field "value2"]
+        
+        # Verify deduplication works
+        assert_equal $id1 $id2
+        assert_equal 1 [r XLEN mystream]
+    }
+
+    test {XADD IDMP with NOMKSTREAM option} {
+        r DEL mystream
+        
+        # Attempt XADD with NOMKSTREAM on non-existent stream
+        set result [r XADD mystream NOMKSTREAM IDMP p1 "req-1" * field "value"]
+        assert_equal {} $result
+        
+        # Create stream normally
+        r XADD mystream IDMP p1 "req-2" * field "value"
+        
+        # Now NOMKSTREAM should work
+        set id [r XADD mystream NOMKSTREAM IDMP p1 "req-3" * field "value"]
+        assert_match {*-*} $id
+        
+        assert_equal 2 [r XLEN mystream]
+    }
+
+    test {XADD IDMP with KEEPREF option} {
+        r DEL mystream
+        
+        # Add entry with IDMP and KEEPREF
+        set id1 [r XADD mystream IDMP p1 "req-1" KEEPREF * field "value1"]
+        
+        # Attempt duplicate with KEEPREF
+        set id2 [r XADD mystream IDMP p1 "req-1" KEEPREF * field "value2"]
+        
+        # Verify deduplication works
+        assert_equal $id1 $id2
+        assert_equal 1 [r XLEN mystream]
+    }
+
+    test {XADD IDMP with combined options} {
+        r DEL mystream
+        
+        # Add entry with all options
+        set id1 [r XADD mystream IDMP p1 "req-1" KEEPREF MAXLEN ~ 1000 LIMIT 10 * field1 "value1" field2 "value2"]
+        
+        # Attempt duplicate with all options
+        set id2 [r XADD mystream IDMP p1 "req-1" KEEPREF MAXLEN ~ 1000 LIMIT 10 * field3 "value3"]
+        
+        # Verify deduplication works
+        assert_equal $id1 $id2
+        assert_equal 1 [r XLEN mystream]
+        
+        # Verify original fields preserved
+        set entries [r XRANGE mystream - +]
+        set fields [lindex [lindex $entries 0] 1]
+        assert_equal "value1" [dict get $fields field1]
+        assert_equal "value2" [dict get $fields field2]
+    }
+
+    test {XADD IDMP argument order variations} {
+        r DEL mystream
+        
+        # IDMP before MAXLEN
+        set id1 [r XADD mystream IDMP p1 "req-1" MAXLEN ~ 100 * field "value1"]
+        
+        # IDMP after MAXLEN
+        set id2 [r XADD mystream MAXLEN ~ 100 IDMP p1 "req-2" * field "value2"]
+        
+        # Multiple options in different order
+        set id3 [r XADD mystream NOMKSTREAM IDMP p1 "req-3" MAXLEN ~ 100 * field "value3"]
+        
+        # All should succeed
+        assert_match {*-*} $id1
+        assert_match {*-*} $id2
+        assert_match {*-*} $id3
+        
+        assert_equal 3 [r XLEN mystream]
+    }
+
+    test {XADD IDMP concurrent duplicate requests} {
+        r DEL mystream
+        
+        # Create multiple clients
+        set client1 [redis_client]
+        set client2 [redis_client]
+        set client3 [redis_client]
+        
+        # Send same IDMP request from all clients concurrently
+        set id1 [$client1 XADD mystream IDMP p1 "concurrent-req" * client "1"]
+        set id2 [$client2 XADD mystream IDMP p1 "concurrent-req" * client "2"]
+        set id3 [$client3 XADD mystream IDMP p1 "concurrent-req" * client "3"]
+        
+        # All should return the same ID
+        assert_equal $id1 $id2
+        assert_equal $id2 $id3
+        
+        # Only one entry should exist
+        assert_equal 1 [r XLEN mystream]
+        
+        # Cleanup
+        $client1 close
+        $client2 close
+        $client3 close
+    }
+
+    test {XADD IDMP pipelined requests} {
+        r DEL mystream
+        
+        # Send pipelined requests
+        r MULTI
+        r XADD mystream IDMP p1 "req-1" * field "value1"
+        r XADD mystream IDMP p1 "req-2" * field "value2"
+        r XADD mystream IDMP p1 "req-1" * field "value3"  # Duplicate
+        r XADD mystream IDMP p1 "req-3" * field "value4"
+        set results [r EXEC]
+        
+        # Extract IDs
+        set id1 [lindex $results 0]
+        set id2 [lindex $results 1]
+        set id1_dup [lindex $results 2]
+        set id3 [lindex $results 3]
+        
+        # Verify deduplication
+        assert_equal $id1 $id1_dup
+        
+        # Verify all IDs are different (except duplicate)
+        assert {$id1 != $id2}
+        assert {$id2 != $id3}
+        assert {$id1 != $id3}
+        
+        # Verify only 3 entries exist
+        assert_equal 3 [r XLEN mystream]
+    }
+
+    test {XADD IDMP with consumer groups} {
+        r DEL mystream
+        
+        # Add entries with IDMP
+        set id1 [r XADD mystream IDMP p1 "cg-1" * field "value1"]
+        set id2 [r XADD mystream IDMP p1 "cg-2" * field "value2"]
+        
+        # Create consumer group
+        r XGROUP CREATE mystream mygroup 0
+        
+        # Read entries
+        set entries [r XREADGROUP GROUP mygroup consumer1 COUNT 10 STREAMS mystream >]
+        
+        # Verify both entries are readable
+        set stream_entries [lindex [lindex $entries 0] 1]
+        assert_equal 2 [llength $stream_entries]
+        
+        # ACK entries
+        assert_equal 2 [r XACK mystream mygroup $id1 $id2]
+        
+        # Verify deduplication still works
+        set id1_dup [r XADD mystream IDMP p1 "cg-1" * field "dup"]
+        assert_equal $id1 $id1_dup
+    }
+
+    test {XADD IDMP persists in RDB} {
+        r DEL mystream
+
+        # Add entries with IDMP
+        set id1 [r XADD mystream IDMP p1 "persist-1" * field "value1"]
+        r XADD mystream IDMP p1 "persist-2" * field "value2"
+
+        # Force RDB save
+        r SAVE
+        r DEBUG RELOAD
+
+        # Verify stream still exists
+        assert_equal 2 [r XLEN mystream]
+
+        # Verify deduplication still works after restart
+        set id1_dup [r XADD mystream IDMP p1 "persist-1" * field "new"]
+        assert_equal $id1 $id1_dup
+
+        # Should still have only 2 entries
+        assert_equal 2 [r XLEN mystream]
+    } {} {external:skip needs:debug}
+
+    test {XADD IDMP set in AOF} {
+        r DEL mystream
+        r config set appendonly yes
+
+        # Wait for the automatic AOF rewrite triggered by enabling AOF
+        waitForBgrewriteaof r
+
+        # Add entries with IDMP
+        set id1 [r XADD mystream IDMP p1 "aof-1" * field "value1"]
+        r XADD mystream IDMP p1 "aof-2" * field "value2"
+
+        # Add duplicate
+        set id1_dup [r XADD mystream IDMP p1 "aof-1" * field "dup"]
+        assert_equal $id1 $id1_dup
+
+        # Restart with AOF
+        r DEBUG RELOAD
+
+        # Verify stream exists
+        assert_equal 2 [r XLEN mystream]
+
+        # Verify deduplication still works
+        set id1_dup2 [r XADD mystream IDMP p1 "aof-1" * field "new"]
+        assert_equal $id1 $id1_dup2
+    } {} {external:skip needs:debug}
+
+    # XIDMPRECORD tests
+    test {XIDMPRECORD parameter validation} {
+        # Wrong arity
+        assert_error {*wrong number of arguments for 'xidmprecord' command} {r XIDMPRECORD mystream p1 i1}
+        assert_error {*wrong number of arguments for 'xidmprecord' command} {r XIDMPRECORD mystream p1 i1 1-1 extra}
+
+        # Key does not exist
+        assert_error {*no such key*} {r XIDMPRECORD nosuchkey p1 i1 1-1}
+
+        # Key is not a stream
+        r SET notastream "value"
+        assert_error {*WRONGTYPE*} {r XIDMPRECORD notastream p1 i1 1-1}
+        r DEL notastream
+
+        # Invalid stream ID (need existing stream)
+        r DEL mystream
+        r XADD mystream 1-1 f v
+        assert_error {*Invalid stream ID specified as stream*} {r XIDMPRECORD mystream p1 i1 bad}
+        assert_error {*Invalid stream ID specified as stream*} {r XIDMPRECORD mystream p1 i1 1-}
+        assert_error {*Invalid stream ID specified as stream*} {r XIDMPRECORD mystream p1 i1 -1}
+
+        # Empty pid and empty iid
+        assert_error {*producer ID must be non-empty*} {r XIDMPRECORD mystream "" i1 1-1}
+        assert_error {*idempotent ID must be non-empty*} {r XIDMPRECORD mystream p1 "" 1-1}
+    }
+
+    test {XIDMPRECORD with binary-safe iid} {
+        r DEL mystream
+        set id [r XADD mystream * f v]
+        set binary_iid "\x00\x01\x02\xff"
+        assert_equal "OK" [r XIDMPRECORD mystream p1 $binary_iid $id]
+        set id_dup [r XADD mystream IDMP p1 $binary_iid * f v2]
+        assert_equal $id $id_dup
+    }
+
+    test {XIDMPRECORD with maximum length iid} {
+        r DEL mystream
+        set id [r XADD mystream * f v]
+        set long_iid [string repeat "x" 65536]
+        assert_equal "OK" [r XIDMPRECORD mystream p1 $long_iid $id]
+        set id_dup [r XADD mystream IDMP p1 $long_iid * f v2]
+        assert_equal $id $id_dup
+    }
+
+    test {XIDMPRECORD with unicode pid and iid} {
+        r DEL mystream
+        set id [r XADD mystream * f v]
+        assert_equal "OK" [r XIDMPRECORD mystream "producer-世界" "req-héllo" $id]
+        set id_dup [r XADD mystream IDMP "producer-世界" "req-héllo" * f v2]
+        assert_equal $id $id_dup
+    }
+
+    test {XIDMPRECORD with long producer ID} {
+        r DEL mystream
+        set id [r XADD mystream * f v]
+        set long_pid [string repeat "p" 1000]
+        assert_equal "OK" [r XIDMPRECORD mystream $long_pid i1 $id]
+        set id_dup [r XADD mystream IDMP $long_pid i1 * f v2]
+        assert_equal $id $id_dup
+    }
+
+    test {XIDMPRECORD with special characters in iid} {
+        r DEL mystream
+        set id [r XADD mystream * f v]
+        assert_equal "OK" [r XIDMPRECORD mystream p1 "key:value" $id]
+        set id_dup [r XADD mystream IDMP p1 "key:value" * f v2]
+        assert_equal $id $id_dup
+    }
+
+    test {XIDMPRECORD message must exist in stream} {
+        r DEL mystream
+        r XADD mystream 1-1 f v
+        assert_error {*No such message in stream*} {r XIDMPRECORD mystream p1 i1 999-999}
+    }
+
+    test {XIDMPRECORD then deduplication works} {
+        r DEL mystream
+        set id [r XADD mystream * f v]
+        assert_equal "OK" [r XIDMPRECORD mystream p1 req-1 $id]
+        set id_dup [r XADD mystream IDMP p1 req-1 * f v2]
+        assert_equal $id $id_dup
+        assert_equal 1 [r XLEN mystream]
+    }
+
+    test {XIDMPRECORD idempotent} {
+        r DEL mystream
+        set id [r XADD mystream * f v]
+        assert_equal "OK" [r XIDMPRECORD mystream p1 req-1 $id]
+        assert_equal "OK" [r XIDMPRECORD mystream p1 req-1 $id]
+        set id_dup [r XADD mystream IDMP p1 req-1 * f v2]
+        assert_equal $id $id_dup
+    }
+
+    test {XIDMPRECORD conflict same pid iid different stream ID} {
+        r DEL mystream
+        set id1 [r XADD mystream * f v1]
+        set id2 [r XADD mystream * f v2]
+        assert_equal "OK" [r XIDMPRECORD mystream p1 i1 $id1]
+        assert_error {*IID already exists for this producer with a different stream ID*} {r XIDMPRECORD mystream p1 i1 $id2}
+    }
+
+    test {XIDMPRECORD multiple producers} {
+        r DEL mystream
+        set id1 [r XADD mystream * f v1]
+        set id2 [r XADD mystream * f v2]
+        assert_equal "OK" [r XIDMPRECORD mystream p1 i1 $id1]
+        assert_equal "OK" [r XIDMPRECORD mystream p2 i2 $id2]
+        assert_equal $id1 [r XADD mystream IDMP p1 i1 * f dup1]
+        assert_equal $id2 [r XADD mystream IDMP p2 i2 * f dup2]
+    }
+
+    test {XIDMPRECORD AOF rewrite restores IDMP} {
+        r DEL mystream
+        r config set appendonly yes
+        waitForBgrewriteaof r
+
+        set id1 [r XADD mystream IDMP p1 "aof-xidmp-1" * field "value1"]
+        r XADD mystream IDMP p1 "aof-xidmp-2" * field "value2"
+        set id1_dup [r XADD mystream IDMP p1 "aof-xidmp-1" * field "dup"]
+        assert_equal $id1 $id1_dup
+
+        r BGREWRITEAOF
+        waitForBgrewriteaof r
+        r DEBUG RELOAD
+
+        assert_equal 2 [r XLEN mystream]
+        set id1_dup2 [r XADD mystream IDMP p1 "aof-xidmp-1" * field "new"]
+        assert_equal $id1 $id1_dup2
+    } {} {external:skip needs:debug}
+
+    test {XIDMPRECORD AOF rewrite emits XIDMPRECORD for stream with IDMP from XIDMPRECORD only} {
+        r DEL mystream
+        r config set appendonly yes
+        waitForBgrewriteaof r
+
+        set id [r XADD mystream * f v]
+        assert_equal "OK" [r XIDMPRECORD mystream p1 rec-1 $id]
+        set id_dup [r XADD mystream IDMP p1 rec-1 * f v2]
+        assert_equal $id $id_dup
+
+        r BGREWRITEAOF
+        waitForBgrewriteaof r
+        r DEBUG RELOAD
+
+        assert_equal 1 [r XLEN mystream]
+        set id_dup2 [r XADD mystream IDMP p1 rec-1 * f v3]
+        assert_equal $id $id_dup2
+    } {} {external:skip needs:debug}
+
+    test {XADD IDMP multiple producers have isolated namespaces} {
+        r DEL mystream
+        
+        # Add entry with producer p1
+        set id1 [r XADD mystream IDMP producer1 "req-123" * field "from-p1"]
+        
+        # Add entry with same IID but different producer p2 - should create NEW entry
+        set id2 [r XADD mystream IDMP producer2 "req-123" * field "from-p2"]
+        
+        # IDs should be different since producers are isolated
+        assert {$id1 ne $id2}
+        
+        # Both entries should exist
+        assert_equal 2 [r XLEN mystream]
+        
+        # Verify each entry has correct data
+        set entries [r XRANGE mystream - +]
+        assert_equal "from-p1" [dict get [lindex [lindex $entries 0] 1] field]
+        assert_equal "from-p2" [dict get [lindex [lindex $entries 1] 1] field]
+        
+        # Duplicate within same producer should still deduplicate
+        set id1_dup [r XADD mystream IDMP producer1 "req-123" * field "dup-p1"]
+        assert_equal $id1 $id1_dup
+        
+        set id2_dup [r XADD mystream IDMP producer2 "req-123" * field "dup-p2"]
+        assert_equal $id2 $id2_dup
+        
+        # Still only 2 entries
+        assert_equal 2 [r XLEN mystream]
+    }
+
+    test {XADD IDMP multiple producers each have their own MAXSIZE limit} {
+        r DEL mystream
+        
+        # Create stream and set global MAXSIZE
+        r XADD mystream IDMP p1 "init" * field "init"
+        r XCFGSET mystream IDMP-MAXSIZE 3 IDMP-DURATION 60
+        
+        # Add entries for producer p1 (will have 3: init, req-1, req-2, then req-3 evicts init)
+        set p1_id1 [r XADD mystream IDMP p1 "req-1" * field "p1-v1"]
+        set p1_id2 [r XADD mystream IDMP p1 "req-2" * field "p1-v2"]
+        set p1_id3 [r XADD mystream IDMP p1 "req-3" * field "p1-v3"]
+        
+        # Add entries for producer p2 (separate tracking)
+        set p2_id1 [r XADD mystream IDMP p2 "req-1" * field "p2-v1"]
+        set p2_id2 [r XADD mystream IDMP p2 "req-2" * field "p2-v2"]
+        set p2_id3 [r XADD mystream IDMP p2 "req-3" * field "p2-v3"]
+        
+        # p1's oldest entries should be evicted, but p1 req-1,2,3 should still work
+        assert_equal $p1_id1 [r XADD mystream IDMP p1 "req-1" * field "dup"]
+        assert_equal $p1_id2 [r XADD mystream IDMP p1 "req-2" * field "dup"]
+        assert_equal $p1_id3 [r XADD mystream IDMP p1 "req-3" * field "dup"]
+        
+        # p2's entries should also still work (each producer has own MAXSIZE tracking)
+        assert_equal $p2_id1 [r XADD mystream IDMP p2 "req-1" * field "dup"]
+        assert_equal $p2_id2 [r XADD mystream IDMP p2 "req-2" * field "dup"]
+        assert_equal $p2_id3 [r XADD mystream IDMP p2 "req-3" * field "dup"]
+        
+        # Verify pids-tracked
+        set reply [r XINFO STREAM mystream]
+        assert_equal 2 [dict get $reply pids-tracked]
+    }
+
+    test {XADD IDMP multiple producers with binary producer IDs} {
+        r DEL mystream
+        
+        # Test with binary producer IDs
+        set bin_pid1 "\x00\x01\x02"
+        set bin_pid2 "\x03\x04\x05"
+        
+        set id1 [r XADD mystream IDMP $bin_pid1 "req-1" * field "v1"]
+        set id2 [r XADD mystream IDMP $bin_pid2 "req-1" * field "v2"]
+        
+        # Different binary PIDs should be isolated
+        assert {$id1 ne $id2}
+        assert_equal 2 [r XLEN mystream]
+        
+        # Verify deduplication within same binary PID
+        set id1_dup [r XADD mystream IDMP $bin_pid1 "req-1" * field "dup"]
+        assert_equal $id1 $id1_dup
+    }
+
+    test {XADD IDMP multiple producers with unicode producer IDs} {
+        r DEL mystream
+        
+        # Test with unicode producer IDs
+        set id1 [r XADD mystream IDMP "producer-世界" "req-1" * field "v1"]
+        set id2 [r XADD mystream IDMP "producer-héllo" "req-1" * field "v2"]
+        set id3 [r XADD mystream IDMP "producer-日本" "req-1" * field "v3"]
+        
+        # All should be separate entries
+        assert {$id1 ne $id2}
+        assert {$id2 ne $id3}
+        assert_equal 3 [r XLEN mystream]
+        
+        set reply [r XINFO STREAM mystream]
+        assert_equal 3 [dict get $reply pids-tracked]
+    }
+
+    test {XADD IDMP multiple producers with long producer IDs} {
+        r DEL mystream
+        
+        # Test with very long producer IDs
+        set long_pid1 [string repeat "a" 1000]
+        set long_pid2 [string repeat "b" 1000]
+        
+        set id1 [r XADD mystream IDMP $long_pid1 "req-1" * field "v1"]
+        set id2 [r XADD mystream IDMP $long_pid2 "req-1" * field "v2"]
+        
+        # Different long PIDs should be isolated
+        assert {$id1 ne $id2}
+        assert_equal 2 [r XLEN mystream]
+        
+        # Verify deduplication
+        set id1_dup [r XADD mystream IDMP $long_pid1 "req-1" * field "dup"]
+        assert_equal $id1 $id1_dup
+    }
+
+    test {XADD IDMP multiple producers persistence in RDB} {
+        r DEL mystream
+        
+        # Add entries with multiple producers
+        set id1 [r XADD mystream IDMP p1 "req-1" * field "v1"]
+        set id2 [r XADD mystream IDMP p2 "req-1" * field "v2"]
+        set id3 [r XADD mystream IDMP p3 "req-1" * field "v3"]
+        
+        # Verify before save
+        set reply [r XINFO STREAM mystream]
+        assert_equal 3 [dict get $reply pids-tracked]
+        assert_equal 3 [dict get $reply iids-tracked]
+        
+        # Save and reload
+        r SAVE
+        restart_server 0 true false
+        
+        # Verify after reload
+        set reply [r XINFO STREAM mystream]
+        assert_equal 3 [dict get $reply pids-tracked]
+        assert_equal 3 [dict get $reply iids-tracked]
+        
+        # Verify deduplication still works for all producers
+        assert_equal $id1 [r XADD mystream IDMP p1 "req-1" * field "dup"]
+        assert_equal $id2 [r XADD mystream IDMP p2 "req-1" * field "dup"]
+        assert_equal $id3 [r XADD mystream IDMP p3 "req-1" * field "dup"]
+    } {} {external:skip}
+
+    test {XADD IDMP cron expiration works after RDB load} {
+        r DEL mystream
+
+        # Create stream and set IDMP-DURATION before adding entries,
+        # since XCFGSET clears existing entries when the duration changes.
+        r XADD mystream IDMP p1 "init" * field "init"
+        r XCFGSET mystream IDMP-DURATION 2
+        r XADD mystream IDMP p1 "req-1" * field "v1"
+        r XADD mystream IDMP p2 "req-1" * field "v2"
+
+        set reply [r XINFO STREAM mystream]
+        assert_equal 2 [dict get $reply pids-tracked]
+        assert_equal 2 [dict get $reply iids-tracked]
+
+        # Save and restart — this triggers RDB load which should
+        # register the stream in stream_idmp_keys for cron cleanup.
+        r SAVE
+        restart_server 0 true false
+
+        # Wait for IDMP entries to expire and for the cron to clean them up.
+        # If the stream was not registered in stream_idmp_keys after RDB load,
+        # the counts would never reach 0.
+        # Poll instead of a fixed sleep so the test finishes as soon as possible.
+        wait_for_condition 50 100 {
+            [dict get [r XINFO STREAM mystream] pids-tracked] == 0 &&
+            [dict get [r XINFO STREAM mystream] iids-tracked] == 0
+        } else {
+            fail "IDMP entries were not cleaned up after RDB load"
+        }
+
+        # Expired IIDs should be re-addable as new entries
+        set new_id [r XADD mystream IDMP p1 "req-1" * field "new"]
+        assert {$new_id ne ""}
+        assert_equal 4 [r XLEN mystream]
+    } {} {external:skip}
+
+    test {XADD IDMP tracking survives SWAPDB} {
+        # Use dedicated clients for DB 0 and DB 1 so that `r` stays on
+        # DB 9 (the test default).  If any assertion fails mid-test,
+        # `r` is still on DB 9 and subsequent tests are unaffected.
+        set db0 [redis_client]
+        $db0 SELECT 0
+        $db0 FLUSHDB
+        set db1 [redis_client]
+        $db1 SELECT 1
+        $db1 FLUSHDB
+
+        # Create stream and set IDMP-DURATION before adding entries,
+        # since XCFGSET clears existing entries when the duration changes.
+        $db0 XADD mystream IDMP p1 "init" * field "init"
+        $db0 XCFGSET mystream IDMP-DURATION 2
+        set id1 [$db0 XADD mystream IDMP p1 "req-1" * field "v1"]
+
+        set info [$db0 XINFO STREAM mystream]
+        assert_equal 1 [dict get $info pids-tracked]
+        assert_equal 1 [dict get $info iids-tracked]
+
+        $db0 SWAPDB 0 1
+
+        set id1_dup [$db1 XADD mystream IDMP p1 "req-1" * field "dup"]
+        assert_equal $id1 $id1_dup "Deduplication should work immediately after SWAPDB"
+
+        # If stream_idmp_keys wasn't swapped, cron looks in wrong DB
+        # and entries will never expire.
+        wait_for_condition 50 100 {
+            [dict get [$db1 XINFO STREAM mystream] pids-tracked] == 0 &&
+            [dict get [$db1 XINFO STREAM mystream] iids-tracked] == 0
+        } else {
+            $db0 close
+            $db1 close
+            fail "IDMP entries were not cleaned up after SWAPDB - tracking likely lost"
+        }
+
+        set id2 [$db1 XADD mystream IDMP p1 "req-1" * field "v2"]
+        $db0 close
+        $db1 close
+        assert {$id1 ne $id2}
+    } {} {singledb:skip}
+
+    test {XADD IDMP tracking cleared after FLUSHDB} {
+        r DEL mystream
+
+        # Create stream and set IDMP-DURATION before adding entries,
+        # since XCFGSET clears existing entries when the duration changes.
+        r XADD mystream IDMP p1 "init" * field "init"
+        r XCFGSET mystream IDMP-DURATION 2
+        set id1 [r XADD mystream IDMP p1 "req-1" * field "v1"]
+
+        assert_equal 1 [dict get [r XINFO STREAM mystream] pids-tracked]
+
+        # FLUSHDB should clear all IDMP tracking.
+        r FLUSHDB
+
+        # Recreate stream with the same configuration.
+        r XADD mystream IDMP p1 "init" * field "init"
+        r XCFGSET mystream IDMP-DURATION 2
+
+        set id2 [r XADD mystream IDMP p1 "req-1" * field "v2"]
+
+        assert_equal 2 [r XLEN mystream]
+
+        wait_for_condition 50 100 {
+            [dict get [r XINFO STREAM mystream] pids-tracked] == 0 &&
+            [dict get [r XINFO STREAM mystream] iids-tracked] == 0
+        } else {
+            fail "IDMP entries were not cleaned up for recreated stream after FLUSHDB"
+        }
+
+        set id3 [r XADD mystream IDMP p1 "req-1" * field "v3"]
+        assert {$id2 ne $id3}
+    }
+
+    test {XADD IDMP tracking removed after DEL} {
+        r DEL mystream
+
+        r XADD mystream IDMP p1 "init" * field "init"
+        r XCFGSET mystream IDMP-DURATION 2
+        r XADD mystream IDMP p1 "req-1" * field "v1"
+
+        assert_equal 1 [dict get [r XINFO STREAM mystream] pids-tracked]
+
+        r DEL mystream
+
+        r XADD mystream IDMP p1 "init" * field "init"
+        r XCFGSET mystream IDMP-DURATION 2
+
+        # The same IID should now produce a new entry (old tracking is gone).
+        set len_before [r XLEN mystream]
+        r XADD mystream IDMP p1 "req-1" * field "v2"
+        assert_equal [expr {$len_before + 1}] [r XLEN mystream] \
+            "req-1 should create a new entry after DEL, not deduplicate"
+
+        wait_for_condition 50 100 {
+            [dict get [r XINFO STREAM mystream] pids-tracked] == 0 &&
+            [dict get [r XINFO STREAM mystream] iids-tracked] == 0
+        } else {
+            fail "IDMP entries were not cleaned up after DEL and recreate"
+        }
+    }
+
+    test {XADD IDMP tracking cleared after FLUSHALL across all databases} {
+        set db0 [redis_client]
+        $db0 SELECT 0
+        $db0 FLUSHDB
+        set db1 [redis_client]
+        $db1 SELECT 1
+        $db1 FLUSHDB
+
+        $db0 XADD mystream IDMP p1 "init" * field "init"
+        $db0 XCFGSET mystream IDMP-DURATION 2
+        $db0 XADD mystream IDMP p1 "req-1" * field "v1"
+
+        $db1 XADD mystream IDMP p2 "init" * field "init"
+        $db1 XCFGSET mystream IDMP-DURATION 2
+        $db1 XADD mystream IDMP p2 "req-1" * field "v1"
+
+        assert_equal 1 [dict get [$db0 XINFO STREAM mystream] pids-tracked]
+        assert_equal 1 [dict get [$db1 XINFO STREAM mystream] pids-tracked]
+
+        $db0 FLUSHALL
+
+        $db0 XADD mystream IDMP p1 "init" * field "init"
+        $db0 XCFGSET mystream IDMP-DURATION 2
+        $db1 XADD mystream IDMP p2 "init" * field "init"
+        $db1 XCFGSET mystream IDMP-DURATION 2
+
+        set len0_before [$db0 XLEN mystream]
+        $db0 XADD mystream IDMP p1 "req-1" * field "v2"
+        set len0_after [$db0 XLEN mystream]
+        assert_equal [expr {$len0_before + 1}] $len0_after \
+            "DB0: XADD after FLUSHALL should create a new entry, not deduplicate"
+
+        set len1_before [$db1 XLEN mystream]
+        $db1 XADD mystream IDMP p2 "req-1" * field "v2"
+        set len1_after [$db1 XLEN mystream]
+        assert_equal [expr {$len1_before + 1}] $len1_after \
+            "DB1: XADD after FLUSHALL should create a new entry, not deduplicate"
+
+        wait_for_condition 50 100 {
+            [dict get [$db0 XINFO STREAM mystream] pids-tracked] == 0 &&
+            [dict get [$db0 XINFO STREAM mystream] iids-tracked] == 0 &&
+            [dict get [$db1 XINFO STREAM mystream] pids-tracked] == 0 &&
+            [dict get [$db1 XINFO STREAM mystream] iids-tracked] == 0
+        } else {
+            $db0 close
+            $db1 close
+            fail "IDMP entries were not cleaned up after FLUSHALL and recreate"
+        }
+
+        $db0 close
+        $db1 close
+        assert_equal {2 2} [list $len0_after $len1_after]
+    } {} {singledb:skip}
+
+    test {XADD IDMP tracking survives RENAME} {
+        r DEL idmpstream{t}
+        r DEL idmpnewstream{t}
+
+        r XADD idmpstream{t} IDMP p1 "init" * field "init"
+        r XCFGSET idmpstream{t} IDMP-DURATION 2
+        set id1 [r XADD idmpstream{t} IDMP p1 "req-1" * field "v1"]
+
+        assert_equal 1 [dict get [r XINFO STREAM idmpstream{t}] pids-tracked]
+
+        r RENAME idmpstream{t} idmpnewstream{t}
+
+        # Deduplication should still work under the new name.
+        set id1_dup [r XADD idmpnewstream{t} IDMP p1 "req-1" * field "dup"]
+        assert_equal $id1 $id1_dup
+
+        # IDMP entries should still expire via cron after rename.
+        wait_for_condition 50 100 {
+            [dict get [r XINFO STREAM idmpnewstream{t}] pids-tracked] == 0 &&
+            [dict get [r XINFO STREAM idmpnewstream{t}] iids-tracked] == 0
+        } else {
+            fail "IDMP entries were not cleaned up after RENAME"
+        }
+
+        set id2 [r XADD idmpnewstream{t} IDMP p1 "req-1" * field "v2"]
+        assert {$id1 ne $id2}
+    }
+
+    test {XADD IDMP tracking correct after RENAME overwrites IDMP stream} {
+        r DEL idmpstreamA{t}
+        r DEL idmpstreamB{t}
+
+        r XADD idmpstreamA{t} IDMP p1 "init" * field "init"
+        r XCFGSET idmpstreamA{t} IDMP-DURATION 2
+        set idA [r XADD idmpstreamA{t} IDMP p1 "req-A" * field "vA"]
+
+        r XADD idmpstreamB{t} IDMP p2 "init" * field "init"
+        r XCFGSET idmpstreamB{t} IDMP-DURATION 2
+        r XADD idmpstreamB{t} IDMP p2 "req-B" * field "vB"
+
+        assert_equal 1 [dict get [r XINFO STREAM idmpstreamA{t}] pids-tracked]
+        assert_equal 1 [dict get [r XINFO STREAM idmpstreamB{t}] pids-tracked]
+
+        # RENAME A -> B overwrites B with A's data.
+        r RENAME idmpstreamA{t} idmpstreamB{t}
+
+        # streamA's IDMP tracking should now be under key B.
+        set idA_dup [r XADD idmpstreamB{t} IDMP p1 "req-A" * field "dup"]
+        assert_equal $idA $idA_dup
+
+        # streamB's old tracking (producer p2) should be gone.
+        # Verify by checking XLEN: a new entry should be created, not deduplicated.
+        set len_before [r XLEN idmpstreamB{t}]
+        r XADD idmpstreamB{t} IDMP p2 "req-B" * field "vB2"
+        assert_equal [expr {$len_before + 1}] [r XLEN idmpstreamB{t}] \
+            "p2/req-B should create a new entry after RENAME overwrite, not deduplicate"
+
+        # Cron expiry should still work for the renamed stream.
+        wait_for_condition 50 100 {
+            [dict get [r XINFO STREAM idmpstreamB{t}] pids-tracked] == 0 &&
+            [dict get [r XINFO STREAM idmpstreamB{t}] iids-tracked] == 0
+        } else {
+            fail "IDMP entries were not cleaned up after RENAME overwrite"
+        }
+
+        set idA2 [r XADD idmpstreamB{t} IDMP p1 "req-A" * field "vA2"]
+        assert {$idA ne $idA2}
+    }
+
+    test {XADD IDMP tracking survives COPY} {
+        r DEL idmpstream{t}
+        r DEL idmpcopy{t}
+
+        r XADD idmpstream{t} IDMP p1 "init" * field "init"
+        r XCFGSET idmpstream{t} IDMP-DURATION 2
+        set id1 [r XADD idmpstream{t} IDMP p1 "req-1" * field "v1"]
+
+        # Add a second producer so we can verify multi-producer copy.
+        r XADD idmpstream{t} IDMP p2 "req-A" * field "vA"
+
+        set info [r XINFO STREAM idmpstream{t}]
+        assert_equal 2 [dict get $info pids-tracked]
+        assert_equal 2 [dict get $info iids-tracked]
+
+        r COPY idmpstream{t} idmpcopy{t}
+
+        # Verify all IDMP metadata is preserved on the copy.
+        set copy_info [r XINFO STREAM idmpcopy{t}]
+        set orig_info [r XINFO STREAM idmpstream{t}]
+        assert_equal [dict get $orig_info idmp-duration]    [dict get $copy_info idmp-duration]
+        assert_equal [dict get $orig_info idmp-maxsize]     [dict get $copy_info idmp-maxsize]
+        assert_equal [dict get $orig_info pids-tracked]     [dict get $copy_info pids-tracked]
+        assert_equal [dict get $orig_info iids-tracked]     [dict get $copy_info iids-tracked]
+        assert_equal [dict get $orig_info iids-added]       [dict get $copy_info iids-added]
+        assert_equal [dict get $orig_info iids-duplicates]  [dict get $copy_info iids-duplicates]
+
+        # Deduplication should work on the copy for both producers.
+        set id1_dup [r XADD idmpcopy{t} IDMP p1 "req-1" * field "dup"]
+        assert_equal $id1 $id1_dup
+
+        # Original should still deduplicate independently.
+        set id1_dup_orig [r XADD idmpstream{t} IDMP p1 "req-1" * field "dup"]
+        assert_equal $id1 $id1_dup_orig
+
+        # IDMP entries should expire via cron on the copy.
+        wait_for_condition 50 100 {
+            [dict get [r XINFO STREAM idmpcopy{t}] pids-tracked] == 0 &&
+            [dict get [r XINFO STREAM idmpcopy{t}] iids-tracked] == 0
+        } else {
+            fail "IDMP entries were not cleaned up on copied stream"
+        }
+
+        set id2 [r XADD idmpcopy{t} IDMP p1 "req-1" * field "v2"]
+        assert {$id1 ne $id2}
+    }
+
+    test {XADD IDMP tracking correct after COPY REPLACE overwrites IDMP stream} {
+        r DEL idmpstreamA{t}
+        r DEL idmpstreamB{t}
+
+        r XADD idmpstreamA{t} IDMP p1 "init" * field "init"
+        r XCFGSET idmpstreamA{t} IDMP-DURATION 2
+        set idA [r XADD idmpstreamA{t} IDMP p1 "req-A" * field "vA"]
+
+        r XADD idmpstreamB{t} IDMP p2 "init" * field "init"
+        r XCFGSET idmpstreamB{t} IDMP-DURATION 2
+        r XADD idmpstreamB{t} IDMP p2 "req-B" * field "vB"
+
+        assert_equal 1 [dict get [r XINFO STREAM idmpstreamA{t}] pids-tracked]
+        assert_equal 1 [dict get [r XINFO STREAM idmpstreamB{t}] pids-tracked]
+
+        r COPY idmpstreamA{t} idmpstreamB{t} REPLACE
+
+        # streamA's IDMP tracking should now be under key B.
+        set idA_dup [r XADD idmpstreamB{t} IDMP p1 "req-A" * field "dup"]
+        assert_equal $idA $idA_dup
+
+        # streamB's old tracking (producer p2) should be gone.
+        # Verify by checking XLEN: a new entry should be created, not deduplicated.
+        set len_before [r XLEN idmpstreamB{t}]
+        r XADD idmpstreamB{t} IDMP p2 "req-B" * field "vB2"
+        assert_equal [expr {$len_before + 1}] [r XLEN idmpstreamB{t}] \
+            "p2/req-B should create a new entry after COPY REPLACE, not deduplicate"
+
+        # Original A should still have its own tracking.
+        set idA_dup_orig [r XADD idmpstreamA{t} IDMP p1 "req-A" * field "dup"]
+        assert_equal $idA $idA_dup_orig
+
+        # Cron expiry should work on the replaced copy.
+        wait_for_condition 50 100 {
+            [dict get [r XINFO STREAM idmpstreamB{t}] pids-tracked] == 0 &&
+            [dict get [r XINFO STREAM idmpstreamB{t}] iids-tracked] == 0
+        } else {
+            fail "IDMP entries were not cleaned up after COPY REPLACE"
+        }
+
+        set idA2 [r XADD idmpstreamB{t} IDMP p1 "req-A" * field "vA2"]
+        assert {$idA ne $idA2}
+    }
+
+    test {XADD IDMP tracking survives MOVE} {
+        set db0 [redis_client]
+        $db0 SELECT 0
+        $db0 FLUSHDB
+        set db1 [redis_client]
+        $db1 SELECT 1
+        $db1 FLUSHDB
+
+        $db0 XADD mystream IDMP p1 "init" * field "init"
+        $db0 XCFGSET mystream IDMP-DURATION 2
+        set id1 [$db0 XADD mystream IDMP p1 "req-1" * field "v1"]
+
+        assert_equal 1 [dict get [$db0 XINFO STREAM mystream] pids-tracked]
+
+        $db0 MOVE mystream 1
+
+        # Deduplication should work in the destination DB.
+        set id1_dup [$db1 XADD mystream IDMP p1 "req-1" * field "dup"]
+        assert_equal $id1 $id1_dup
+
+        # IDMP entries should still expire via cron in the new DB.
+        wait_for_condition 50 100 {
+            [dict get [$db1 XINFO STREAM mystream] pids-tracked] == 0 &&
+            [dict get [$db1 XINFO STREAM mystream] iids-tracked] == 0
+        } else {
+            $db0 close
+            $db1 close
+            fail "IDMP entries were not cleaned up after MOVE"
+        }
+
+        set id2 [$db1 XADD mystream IDMP p1 "req-1" * field "v2"]
+        $db0 close
+        $db1 close
+        assert {$id1 ne $id2}
+    } {} {singledb:skip}
+
+    test {XADD IDMP tracking survives RESTORE} {
+        r DEL idmpstream{t}
+        r DEL idmpcopy{t}
+
+        r XADD idmpstream{t} IDMP p1 "init" * field "init"
+        r XCFGSET idmpstream{t} IDMP-DURATION 2
+        set id1 [r XADD idmpstream{t} IDMP p1 "req-1" * field "v1"]
+
+        assert_equal 1 [dict get [r XINFO STREAM idmpstream{t}] pids-tracked]
+
+        set dump [r DUMP idmpstream{t}]
+        set ttl [r PTTL idmpstream{t}]
+        if {$ttl == -1} { set ttl 0 }
+        r RESTORE idmpcopy{t} $ttl $dump
+
+        set copy_info [r XINFO STREAM idmpcopy{t}]
+        assert_equal 1 [dict get $copy_info pids-tracked]
+        assert_equal 1 [dict get $copy_info iids-tracked]
+
+        set id1_dup [r XADD idmpcopy{t} IDMP p1 "req-1" * field "dup"]
+        assert_equal $id1 $id1_dup
+
+        wait_for_condition 50 100 {
+            [dict get [r XINFO STREAM idmpcopy{t}] pids-tracked] == 0 &&
+            [dict get [r XINFO STREAM idmpcopy{t}] iids-tracked] == 0
+        } else {
+            fail "IDMP entries were not cleaned up on RESTOREd stream"
+        }
+
+        set id2 [r XADD idmpcopy{t} IDMP p1 "req-1" * field "v2"]
+        assert {$id1 ne $id2}
+    }
+
+    test {XADD IDMP multiple producers concurrent access} {
+        r DEL mystream
+        
+        # Create multiple clients
+        set client1 [redis_client]
+        set client2 [redis_client]
+        set client3 [redis_client]
+        
+        # Each client acts as a different producer
+        set id1 [$client1 XADD mystream IDMP service-a "order-123" * data "from-a"]
+        set id2 [$client2 XADD mystream IDMP service-b "order-123" * data "from-b"]
+        set id3 [$client3 XADD mystream IDMP service-c "order-123" * data "from-c"]
+        
+        # All should be different entries
+        assert {$id1 ne $id2}
+        assert {$id2 ne $id3}
+        assert_equal 3 [r XLEN mystream]
+        
+        # Duplicate from same service should return same ID
+        set id1_dup [$client1 XADD mystream IDMP service-a "order-123" * data "retry"]
+        assert_equal $id1 $id1_dup
+        
+        # Verify pids-tracked
+        set reply [r XINFO STREAM mystream]
+        assert_equal 3 [dict get $reply pids-tracked]
+        
+        # Cleanup
+        $client1 close
+        $client2 close
+        $client3 close
+    }
+
+    test {XADD IDMP multiple producers pipelined requests} {
+        r DEL mystream
+        
+        # Send pipelined requests from multiple producers
+        r MULTI
+        r XADD mystream IDMP p1 "req-1" * field "v1"
+        r XADD mystream IDMP p2 "req-1" * field "v2"
+        r XADD mystream IDMP p1 "req-1" * field "dup"
+        r XADD mystream IDMP p2 "req-2" * field "v3"
+        r XADD mystream IDMP p3 "req-1" * field "v4"
+        set results [r EXEC]
+        
+        set id_p1_r1 [lindex $results 0]
+        set id_p2_r1 [lindex $results 1]
+        set id_p1_r1_dup [lindex $results 2]
+        set id_p2_r2 [lindex $results 3]
+        set id_p3_r1 [lindex $results 4]
+        
+        # p1 req-1 and its duplicate should match
+        assert_equal $id_p1_r1 $id_p1_r1_dup
+        
+        # Different producers or different IIDs should be different
+        assert {$id_p1_r1 ne $id_p2_r1}
+        assert {$id_p2_r1 ne $id_p2_r2}
+        assert {$id_p2_r1 ne $id_p3_r1}
+        
+        # 4 unique entries: p1/req-1, p2/req-1, p2/req-2, p3/req-1
+        assert_equal 4 [r XLEN mystream]
+        
+        set reply [r XINFO STREAM mystream]
+        assert_equal 3 [dict get $reply pids-tracked]
+    }
+
+    test {XADD IDMP multiple producers with mixed IDMP and IDMPAUTO} {
+        r DEL mystream
+        
+        # Mix of IDMP and IDMPAUTO from different producers
+        set id1 [r XADD mystream IDMP p1 "explicit-iid" * field "v1"]
+        set id2 [r XADD mystream IDMPAUTO p2 * field "v1"]
+        set id3 [r XADD mystream IDMP p3 "another-iid" * field "v1"]
+        set id4 [r XADD mystream IDMPAUTO p4 * field "v1"]
+        
+        # All should be different entries
+        assert {$id1 ne $id2}
+        assert {$id2 ne $id3}
+        assert {$id3 ne $id4}
+        assert_equal 4 [r XLEN mystream]
+        
+        # Duplicates should work for each type
+        set id1_dup [r XADD mystream IDMP p1 "explicit-iid" * field "dup"]
+        set id2_dup [r XADD mystream IDMPAUTO p2 * field "v1"]
+        
+        assert_equal $id1 $id1_dup
+        assert_equal $id2 $id2_dup
+        
+        set reply [r XINFO STREAM mystream]
+        assert_equal 4 [dict get $reply pids-tracked]
+    }
+
+    test {XADD IDMP multiple producers stress test} {
+        r DEL mystream
+        
+        # Create many producers
+        set num_producers 50
+        set ids {}
+        
+        for {set i 0} {$i < $num_producers} {incr i} {
+            lappend ids [r XADD mystream IDMP "producer-$i" "request-1" * field "value-$i"]
+        }
+        
+        # Verify all entries exist
+        assert_equal $num_producers [r XLEN mystream]
+        
+        # Verify pids-tracked
+        set reply [r XINFO STREAM mystream]
+        assert_equal $num_producers [dict get $reply pids-tracked]
+        assert_equal $num_producers [dict get $reply iids-tracked]
+        
+        # Verify deduplication for each producer
+        for {set i 0} {$i < $num_producers} {incr i} {
+            set original_id [lindex $ids $i]
+            set dup_id [r XADD mystream IDMP "producer-$i" "request-1" * field "dup"]
+            assert_equal $original_id $dup_id
+        }
+        
+        # No new entries should have been added
+        assert_equal $num_producers [r XLEN mystream]
+    }
+
+    test {XADD IDMPAUTO with invalid syntax} {
+        r DEL mystream
+        assert_error "*IDMP/IDMPAUTO specified multiple times*" {r XADD mystream IDMPAUTO p1 IDMPAUTO p2 * f v}
+        assert_error "*IDMP/IDMPAUTO specified multiple times*" {r XADD mystream IDMPAUTO p1 IDMP p2 iid1 * f v}
+        assert_error "*IDMP/IDMPAUTO specified multiple times*" {r XADD mystream IDMP p1 iid1 IDMPAUTO p2 * f v}
+        assert_error "*IDMP/IDMPAUTO can be used only with auto-generated IDs*" {r XADD mystream IDMPAUTO p1 1-1 f v}
+    }
+
+    test {XADD IDMPAUTO basic deduplication based on field-value pairs} {
+        r DEL mystream
+        
+        # First XADD with IDMPAUTO
+        set id1 [r XADD mystream IDMPAUTO p1 * amount "100" currency "USD"]
+        assert {[regexp {^[0-9]+-[0-9]+$} $id1]}
+        
+        # Second XADD with same fields and values should deduplicate
+        set id2 [r XADD mystream IDMPAUTO p1 * amount "100" currency "USD"]
+        assert_equal $id1 $id2
+        
+        # Verify only one entry exists
+        assert_equal 1 [r XLEN mystream]
+        
+        # Third XADD with different values should create new entry
+        set id3 [r XADD mystream IDMPAUTO p1 * amount "200" currency "USD"]
+        assert {$id3 != $id1}
+        assert_equal 2 [r XLEN mystream]
+    }
+
+    test {XADD IDMPAUTO deduplicates regardless of field order} {
+        r DEL mystream
+        
+        # Add entry with fields in one order
+        set id1 [r XADD mystream IDMPAUTO p1 * field1 "a" field2 "b" field3 "c"]
+        
+        # Add entry with same fields in different order (should deduplicate)
+        set id2 [r XADD mystream IDMPAUTO p1 * field2 "b" field3 "c" field1 "a"]
+        assert_equal $id1 $id2
+        
+        # Verify only one entry exists
+        assert_equal 1 [r XLEN mystream]
+        
+        # Add entry with different order but different values (should be new)
+        set id3 [r XADD mystream IDMPAUTO p1 * field3 "c" field1 "x" field2 "b"]
+        assert {$id3 != $id1}
+        assert_equal 2 [r XLEN mystream]
+    }
+
+    test {XADD IDMPAUTO different field-value pairs create different entries} {
+        r DEL mystream
+        
+        # Add different entries
+        set id1 [r XADD mystream IDMPAUTO p1 * user "alice" action "login"]
+        set id2 [r XADD mystream IDMPAUTO p1 * user "bob" action "login"]
+        set id3 [r XADD mystream IDMPAUTO p1 * user "alice" action "logout"]
+        
+        # Verify all IDs are different
+        assert {$id1 != $id2}
+        assert {$id2 != $id3}
+        assert {$id1 != $id3}
+        
+        # Verify all entries exist
+        assert_equal 3 [r XLEN mystream]
+    }
+
+    test {XADD IDMPAUTO with single field-value pair} {
+        r DEL mystream
+        
+        # Add entry with single field
+        set id1 [r XADD mystream IDMPAUTO p1 * status "active"]
+        set id2 [r XADD mystream IDMPAUTO p1 * status "active"]
+        assert_equal $id1 $id2
+        
+        # Different value should create new entry
+        set id3 [r XADD mystream IDMPAUTO p1 * status "inactive"]
+        assert {$id3 != $id1}
+        assert_equal 2 [r XLEN mystream]
+    }
+
+    test {XADD IDMPAUTO with many field-value pairs} {
+        r DEL mystream
+        
+        # Add entry with many fields
+        set id1 [r XADD mystream IDMPAUTO p1 * f1 "v1" f2 "v2" f3 "v3" f4 "v4" f5 "v5" f6 "v6" f7 "v7" f8 "v8"]
+        set id2 [r XADD mystream IDMPAUTO p1 * f1 "v1" f2 "v2" f3 "v3" f4 "v4" f5 "v5" f6 "v6" f7 "v7" f8 "v8"]
+        assert_equal $id1 $id2
+        
+        # Change one value should create new entry
+        set id3 [r XADD mystream IDMPAUTO p1 * f1 "v1" f2 "v2" f3 "v3" f4 "v4" f5 "v5" f6 "v6" f7 "v7" f8 "different"]
+        assert {$id3 != $id1}
+        assert_equal 2 [r XLEN mystream]
+    }
+
+    test {XADD IDMPAUTO with binary-safe values} {
+        r DEL mystream
+        
+        # Test with null bytes and binary data
+        set binary_val "\x00\x01\x02\xff"
+        set id1 [r XADD mystream IDMPAUTO p1 * field $binary_val]
+        set id2 [r XADD mystream IDMPAUTO p1 * field $binary_val]
+        assert_equal $id1 $id2
+        assert_equal 1 [r XLEN mystream]
+    }
+
+    test {XADD IDMPAUTO with unicode values} {
+        r DEL mystream
+        
+        # Test with unicode characters
+        set id1 [r XADD mystream IDMPAUTO p1 * message "hello世界"]
+        set id2 [r XADD mystream IDMPAUTO p1 * message "hello世界"]
+        assert_equal $id1 $id2
+        
+        # Different unicode should create new entry
+        set id3 [r XADD mystream IDMPAUTO p1 * message "héllo"]
+        assert {$id3 != $id1}
+        assert_equal 2 [r XLEN mystream]
+    }
+
+    test {XADD IDMPAUTO with long values} {
+        r DEL mystream
+        
+        # Test with very long values
+        set long_val [string repeat "x" 10000]
+        set id1 [r XADD mystream IDMPAUTO p1 * data $long_val]
+        set id2 [r XADD mystream IDMPAUTO p1 * data $long_val]
+        assert_equal $id1 $id2
+        assert_equal 1 [r XLEN mystream]
+    }
+
+    test {XADD IDMPAUTO with empty string values} {
+        r DEL mystream
+        
+        # Test with empty string values
+        set id1 [r XADD mystream IDMPAUTO p1 * field ""]
+        set id2 [r XADD mystream IDMPAUTO p1 * field ""]
+        assert_equal $id1 $id2
+        
+        # Non-empty should be different
+        set id3 [r XADD mystream IDMPAUTO p1 * field "value"]
+        assert {$id3 != $id1}
+        assert_equal 2 [r XLEN mystream]
+    }
+
+    test {XADD IDMPAUTO with MAXLEN option} {
+        r DEL mystream
+        
+        # Add entries with IDMPAUTO and MAXLEN
+        set id1 [r XADD mystream IDMPAUTO p1 MAXLEN ~ 100 * field "value1"]
+        set id2 [r XADD mystream IDMPAUTO p1 MAXLEN ~ 100 * field "value2"]
+        
+        # Attempt duplicate
+        set id1_dup [r XADD mystream IDMPAUTO p1 MAXLEN ~ 100 * field "value1"]
+        
+        # Verify deduplication works
+        assert_equal $id1 $id1_dup
+        
+        # Verify only 2 entries exist
+        assert_equal 2 [r XLEN mystream]
+    }
+
+    test {XADD IDMPAUTO with MINID option} {
+        r DEL mystream
+        
+        # Add entry with IDMPAUTO and MINID
+        set id1 [r XADD mystream IDMPAUTO p1 MINID ~ 1000000000-0 * field "value1"]
+        
+        # Attempt duplicate with MINID
+        set id2 [r XADD mystream IDMPAUTO p1 MINID ~ 1000000000-0 * field "value1"]
+        
+        # Verify deduplication works
+        assert_equal $id1 $id2
+        assert_equal 1 [r XLEN mystream]
+    }
+
+    test {XADD IDMPAUTO with NOMKSTREAM option} {
+        r DEL mystream
+        
+        # Attempt XADD with NOMKSTREAM on non-existent stream
+        set result [r XADD mystream NOMKSTREAM IDMPAUTO p1 * field "value"]
+        assert_equal {} $result
+        
+        # Create stream first
+        r XADD mystream * field "initial"
+        
+        # Now NOMKSTREAM with IDMPAUTO should work
+        set id [r XADD mystream NOMKSTREAM IDMPAUTO p1 * field "test"]
+        assert {[regexp {^[0-9]+-[0-9]+$} $id]}
+    }
+
+    test {XADD IDMPAUTO with KEEPREF option} {
+        r DEL mystream
+        
+        # Add entries with IDMPAUTO and KEEPREF
+        set id1 [r XADD mystream KEEPREF IDMPAUTO p1 * field "value1"]
+        set id2 [r XADD mystream KEEPREF IDMPAUTO p1 * field "value1"]
+        
+        # Verify deduplication works with KEEPREF
+        assert_equal $id1 $id2
+        assert_equal 1 [r XLEN mystream]
+    }
+
+    test {XADD IDMPAUTO argument order variations} {
+        r DEL mystream
+        
+        # Test different argument orders
+        set id1 [r XADD mystream IDMPAUTO p1 * field "test"]
+        set id2 [r XADD mystream IDMPAUTO p1 MAXLEN ~ 100 * field "test2"]
+        set id3 [r XADD mystream MAXLEN ~ 100 IDMPAUTO p1 * field "test3"]
+        set id4 [r XADD mystream KEEPREF IDMPAUTO p1 * field "test4"]
+        set id5 [r XADD mystream IDMPAUTO p1 KEEPREF * field "test5"]
+        
+        # All should be valid stream IDs
+        assert {[regexp {^[0-9]+-[0-9]+$} $id1]}
+        assert {[regexp {^[0-9]+-[0-9]+$} $id2]}
+        assert {[regexp {^[0-9]+-[0-9]+$} $id3]}
+        assert {[regexp {^[0-9]+-[0-9]+$} $id4]}
+        assert {[regexp {^[0-9]+-[0-9]+$} $id5]}
+        
+        # Verify all entries exist
+        assert_equal 5 [r XLEN mystream]
+    }
+
+    test {XADD IDMPAUTO persists in RDB} {
+        r DEL mystream
+        
+        # Add entries with IDMPAUTO
+        set id1 [r XADD mystream IDMPAUTO p1 * field "value1"]
+        set id2 [r XADD mystream IDMPAUTO p1 * field "value2"]
+        
+        # Save and reload
+        r DEBUG RELOAD
+        
+        # Verify stream exists
+        assert_equal 2 [r XLEN mystream]
+        
+        # Verify deduplication still works after restart
+        set id1_dup [r XADD mystream IDMPAUTO p1 * field "value1"]
+        assert_equal $id1 $id1_dup
+        
+        # Should still have only 2 entries
+        assert_equal 2 [r XLEN mystream]
+    } {} {external:skip needs:debug}
+
+    test {XADD IDMPAUTO with consumer groups} {
+        r DEL mystream
+        
+        # Create consumer group
+        r XADD mystream * initial "value"
+        r XGROUP CREATE mystream mygroup 0
+        
+        # Add entries with IDMPAUTO
+        set id1 [r XADD mystream IDMPAUTO p1 * event "login" user "alice"]
+        set id2 [r XADD mystream IDMPAUTO p1 * event "logout" user "bob"]
+        
+        # Attempt duplicate
+        set id1_dup [r XADD mystream IDMPAUTO p1 * event "login" user "alice"]
+        assert_equal $id1 $id1_dup
+        
+        # Read from consumer group (should get 3 new entries, not 4)
+        set messages [r XREADGROUP GROUP mygroup consumer1 COUNT 10 STREAMS mystream >]
+        set stream_data [lindex $messages 0 1]
+        assert_equal 3 [llength $stream_data]
+    }
+
+    test {XADD IDMPAUTO field names matter} {
+        r DEL mystream
+        
+        # Different field names should create different entries
+        set id1 [r XADD mystream IDMPAUTO p1 * field1 "value"]
+        set id2 [r XADD mystream IDMPAUTO p1 * field2 "value"]
+        
+        assert {$id1 != $id2}
+        assert_equal 2 [r XLEN mystream]
+    }
+
+    test {XADD IDMPAUTO with numeric field names and values} {
+        r DEL mystream
+        
+        # Test with numeric field names
+        set id1 [r XADD mystream IDMPAUTO p1 * 123 "456" 789 "012"]
+        set id2 [r XADD mystream IDMPAUTO p1 * 123 "456" 789 "012"]
+        assert_equal $id1 $id2
+        
+        # Different numeric values
+        set id3 [r XADD mystream IDMPAUTO p1 * 123 "999" 789 "012"]
+        assert {$id3 != $id1}
+        assert_equal 2 [r XLEN mystream]
+    }
+
+    test {XADD IDMPAUTO multiple producers have isolated namespaces} {
+        r DEL mystream
+        
+        # Same field-value pairs with different producers should create separate entries
+        set id1 [r XADD mystream IDMPAUTO producer1 * amount "100" currency "USD"]
+        set id2 [r XADD mystream IDMPAUTO producer2 * amount "100" currency "USD"]
+        
+        # Different producers = different entries
+        assert {$id1 ne $id2}
+        assert_equal 2 [r XLEN mystream]
+        
+        # Same producer with same fields should deduplicate
+        set id1_dup [r XADD mystream IDMPAUTO producer1 * amount "100" currency "USD"]
+        set id2_dup [r XADD mystream IDMPAUTO producer2 * amount "100" currency "USD"]
+        
+        assert_equal $id1 $id1_dup
+        assert_equal $id2 $id2_dup
+        assert_equal 2 [r XLEN mystream]
+    }
+
+    test {XADD IDMPAUTO multiple producers} {
+        r DEL mystream
+        
+        # Different producers with same content should create separate entries
+        set id1 [r XADD mystream IDMPAUTO app1 * event "login" user "alice"]
+        set id2 [r XADD mystream IDMPAUTO app2 * event "login" user "alice"]
+        set id3 [r XADD mystream IDMPAUTO app3 * event "login" user "alice"]
+        
+        # All should be different (different producers)
+        assert {$id1 ne $id2}
+        assert {$id2 ne $id3}
+        assert_equal 3 [r XLEN mystream]
+        
+        # Same producer with same content should deduplicate
+        set id1_dup [r XADD mystream IDMPAUTO app1 * event "login" user "alice"]
+        assert_equal $id1 $id1_dup
+        
+        set reply [r XINFO STREAM mystream]
+        assert_equal 3 [dict get $reply pids-tracked]
+    }
+
+    test {XIDMP entries expire after DURATION seconds} {
+        r DEL mystream
+        r XADD mystream IDMP p1 "req-1" * field "value1"
+        r XCFGSET mystream IDMP-DURATION 1
+        
+        # Immediate duplicate should be detected
+        set id1 [r XADD mystream IDMP p1 "req-1" * field "value1"]
+        set id2 [r XADD mystream IDMP p1 "req-1" * field "value2"]
+        assert_equal $id1 $id2
+        
+        # Wait for expiration (1 second + margin)
+        after 2500
+        
+        # Now should create new entry
+        set id3 [r XADD mystream IDMP p1 "req-1" * field "value3"]
+        assert {$id1 ne $id3}
+    }
+
+    test {XIDMP set evicts entries when MAXSIZE is reached} {
+        r DEL mystream
+        
+        # First add an entry to create the stream, then set config
+        r XADD mystream IDMP p1 "init" * field "init"
+        r XCFGSET mystream IDMP-MAXSIZE 3 IDMP-DURATION 60
+        
+        # Add 3 unique entries
+        set id1 [r XADD mystream IDMP p1 "req-1" * field "v1"]
+        set id2 [r XADD mystream IDMP p1 "req-2" * field "v2"]
+        set id3 [r XADD mystream IDMP p1 "req-3" * field "v3"]
+        
+        # All duplicates should still work (IDMP set has: req-1, req-2, req-3)
+        assert_equal $id1 [r XADD mystream IDMP p1 "req-1" * field "dup"]
+        assert_equal $id2 [r XADD mystream IDMP p1 "req-2" * field "dup"]
+        assert_equal $id3 [r XADD mystream IDMP p1 "req-3" * field "dup"]
+        
+        # Add 4th entry - should evict oldest (req-1)
+        set id4 [r XADD mystream IDMP p1 "req-4" * field "v4"]
+        
+        # req-1 should be evicted, so it should create new entry
+        set result [r XADD mystream IDMP p1 "req-1" * field "new"]
+        assert {$result ne $id1}
+        
+        # req-2 is also eveicted but req-3 should still be in the set
+        assert_equal $id3 [r XADD mystream IDMP p1 "req-3" * field "dup2"]
+        
+        # Stream should have: init, req-1, req-2, req-3, req-4, req-1(new) = 6 entries
+        assert_equal 6 [r XLEN mystream]
+    }
+
+    test {XCFGSET set IDMP-DURATION successfully} {
+        r DEL mystream
+        
+        # Create stream with IDMP entry
+        r XADD mystream IDMP p1 "req-1" * field "value"
+        
+        # Set IDMP-DURATION to 5s
+        assert_equal "OK" [r XCFGSET mystream IDMP-DURATION 5]
+        
+        # Verify IDMP-DURATION was set
+        set reply [r XINFO STREAM mystream]
+        assert_equal 5 [dict get $reply idmp-duration]
+    }
+
+    test {XCFGSET set IDMP-MAXSIZE successfully} {
+        r DEL mystream
+        
+        # Create stream with IDMP entry
+        r XADD mystream IDMP p1 "req-1" * field "value"
+        
+        # Set IDMP-MAXSIZE to 5000
+        assert_equal "OK" [r XCFGSET mystream IDMP-MAXSIZE 5000]
+        
+        # Verify IDMP-MAXSIZE was set
+        set reply [r XINFO STREAM mystream]
+        assert_equal 5000 [dict get $reply idmp-maxsize]
+    }
+
+    test {XCFGSET set both IDMP-DURATION and IDMP-MAXSIZE} {
+        r DEL mystream
+        
+        # Create stream with IDMP entry
+        r XADD mystream IDMP p1 "req-1" * field "value"
+        
+        # Set both IDMP-DURATION and IDMP-MAXSIZE
+        assert_equal "OK" [r XCFGSET mystream IDMP-DURATION 3 IDMP-MAXSIZE 10000]
+        
+        # Verify both were set
+        set reply [r XINFO STREAM mystream]
+        assert_equal 3 [dict get $reply idmp-duration]
+        assert_equal 10000 [dict get $reply idmp-maxsize]
+    }
+
+    test {XINFO STREAM shows IDMP configuration parameters} {
+        r DEL mystream
+        
+        # Create stream with IDMP entry
+        r XADD mystream IDMP p1 "req-1" * field "value"
+        
+        # Set both IDMP-DURATION and IDMP-MAXSIZE
+        assert_equal "OK" [r XCFGSET mystream IDMP-DURATION 3 IDMP-MAXSIZE 10000]
+        
+        # Verify both were set
+        set reply [r XINFO STREAM mystream]
+        assert_equal 3 [dict get $reply idmp-duration]
+        assert_equal 10000 [dict get $reply idmp-maxsize]
+    }
+
+    test {XINFO STREAM shows default IDMP parameters} {
+        r DEL mystream
+        
+        # Create stream with IDMP entry
+        r XADD mystream IDMP p1 "req-1" * field "value"
+        
+        # Verify default parameters
+        set reply [r XINFO STREAM mystream]
+        assert_equal 100 [dict get $reply idmp-duration]
+        assert_equal 100 [dict get $reply idmp-maxsize]
+    }
+
+    test {XCFGSET error on non-existent stream} {
+        r DEL mystream
+        
+        # Attempt to set config on non-existent stream
+        assert_error "*no such key*" {r XCFGSET mystream IDMP-DURATION 5}
+    }
+
+    test {XCFGSET IDMP-DURATION maximum value validation} {
+        r DEL mystream
+        
+        # Create stream with IDMP
+        r XADD mystream IDMP p1 "req-1" * field "value"
+        
+        # Set IDMP-DURATION to maximum allowed (86400 seconds = 24 hours)
+        assert_equal "OK" [r XCFGSET mystream IDMP-DURATION 86400]
+        
+        # Verify it was set
+        set reply [r XINFO STREAM mystream]
+        assert_equal 86400 [dict get $reply idmp-duration]
+        
+        # Attempt to set IDMP-DURATION above maximum
+        assert_error "*ERR IDMP-DURATION must be*" {r XCFGSET mystream IDMP-DURATION 86401}
+        
+        # Verify IDMP-DURATION wasn't changed
+        set reply [r XINFO STREAM mystream]
+        assert_equal 86400 [dict get $reply idmp-duration]
+    }
+
+    test {XCFGSET IDMP-DURATION minimum value validation} {
+        r DEL mystream
+        
+        # Create stream with IDMP
+        r XADD mystream IDMP p1 "req-1" * field "value"
+        
+        # Attempt to set IDMP-DURATION to 0
+        assert_error "*ERR IDMP-DURATION must be between*" {r XCFGSET mystream IDMP-DURATION 0}
+        
+        # Attempt to set IDMP-DURATION to negative value
+        assert_error "*ERR IDMP-DURATION must be between*" {r XCFGSET mystream IDMP-DURATION -100}
+        
+        # Set IDMP-DURATION to minimum valid value (1 second)
+        assert_equal "OK" [r XCFGSET mystream IDMP-DURATION 1]
+        
+        # Verify it was set
+        set reply [r XINFO STREAM mystream]
+        assert_equal 1 [dict get $reply idmp-duration]
+    }
+
+    test {XCFGSET IDMP-MAXSIZE maximum value validation} {
+        r DEL mystream
+        
+        # Create stream with IDMP
+        r XADD mystream IDMP p1 "req-1" * field "value"
+        
+        # Set IDMP-MAXSIZE to maximum allowed (10000)
+        assert_equal "OK" [r XCFGSET mystream IDMP-MAXSIZE 10000]
+        
+        # Verify it was set
+        set reply [r XINFO STREAM mystream]
+        assert_equal 10000 [dict get $reply idmp-maxsize]
+        
+        # Attempt to set IDMP-MAXSIZE above maximum
+        assert_error "*ERR IDMP-MAXSIZE must be between*" {r XCFGSET mystream IDMP-MAXSIZE 10001}
+        
+        # Verify IDMP-MAXSIZE wasn't changed
+        set reply [r XINFO STREAM mystream]
+        assert_equal 10000 [dict get $reply idmp-maxsize]
+    }
+
+    test {XCFGSET IDMP-MAXSIZE minimum value validation} {
+        r DEL mystream
+        
+        # Create stream with IDMP
+        r XADD mystream IDMP p1 "req-1" * field "value"
+        
+        # Attempt to set IDMP-MAXSIZE to 0
+        assert_error "*ERR IDMP-MAXSIZE must be between*" {r XCFGSET mystream IDMP-MAXSIZE 0}
+        
+        # Attempt to set IDMP-MAXSIZE to negative value
+        assert_error "*ERR IDMP-MAXSIZE must be between*" {r XCFGSET mystream IDMP-MAXSIZE -50}
+        
+        # Set IDMP-MAXSIZE to minimum valid value (1)
+        assert_equal "OK" [r XCFGSET mystream IDMP-MAXSIZE 1]
+        
+        # Verify it was set
+        set reply [r XINFO STREAM mystream]
+        assert_equal 1 [dict get $reply idmp-maxsize]
+    }
+
+    test {XCFGSET invalid syntax} {
+        r DEL mystream
+        
+        # Create stream with IDMP
+        r XADD mystream IDMP p1 "req-1" * field "value"
+        
+        # Attempt CFGSET with invalid syntax
+        assert_error "*ERR At least one parameter*" {r XCFGSET mystream}
+        assert_error "*syntax*" {r XCFGSET mystream IDMP-DURATION}
+        assert_error "*syntax*" {r XCFGSET mystream IDMP-MAXSIZE}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream IDMP-DURATION A}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream IDMP-DURATION AAA}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream IDMP-DURATION *}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream IDMP-DURATION -}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream IDMP-DURATION +}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream IDMP-DURATION 120-5}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream IDMP-DURATION 3.14}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream IDMP-DURATION 000000000}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream IDMP-DURATION IDMP-DURATION}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream IDMP-DURATION IDMP-DURATION IDMP-DURATION}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream IDMP-MAXSIZE A}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream IDMP-MAXSIZE AAA}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream IDMP-MAXSIZE *}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream IDMP-MAXSIZE -}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream IDMP-MAXSIZE +}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream IDMP-MAXSIZE 120-5}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream IDMP-MAXSIZE 3.14}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream IDMP-MAXSIZE 000000000}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream IDMP-MAXSIZE IDMP-MAXSIZE}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream IDMP-MAXSIZE IDMP-MAXSIZE IDMP-MAXSIZE}
+
+        assert_error "*syntax*" {r XCFGSET mystream INVALID}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream IDMP-DURATION INVALID IDMP-MAXSIZE}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream IDMP-MAXSIZE INVALID IDMP-DURATION}
+    }
+
+    test {XCFGSET multiple configuration changes} {
+        r DEL mystream
+        
+        # Create stream with IDMP
+        r XADD mystream IDMP p1 "req-1" * field "value"
+        
+        # Change DURATION multiple times
+        r XCFGSET mystream IDMP-DURATION 1
+        r XCFGSET mystream IDMP-DURATION 2
+        r XCFGSET mystream IDMP-DURATION 3
+        
+        # Change MAXSIZE
+        r XCFGSET mystream IDMP-MAXSIZE 100
+        r XCFGSET mystream IDMP-MAXSIZE 200
+        
+        # Verify latest values
+        set reply [r XINFO STREAM mystream]
+        assert_equal 3 [dict get $reply idmp-duration]
+        assert_equal 200 [dict get $reply idmp-maxsize]
+    }
+
+    test {XCFGSET configuration persists in RDB} {
+        r DEL mystream
+        
+        # Create stream and set configuration
+        r XADD mystream IDMP p1 "req-1" * field "value"
+        r XCFGSET mystream IDMP-DURATION 75 IDMP-MAXSIZE 7500
+        
+        # Save and restart
+        r SAVE
+
+        # Restart Redis
+        restart_server 0 true false
+        
+        # Verify configuration persisted
+        set reply [r XINFO STREAM mystream]
+        assert_equal 75 [dict get $reply idmp-duration]
+        assert_equal 7500 [dict get $reply idmp-maxsize]
+    } {} {external:skip}
+
+    test {XCFGSET configuration in AOF} {
+        r DEL mystream
+        r config set appendonly yes
+        
+        # Wait for the automatic AOF rewrite triggered by enabling AOF
+        waitForBgrewriteaof r
+
+        # Create stream and set configuration
+        r XADD mystream IDMP p1 "req-1" * field "value"
+        r XCFGSET mystream IDMP-DURATION 45 IDMP-MAXSIZE 4500
+        
+        # Force AOF rewrite
+        r BGREWRITEAOF
+        waitForBgrewriteaof r
+        
+        # Restart with AOF
+        r DEBUG RELOAD
+        
+        # Verify configuration
+        set reply [r XINFO STREAM mystream]
+        assert_equal 45 [dict get $reply idmp-duration]
+        assert_equal 4500 [dict get $reply idmp-maxsize]
+        
+        assert_equal "OK" [r config set appendonly no]
+    } {} {external:skip needs:debug}
+
+    test {XCFGSET changing IDMP-DURATION clears all iids history} {
+        r DEL mystream
+        
+        # Create stream and add entries with IDMP
+        set id1 [r XADD mystream IDMP p1 "req-1" * field "value1"]
+        set id2 [r XADD mystream IDMP p1 "req-2" * field "value2"]
+        
+        # Verify deduplication works before config change
+        set dup_id [r XADD mystream IDMP p1 "req-1" * field "dup"]
+        assert_equal $id1 $dup_id
+        
+        # Change DURATION - should clear iids history
+        r XCFGSET mystream IDMP-DURATION 5
+        
+        # Now req-1 should create a new entry (history was cleared)
+        set new_id1 [r XADD mystream IDMP p1 "req-1" * field "new1"]
+        assert {$id1 ne $new_id1}
+        
+        # Should have 3 entries total (2 original + 1 new)
+        assert_equal 3 [r XLEN mystream]
+    }
+
+    test {XCFGSET changing IDMP-MAXSIZE clears all iids history} {
+        r DEL mystream
+        
+        # Create stream and add entries with IDMP
+        set id1 [r XADD mystream IDMP p1 "req-1" * field "value1"]
+        set id2 [r XADD mystream IDMP p1 "req-2" * field "value2"]
+        
+        # Verify deduplication works before config change
+        set dup_id [r XADD mystream IDMP p1 "req-2" * field "dup"]
+        assert_equal $id2 $dup_id
+        
+        # Change MAXSIZE - should clear iids history
+        r XCFGSET mystream IDMP-MAXSIZE 5000
+        
+        # Now req-2 should create a new entry (history was cleared)
+        set new_id2 [r XADD mystream IDMP p1 "req-2" * field "new2"]
+        assert {$id2 ne $new_id2}
+        
+        # Should have 3 entries total (2 original + 1 new)
+        assert_equal 3 [r XLEN mystream]
+    }
+
+    test {XCFGSET history cleared then new deduplication works} {
+        r DEL mystream
+        
+        # Create stream and add entries
+        set id1 [r XADD mystream IDMP p1 "req-1" * field "value1"]
+        
+        # Change configuration to clear history
+        r XCFGSET mystream IDMP-DURATION 6
+        
+        # Add new entry with same iid
+        set new_id1 [r XADD mystream IDMP p1 "req-1" * field "new1"]
+        assert {$id1 ne $new_id1}
+        
+        # Now deduplication should work with new history
+        set dup_id1 [r XADD mystream IDMP p1 "req-1" * field "dup1"]
+        assert_equal $new_id1 $dup_id1
+        
+        # Should have 2 entries (1 original + 1 new)
+        assert_equal 2 [r XLEN mystream]
+    }
+
+    test {XCFGSET history cleared preserves stream entries} {
+        r DEL mystream
+        
+        # Create stream with entries
+        set id1 [r XADD mystream IDMP p1 "req-1" * field "value1" data "data1"]
+        set id2 [r XADD mystream IDMP p1 "req-2" * field "value2" data "data2"]
+        
+        # Verify entries exist with correct data
+        set entries [r XRANGE mystream - +]
+        assert_equal 2 [llength $entries]
+        
+        # Change configuration to clear iids history
+        r XCFGSET mystream IDMP-DURATION 7
+        
+        # Stream entries should still exist unchanged
+        set entries_after [r XRANGE mystream - +]
+        assert_equal 2 [llength $entries_after]
+        
+        # Verify original entries have correct data
+        set entry1_fields [lindex [lindex $entries_after 0] 1]
+        assert_equal "value1" [dict get $entry1_fields field]
+        assert_equal "data1" [dict get $entry1_fields data]
+        
+        # But iids history is cleared, so can add new entries
+        set new_id1 [r XADD mystream IDMP p1 "req-1" * field "new1"]
+        assert {$id1 ne $new_id1}
+    }
+
+    test {XCFGSET setting same IDMP-DURATION does not clear iids history} {
+        r DEL mystream
+        
+        # Create stream and add entries with IDMP
+        set id1 [r XADD mystream IDMP p1 "req-1" * field "value1"]
+        set id2 [r XADD mystream IDMP p1 "req-2" * field "value2"]
+        
+        # Verify deduplication works before config
+        set dup_id [r XADD mystream IDMP p1 "req-1" * field "dup"]
+        assert_equal $id1 $dup_id
+        
+        # Get current DURATION (default is 100)
+        set reply [r XINFO STREAM mystream]
+        set current_duration [dict get $reply idmp-duration]
+        assert_equal 100 $current_duration
+        
+        # Set IDMP-DURATION to same value - should NOT clear iids history
+        r XCFGSET mystream IDMP-DURATION 100
+        
+        # Deduplication should still work (history was NOT cleared)
+        set dup_id2 [r XADD mystream IDMP p1 "req-1" * field "dup2"]
+        assert_equal $id1 $dup_id2
+        
+        set dup_id3 [r XADD mystream IDMP p1 "req-2" * field "dup3"]
+        assert_equal $id2 $dup_id3
+        
+        # Should still have 2 entries (no new entries added)
+        assert_equal 2 [r XLEN mystream]
+    }
+
+    test {XCFGSET setting same IDMP-MAXSIZE does not clear iids history} {
+        r DEL mystream
+        
+        # Create stream and add entries with IDMP
+        set id1 [r XADD mystream IDMP p1 "req-1" * field "value1"]
+        set id2 [r XADD mystream IDMP p1 "req-2" * field "value2"]
+        
+        # Verify deduplication works
+        set dup_id [r XADD mystream IDMP p1 "req-2" * field "dup"]
+        assert_equal $id2 $dup_id
+        
+        # Get current MAXSIZE (default is 100)
+        set reply [r XINFO STREAM mystream]
+        set current_maxsize [dict get $reply idmp-maxsize]
+        assert_equal 100 $current_maxsize
+        
+        # Set IDMP-MAXSIZE to same value - should NOT clear iids history
+        r XCFGSET mystream IDMP-MAXSIZE 100
+        
+        # Deduplication should still work (history was NOT cleared)
+        set dup_id2 [r XADD mystream IDMP p1 "req-1" * field "dup2"]
+        assert_equal $id1 $dup_id2
+        
+        set dup_id3 [r XADD mystream IDMP p1 "req-2" * field "dup3"]
+        assert_equal $id2 $dup_id3
+        
+        # Should still have 2 entries (no new entries added)
+        assert_equal 2 [r XLEN mystream]
+    }
+
+    test {XCFGSET repeated same-value calls preserve IDMP history} {
+        r DEL mystream
+        
+        # Set configuration first
+        r XADD mystream * field "init"
+        r XCFGSET mystream IDMP-DURATION 10 IDMP-MAXSIZE 5000
+        
+        # Create stream with initial entry after config is set
+        set id1 [r XADD mystream IDMP p1 "req-1" * field "value1"]
+        
+        # Call XCFGSET multiple times with same values
+        # (common pattern for configuration initialization)
+        r XCFGSET mystream IDMP-DURATION 10 IDMP-MAXSIZE 5000
+        r XCFGSET mystream IDMP-DURATION 10 IDMP-MAXSIZE 5000
+        r XCFGSET mystream IDMP-DURATION 10 IDMP-MAXSIZE 5000
+        
+        # Deduplication should still work (history not cleared by same-value sets)
+        set dup_id [r XADD mystream IDMP p1 "req-1" * field "dup"]
+        assert_equal $id1 $dup_id
+        
+        # Add new entry from second producer
+        set id2 [r XADD mystream IDMP p2 "req-2" * field "value2"]
+        
+        # Both producers should work with deduplication
+        set dup_id2 [r XADD mystream IDMP p2 "req-2" * field "dup2"]
+        assert_equal $id2 $dup_id2
+        
+        # Should have 3 entries total (init + 2 IDMP entries)
+        assert_equal 3 [r XLEN mystream]
+    }
+
+    test {XCFGSET changing value after same-value sets still clears history} {
+        r DEL mystream
+        
+        # Create stream with entries
+        set id1 [r XADD mystream IDMP p1 "req-1" * field "value1"]
+        
+        # Set to same value multiple times (doesn't clear)
+        r XCFGSET mystream IDMP-DURATION 100
+        r XCFGSET mystream IDMP-DURATION 100
+        
+        # Verify deduplication still works
+        set dup_id [r XADD mystream IDMP p1 "req-1" * field "dup"]
+        assert_equal $id1 $dup_id
+        
+        # Now change to different value (should clear)
+        r XCFGSET mystream IDMP-DURATION 50
+        
+        # Deduplication should not work anymore (history cleared)
+        set new_id [r XADD mystream IDMP p1 "req-1" * field "new"]
+        assert {$id1 ne $new_id}
+        
+        # Should have 2 entries now
+        assert_equal 2 [r XLEN mystream]
+    }
+
+    test {XCFGSET setting same value preserves iids-tracked count} {
+        r DEL mystream
+        
+        # Add entries with IDMP
+        r XADD mystream IDMP p1 "req-1" * field "value1"
+        r XADD mystream IDMP p1 "req-2" * field "value2"
+        r XADD mystream IDMP p2 "req-3" * field "value3"
+        
+        # Verify counts
+        set reply [r XINFO STREAM mystream]
+        assert_equal 3 [dict get $reply iids-tracked]
+        assert_equal 3 [dict get $reply iids-added]
+        
+        # Set to same value - should preserve counts
+        r XCFGSET mystream IDMP-DURATION 100 IDMP-MAXSIZE 100
+        
+        set reply [r XINFO STREAM mystream]
+        assert_equal 3 [dict get $reply iids-tracked]
+        assert_equal 3 [dict get $reply iids-added]
+    }
+
+    test {XINFO STREAM returns iids-tracked and iids-added fields} {
+        r DEL mystream
+        
+        # Create stream without IDMP first
+        r XADD mystream * field "value"
+        
+        # Verify initial values: no IDMP entries yet
+        set reply [r XINFO STREAM mystream]
+        assert_equal 0 [dict get $reply iids-tracked]
+        assert_equal 0 [dict get $reply iids-added]
+        
+        # Add entries with IDMP
+        r XADD mystream IDMP p1 "req-1" * field "value1"
+        set reply [r XINFO STREAM mystream]
+        assert_equal 1 [dict get $reply iids-tracked]
+        assert_equal 1 [dict get $reply iids-added]
+        
+        r XADD mystream IDMP p1 "req-2" * field "value2"
+        set reply [r XINFO STREAM mystream]
+        assert_equal 2 [dict get $reply iids-tracked]
+        assert_equal 2 [dict get $reply iids-added]
+        
+        # Duplicate IDMP should NOT increment counters
+        r XADD mystream IDMP p1 "req-1" * field "duplicate"
+        set reply [r XINFO STREAM mystream]
+        assert_equal 2 [dict get $reply iids-tracked]
+        assert_equal 2 [dict get $reply iids-added]
+        
+        # Also verify FULL mode returns the same fields
+        set reply_full [r XINFO STREAM mystream FULL]
+        assert_equal 2 [dict get $reply_full iids-tracked]
+        assert_equal 2 [dict get $reply_full iids-added]
+    }
+
+    test {XINFO STREAM iids-added is lifetime counter even after eviction} {
+        r DEL mystream
+        
+        # Set small MAXSIZE to trigger eviction
+        r XADD mystream IDMP p1 "init" * field "init"
+        r XCFGSET mystream IDMP-MAXSIZE 3
+        
+        # Add 3 more entries (total 4, but MAXSIZE=3 so oldest evicted)
+        r XADD mystream IDMP p1 "req-1" * field "v1"
+        r XADD mystream IDMP p1 "req-2" * field "v2"
+        r XADD mystream IDMP p1 "req-3" * field "v3"
+        
+        set reply [r XINFO STREAM mystream]
+        # iids-tracked should be capped at MAXSIZE (3)
+        assert_equal 3 [dict get $reply iids-tracked]
+        # iids-added should be lifetime count (4)
+        assert_equal 4 [dict get $reply iids-added]
+        
+        # Add more entries to verify lifetime counter keeps growing
+        r XADD mystream IDMP p1 "req-4" * field "v4"
+        r XADD mystream IDMP p1 "req-5" * field "v5"
+        
+        set reply [r XINFO STREAM mystream]
+        assert_equal 3 [dict get $reply iids-tracked]
+        assert_equal 6 [dict get $reply iids-added]
+    }
+
+    test {XINFO STREAM iids-duplicates is lifetime counter} {
+        r DEL mystream
+        
+        # Add initial entry with unique IID
+        r XADD mystream IDMP p1 "req-1" * field "v1"
+        
+        set reply [r XINFO STREAM mystream]
+        # No duplicates yet
+        assert_equal 0 [dict get $reply iids-duplicates]
+        assert_equal 1 [dict get $reply iids-added]
+        
+        # Try to add duplicate IID - should be rejected and increment counter
+        set dup_id [r XADD mystream IDMP p1 "req-1" * field "v1-dup"]
+        
+        set reply [r XINFO STREAM mystream]
+        assert_equal 1 [dict get $reply iids-duplicates]
+        assert_equal 1 [dict get $reply iids-added]  ;# Still 1 successful add
+        
+        # Try same duplicate again
+        r XADD mystream IDMP p1 "req-1" * field "v1-dup2"
+        
+        set reply [r XINFO STREAM mystream]
+        assert_equal 2 [dict get $reply iids-duplicates]
+        assert_equal 1 [dict get $reply iids-added]
+        
+        # Add a different IID (should succeed, duplicates unchanged)
+        r XADD mystream IDMP p1 "req-2" * field "v2"
+        
+        set reply [r XINFO STREAM mystream]
+        assert_equal 2 [dict get $reply iids-duplicates]
+        assert_equal 2 [dict get $reply iids-added]
+        
+        # Try the first IID again
+        r XADD mystream IDMP p1 "req-1" * field "v1-dup3"
+        
+        set reply [r XINFO STREAM mystream]
+        assert_equal 3 [dict get $reply iids-duplicates]
+        assert_equal 2 [dict get $reply iids-added]
+    }
+
+    test {XINFO STREAM iids-duplicates persists after eviction} {
+        r DEL mystream
+        
+        # Add initial entry and configure MAXSIZE
+        r XADD mystream IDMP p1 "init" * field "init"
+        r XCFGSET mystream IDMP-MAXSIZE 3
+        # Note: CFGSET clears IID history, so "init" is no longer tracked
+        
+        # Add entries and create some duplicates
+        r XADD mystream IDMP p1 "req-1" * field "v1"
+        r XADD mystream IDMP p1 "req-1" * field "v1-dup"  ;# Duplicate
+        r XADD mystream IDMP p1 "req-2" * field "v2"
+        r XADD mystream IDMP p1 "req-2" * field "v2-dup"  ;# Duplicate
+        
+        set reply [r XINFO STREAM mystream]
+        # iids-tracked should be 2 (req-1, req-2) - "init" was cleared by CFGSET
+        assert_equal 2 [dict get $reply iids-tracked]
+        # iids-added should be 3 (init, req-1, req-2) - lifetime counter includes "init"
+        assert_equal 3 [dict get $reply iids-added]
+        # iids-duplicates should be 2
+        assert_equal 2 [dict get $reply iids-duplicates]
+        
+        # Add more entries to trigger eviction of old IIDs
+        r XADD mystream IDMP p1 "req-3" * field "v3"
+        r XADD mystream IDMP p1 "req-4" * field "v4"
+        
+        # Now we have: req-2, req-3, req-4 (MAXSIZE=3, so req-1 was evicted)
+        
+        set reply [r XINFO STREAM mystream]
+        assert_equal 3 [dict get $reply iids-tracked]  ;# Now capped at MAXSIZE (3)
+        assert_equal 5 [dict get $reply iids-added]    ;# 5 successful adds total
+        assert_equal 2 [dict get $reply iids-duplicates]  ;# Still 2 (lifetime counter)
+        
+        # Try to duplicate one of the currently tracked IIDs
+        r XADD mystream IDMP p1 "req-3" * field "v3-dup"
+        r XADD mystream IDMP p1 "req-4" * field "v4-dup"
+        
+        set reply [r XINFO STREAM mystream]
+        assert_equal 3 [dict get $reply iids-tracked]
+        assert_equal 5 [dict get $reply iids-added]
+        assert_equal 4 [dict get $reply iids-duplicates]  ;# Incremented by 2
+    }
+
+    test {XINFO STREAM iids-duplicates with multiple producers} {
+        r DEL mystream
+        
+        # Add entries from different producers with same IID
+        # (same IID but different producer = NOT a duplicate)
+        r XADD mystream IDMP p1 "req-1" * field "v1-p1"
+        r XADD mystream IDMP p2 "req-1" * field "v1-p2"
+        
+        set reply [r XINFO STREAM mystream]
+        assert_equal 2 [dict get $reply pids-tracked]
+        assert_equal 2 [dict get $reply iids-added]
+        assert_equal 0 [dict get $reply iids-duplicates]  ;# No duplicates
+        
+        # Now add actual duplicates (same IID, same producer)
+        r XADD mystream IDMP p1 "req-1" * field "v1-p1-dup"
+        r XADD mystream IDMP p2 "req-1" * field "v1-p2-dup"
+        
+        set reply [r XINFO STREAM mystream]
+        assert_equal 2 [dict get $reply pids-tracked]
+        assert_equal 2 [dict get $reply iids-added]
+        assert_equal 2 [dict get $reply iids-duplicates]  ;# 2 duplicates (one per producer)
+    }
+
+    test {XINFO STREAM iids counters after CFGSET clears history} {
+        r DEL mystream
+        
+        # Add entries with IDMP and create some duplicates
+        r XADD mystream IDMP p1 "req-1" * field "v1"
+        r XADD mystream IDMP p1 "req-2" * field "v2"
+        r XADD mystream IDMP p1 "req-3" * field "v3"
+        r XADD mystream IDMP p1 "req-1" * field "v1-dup"  ;# Duplicate
+        r XADD mystream IDMP p1 "req-2" * field "v2-dup"  ;# Duplicate
+        
+        set reply [r XINFO STREAM mystream]
+        assert_equal 3 [dict get $reply iids-tracked]
+        assert_equal 3 [dict get $reply iids-added]
+        assert_equal 2 [dict get $reply iids-duplicates]
+        
+        # CFGSET clears IID history
+        r XCFGSET mystream IDMP-DURATION 60
+        
+        set reply [r XINFO STREAM mystream]
+        # iids-tracked should be 0 after history cleared
+        assert_equal 0 [dict get $reply iids-tracked]
+        # iids-added should still be preserved (lifetime counter)
+        assert_equal 3 [dict get $reply iids-added]
+        # iids-duplicates should still be preserved (lifetime counter)
+        assert_equal 2 [dict get $reply iids-duplicates]
+        
+        # Add new entry and verify counters
+        r XADD mystream IDMP p1 "req-4" * field "v4"
+        set reply [r XINFO STREAM mystream]
+        assert_equal 1 [dict get $reply iids-tracked]
+        assert_equal 4 [dict get $reply iids-added]
+    }
+
+    test {XINFO STREAM iids-added persists in RDB} {
+        r DEL mystream
+        
+        # Add entries with IDMP to build up iids-added counter
+        r XADD mystream IDMP p1 "req-1" * field "v1"
+        r XADD mystream IDMP p1 "req-2" * field "v2"
+        r XADD mystream IDMP p1 "req-3" * field "v3"
+        
+        # Set small MAXSIZE to cause eviction
+        r XCFGSET mystream IDMP-MAXSIZE 2
+        
+        # Add more to trigger eviction (iids-tracked will be 2, but iids-added=5)
+        r XADD mystream IDMP p1 "req-4" * field "v4"
+        r XADD mystream IDMP p1 "req-5" * field "v5"
+        
+        # Verify values before save
+        set reply [r XINFO STREAM mystream]
+        assert_equal 2 [dict get $reply iids-tracked]
+        assert_equal 5 [dict get $reply iids-added]
+        
+        # Save and restart
+        r SAVE
+        restart_server 0 true false
+        
+        # Verify iids-added persisted after restart
+        set reply [r XINFO STREAM mystream]
+        assert_equal 2 [dict get $reply iids-tracked]
+        assert_equal 5 [dict get $reply iids-added]
+    } {} {external:skip}
+
+    test {XINFO STREAM returns pids-tracked field} {
+        r DEL mystream
+        
+        # Create stream without IDMP
+        r XADD mystream * field "value"
+        
+        # Verify initial pids-tracked is 0
+        set reply [r XINFO STREAM mystream]
+        assert_equal 0 [dict get $reply pids-tracked]
+        
+        # Add entry with first producer
+        r XADD mystream IDMP p1 "req-1" * field "v1"
+        set reply [r XINFO STREAM mystream]
+        assert_equal 1 [dict get $reply pids-tracked]
+        
+        # Add entry with same producer - pids-tracked should stay 1
+        r XADD mystream IDMP p1 "req-2" * field "v2"
+        set reply [r XINFO STREAM mystream]
+        assert_equal 1 [dict get $reply pids-tracked]
+        
+        # Add entry with second producer
+        r XADD mystream IDMP p2 "req-1" * field "v3"
+        set reply [r XINFO STREAM mystream]
+        assert_equal 2 [dict get $reply pids-tracked]
+        
+        # Add entry with third producer
+        r XADD mystream IDMP producer3 "req-1" * field "v4"
+        set reply [r XINFO STREAM mystream]
+        assert_equal 3 [dict get $reply pids-tracked]
+    }
+
+    test {XINFO STREAM FULL returns pids-tracked field} {
+        r DEL mystream
+        
+        # Add entries with multiple producers
+        r XADD mystream IDMP prod-a "req-1" * field "v1"
+        r XADD mystream IDMP prod-b "req-1" * field "v2"
+        r XADD mystream IDMP prod-c "req-1" * field "v3"
+        
+        # Verify FULL mode also returns pids-tracked
+        set reply [r XINFO STREAM mystream FULL]
+        assert_equal 3 [dict get $reply pids-tracked]
+    }
+
+    test {XINFO STREAM iids-tracked counts across all producers} {
+        r DEL mystream
+        
+        # Add entries with multiple producers
+        r XADD mystream IDMP p1 "req-1" * field "v1"
+        r XADD mystream IDMP p1 "req-2" * field "v2"
+        r XADD mystream IDMP p2 "req-1" * field "v3"
+        r XADD mystream IDMP p2 "req-2" * field "v4"
+        r XADD mystream IDMP p2 "req-3" * field "v5"
+        
+        # iids-tracked should count all IIDs across all producers (2 + 3 = 5)
+        set reply [r XINFO STREAM mystream]
+        assert_equal 2 [dict get $reply pids-tracked]
+        assert_equal 5 [dict get $reply iids-tracked]
+        assert_equal 5 [dict get $reply iids-added]
+        
+        # Duplicates should not increment counters
+        r XADD mystream IDMP p1 "req-1" * field "dup"
+        r XADD mystream IDMP p2 "req-2" * field "dup"
+        
+        set reply [r XINFO STREAM mystream]
+        assert_equal 2 [dict get $reply pids-tracked]
+        assert_equal 5 [dict get $reply iids-tracked]
+        assert_equal 5 [dict get $reply iids-added]
+    }
+
+    test {XINFO STREAM returns idmp-duration and idmp-maxsize fields} {
+        r DEL mystream
+        
+        # Create stream with default IDMP config
+        r XADD mystream IDMP p1 "req-1" * field "value1"
+        
+        # Verify default values
+        set reply [r XINFO STREAM mystream]
+        assert [dict exists $reply idmp-duration]
+        assert [dict exists $reply idmp-maxsize]
+        
+        # Get default values from server config
+        set default_duration [lindex [r CONFIG GET stream-idmp-duration] 1]
+        set default_maxsize [lindex [r CONFIG GET stream-idmp-maxsize] 1]
+        
+        assert_equal $default_duration [dict get $reply idmp-duration]
+        assert_equal $default_maxsize [dict get $reply idmp-maxsize]
+        
+        # Change IDMP config
+        r XCFGSET mystream IDMP-DURATION 300 IDMP-MAXSIZE 50
+        
+        set reply [r XINFO STREAM mystream]
+        assert_equal 300 [dict get $reply idmp-duration]
+        assert_equal 50 [dict get $reply idmp-maxsize]
+        
+        # Also verify FULL mode returns the same fields
+        set reply_full [r XINFO STREAM mystream FULL]
+        assert_equal 300 [dict get $reply_full idmp-duration]
+        assert_equal 50 [dict get $reply_full idmp-maxsize]
+        
+        # Change only DURATION
+        r XCFGSET mystream IDMP-DURATION 600
+        set reply [r XINFO STREAM mystream]
+        assert_equal 600 [dict get $reply idmp-duration]
+        assert_equal 50 [dict get $reply idmp-maxsize]
+        
+        # Change only MAXSIZE
+        r XCFGSET mystream IDMP-MAXSIZE 100
+        set reply [r XINFO STREAM mystream]
+        assert_equal 600 [dict get $reply idmp-duration]
+        assert_equal 100 [dict get $reply idmp-maxsize]
+    }
+
+    test {XCFGSET IDMP-MAXSIZE wraparound keeps last 8 entries} {
+        r DEL mystream
+        
+        # Create stream and set MAXSIZE to 8
+        r XADD mystream IDMP p1 "init" * field "init"
+        r XCFGSET mystream IDMP-MAXSIZE 8 IDMP-DURATION 60
+        
+        # Add 100 unique entries and store their IDs in a list
+        set id_list {}
+        for {set i 1} {$i <= 100} {incr i} {
+            lappend id_list [r XADD mystream IDMP p1 "req-$i" * field "v$i"]
+        }
+        
+        # Verify the last 8 entries (93-100) still deduplicate
+        for {set i 93} {$i <= 100} {incr i} {
+            set idx [expr {$i - 1}]
+            set original_id [lindex $id_list $idx]
+            set dup_id [r XADD mystream IDMP p1 "req-$i" * field "dup"]
+            assert_equal $original_id $dup_id
+        }
+        
+        # Verify earlier entries (1-92) are evicted and create new entries
+        for {set i 1} {$i <= 92} {incr i} {
+            set idx [expr {$i - 1}]
+            set original_id [lindex $id_list $idx]
+            set new_id [r XADD mystream IDMP p1 "req-$i" * field "new"]
+            assert {$new_id ne $original_id}
+        }
+        
+        # Total entries: init + 100 original + 92 new = 193
+        assert_equal 193 [r XLEN mystream]
+    }
+
+    test {XCFGSET clears all producer histories} {
+        r DEL mystream
+        
+        # Add entries with multiple producers
+        set id1 [r XADD mystream IDMP p1 "req-1" * field "v1"]
+        set id2 [r XADD mystream IDMP p2 "req-1" * field "v2"]
+        set id3 [r XADD mystream IDMP p3 "req-1" * field "v3"]
+        
+        set reply [r XINFO STREAM mystream]
+        assert_equal 3 [dict get $reply pids-tracked]
+        assert_equal 3 [dict get $reply iids-tracked]
+        
+        # CFGSET clears all histories
+        r XCFGSET mystream IDMP-DURATION 60
+        
+        set reply [r XINFO STREAM mystream]
+        # pids-tracked should be 0 after clearing
+        assert_equal 0 [dict get $reply pids-tracked]
+        assert_equal 0 [dict get $reply iids-tracked]
+        # iids-added is lifetime counter, should persist
+        assert_equal 3 [dict get $reply iids-added]
+        
+        # Can now add "duplicates" since history is cleared
+        set new_id1 [r XADD mystream IDMP p1 "req-1" * field "new"]
+        assert {$id1 ne $new_id1}
+    }
+
+    test {CONFIG SET stream-idmp-duration and stream-idmp-maxsize validation} {
+        # Test maximum value rejection for duration (max: 86400)
+        assert_error "*must be between*" {r CONFIG SET stream-idmp-duration 86401}
+        assert_error "*must be between*" {r CONFIG SET stream-idmp-duration 100000}
+        
+        # Test maximum value rejection for maxsize (max: 10000)
+        assert_error "*must be between*" {r CONFIG SET stream-idmp-maxsize 10001}
+        assert_error "*must be between*" {r CONFIG SET stream-idmp-maxsize 50000}
+        
+        # Test minimum value rejection for duration (min: 1)
+        assert_error "*must be between*" {r CONFIG SET stream-idmp-duration 0}
+        assert_error "*must be between*" {r CONFIG SET stream-idmp-duration -1}
+        assert_error "*must be between*" {r CONFIG SET stream-idmp-duration -100}
+        
+        # Test minimum value rejection for maxsize (min: 1)
+        assert_error "*must be between*" {r CONFIG SET stream-idmp-maxsize 0}
+        assert_error "*must be between*" {r CONFIG SET stream-idmp-maxsize -1}
+        assert_error "*must be between*" {r CONFIG SET stream-idmp-maxsize -100}
+        
+        # Test exact boundary values work correctly
+        assert_equal "OK" [r CONFIG SET stream-idmp-duration 86400]
+        assert_equal "86400" [lindex [r CONFIG GET stream-idmp-duration] 1]
+        
+        assert_equal "OK" [r CONFIG SET stream-idmp-maxsize 10000]
+        assert_equal "10000" [lindex [r CONFIG GET stream-idmp-maxsize] 1]
+        
+        # Test minimum boundary values work (min: 1)
+        assert_equal "OK" [r CONFIG SET stream-idmp-duration 1]
+        assert_equal "1" [lindex [r CONFIG GET stream-idmp-duration] 1]
+        
+        assert_equal "OK" [r CONFIG SET stream-idmp-maxsize 1]
+        assert_equal "1" [lindex [r CONFIG GET stream-idmp-maxsize] 1]
+        
+        # Test valid intermediate values
+        assert_equal "OK" [r CONFIG SET stream-idmp-duration 100]
+        assert_equal "OK" [r CONFIG SET stream-idmp-maxsize 100]
+        
+        # Reset to defaults
+        assert_equal "OK" [r CONFIG SET stream-idmp-duration 100]
+        assert_equal "OK" [r CONFIG SET stream-idmp-maxsize 100]
+    }
+
     test {XTRIM with MINID option} {
         r DEL mystream
         r XADD mystream 1-0 f v
@@ -309,6 +2807,19 @@ start_server {
         r XTRIM mystream MINID 1641544570597-0
         assert_equal [r XRANGE mystream - +] {{1641544570597-0 {f v}} {1641544570597-1 {f v}}}
     }
+
+    test {XTRIM MINID frees a node left with no live entries} {
+        r DEL mystream
+        r XADD mystream 1-0 f v
+        r XADD mystream 2-0 f v
+        r XDEL mystream 2-0
+        r XTRIM mystream MINID = 2-0
+        assert {[r XLEN mystream] == 0}
+        assert {[dict get [r xinfo stream mystream] radix-tree-keys] == 0}
+        r DEBUG RELOAD
+        assert {[r XLEN mystream] == 0}
+        assert_equal 2-0 [dict get [r xinfo stream mystream] max-deleted-entry-id]
+    } {} {needs:debug}
 
     proc insert_into_stream_key {key {count 10000}} {
         r multi
@@ -604,6 +3115,97 @@ start_server {
 
         # verify only last entry was read, even though COUNT > 1
         assert_equal $res {{lestream {{3-0 {k3 v3}}}}}
+    }
+
+    # Count the total number of entries across all streams in an XREAD reply.
+    proc xread_total_entries {res} {
+        set total 0
+        foreach stream $res {
+            incr total [llength [lindex $stream 1]]
+        }
+        return $total
+    }
+
+    test {XREAD MAXCOUNT/MAXSIZE argument validation} {
+        assert_error "*MAXCOUNT must be greater than or equal to COUNT*" {r XREAD COUNT 50 MAXCOUNT 10 STREAMS mcstream1{t} 0}
+        assert_error "*MAXCOUNT must be a positive integer*" {r XREAD MAXCOUNT 0 STREAMS mcstream1{t} 0}
+        assert_error "*MAXCOUNT must be a positive integer*" {r XREAD MAXCOUNT -1 STREAMS mcstream1{t} 0}
+        assert_error "*MAXSIZE must be a positive integer*" {r XREAD MAXSIZE 0 STREAMS mcstream1{t} 0}
+        assert_error "*MAXSIZE must be a positive integer*" {r XREAD MAXSIZE -5 STREAMS mcstream1{t} 0}
+        assert_error "*not an integer*" {r XREAD MAXCOUNT foo STREAMS mcstream1{t} 0}
+    }
+
+    test {XREAD MAXCOUNT caps total entries across streams} {
+        r DEL mcstream1{t} mcstream2{t} mcstream3{t}
+        for {set i 0} {$i < 100} {incr i} {
+            r XADD mcstream1{t} * f v$i
+            r XADD mcstream2{t} * f v$i
+            r XADD mcstream3{t} * f v$i
+        }
+        # Without MAXCOUNT, COUNT is per-stream: 50 * 3 = 150 entries.
+        set res [r XREAD COUNT 50 STREAMS mcstream1{t} mcstream2{t} mcstream3{t} 0 0 0]
+        assert_equal 150 [xread_total_entries $res]
+        # With MAXCOUNT 80 the cumulative total is capped at 80.
+        set res [r XREAD COUNT 50 MAXCOUNT 80 STREAMS mcstream1{t} mcstream2{t} mcstream3{t} 0 0 0]
+        assert_equal 80 [xread_total_entries $res]
+    }
+
+    test {XREAD MAXCOUNT without COUNT caps total entries} {
+        # No per-stream COUNT, only a cumulative cap.
+        set res [r XREAD MAXCOUNT 7 STREAMS mcstream1{t} mcstream2{t} mcstream3{t} 0 0 0]
+        assert_equal 7 [xread_total_entries $res]
+        # All 7 entries come from the first stream (it has >= 7 entries).
+        assert_equal {mcstream1{t}} [lindex $res 0 0]
+        assert_equal 1 [llength $res]
+    }
+
+    test {XREAD MAXCOUNT equal to COUNT behaves like COUNT on a single stream} {
+        set a [r XREAD COUNT 10 STREAMS mcstream1{t} 0]
+        set b [r XREAD COUNT 10 MAXCOUNT 10 STREAMS mcstream1{t} 0]
+        assert_equal $a $b
+    }
+
+    test {XREAD MAXSIZE limits the reply size across streams} {
+        # The capped reply must contain fewer entries than the unbounded reply.
+        set full [r XREAD STREAMS mcstream1{t} mcstream2{t} mcstream3{t} 0 0 0]
+        set capped [r XREAD MAXSIZE 200 STREAMS mcstream1{t} mcstream2{t} mcstream3{t} 0 0 0]
+        assert {[xread_total_entries $capped] < [xread_total_entries $full]}
+        assert {[xread_total_entries $capped] >= 1}
+    }
+
+    test {XREAD MAXSIZE still returns a single oversized message} {
+        r DEL bigstream
+        r XADD bigstream 1-1 f [string repeat x 5000]
+        # MAXSIZE is much smaller than the single entry, but it is still returned.
+        set res [r XREAD MAXSIZE 50 STREAMS bigstream 0]
+        assert_equal 1 [xread_total_entries $res]
+        assert_equal 1-1 [lindex $res 0 1 0 0]
+    }
+
+    test {XREAD MAXSIZE and MAXCOUNT together, whichever triggers first} {
+        # MAXCOUNT 5 is the tighter bound here.
+        set res [r XREAD MAXCOUNT 5 MAXSIZE 100000 STREAMS mcstream1{t} mcstream2{t} mcstream3{t} 0 0 0]
+        assert_equal 5 [xread_total_entries $res]
+    }
+
+    test {XREAD MAXSIZE budget is per-command inside MULTI/EXEC} {
+        r DEL stream
+        for {set i 0} {$i < 50} {incr i} {
+            r XADD stream * f v$i
+        }
+        set solo [r XREAD MAXSIZE 1000 STREAMS stream 0]
+        assert {[xread_total_entries $solo] > 1}
+
+        # A large reply before XREAD in the same EXEC must not consume its budget.
+        r MULTI
+        r XRANGE stream - +
+        r XREAD MAXSIZE 1000 STREAMS stream 0
+        set res [r EXEC]
+        set in_exec [lindex $res 1]
+        if {$::force_resp3} {
+            set in_exec [transform_map_to_tuple_array {XREAD} $in_exec]
+        }
+        assert_equal [xread_total_entries $solo] [xread_total_entries $in_exec]
     }
 
     test "XREAD: read last element after XDEL (issue #13628)" {
@@ -939,6 +3541,28 @@ start_server {
 
         r config set stream-node-max-entries $origin_max_entries
     }
+
+    test {XTRIM with exact MAXLEN and ACKED continues past nodes with unacked entries} {
+        r DEL mystream
+        set origin_max_entries [config_get_set stream-node-max-entries 2]
+
+        # Create 6 entries in 3 nodes (2 entries per node)
+        for {set i 1} {$i <= 6} {incr i} {
+            r XADD mystream $i-0 f v
+        }
+
+        r XGROUP CREATE mystream mygroup 0
+        r XREADGROUP GROUP mygroup consumer1 STREAMS mystream >
+
+        # 3-0 and 4-0 (second node) stay pending, the rest are acked
+        r XACK mystream mygroup 1-0 2-0 5-0 6-0
+
+        # The trim must not stop at the second node, 5-0 is acked and can go
+        assert_equal 3 [r XTRIM mystream MAXLEN = 3 ACKED]
+        assert_equal {{3-0 {f v}} {4-0 {f v}} {6-0 {f v}}} [r XRANGE mystream - +]
+
+        r config set stream-node-max-entries $origin_max_entries
+    }
 }
 
 start_server {tags {"stream needs:debug"} overrides {appendonly yes}} {
@@ -1047,6 +3671,84 @@ start_server {tags {"stream needs:debug"} overrides {appendonly yes stream-node-
         incr j
         assert {[r xlen mystream] == 91}
     }
+}
+
+start_server {tags {"stream needs:debug"} overrides {appendonly yes stream-node-max-entries 100}} {
+    test {XTRIM with ~ MINID and DELREF can reload from AOF correctly} {
+        # DELREF removes both the entries and their pending references. Replaying
+        # the rewritten command must not bring either back. See #15934.
+        foreach id {1-0 2-0 3-0 4-0} {
+            r XADD mystream $id f v
+        }
+        r XGROUP CREATE mystream mygroup 0
+        r XREADGROUP GROUP mygroup consumer1 COUNT 3 STREAMS mystream >
+        assert_equal 2 [r XTRIM mystream MINID ~ 3-0 DELREF]
+        assert_equal {{3-0 {f v}} {4-0 {f v}}} [r XRANGE mystream - +]
+        assert_equal 1 [lindex [r XPENDING mystream mygroup] 0]
+        r debug loadaof
+        assert_equal {{3-0 {f v}} {4-0 {f v}}} [r XRANGE mystream - +]
+        assert_equal 1 [lindex [r XPENDING mystream mygroup] 0]
+    }
+}
+
+start_server {tags {"stream"} overrides {stream-node-max-entries 2}} {
+    test {XADD with ~ MINID propagates the successor of the largest deleted ID} {
+        # With stream-node-max-entries 2 the six entries form three nodes.
+        # ACKED + LIMIT 3: the trim deletes 1-0 (acked, node 1), skips 2-0
+        # (pending, node 1), then deletes 3-0 and 4-0 (acked, node 2). The
+        # budget is exhausted before node 3, so 5-0 (acked) survives. The
+        # largest deleted ID is 4-0, and its successor 4-1 is propagated.
+        foreach id {1-0 2-0 3-0 4-0 5-0 6-0} {
+            r XADD trimmed $id f v
+        }
+        r XGROUP CREATE trimmed mygroup 0
+        r XREADGROUP GROUP mygroup consumer1 COUNT 6 STREAMS trimmed >
+        r XACK trimmed mygroup 1-0 3-0 4-0 5-0
+        set repl [attach_to_replication_stream]
+        r XADD trimmed ACKED MINID ~ 6-0 LIMIT 3 7-0 f v
+        assert_replication_stream $repl {
+            {select *}
+            {xadd trimmed ACKED MINID = 4-1 LIMIT 3 7-0 f v}
+        }
+        close_replication_stream $repl
+        assert_equal {{2-0 {f v}} {5-0 {f v}} {6-0 {f v}} {7-0 {f v}}} [r XRANGE trimmed - +]
+        assert_equal 2 [lindex [r XPENDING trimmed mygroup] 0]
+    } {} {needs:repl}
+
+    test {XADD with ~ MINID propagates a no-op boundary when nothing was deleted} {
+        # Two entries in one node, LIMIT 1 stops the trim before examining it,
+        # so nothing is deleted. The propagated MINID is the stream's first
+        # live ID (1-0), making replay a no-op.
+        foreach id {1-0 2-0} {
+            r XADD nochange $id f v
+        }
+        set repl [attach_to_replication_stream]
+        r XADD nochange ACKED MINID ~ 3-0 LIMIT 1 3-0 f v
+        assert_replication_stream $repl {
+            {select *}
+            {xadd nochange ACKED MINID = 1-0 LIMIT 1 3-0 f v}
+        }
+        close_replication_stream $repl
+        assert_equal {{1-0 {f v}} {2-0 {f v}} {3-0 {f v}}} [r XRANGE nochange - +]
+    } {} {needs:repl}
+
+    test {XTRIM with ~ MINID can propagate the last ID of a removed node that is a tombstone} {
+        # 2-0 was deleted before, so the node removed by the trim ends with a
+        # tombstone. Its successor is still exact: there is nothing live between
+        # 1-0 and 2-0, and the next node starts at 3-0.
+        foreach id {1-0 2-0 3-0} {
+            r XADD tombstone $id f v
+        }
+        r XDEL tombstone 2-0
+        set repl [attach_to_replication_stream]
+        assert_equal 1 [r XTRIM tombstone MINID ~ 3-0 KEEPREF]
+        assert_replication_stream $repl {
+            {select *}
+            {xtrim tombstone MINID = 2-1 KEEPREF}
+        }
+        close_replication_stream $repl
+        assert_equal {{3-0 {f v}}} [r XRANGE tombstone - +]
+    } {} {needs:repl}
 }
 
 start_server {tags {"stream"}} {
@@ -1208,6 +3910,29 @@ start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-
         assert {[dict get [r xinfo stream mystream] length] == 1}
         assert_equal [dict get [r xinfo stream mystream] last-generated-id] "2-2"
     }
+
+    test {XDELEX DELREF propagates PEL-only changes} {
+        r DEL xdelex-stream
+        r XADD xdelex-stream 1-0 f v
+        r XGROUP CREATE xdelex-stream group 0
+        r XREADGROUP GROUP group consumer STREAMS xdelex-stream >
+
+        # XDEL leaves dangling PEL references. DELREF must remove them even
+        # though the stream entry itself is already gone.
+        assert_equal 1 [r XDEL xdelex-stream 1-0]
+        set dirty [s rdb_changes_since_last_save]
+        assert_equal {-1} [r XDELEX xdelex-stream DELREF IDS 1 1-0]
+        assert_equal [expr {$dirty + 1}] [s rdb_changes_since_last_save]
+        assert_equal {0 {} {} {}} [r XPENDING xdelex-stream group]
+
+        # IDs with no remaining stream entry or PEL reference are a no-op.
+        set dirty [s rdb_changes_since_last_save]
+        assert_equal {-1} [r XDELEX xdelex-stream DELREF IDS 1 1-0]
+        assert_equal $dirty [s rdb_changes_since_last_save]
+
+        r DEBUG LOADAOF
+        assert_equal {0 {} {} {}} [r XPENDING xdelex-stream group]
+    }
 }
 
 start_server {tags {"stream"}} {
@@ -1269,11 +3994,31 @@ start_server {tags {"stream"}} {
         r XREADGROUP GROUP group2 consumer2 STREAMS mystream >
 
         # Verify the message was removed from both groups' PELs when with DELREF
+        set dirty [s rdb_changes_since_last_save]
         assert_equal {1 1} [r XDELEX mystream DELREF IDS 2 1-0 2-0]
+        # Count each ID once even though both its PEL references and stream entry are removed.
+        assert_equal [expr {$dirty + 2}] [s rdb_changes_since_last_save]
         assert_equal 0 [r XLEN mystream] 
         assert_equal {0 {} {} {}} [r XPENDING mystream group1]
         assert_equal {0 {} {} {}} [r XPENDING mystream group2] 
     }
+
+    test "XDELEX with DELREF propagates PEL-only changes to replicas" {
+        r DEL mystream
+        r XADD mystream 1-0 f v
+        r XGROUP CREATE mystream group 0
+        r XREADGROUP GROUP group consumer STREAMS mystream >
+        assert_equal 1 [r XDEL mystream 1-0]
+
+        set repl [attach_to_replication_stream]
+        assert_equal {-1} [r XDELEX mystream DELREF IDS 1 1-0]
+        assert_replication_stream $repl {
+            {select *}
+            {xdelex mystream DELREF IDS 1 1-0}
+        }
+        close_replication_stream $repl
+        assert_equal {0 {} {} {}} [r XPENDING mystream group]
+    } {} {needs:repl}
 
     test "XDELEX with ACKED option only deletes messages acknowledged by all groups" {
         r DEL mystream
@@ -1357,4 +4102,70 @@ start_server {tags {"stream"}} {
         assert_equal {2 1-0 2-0 {{consumer1 2}}} [r XPENDING mystream group1]
         assert_equal {2 1-0 2-0 {{consumer2 2}}} [r XPENDING mystream group2]
     }
+}
+
+foreach rdbchannel {yes no} {
+start_server {tags {"repl external:skip"}} {
+    set replica [srv 0 client]
+    set replica_host [srv 0 host]
+    set replica_port [srv 0 port]
+
+    start_server {} {
+        set master [srv 0 client]
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+
+        $master config set repl-diskless-sync yes
+        $master config set repl-diskless-sync-delay 0
+        $master config set save ""
+        $master config set repl-rdb-channel $rdbchannel
+
+        $replica config set repl-diskless-load swapdb
+        $replica config set save ""
+
+        test "XADD IDMP tracking works with diskless replication (swapdb mode) rdbchannel=$rdbchannel" {
+            # Create stream and set IDMP-DURATION before adding entries,
+            # since XCFGSET clears existing entries when the duration changes.
+            $master XADD mystream IDMP p1 "init" * field "init"
+            $master XCFGSET mystream IDMP-DURATION 2
+            set id1 [$master XADD mystream IDMP p1 "req-1" * field "v1"]
+
+            set info [$master XINFO STREAM mystream]
+            assert_equal 1 [dict get $info pids-tracked]
+
+            $replica replicaof $master_host $master_port
+
+            wait_for_condition 100 100 {
+                [s -1 master_link_status] eq "up"
+            } else {
+                fail "Replica didn't sync with master"
+            }
+
+            assert_equal 2 [$replica XLEN mystream]
+
+            set replica_info [$replica XINFO STREAM mystream]
+            assert_equal 1 [dict get $replica_info pids-tracked]
+            assert_equal 1 [dict get $replica_info iids-tracked]
+
+            # If swapMainDbWithTempDb didn't swap stream_idmp_keys,
+            # tracking was lost and expiry will never happen on replica.
+            wait_for_condition 50 100 {
+                [dict get [$replica XINFO STREAM mystream] pids-tracked] == 0 &&
+                [dict get [$replica XINFO STREAM mystream] iids-tracked] == 0
+            } else {
+                fail "IDMP entries were not cleaned up on replica after diskless replication"
+            }
+
+            wait_for_condition 50 100 {
+                [dict get [$master XINFO STREAM mystream] pids-tracked] == 0
+            } else {
+                fail "IDMP entries were not cleaned up on master"
+            }
+            set id2 [$master XADD mystream IDMP p1 "req-1" * field "v2"]
+            assert {$id1 ne $id2}
+
+            $replica replicaof no one
+        }
+    }
+}
 }

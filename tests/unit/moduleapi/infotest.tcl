@@ -10,6 +10,16 @@ proc field {info property} {
 start_server {tags {"modules external:skip"}} {
     r module load $testmodule log-key 0
 
+    test {module info not attempted in INFO ALL} {
+        # call INFO in a few different ways, check that regardless of the section filtering,
+        # the module isn't at all being called when unneeded.
+        r INFO
+        r INFO all
+        r INFO memory
+        set info [r info everything]
+        set calls [field $info infotest_info_calls]
+    } {1}
+
     test {module reading info} {
         # check string, integer and float fields
         assert_equal [r info.gets replication role] "master"

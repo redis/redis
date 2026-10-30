@@ -1,5 +1,10 @@
 #!/bin/sh
-TCL_VERSIONS="8.5 8.6 8.7"
+# Raise open files limit (macOS default 256 is too low for tests).
+OPEN_FILE_LIMIT=$(ulimit -n 2>/dev/null)
+if [ -n "$OPEN_FILE_LIMIT" ] && [ "$OPEN_FILE_LIMIT" != "unlimited" ] && [ "$OPEN_FILE_LIMIT" -lt 1024 ]; then
+    ulimit -n 1024 2>/dev/null || true
+fi
+TCL_VERSIONS="8.5 8.6 8.7 9.0"
 TCLSH=""
 [ -z "$MAKE" ] && MAKE=make
 
@@ -52,11 +57,16 @@ $TCLSH tests/test_helper.tcl \
 --single unit/moduleapi/timer \
 --single unit/moduleapi/publish \
 --single unit/moduleapi/usercall \
+--single unit/moduleapi/aofduration \
 --single unit/moduleapi/postnotifications \
+--single unit/moduleapi/postnotifications_perkey \
 --single unit/moduleapi/async_rm_call \
 --single unit/moduleapi/moduleauth \
 --single unit/moduleapi/rdbloadsave \
 --single unit/moduleapi/crash \
 --single unit/moduleapi/internalsecret \
 --single unit/moduleapi/configaccess \
+--single unit/moduleapi/keymeta \
+--single unit/moduleapi/ksn_notify_side_effect \
+--single unit/moduleapi/bless_datatype \
 "${@}"

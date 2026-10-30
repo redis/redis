@@ -37,7 +37,12 @@ endif
 # OS X 11.x doesn't have /usr/lib/libSystem.dylib and needs an explicit setting.
 ifeq ($(uname_S),Darwin)
 ifeq ("$(wildcard /usr/lib/libSystem.dylib)","")
-LIBS = -L /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib -lsystem
+# Use the selected SDK; the CLT SDK may require a newer linker than Xcode.
+MACOS_SDK := $(shell xcrun --show-sdk-path 2>/dev/null)
+ifeq ($(MACOS_SDK),)
+$(error Could not resolve macOS SDK path)
+endif
+LIBS = -L "$(MACOS_SDK)/usr/lib" -lsystem
 endif
 endif
 
@@ -78,13 +83,18 @@ TEST_MODULES = \
     moduleconfigstwo.so \
     publish.so \
     usercall.so \
+    aofduration.so \
     postnotifications.so \
     moduleauthtwo.so \
     rdbloadsave.so \
     crash.so \
     internalsecret.so \
     configaccess.so \
-    atomicslotmigration.so
+    test_keymeta.so \
+    keymeta_notify.so \
+    postnotifications_perkey_metadata.so \
+    atomicslotmigration.so \
+    cluster_topology.so
 
 .PHONY: all
 

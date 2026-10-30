@@ -42,11 +42,33 @@ start_server {tags {"dump"}} {
         set encoded [r dump foo]
         set now [clock milliseconds]
         r debug set-active-expire 0
+        set expiredkeys [s expired_keys]
         r restore foo [expr $now-3000] $encoded absttl REPLACE
         catch {r debug object foo} e
         r debug set-active-expire 1
+        # Verify that expired_keys was incremented, even though
+        # the key was not added to the DB actually.
+        assert_equal [expr $expiredkeys + 1] [s expired_keys]
         set e
     } {ERR no such key} {needs:debug}
+
+    test {RESTORE with a TTL that overflows when added to the current time} {
+        r set foo bar
+        set encoded [r dump foo]
+        set expiredkeys [s expired_keys]
+        assert_error "ERR invalid expire time in 'restore' command" {
+            r restore foo 9223372036854775807 $encoded replace
+        }
+        # The existing key is untouched and nothing was counted as expired.
+        assert_equal bar [r get foo]
+        assert_equal -1 [r pttl foo]
+        assert_equal $expiredkeys [s expired_keys]
+
+        # The same value is a valid absolute timestamp with ABSTTL.
+        r restore foo 9223372036854775807 $encoded absttl replace
+        assert_morethan [r pttl foo] 0
+        r del foo
+    }
 
     test {RESTORE can set LRU} {
         r set foo bar
@@ -153,6 +175,19 @@ start_server {tags {"dump"}} {
 
         close_replication_stream $repl
     } {} {needs:repl}
+
+    test {RESTORE fail with invalid payload size} {
+        # Payload with mismatched size: claims 0xFFFFFFFFFFFFFFF7 bytes (max uint64 - 8) but provides no data
+        # \x00 = String type
+        # \x81 = 64-bit length marker
+        # \xFF\xFF\xFF\xFF\xFF\xFF\xFF\xF7 = 18446744073709551607 in big-endian
+        # \x0c\x00 = RDB version
+        # \x00... = fake CRC64
+        set encoded "\x00\x81\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xF7\x0c\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+        r del test
+        catch {r restore test 0 $encoded} e
+        set e
+    } {*Bad data format*}
 
     test {DUMP of non existing key returns nil} {
         r dump nonexisting_key
@@ -304,6 +339,56 @@ start_server {tags {"dump"}} {
         }
     } {} {external:skip}
 
+    test {MIGRATE can correctly transfer template-encoded hashes} {
+        set first [srv 0 client]
+        r flushdb
+        r config set hash-min-template-entries 0
+
+        r himport prepare fs_short  f1 f2 f3
+        r himport prepare fs_long f1 f2 [string repeat q 70]
+        r himport set lp_short_fields fs_short v1 v2 v3
+        r himport set arr_short_fields fs_short v1 [string repeat x 100] v3
+        r himport set lp_long_fields fs_long v1 v2 v3
+        r himport set arr_long_fields fs_long v1 v2 [string repeat x 100]
+        start_server {tags {"repl"}} {
+            set second [srv 0 client]
+            set second_host [srv 0 host]
+            set second_port [srv 0 port]
+            $second config set hash-min-template-entries 0
+
+            set ret [r -1 migrate $second_host $second_port "" 9 10000 keys lp_short_fields arr_short_fields lp_long_fields arr_long_fields]
+            assert {$ret eq {OK}}
+            assert {[$first exists lp_short_fields] == 0}
+            assert {[$first exists arr_short_fields] == 0}
+            assert {[$first exists lp_long_fields] == 0}
+            assert {[$first exists arr_long_fields] == 0}
+
+            # verify keys are migrated with the correct content and encoding
+            assert_equal {f1 v1 f2 v2 f3 v3} [$second hgetall lp_short_fields]
+            assert_equal "f1 v1 f2 [string repeat x 100] f3 v3" [$second hgetall arr_short_fields]
+            assert_equal "f1 v1 f2 v2 [string repeat q 70] v3" [$second hgetall lp_long_fields]
+            assert_equal "f1 v1 f2 v2 [string repeat q 70] [string repeat x 100]" [$second hgetall arr_long_fields]
+            assert_equal {template-listpack} [$second object encoding lp_short_fields]
+            assert_equal {template-array} [$second object encoding arr_short_fields]
+            assert_equal {template-listpack} [$second object encoding lp_long_fields]
+            assert_equal {template-array} [$second object encoding arr_long_fields]
+
+            # The two distinct field sets rebuild as two templates on the
+            # destination registry, holding four keys in total.
+            assert_equal 2 [status $second hash_templates]
+            assert_equal 4 [status $second hash_template_keys]
+
+            # Source has no template keys..
+            $first himport discardall
+            wait_for_condition 50 100 {
+                [status $first hash_templates] == 0 &&
+                [status $first hash_template_keys] == 0
+            } else {
+                fail "source registry not drained"
+            }
+        }
+    } {} {external:skip}
+
     test {MIGRATE timeout actually works} {
         set first [srv 0 client]
         r set key "Some Value"
@@ -437,4 +522,56 @@ start_server {tags {"dump"}} {
             assert_match {*WRONGPASS*} $err
         }
     } {} {external:skip}
+}
+
+# Listpacks store, after each entry, the length of that entry (backlen), so that
+# they can be traversed backwards. For an entry whose encoded length is exactly
+# 16383, 2097151 or 268435455, Redis 8.8 - 8.10 (#15151) wrote a backlen one
+# byte shorter than any other version. Such listpacks are rewritten in the
+# historical width when loaded from an RDB version these releases wrote.
+set backlen_value [string repeat x 16378]
+
+# Written by 8.6.6 (RDB 13): the historical form, backlen bytes 00 ff ff.
+set backlen_payload_wide "\x12\x01\x02\xC3\x40\xD5\x80\x00\x00\x40\x0F\x0B\x0F\x40\x00\x00\x02\x00\xF0\xFA\x3F\x00\x00\x78\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\x00\x00\x09\x00\xFF\xFF\x84\x74\x61\x69\x6C\x05\xFF\x0D\x00\x2B\x90\xEC\xDA\xAF\x4B\xEE\x5A"
+
+# Written by 8.8.2 (RDB 14): the compact form, backlen bytes 7f ff.
+set backlen_payload_narrow "\x12\x01\x02\xC3\x40\xD4\x80\x00\x00\x40\x0E\x0B\x0E\x40\x00\x00\x02\x00\xF0\xFA\x3F\x00\x00\x78\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\x00\x00\x08\x7F\xFF\x84\x74\x61\x69\x6C\x05\xFF\x0E\x00\xE1\x62\xD1\x9A\x6A\x83\x3A\x64"
+
+start_server {tags {"dump"} overrides {list-max-listpack-size -4}} {
+    r restore l 0 $backlen_payload_wide
+    set backlen_dump_wide [r dump l]
+
+    foreach {version payload} [list 8.6.6 $backlen_payload_wide 8.8.2 $backlen_payload_narrow] {
+        foreach sanitize {yes no} {
+            test "RESTORE listpack with boundary backlen written by $version (sanitize-dump-payload $sanitize)" {
+                r config set sanitize-dump-payload $sanitize
+                r del l
+                r restore l 0 $payload
+                assert_encoding listpack l
+                # Forward traversal reads the backlen of the boundary entry to
+                # find the next one, backward traversal to find it.
+                assert_equal [list $backlen_value tail] [r lrange l 0 -1]
+                assert_equal $backlen_value [r lindex l -2]
+
+                # Kept in the historical width, whichever version wrote it.
+                assert_equal $backlen_dump_wide [r dump l]
+
+                # Insert and delete after the boundary entry, then reload.
+                r rpush l more
+                r rpop l
+                r debug reload
+                assert_equal [list $backlen_value tail] [r lrange l 0 -1]
+            } {} {needs:debug}
+        }
+    }
+
+    test "RESTORE rejects the compact boundary backlen from RDB versions that never wrote it" {
+        r config set sanitize-dump-payload yes
+        # Claim RDB version 13 and drop the checksum (all zeroes skips the check).
+        set payload [string range $backlen_payload_narrow 0 end-10]
+        append payload "\x0d\x00" [string repeat "\x00" 8]
+        r del l
+        assert_error {*Bad data format*} {r restore l 0 $payload}
+        assert_equal 0 [r exists l]
+    }
 }

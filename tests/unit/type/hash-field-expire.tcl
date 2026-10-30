@@ -294,16 +294,21 @@ start_server {tags {"external:skip needs:debug"}} {
         }
         
         test "HPEXPIRETIME persists after RDB reload ($type)" {
-            r del myhash
-            r hset myhash field1 value1 field2 value2
-            r hpexpire myhash 150 NX FIELDS 1 field1
-            set before [r HPEXPIRETIME myhash FIELDS 1 field1]
-            r debug reload
-            set after [r HPEXPIRETIME myhash FIELDS 1 field1]
-            assert_equal $before $after
-            # field2 should not have expiration
-            assert_equal [r HTTL myhash FIELDS 1 field2] $T_NO_EXPIRY
-            assert_equal [get_stat_subexpiry r] 1
+            # Retry with a longer TTL when DEBUG RELOAD is slow.
+            assert_with_retry 3 iter {
+                r del myhash
+                r hset myhash field1 value1 field2 value2
+                set ttl_ms [expr {500 * $iter}]
+                r hpexpire myhash $ttl_ms NX FIELDS 1 field1
+                set before [r HPEXPIRETIME myhash FIELDS 1 field1]
+                r debug reload
+                set after [r HPEXPIRETIME myhash FIELDS 1 field1]
+            } {
+                $before == $after &&
+                [r HTTL myhash FIELDS 1 field2] == $T_NO_EXPIRY &&
+                [get_stat_subexpiry r] == 1
+            }
+
             # Wait for field1 to expire robustly
             wait_for_condition 50 20 { [get_stat_subexpiry r] == 0 } else { fail "subexpiry should be 0" } 
             assert_equal [r hget myhash field1] ""
@@ -962,10 +967,18 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_error "*wrong number of arguments*" {r HGETEX h1 FIELDS 1}
             assert_error "*unknown argument*" {r HGETEX h1 XFIELDX 1 a}
             assert_error "*unknown argument*" {r HGETEX h1 PXAT 1 1}
+            assert_error "*unknown argument*" {r HGETEX h1 KEEPTTL fields 1 a}
             assert_error "*wrong number of arguments*" {r HGETEX h1 FIELDS 2 a}
             assert_error "*invalid number of fields*" {r HGETEX h1 FIELDS 0 a}
             assert_error "*invalid number of fields*" {r HGETEX h1 FIELDS -1 a}
             assert_error "*invalid number of fields*" {r HGETEX h1 FIELDS 9223372036854775808 a}
+
+            # Only one of EX, PX, EXAT, PXAT or PERSIST can be specified
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 EX 100 PX 1000 FIELDS 1 a}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 EXAT 100 EX 1000 FIELDS 1 a}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 PX 100 EXAT 100 FIELDS 1 a}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 PXAT 100 EX 100 FIELDS 1 a}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 PERSIST EX 100 FIELDS 1 a}
         }
 
         test "HGETEX - input validation (expire time) ($type)" {
@@ -1124,6 +1137,8 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_error {*unknown argument*} {r hsetex myhash nx fields 1 a b}
             assert_error {*unknown argument*} {r hsetex myhash 1 fields 1 a b}
             assert_error {*wrong number of arguments*} {r hsetex myhash fields 1 a}
+            assert_error {*unknown argument*} {r hsetex myhash persist fields 1 a b}
+            assert_error {*unknown argument*} {r hsetex myhash ex 100 persist fields 1 a b}
 
             # Only one of FNX or FXX
             assert_error {*Only one of FXX or FNX arguments *} {r hsetex myhash fxx fxx EX 100 fields 1 a b}
@@ -1267,6 +1282,24 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_range [r hpttl myhash FIELDS 1 f3] 4500 5000
         }
 
+        test "HSETEX EX - field appears twice in FIELDS list with EX is allowed ($type)" {
+            # The EX condition passes, so all fields must be set, and the last value wins.
+            r del myhash
+            r hset myhash f1 v1
+            r hsetex myhash EX 100 FIELDS 2 f1 new1 f1 new2
+            # Last value wins (same as plain HSET behavior with duplicate fields)
+            assert_equal "new2" [r hget myhash f1]
+            assert_range [r httl myhash FIELDS 1 f1] 80 100
+        }
+
+        test "HSETEX FNX - field appears twice in FIELDS list with EX is allowed ($type)" {
+            # The FNX condition passes, so all fields must be set, and the last value wins.
+            r del myhash
+            r hsetex myhash FNX EX 100 FIELDS 2 f1 new1 f1 new2
+            assert_equal "new2" [r hget myhash f1]
+            assert_range [r httl myhash FIELDS 1 f1] 80 100
+        }
+
         test "HSETEX - Test 'EX' flag ($type)" {
             r del myhash
             r hset myhash f1 v1 f2 v2
@@ -1322,6 +1355,12 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_range [r httl myhash FIELDS 1 f1] 9000 10000
             assert_range [r httl myhash FIELDS 1 f2] 9000 10000
             assert_range [r httl myhash FIELDS 1 f3] 9000 10000
+        }
+
+        test "HSETEX - Test multiple 'FIELDS' arguments raise error ($type)" {
+            r del myhash
+            assert_error {*FIELDS keyword specified multiple times*} {r hsetex myhash FIELDS 1 f1 v1 FIELDS 1 f2 v2}
+            assert_error {*FIELDS keyword specified multiple times*} {r hsetex myhash FIELDS 1 f1 v1 EX 100 FIELDS 1 f2 v2}
         }
 
         test "HSETEX - Test no expiry flag discards TTL ($type)" {
@@ -1433,6 +1472,46 @@ start_server {tags {"external:skip needs:debug"}} {
         } else {
                 fail "Hash field expiry statistics failed"
         }
+    }
+
+    test "Statistics - Lazy expire increments expired_subkeys but not expired_subkeys_active ($type)" {
+        r flushall
+        r config resetstat
+        r debug set-active-expire 0
+
+        # Create hash with fields that will expire
+        r hset myhash f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
+        r hpexpire myhash 1 FIELDS 3 f1 f2 f3
+        after 2
+
+        # Trigger lazy expire by accessing the fields
+        assert_equal {{} {} {}} [r hmget myhash f1 f2 f3]
+
+        # Verify that expired_subkeys was incremented but expired_subkeys_active was not
+        assert_equal [s expired_subkeys] 3
+        assert_equal [s expired_subkeys_active] 0
+
+        r debug set-active-expire 1
+    }
+
+    test "Statistics - Active expire increments both expired_subkeys and expired_subkeys_active ($type)" {
+        r flushall
+        r config resetstat
+
+        # Create hash with fields that will expire soon
+        r hset myhash f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
+        r hpexpire myhash 1 FIELDS 3 f1 f2 f3
+
+        # Wait for active expire to kick in
+        wait_for_condition 50 100 {
+            [s expired_subkeys] == 3
+        } else {
+            fail "Hash fields were not expired"
+        }
+
+        # Verify that both expired_subkeys and expired_subkeys_active were incremented
+        assert_equal [s expired_subkeys] 3
+        assert_equal [s expired_subkeys_active] 3
     }
 
     test "HFE commands against wrong type" {
@@ -2303,6 +2382,11 @@ start_server {tags {"hash"}} {
             assert_error {*Parameter*numFields*should be greater than 0*} {r HEXPIRE myhash 60 FIELDS -1 f1}
             assert_error {*invalid number of fields*} {r HSETEX myhash FIELDS 0 f1 v1 EX 60}
             assert_error {*invalid number of fields*} {r HGETEX myhash FIELDS 0 f1 EX 60}
+            set future_sec [expr {[clock seconds] + 60}]
+            set future_ms [expr {[clock milliseconds] + 60000}]
+            foreach {cmd expire} [list HEXPIRE 60 HPEXPIRE 60000 HEXPIREAT $future_sec HPEXPIREAT $future_ms] {
+                assert_error {*wrong number of arguments*} [list r $cmd myhash $expire FIELDS 2147483647 f1]
+            }
 
             # Test missing FIELDS keyword
             assert_error {*unknown argument*} {r HEXPIRE myhash 60 2 f1 f2}

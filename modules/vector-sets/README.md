@@ -54,7 +54,7 @@ performed in the background, while the command is executed in the main thread.
 
 `NOQUANT` forces the vector to be created (in the first VADD call to a given key) without integer 8 quantization, which is otherwise the default.
 
-`BIN` forces the vector to use binary quantization instead of int8. This is much faster and uses less memory, but has impacts on the recall quality.
+`BIN` forces the vector to use binary quantization instead of int8. This is much faster and uses less memory, but has impacts on the recall quality. The distance is computed as normalized Hamming distance (`hamming_bits * 2 / dim`), yielding values in [0, 2] consistent with cosine distance semantics, not raw Hamming bit counts.
 
 `Q8` forces the vector to use signed 8 bit quantization. This is the default, and the option only exists in order to make sure to check at insertion time if the vector set is of the same format.
 
@@ -425,7 +425,7 @@ Attributes are accessed using dot notation:
 
 Expressions can work with:
 
-- Numbers (dobule precision floats)
+- Numbers (double precision floats)
 - Strings (enclosed in single or double quotes)
 - Booleans (no native type: they are represented as 1 for true, 0 for false)
 - Arrays (for use with the `in` operator: `value in [1, 2, 3]`)
@@ -512,7 +512,7 @@ The optimal `FILTER-EF` value depends on:
 
 A good practice is to start with the default and increase if needed when you observe fewer results than expected.
 
-### Testing a larg-ish data set
+### Testing a large-ish data set
 
 To really see how things work at scale, you can [download](https://antirez.com/word2vec_with_attribs.rdb) the following dataset:
 
@@ -647,7 +647,7 @@ Sometimes learned vectors are not as information dense as we could guess, that
 is there are components having similar meanings in the space, and components
 having values that don't really represent features that matter in our use case.
 
-At the same time, certain vectors are very big, 1024 components or more. In this cases, it is possible to use the random projection feature of Redis Vector Sets in order to reduce both space (less RAM used) and space (more operstions per second). The feature is accessible via the `REDUCE` option of the `VADD` command. However, keep in mind that you need to test how much reduction impacts the performances of your vectors in term of recall and quality of the results you get back.
+At the same time, certain vectors are very big, 1024 components or more. In this cases, it is possible to use the random projection feature of Redis Vector Sets in order to reduce both space (less RAM used) and space (more operations per second). The feature is accessible via the `REDUCE` option of the `VADD` command. However, keep in mind that you need to test how much reduction impacts the performances of your vectors in term of recall and quality of the results you get back.
 
 ## What is a random projection?
 
@@ -720,10 +720,6 @@ During Vector Sets testing, we discovered that often clients introduce considera
 2. The vector payload of floats represented as strings is very large, resulting in high bandwidth usage and latency, compared to other Redis commands.
 
 Switching from `VALUES` to `FP32` as a method for transmitting vectors may easily provide 10-20x speedups.
-
-# Known bugs
-
-* Replication code is pretty much untested, and very vanilla (replicating the commands verbatim).
 
 # Implementation details
 

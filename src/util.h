@@ -64,11 +64,16 @@ int yesnotoi(char *s);
 sds getAbsolutePath(char *filename);
 long getTimeZone(void);
 int pathIsBaseName(char *path);
+char *getFileExtension(char *path);
+char *getFileBaseName(char *path);
+sds getFilePath(char *path);
 int dirCreateIfMissing(char *dname);
 int dirExists(char *dname);
+int dirIsEmpty(char *dname);
 int dirRemove(char *dname);
 int fileExist(char *filename);
 sds makePath(char *path, char *filename);
+int copyFile(char *source, char *destination);
 int fsyncFileDir(const char *filename);
 int reclaimFilePageCache(int fd, size_t offset, size_t length);
 char *fgets_async_signal_safe(char *dest, int buff_size, int fd);
@@ -90,6 +95,39 @@ static inline int log2ceil(size_t x) {
     return 31 - __builtin_clz(x);
 #endif
 }
+
+/* Return the smallest power of 2 >= count (e.g. 5 -> 8, 8 -> 8). */
+static inline int nearestNextPowerOf2(unsigned int count) {
+    if (count <= 1) return 1;
+    return 1 << (32 - __builtin_clz(count-1));
+}
+
+/* Check for __builtin_add_overflow() */
+#ifndef __has_builtin
+#define __has_builtin(x) 0
+#endif
+#if __has_builtin(__builtin_add_overflow) || (defined(__GNUC__) && __GNUC__ >= 5)
+#define add_overflow_ll(a, b, res) __builtin_add_overflow((a), (b), (res))
+#define sub_overflow_ll(a, b, res) __builtin_sub_overflow((a), (b), (res))
+#else
+#include <limits.h>
+static inline int add_overflow_ll(long long a, long long b, long long *res) {
+    if ((b > 0 && a > LLONG_MAX - b) || (b < 0 && a < LLONG_MIN - b)) {
+        *res = (long long)((unsigned long long)a + (unsigned long long)b);
+        return 1;
+    }
+    *res = a + b;
+    return 0;
+}
+static inline int sub_overflow_ll(long long a, long long b, long long *res) {
+    if ((b < 0 && a > LLONG_MAX + b) || (b > 0 && a < LLONG_MIN + b)) {
+        *res = (long long)((unsigned long long)a - (unsigned long long)b);
+        return 1;
+    }
+    *res = a - b;
+    return 0;
+}
+#endif
 
 #ifndef static_assert
 #define static_assert(expr, lit) extern char __static_assert_failure[(expr) ? 1:-1]

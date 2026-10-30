@@ -4,7 +4,7 @@
 # Actually, we may not have many asserts in the test, since we just check for
 # crashes and the dump file inconsistencies.
 
-start_server {tags {"dismiss external:skip"}} {
+start_server {tags {"dismiss external:skip needs:debug"}} {
     # In other tests, although we test child process dumping RDB file, but
     # memory allocations of key/values are usually small, they couldn't cover
     # the "dismiss" object methods, in this test, we create big size key/values
@@ -32,10 +32,16 @@ start_server {tags {"dismiss external:skip"}} {
         }
 
         # zset
-        r zadd bigzset1 1.0 $bigstr         ; # skiplist encoding
+        r zadd bigzset1 1.0 $bigstr         ; # B+ tree, external member
+        assert_encoding btree bigzset1
         for {set i 0} {$i < 128} {incr i} {
-            r zadd bigzset2 1.0 $64bytes    ; # ziplist encoding
+            r zadd bigzset2 1.0 [format "%064d" $i]
         }
+        assert_encoding listpack bigzset2
+        for {set i 0} {$i < 512} {incr i} {
+            r zadd bigzset3 $i "${64bytes}:$i"
+        }
+        assert_encoding btree bigzset3
 
         # hash
         r hset bighash1 field1 $bigstr      ; # hash encoding
@@ -46,13 +52,42 @@ start_server {tags {"dismiss external:skip"}} {
         # stream
         r xadd bigstream * entry1 $bigstr entry2 $bigstr
 
+        # array: dense slice populated with large string values, plus a
+        # sparsely-populated array whose indices span multiple slices.
+        for {set i 0} {$i < 32} {incr i} {
+            r arset dense_array $i $bigstr
+        }
+        for {set i 0} {$i < 16} {incr i} {
+            r arset sparse_array [expr {$i * 5000}] $bigstr
+        }
+
+        # bitmap: cover all three roaring container types. Six 64K-bit chunks
+        # hold alternating bits (bitset containers), the next chunk is all
+        # ones and collapses into a run container when the conversion
+        # run-optimizes, and the distant bit lands alone in a later chunk
+        # (sparse array container). Multiple bitsets keep the compact portable
+        # payload's average above the per-container page threshold.
+        r set bigbitmap [binary format H* \
+            "[string repeat aa 49152][string repeat ff 8192]"]
+        r config set bitmap-default-roaring yes
+        r setbit bigbitmap 600000 1 ;# converts the dense string to roaring
+        r config set bitmap-default-roaring no
+        assert_equal bitmap [r type bigbitmap]
+
+        # Disable LZF so the size hint tracks the portable container payload.
+        set old_rdbcompression [config_get_set rdbcompression no]
+
         set digest [debug_digest]
-        r config set aof-use-rdb-preamble no
-        r bgrewriteaof
-        waitForBgrewriteaof r
-        r debug loadaof
-        set newdigest [debug_digest]
-        assert {$digest eq $newdigest}
+        # Test both RDB (yes) and AOF (no) rewrite paths.
+        foreach preamble {yes no} {
+            r config set aof-use-rdb-preamble $preamble
+            r bgrewriteaof
+            waitForBgrewriteaof r
+            r debug loadaof
+            set newdigest [debug_digest]
+            assert {$digest eq $newdigest}
+        }
+        r config set rdbcompression $old_rdbcompression
     }
 
     test {dismiss client output buffer} {
@@ -97,6 +132,50 @@ start_server {tags {"dismiss external:skip"}} {
             }
             $master bgsave
             waitForBgsave $master
+        }
+    }
+
+    test {dismiss multi-db kvstore bucket memory in standalone mode} {
+        r flushall
+        regexp {db=(\d+)} [r client info] -> curdb
+        # Populate multiple DBs to verify each DB's bucket arrays can be dismissed.
+        foreach db {0 1 2 3} {
+            r select $db
+            populate 2000 "db${db}key:" 3 0 false 3600
+        }
+        set digest [debug_digest]
+
+        # Test both RDB (yes) and AOF (no) rewrite paths.
+        foreach preamble {yes no} {
+            r config set aof-use-rdb-preamble $preamble
+            r bgrewriteaof
+            waitForBgrewriteaof r
+            r debug loadaof
+            set newdigest [debug_digest]
+            assert {$digest eq $newdigest}
+        }
+        r select $curdb
+    }
+}
+
+start_cluster 1 0 {tags {dismiss external:skip cluster needs:debug}} {
+    test {dismiss slot dict bucket memory in cluster mode} {
+        # Concentrate keys into a few slots using hash tags so each slot's
+        # bucket array is large enough to be dismissed.
+        # {06S} -> slot 0, {Qi} -> slot 1, {5L5} -> slot 2
+        foreach tag {{06S} {Qi} {5L5}} {
+            populate 2000 "${tag}key:" 3 0 false 3600
+        }
+        set digest [r debug digest]
+
+        # Test both RDB (yes) and AOF (no) rewrite paths.
+        foreach preamble {yes no} {
+            r config set aof-use-rdb-preamble $preamble
+            r bgrewriteaof
+            waitForBgrewriteaof r
+            r debug loadaof
+            set newdigest [r debug digest]
+            assert {$digest eq $newdigest}
         }
     }
 }

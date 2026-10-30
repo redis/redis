@@ -12,6 +12,14 @@
 # Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
 #
 
+# Read and return the full contents of a file.
+proc read_file {path} {
+    set fd [open $path r]
+    set contents [read $fd]
+    close $fd
+    return $contents
+}
+
 proc randstring {min max {type binary}} {
     set len [expr {$min+int(rand()*($max-$min+1))}]
     set output {}
@@ -81,7 +89,8 @@ proc sanitizer_errors_from_file {filename} {
 
         # GCC UBSAN output does not contain 'Sanitizer' but 'runtime error'.
         if {[string match {*runtime error*} $line] ||
-            [string match {*Sanitizer*} $line]} {
+            [string match {*Sanitizer*} $line] ||
+            [string match {*<jemalloc>:*size mismatch*} $line]} {
             return $log
         }
     }
@@ -116,7 +125,12 @@ proc waitForBgsave r {
 
 proc waitForBgrewriteaof r {
     while 1 {
-        if {[status $r aof_rewrite_in_progress] eq 1} {
+        set rewrite_in_progress [status $r aof_rewrite_in_progress]
+        set rewrite_scheduled [status $r aof_rewrite_scheduled]
+
+        # A rewrite can be scheduled but paused while another background task is running,
+        # so we need to check two conditions
+        if {$rewrite_in_progress eq 1 || $rewrite_scheduled eq 1} {
             if {$::verbose} {
                 puts -nonewline "\nWaiting for background AOF rewrite to finish... "
                 flush stdout
@@ -129,7 +143,18 @@ proc waitForBgrewriteaof r {
 }
 
 proc wait_for_sync r {
-    wait_for_condition 50 100 {
+    set maxtries 50
+    # tsan adds significant overhead to the execution time, so we increase the
+    # wait time here JIC
+    if {$::tsan} {
+        set maxtries 100
+    }
+    # same for compression
+    if {$::compression} {
+        set maxtries 200
+    }
+
+    wait_for_condition $maxtries 100 {
         [status $r master_link_status] eq "up"
     } else {
         fail "replica didn't sync in time"
@@ -137,6 +162,15 @@ proc wait_for_sync r {
 }
 
 proc wait_replica_online {r {replica_id 0} {maxtries 50} {delay 100}} {
+    # tsan adds significant overhead to the execution time, so we increase the
+    # wait time here JIC
+    if {$::tsan} {
+        set maxtries [expr {$maxtries * 2}]
+    }
+    if {$::compression} {
+        set maxtries [expr {$maxtries * 3}]
+    }
+
     wait_for_condition $maxtries $delay {
         [string match "*slave$replica_id:*,state=online*" [$r info replication]]
     } else {
@@ -145,7 +179,16 @@ proc wait_replica_online {r {replica_id 0} {maxtries 50} {delay 100}} {
 }
 
 proc wait_for_ofs_sync {r1 r2} {
-    wait_for_condition 50 100 {
+    set maxtries 50
+    # tsan adds significant overhead to the execution time, so we increase the
+    # wait time here JIC
+    if {$::tsan} {
+        set maxtries 100
+    }
+    if {$::compression} {
+        set maxtries 150
+    }
+    wait_for_condition $maxtries 100 {
         [status $r1 master_repl_offset] eq [status $r2 master_repl_offset]
     } else {
         fail "replica offset didn't match in time"
@@ -168,9 +211,17 @@ proc wait_lazyfree_done r {
     }
 }
 
+# count lines in a log file, by path. Unlike count_log_lines this doesn't need
+# a running server, so it can also be used to snapshot a log file before
+# starting the server that will write to it.
+proc count_file_lines {file} {
+    if {![file exists $file]} { return 0 }
+    return [string trim [exec wc -l < $file]]
+}
+
 # count current log lines in server's stdout
 proc count_log_lines {srv_idx} {
-    set _ [string trim [exec wc -l < [srv $srv_idx stdout]]]
+    count_file_lines [srv $srv_idx stdout]
 }
 
 # returns the number of times a line with that pattern appears in a file
@@ -201,6 +252,9 @@ proc verify_log_message {srv_idx pattern from_line} {
 # wait for pattern to be found in server's stdout after certain line number
 # return value is a list containing the line that matched the pattern and the line number
 proc wait_for_log_messages {srv_idx patterns from_line maxtries delay} {
+    if {$::compression} {
+        set maxtries [expr {$maxtries * 3}]
+    }
     set retry $maxtries
     set next_line [expr $from_line + 1] ;# searching form the line after
     set stdout [srv $srv_idx stdout]
@@ -296,6 +350,36 @@ proc randomKey {} {
     }
 }
 
+# Creates an empty Roaring bitmap for a missing key, or re-encodes an existing
+# string bitmap without changing its logical value or TTL. BITCONVERT is an
+# internal replay primitive, so temporarily mark the test connection internal
+# and always restore its ordinary-client state. Callers must pass a connection
+# that is not already marked internal.
+proc convert_string_bitmap_to_roaring {client key} {
+    set code [catch {
+        {*}$client debug mark-internal-client
+        {*}$client bitconvert $key
+    } result opts]
+    set cleanup_code [catch {
+        {*}$client debug mark-internal-client unmark
+    } cleanup_result cleanup_opts]
+    if {$code != 0} {
+        return -options $opts $result
+    }
+    if {$cleanup_code != 0} {
+        return -options $cleanup_opts $cleanup_result
+    }
+    return $result
+}
+
+proc empty_roaring_bitmap_dump_payload {} {
+    # RDB_TYPE_BITMAP, zero logical byte length, an eight-byte portable
+    # Roaring payload with zero high-32 buckets, RDB_VERSION 16, followed by
+    # an all-zero checksum. RESTORE accepts the zero checksum in test-built
+    # payloads.
+    return [binary format H* 210008000000000000000010000000000000000000]
+}
+
 proc findKeyWithType {r type} {
     for {set j 0} {$j < 20} {incr j} {
         set k [{*}$r randomkey]
@@ -312,12 +396,17 @@ proc findKeyWithType {r type} {
 proc createComplexDataset {r ops {opt {}}} {
     set useexpire [expr {[lsearch -exact $opt useexpire] != -1}]
     set usehexpire [expr {[lsearch -exact $opt usehexpire] != -1}]
+    set usesexpire [expr {[lsearch -exact $opt usesexpire] != -1}]
 
     if {[lsearch -exact $opt usetag] != -1} {
         set tag "{t}"
     } else {
         set tag ""
     }
+
+    # Prepare a fieldset so we can mix in template-encoded hash keys via HIMPORT SET.
+    {*}$r himport prepare fs f0 f1 f2
+
     for {set j 0} {$j < $ops} {incr j} {
         set k [randomKey]$tag
         set k2 [randomKey]$tag
@@ -327,6 +416,35 @@ proc createComplexDataset {r ops {opt {}}} {
         if {$useexpire} {
             if {rand() < 0.1} {
                 {*}$r expire [randomKey] [randomInt 2]
+            }
+        }
+
+        # Do one random operation on one of 20 dedicated stream keys. Streams get
+        # their own keys because Redis deletes a list/set/zset/hash once its last
+        # element is gone, which frees the name to be reused as another type, while
+        # an empty stream stays. The test code never deletes such a stream, on purpose:
+        # together with strings and bitmaps, streams can exist with zero elements,
+        # and they give the dataset its zero-length coverage, like the
+        # size-0 bucket of the INFO keysizes histograms. The 20 keys for streams also
+        # mean each stream gets many operations, with "*" keeping its IDs increasing.
+        if {rand() < 0.2} {
+            set sk "strm:[randomInt 20]$tag"
+            randpath {
+                {*}$r xadd $sk * $f $v
+            } {
+                {*}$r xadd $sk MAXLEN [randomInt 30] * $f $v
+            } {
+                catch {{*}$r xtrim $sk MAXLEN [randomInt 10]}
+            } {
+                catch {{*}$r xgroup create $sk g 0 MKSTREAM}
+                catch {{*}$r xreadgroup group g c count 5 streams $sk >}
+            } {
+                # Ack-and-delete the oldest entry, if any, to drive XACKDEL/PEL.
+                set first [lindex [{*}$r xrange $sk - + COUNT 1] 0 0]
+                if {$first ne {}} {
+                    catch {{*}$r xackdel $sk g IDS 1 $first}
+                    catch {{*}$r xdel $sk $first}
+                }
             }
         }
 
@@ -356,6 +474,14 @@ proc createComplexDataset {r ops {opt {}}} {
                 {*}$r zadd $k $d $v
             } {
                 {*}$r hset $k $f $v
+            } {
+                # template-encoded hash. Short/long values naturally produce 
+                # both TMPL_LP and TMPL_ARRAY encodings.
+                {*}$r himport set $k fs $v [randomValue] [randomValue]
+            } {
+                # Start with a native zero-length bitmap. Its later writes stay
+                # within 1 KiB so complex-data stress tests remain bounded.
+                {*}$r restore $k 0 [empty_roaring_bitmap_dump_payload]
             } {
                 {*}$r del $k
             }
@@ -388,6 +514,16 @@ proc createComplexDataset {r ops {opt {}}} {
                                 }
                             }
                         }
+
+                if {$usesexpire && rand() < 0.5} {
+                    randpath {
+                        catch {{*}$r sexpire $k 1000 MEMBERS 1 $v}
+                    } {
+                        catch {{*}$r saddex $k EX 1000 MEMBERS 1 $v}
+                    } {
+                        catch {{*}$r spersist $k MEMBERS 1 $v}
+                    }
+                }
             }
             {zset} {
                 randpath {{*}$r zadd $k $d $v} \
@@ -409,6 +545,16 @@ proc createComplexDataset {r ops {opt {}}} {
 
                 if { [{*}$r hexists $k $f] && $usehexpire && rand() < 0.5} {
                     {*}$r hexpire $k 1000 FIELDS 1 $f
+                }
+            }
+            {bitmap} {
+                randpath {
+                    {*}$r setbit $k [randomInt 8192] [randomInt 2]
+                } {
+                    {*}$r bitfield $k SET u8 [randomInt 8185] [randomInt 256]
+                } {
+                    # Preserve some empty bitmaps for zero-length coverage.
+                    {*}$r bitcount $k
                 }
             }
         }
@@ -477,6 +623,20 @@ proc csvdump r {
                         append o [csvstring [lindex $kv 1]] ,
                     }
                     append o "\n"
+                }
+                stream {
+                    # Must cover the same state as the stream
+                    # digest in xorObjectDigest() (debug.c)
+                    foreach entry [{*}$r xrange $k - +] {
+                        append o [csvstring [lindex $entry 0]] ,
+                        foreach fv [lindex $entry 1] {
+                            append o [csvstring $fv] ,
+                        }
+                    }
+                    append o "\n"
+                }
+                bitmap {
+                    append o [csvstring [{*}$r debug bitmap-raw $k]] "\n"
                 }
             }
         }
@@ -585,9 +745,11 @@ proc find_valgrind_errors {stderr on_termination} {
 # Execute a background process writing random data for the specified number
 # of seconds to the specified Redis instance. If key is omitted, a random key
 # is used for every SET command.
-proc start_write_load {host port seconds {key ""} {size 0} {sleep 0}} {
+# ignore_error_reply (default 0): set non-zero in cluster slot-migration tests to tolerate
+# MOVED/ASK replies while draining pipelined writes in the load helper.
+proc start_write_load {host port seconds {key ""} {size 0} {sleep 0} {ignore_error_reply 0}} {
     set tclsh [info nameofexecutable]
-    exec $tclsh tests/helpers/gen_write_load.tcl $host $port $seconds $::tls $key $size $sleep &
+    exec $tclsh tests/helpers/gen_write_load.tcl $host $port $seconds $::tls $key $size $sleep $ignore_error_reply &
 }
 
 # Stop a process generating write load executed with start_write_load.
@@ -604,6 +766,26 @@ proc wait_load_handlers_disconnected {{level 0}} {
 }
 
 proc K { x y } { set x } 
+
+# Send count commands on a deferring client, draining replies in batches to
+# avoid TCP deadlock when deferred replies accumulate.
+proc deferred_batch {rd count cmd_script {batch_size 1000}} {
+    set pending 0
+    for {set idx 0} {$idx < $count} {incr idx} {
+        uplevel 1 [list set i $idx]
+        uplevel 1 $cmd_script
+        incr pending
+        if {$pending == $batch_size} {
+            for {set reply_idx 0} {$reply_idx < $pending} {incr reply_idx} {
+                $rd read
+            }
+            set pending 0
+        }
+    }
+    for {set reply_idx 0} {$reply_idx < $pending} {incr reply_idx} {
+        $rd read
+    }
+}
 
 # Shuffle a list with Fisher-Yates algorithm.
 proc lshuffle {list} {
@@ -634,11 +816,19 @@ proc stop_bg_complex_data {handle} {
 # Write num keys with the given key prefix and value size (in bytes). If idx is
 # given, it's the index (AKA level) used with the srv procedure and it specifies
 # to which Redis instance to write the keys.
-proc populate {num {prefix key:} {size 3} {idx 0} {prints false} {expires 0}} {
+proc populate {num {prefix key:} {size 3} {idx 0} {prints false} {expires 0} {random false}} {
     r $idx deferred 1
     if {$num > 16} {set pipeline 16} else {set pipeline $num}
-    set val [string repeat A $size]
+    if {$random} {
+        set baseval [randstring $size $size]
+    } else {
+        set val [string repeat A $size]
+    }
     for {set j 0} {$j < $pipeline} {incr j} {
+        if {$random} {
+            set jstr [format "%08d" $j]
+            set val [string replace $baseval 0 7 $jstr]
+        }
         if {$expires > 0} {
             r $idx set $prefix$j $val ex $expires
         } else {
@@ -647,6 +837,10 @@ proc populate {num {prefix key:} {size 3} {idx 0} {prints false} {expires 0}} {
         if {$prints} {puts $j}
     }
     for {} {$j < $num} {incr j} {
+        if {$random} {
+            set jstr [format "%08d" $j]
+            set val [string replace $baseval 0 7 $jstr]
+        }
         if {$expires > 0} {
             r $idx set $prefix$j $val ex $expires
         } else {
@@ -722,7 +916,27 @@ proc resume_process {pid} {
         puts [get_proc_job $pid]
         fail "process was not stopped"
     }
-    exec kill -SIGCONT $pid
+
+    set max_attempts 10
+    set attempt 0
+    while {($attempt < $max_attempts) && [string match "T*" [exec ps -o state= -p $pid]]} {
+        exec kill -SIGCONT $pid
+
+        incr attempt
+        after 100
+    }
+
+    set max_attempts 50
+    if {$::compression} {
+        set max_attempts 150
+    }
+    wait_for_condition $max_attempts 1000 {
+        [string match "R*" [exec ps -o state= -p $pid]] ||
+        [string match "S*" [exec ps -o state= -p $pid]]
+    } else {
+        puts [exec ps j $pid]
+        fail "process was not resumed"
+    }
 }
 
 proc cmdrstat {cmd r} {
@@ -761,9 +975,15 @@ proc generate_fuzzy_traffic_on_key {key type duration} {
     set zset_commands {ZADD ZCARD ZCOUNT ZINCRBY ZINTERSTORE ZLEXCOUNT ZPOPMAX ZPOPMIN ZRANGE ZRANGEBYLEX ZRANGEBYSCORE ZRANK ZREM ZREMRANGEBYLEX ZREMRANGEBYRANK ZREMRANGEBYSCORE ZREVRANGE ZREVRANGEBYLEX ZREVRANGEBYSCORE ZREVRANK ZSCAN ZSCORE ZUNIONSTORE ZRANDMEMBER}
     set list_commands {LINDEX LINSERT LLEN LPOP LPOS LPUSH LPUSHX LRANGE LREM LSET LTRIM RPOP RPOPLPUSH RPUSH RPUSHX}
     set set_commands {SADD SCARD SDIFF SDIFFSTORE SINTER SINTERSTORE SISMEMBER SMEMBERS SMOVE SPOP SRANDMEMBER SREM SSCAN SUNION SUNIONSTORE}
-    set stream_commands {XACK XADD XCLAIM XDEL XGROUP XINFO XLEN XPENDING XRANGE XREAD XREADGROUP XREVRANGE XTRIM XDELEX XACKDEL}
+    set stream_commands {XACK XADD XCLAIM XDEL XGROUP XINFO XLEN XPENDING XRANGE XREAD XREADGROUP XREVRANGE XTRIM XDELEX XACKDEL XNACK}
     set vset_commands {VADD VREM}
-    set commands [dict create string $string_commands hash $hash_commands zset $zset_commands list $list_commands set $set_commands stream $stream_commands vectorset $vset_commands]
+    set array_commands {ARSET ARGET ARDEL ARCOUNT ARMSET ARMGET ARGETRANGE ARDELRANGE ARINFO}
+    set bitmap_commands {SETBIT GETBIT BITCOUNT BITPOS BITOP BITFIELD BITFIELD_RO}
+    set commands [dict create string $string_commands hash $hash_commands zset $zset_commands list $list_commands set $set_commands stream $stream_commands vectorset $vset_commands array $array_commands bitmap $bitmap_commands]
+if 0 {
+    set gcra_commands {GCRA}
+    dict set commands gcra $gcra_commands
+}
 
     set cmds [dict get $commands $type]
     set start_time [clock seconds]
@@ -823,6 +1043,49 @@ proc generate_fuzzy_traffic_on_key {key type duration} {
             lappend cmd $key
             lappend cmd [randomValue]
             incr i 2
+        }
+        # Array commands need integer indices
+        if {$cmd == "ARSET"} {
+            lappend cmd $key
+            lappend cmd [randomInt 100000]  ;# index
+            lappend cmd [randomValue]       ;# value
+            incr i 3
+        }
+        if {$cmd == "ARGET" || $cmd == "ARDEL"} {
+            lappend cmd $key
+            lappend cmd [randomInt 100000]  ;# index
+            incr i 2
+        }
+        if {$cmd == "ARCOUNT" || $cmd == "ARINFO"} {
+            lappend cmd $key
+            incr i 1
+        }
+        if {$cmd == "ARMSET"} {
+            lappend cmd $key
+            # Add 2-4 index/value pairs
+            set npairs [expr {int(rand() * 3) + 2}]
+            for {set p 0} {$p < $npairs} {incr p} {
+                lappend cmd [randomInt 100000]
+                lappend cmd [randomValue]
+            }
+            incr i [expr {1 + $npairs * 2}]
+        }
+        if {$cmd == "ARMGET"} {
+            lappend cmd $key
+            # Add 2-4 indices
+            set nidx [expr {int(rand() * 3) + 2}]
+            for {set p 0} {$p < $nidx} {incr p} {
+                lappend cmd [randomInt 100000]
+            }
+            incr i [expr {1 + $nidx}]
+        }
+        if {$cmd == "ARGETRANGE" || $cmd == "ARDELRANGE"} {
+            lappend cmd $key
+            set idx1 [randomInt 100000]
+            set idx2 [expr {$idx1 + [randomInt 1000]}]
+            lappend cmd $idx1
+            lappend cmd $idx2
+            incr i 3
         }
 
         for {} {$i < $arity} {incr i} {
@@ -982,6 +1245,18 @@ proc debug_digest_value {key} {
     r debug digest-value $key
 }
 
+# Arm the per-command INFO Streams assertion: the server rebuilds the stream
+# histograms from the keyspace after every command and panics on a mismatch,
+# so the calling suite also covers the stream-stats bookkeeping. Not a tag on
+# the suite, which would skip every test where DEBUG is unavailable (external
+# servers, and the CI job that runs with --tags -needs:debug): only the
+# arming is skipped there.
+proc arm_stream_stats_assert {} {
+    if {$::external || [lsearch $::denytags "needs:debug"] >= 0} return
+    r config set stream-stats yes
+    r debug stream-stats-assert 1
+}
+
 proc debug_digest {{level 0}} {
     if {[lsearch $::denytags "needs:debug"] >= 0 || $::ignoredigest} {
         return "dummy-digest"
@@ -1001,7 +1276,7 @@ proc wait_for_blocked_clients_count {count {maxtries 100} {delay 10} {idx 0}} {
     wait_for_condition $maxtries $delay  {
         [s $idx blocked_clients] == $count
     } else {
-        fail "Timeout waiting for blocked clients"
+        fail "Timeout waiting for blocked clients (expected $count, actual [s $idx blocked_clients])"
     }
 }
 
@@ -1067,6 +1342,38 @@ proc config_get_set {param value {options {}}} {
     set config [lindex [r config get $param] 1]
     config_set $param $value $options
     return $config
+}
+
+# Enable active defrag until it has walked some keys, then raise
+# active-defrag-threshold-lower above any fragmentation so the running cycle
+# is the last one. Returns how many cycles ran, counted from the verbose
+# "Active defrag done" line each cycle ends with, or 0 if this build cannot
+# enable active defrag. Every counted cycle ran to completion, so per-cycle
+# defrag stats are exact multiples of the returned count.
+proc run_complete_defrag_cycles {} {
+    set old_loglevel [config_get_set loglevel verbose]
+    set old_threshold [lindex [r config get active-defrag-threshold-lower] 1]
+    set done_lines [count_log_message 0 "Active defrag done"]
+    set cycles 0
+    catch {r config set activedefrag yes}
+    if {[r config get activedefrag] eq "activedefrag yes"} {
+        wait_for_condition 500 100 {
+            [s active_defrag_key_hits] + [s active_defrag_key_misses] > 0
+        } else {
+            fail "defrag did not start"
+        }
+        r config set active-defrag-threshold-lower 1000
+        wait_for_condition 500 100 {
+            [s active_defrag_running] eq 0
+        } else {
+            fail "defrag did not finish its last cycle"
+        }
+        set cycles [expr {[count_log_message 0 "Active defrag done"] - $done_lines}]
+        r config set activedefrag no
+    }
+    r config set active-defrag-threshold-lower $old_threshold
+    r config set loglevel $old_loglevel
+    return $cycles
 }
 
 proc delete_lines_with_pattern {filename tmpfilename pattern} {

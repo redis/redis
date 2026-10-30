@@ -13,6 +13,7 @@
  */
 
 #include "server.h"
+#include "bitroar.h"
 #include "util.h"
 #include "sha1.h"   /* SHA1 is used for DEBUG DIGEST */
 #include "crc64.h"
@@ -21,6 +22,7 @@
 #include "fpconv_dtoa.h"
 #include "fast_float_strtod.h"
 #include "cluster.h"
+#include "zset_btree.h"
 #include "threads_mngr.h"
 #include "script.h"
 #include "cluster_asm.h"
@@ -60,6 +62,100 @@ static pthread_mutexattr_t bug_report_start_attr;
 static pthread_mutex_t signal_handler_lock;
 static pthread_mutexattr_t signal_handler_lock_attr;
 static volatile int signal_handler_lock_initialized = 0;
+
+/* Crash watchdog: bounds a bug report so a stuck backtrace() or module info
+ * callback still exits. */
+/* Seconds a bug report may run; tests shorten it with
+ * DEBUG SET-CRASH-WATCHDOG-TIMEOUT. */
+static int crash_watchdog_timeout = 30;
+#ifdef HAVE_CRASH_WATCHDOG
+/* SIGRTMIN+4: glibc reserves +0..+2, and SIGALRM is the software watchdog. */
+#define CRASH_WATCHDOG_SIG (SIGRTMIN + 4)
+static timer_t crash_watchdog_timer;
+static int crash_watchdog_ok = 0;   /* the timer was created */
+
+/* The crash handler calls functions that are not async-signal-safe, like
+ * backtrace(), and we suspect they can deadlock. If the bug report doesn't
+ * finish in time, abort() so the process still terminates in a bounded time
+ * and a core dump is generated. Use abort(), not kill(): a signal sent to
+ * ourselves can be dropped. */
+static void crashWatchdogHandler(int sig) {
+    UNUSED(sig);
+    struct sigaction act;
+
+    /* No bug report running: a stray signal must not kill the server. */
+    if (!bug_report_start) return;
+
+    serverLogRawFromHandler(LL_WARNING|LL_RAW,
+"\n=== CRASH WATCHDOG: crash report exceeded its timeout ===\n"
+"    The bug report above is incomplete. Aborting so the process can be\n"
+"    restarted and a core dump produced.\n\n");
+
+    /* All of them, not only SIGABRT: glibc's fallback fault must not land
+     * back in sigsegvHandler(). */
+    sigemptyset(&act.sa_mask);
+    act.sa_flags = 0;
+    act.sa_handler = SIG_DFL;
+    sigaction(SIGSEGV, &act, NULL);
+    sigaction(SIGBUS, &act, NULL);
+    sigaction(SIGFPE, &act, NULL);
+    sigaction(SIGILL, &act, NULL);
+    sigaction(SIGABRT, &act, NULL);
+    abort();
+}
+#endif
+
+/* Called at startup and in fork children (POSIX timers are not inherited). */
+void crashWatchdogInit(void) {
+#ifdef HAVE_CRASH_WATCHDOG
+    struct sigaction act;
+    struct sigevent sev;
+    sigset_t set;
+
+    /* Threads inherit the mask, and we may have been started with it blocked. */
+    sigemptyset(&set);
+    sigaddset(&set, CRASH_WATCHDOG_SIG);
+    pthread_sigmask(SIG_UNBLOCK, &set, NULL);
+
+    sigemptyset(&act.sa_mask);
+    /* A stray delivery must not return EINTR from unrelated syscalls. */
+    act.sa_flags = SA_RESTART;
+    act.sa_handler = crashWatchdogHandler;
+
+    memset(&sev, 0, sizeof(sev));
+    sev.sigev_notify = SIGEV_SIGNAL;
+    sev.sigev_signo = CRASH_WATCHDOG_SIG;
+
+    /* Without the flag, crashWatchdogSet() would use an unset timer_t, which
+     * can name a timer someone else created. */
+    crash_watchdog_ok = sigaction(CRASH_WATCHDOG_SIG, &act, NULL) == 0 &&
+                        timer_create(CLOCK_MONOTONIC, &sev, &crash_watchdog_timer) == 0;
+    if (!crash_watchdog_ok)
+        serverLog(LL_WARNING, "Crash watchdog disabled: %s", strerror(errno));
+#endif
+}
+
+/* Arm the deadline, or disarm it with 0. */
+static void crashWatchdogSet(int seconds) {
+#ifdef HAVE_CRASH_WATCHDOG
+    if (!crash_watchdog_ok) return;
+    struct itimerspec its = {{0, 0}, {seconds, 0}};
+    timer_settime(crash_watchdog_timer, 0, &its, NULL);
+#else
+    UNUSED(seconds);
+#endif
+}
+
+/* Arm the deadline unless it is already counting down. */
+static void crashWatchdogArmIfIdle(void) {
+#ifdef HAVE_CRASH_WATCHDOG
+    struct itimerspec cur = {{0, 0}, {0, 0}};
+    if (crash_watchdog_ok && timer_gettime(crash_watchdog_timer, &cur) == 0 &&
+        (cur.it_value.tv_sec || cur.it_value.tv_nsec)) return;
+#endif
+    crashWatchdogSet(crash_watchdog_timeout);
+}
+
 /* Forward declarations */
 int bugReportStart(void);
 void printCrashReport(void);
@@ -123,6 +219,43 @@ void mixStringObjectDigest(unsigned char *digest, robj *o) {
     decrRefCount(o);
 }
 
+/* Stream one [start, end) set-bit run into the bitmap SHA1 as two fixed-width
+ * little-endian integers. */
+static void mixBitmapObjectRangeDigest(uint64_t start, uint64_t end, void *privdata) {
+    SHA1_CTX *ctx = privdata;
+    uint64_t range[2] = {intrev64ifbe(start), intrev64ifbe(end)};
+
+    SHA1Update(ctx, (unsigned char *)range, sizeof(range));
+}
+
+void mixBitmapObjectDigest(unsigned char *digest, robj *o) {
+    /* Digest Roaring bitmaps by logical length plus canonical set-bit ranges.
+     * This avoids materializing sparse high-offset bitmaps and keeps the
+     * digest independent from CRoaring's history-dependent container choices.
+     * All the ranges are streamed into a single SHA1 that is mixed into the
+     * digest once, so each run costs one 16-byte SHA1Update rather than two
+     * mixDigest() calls with a SHA1 finalization each. */
+    SHA1_CTX ctx;
+    unsigned char hash[20];
+    uint64_t len = intrev64ifbe(bitroarLen(o));
+
+    SHA1Init(&ctx);
+    SHA1Update(&ctx, (unsigned char *)&len, sizeof(len));
+    bitroarVisitSetBitRanges(o, mixBitmapObjectRangeDigest, &ctx);
+    SHA1Final(hash, &ctx);
+    mixDigest(digest, hash, sizeof(hash));
+}
+
+#ifdef ENABLE_GCRA
+void mixGCRAObjectDigest(unsigned char *digest, robj *o) {
+    char buf[LONG_STR_SIZE];
+    long long val;
+    getLongLongFromGCRAObject(o, &val);
+    int len = ll2string(buf, sizeof(buf), val);
+    mixDigest(digest,buf,len);
+}
+#endif
+
 /* This function computes the digest of a data structure stored in the
  * object 'o'. It is the core of the DEBUG DIGEST command: when taking the
  * digest of a whole dataset, we take the digest of the key and the value
@@ -153,9 +286,18 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
     } else if (o->type == OBJ_SET) {
         setTypeIterator si;
         sds sdsele;
-        setTypeInitIterator(&si, o);
+        setTypeInitIterator(&si, o, SET_ITER_RAW);
         while((sdsele = setTypeNextObject(&si)) != NULL) {
-            xorDigest(digest,sdsele,sdslen(sdsele));
+            if (si.expire == EB_EXPIRE_TIME_INVALID) {
+                xorDigest(digest,sdsele,sdslen(sdsele));
+            } else {
+                /* A member with an expiration (SME) */
+                unsigned char eledigest[20];
+                memset(eledigest,0,20);
+                mixDigest(eledigest,sdsele,sdslen(sdsele));
+                xorDigest(eledigest,"!!sexpire!!",11);
+                xorDigest(digest,eledigest,20);
+            }
             sdsfree(sdsele);
         }
         setTypeResetIterator(&si);
@@ -199,9 +341,9 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
 
             dictInitIterator(&di, zs->dict);
             while((de = dictNext(&di)) != NULL) {
-                sds sdsele = dictGetKey(de);
-                double *score = dictGetVal(de);
-                const int len = fpconv_dtoa(*score, buf);
+                zskiplistNode *znode = dictGetKey(de);
+                sds sdsele = zslGetNodeElement(znode);
+                const int len = fpconv_dtoa(znode->score, buf);
                 buf[len] = '\0';
                 memset(eledigest,0,20);
                 mixDigest(eledigest,sdsele,sdslen(sdsele));
@@ -209,6 +351,20 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
                 xorDigest(digest,eledigest,20);
             }
             dictResetIterator(&di);
+        } else if (o->encoding == OBJ_ENCODING_BTREE) {
+            zbtreeIterator iter;
+            const unsigned char *ele;
+            size_t elelen;
+            double score;
+            zbtreeIteratorStart(o->ptr, 0, &iter);
+            while (zbtreeIteratorNext(&iter, 0, &ele, &elelen, &score)) {
+                const int len = fpconv_dtoa(score, buf);
+                buf[len] = '\0';
+                memset(eledigest,0,20);
+                mixDigest(eledigest,ele,elelen);
+                mixDigest(eledigest,buf,strlen(buf));
+                xorDigest(digest,eledigest,20);
+            }
         } else {
             serverPanic("Unknown sorted set encoding");
         }
@@ -255,6 +411,10 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
             }
         }
         streamIteratorStop(&si);
+#ifdef ENABLE_GCRA
+    } else if (o->type == OBJ_GCRA) {
+        mixGCRAObjectDigest(digest, o);
+#endif
     } else if (o->type == OBJ_MODULE) {
         RedisModuleDigest md = {{0},{0},keyobj,db->id};
         moduleValue *mv = o->ptr;
@@ -264,6 +424,23 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
             mt->digest(&md,mv->value);
             xorDigest(digest,md.x,sizeof(md.x));
         }
+    } else if (o->type == OBJ_ARRAY) {
+        redisArray *ar = o->ptr;
+        uint64_t len = arLen(ar);
+        for (uint64_t idx = 0; idx < len; idx++) {
+            void *v = arGet(ar, idx);
+            if (arIsEmpty(v)) {
+                /* For empty slots, contribute "(null)" */
+                mixDigest(digest, "(null)", 6);
+            } else {
+                char vbuf[AR_INLINE_BUFSIZE];
+                size_t vlen;
+                const char *data = arDecode(v, vbuf, sizeof(vbuf), &vlen);
+                mixDigest(digest, data, vlen);
+            }
+        }
+    } else if (o->type == OBJ_BITMAP) {
+        mixBitmapObjectDigest(digest, o);
     } else {
         serverPanic("Unknown object type");
     }
@@ -395,6 +572,8 @@ void debugCommand(client *c) {
 "    Server will sleep before flushing the AOF, this is used for testing.",
 "ASSERT",
 "    Crash by assertion failed.",
+"BITMAP-RAW <key>",
+"    Return the raw byte materialization of a Roaring bitmap key.",
 "CHANGE-REPL-ID",
 "    Change the replication IDs of the instance.",
 "    Dangerous: should be used only for testing the replication subsystem.",
@@ -416,12 +595,20 @@ void debugCommand(client *c) {
 "    Create a memory leak of the input string.",
 "LOG <message>",
 "    Write <message> to the server log.",
+"DEFRAG-FRAG-CACHE-STATS",
+"    Return hits counters for the defrag-side fragmentation cache.",
 "HTSTATS <dbid> [full]",
 "    Return hash table statistics of the specified Redis database.",
 "HTSTATS-KEY <key> [full]",
 "    Like HTSTATS but for the hash table stored at <key>'s value.",
 "KEYSIZES-HIST-ASSERT <0|1>",
 "    Enable/disable keysizes histogram assertion after each command.",
+"STREAM-STATS-ASSERT <0|1>",
+"    Enable/disable INFO streams histogram assertion after each command.",
+"    Arm on an exact state: tracking enabled at startup, an empty keyspace,",
+"    or right after DEBUG RELOAD; a runtime enable fills in lazily.",
+"KEYMETA-AOF-DUMP <key>",
+"    Return a DUMP payload without KeyMeta for an AOF rewrite.",
 "LOADAOF",
 "    Flush the AOF buffers on disk and reload the AOF in memory.",
 "REPLICATE <string>",
@@ -436,6 +623,8 @@ void debugCommand(client *c) {
 "    Show low level info about `key` and associated value.",
 "DROP-CLUSTER-PACKET-FILTER <packet-type>",
 "    Drop all packets that match the filtered type. Set to -1 allow all packets.",
+"ENABLE-KEYMETA-RUNTIME-REGISTRATION <0|1>",
+"    Allow keymeta class registration outside server startup (for testing).",
 "OOM",
 "    Crash the server simulating an out-of-memory error.",
 "PANIC",
@@ -476,6 +665,8 @@ void debugCommand(client *c) {
 "    Setting it to 0 prevents access to expired keys (and hash-fields),",
 "    simulating the standard Redis behavior. Setting it to 1 allows",
 "    access to expired keys (and hash-fields) without triggering deletion.",
+"SET-CRASH-WATCHDOG-TIMEOUT <seconds>",
+"    Seconds a crash report may run before the process is aborted (default 30).",
 "QUICKLIST-PACKED-THRESHOLD <size>",
 "    Sets the threshold for elements to be inserted as plain vs packed nodes",
 "    Default value is 1GB, allows values up to 4GB. Setting to 0 restores to default.",
@@ -502,6 +693,8 @@ void debugCommand(client *c) {
 "    In case RESET is provided the peak reset time will be restored to the default value",
 "REPLYBUFFER RESIZING <0|1>",
 "    Enable or disable the reply buffer resize cron job",
+"REPLY-COPY-AVOIDANCE <0|1>",
+"    Enable/disable reply copy avoidance optimization.",
 "REPL-PAUSE <clear|after-fork|before-rdb-channel|on-streaming-repl-buf>",
 "    Pause the server's main process during various replication steps.",
 "DICT-RESIZING <0|1>",
@@ -551,13 +744,28 @@ NULL
         long long flag;
         if (getLongLongFromObjectOrReply(c, c->argv[2], &flag, NULL) != C_OK)
             return;
-        server.dbg_assert_keysizes = (flag != 0);
+        if (flag)
+            server.dbg_assert_flags |= DBG_ASSERT_KEYSIZES;
+        else
+            server.dbg_assert_flags &= ~DBG_ASSERT_KEYSIZES;
+        addReply(c, shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"STREAM-STATS-ASSERT") && c->argc == 3) {
+        long long flag;
+        if (getLongLongFromObjectOrReply(c, c->argv[2], &flag, NULL) != C_OK)
+            return;
+        if (flag)
+            server.dbg_assert_flags |= DBG_ASSERT_STREAM_STATS;
+        else
+            server.dbg_assert_flags &= ~DBG_ASSERT_STREAM_STATS;
         addReply(c, shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"ALLOCSIZE-SLOTS-ASSERT") && c->argc == 3) {
         long long flag;
         if (getLongLongFromObjectOrReply(c, c->argv[2], &flag, NULL) != C_OK)
             return;
-        server.dbg_assert_alloc_per_slot = (flag != 0);
+        if (flag)
+            server.dbg_assert_flags |= DBG_ASSERT_ALLOC_SLOT;
+        else
+            server.dbg_assert_flags &= ~DBG_ASSERT_ALLOC_SLOT;
         addReply(c, shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"log") && c->argc == 3) {
         serverLog(LL_WARNING, "DEBUG LOG: %s", (char*)c->argv[2]->ptr);
@@ -586,6 +794,15 @@ NULL
             }
         }
 
+        /* A background saver can replace the snapshot between our synchronous
+         * save and load, rolling the dataset back to the child's fork time. */
+        if (save && server.child_type == CHILD_TYPE_RDB) {
+            addReplyError(c,"Background save already in progress");
+            return;
+        }
+
+        backupSetFailed("debug reload executed");
+
         /* The default behavior is to save the RDB file before loading
          * it back. */
         if (save) {
@@ -613,6 +830,7 @@ NULL
         serverLog(LL_NOTICE,"DB reloaded by DEBUG RELOAD");
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"loadaof")) {
+        backupSetFailed("debug loadaof executed");
         if (server.aof_state != AOF_OFF) flushAppendOnlyFile(1);
         emptyData(-1,EMPTYDB_NO_FLAGS,NULL);
         protectClient(c);
@@ -686,6 +904,16 @@ NULL
             (void*)kv, kv->refcount,
             strenc, rdbSavedObjectLen(kv, c->argv[2], c->db->id),
             kv->lru, estimateObjectIdleTime(kv)/1000, extra);
+    } else if (!strcasecmp(c->argv[1]->ptr,"keymeta-aof-dump") && c->argc == 3) {
+        kvobj *kv = dbFind(c->db, c->argv[2]->ptr);
+        if (kv == NULL) {
+            addReplyNull(c);
+            return;
+        }
+
+        rio payload;
+        createDumpPayload(&payload, kv, c->argv[2], c->db->id, DUMP_PAYLOAD_SKIP_KEY_META, 0);
+        addReplyBulkSds(c, payload.io.buffer.ptr);
     } else if (!strcasecmp(c->argv[1]->ptr,"sdslen") && c->argc == 3) {
         robj *val;
         sds key;
@@ -785,7 +1013,7 @@ NULL
                 memcpy(val->ptr, buf, valsize<=buflen? valsize: buflen);
             }
             dbAdd(c->db, key, &val);
-            keyModified(c,c->db,key,NULL,1);
+            keyModified(c,c->db,key,val,1);
             decrRefCount(key);
         }
         addReply(c,shared.ok);
@@ -886,7 +1114,7 @@ NULL
             addReplyError(c,"Wrong protocol type name. Please use one of the following: string|integer|double|bignum|null|array|set|map|attrib|push|verbatim|true|false");
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"sleep") && c->argc == 3) {
-        double dtime = fast_float_strtod(c->argv[2]->ptr,NULL);
+        double dtime = fast_float_strtod(c->argv[2]->ptr,sdslen(c->argv[2]->ptr),NULL);
         long long utime = dtime*1000000;
         struct timespec tv;
 
@@ -898,6 +1126,14 @@ NULL
                c->argc == 3)
     {
         server.active_expire_enabled = atoi(c->argv[2]->ptr);
+        addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"set-crash-watchdog-timeout") &&
+               c->argc == 3)
+    {
+        long seconds;
+        if (getRangeLongFromObjectOrReply(c, c->argv[2], 1, INT_MAX, &seconds, NULL) != C_OK)
+            return;
+        crash_watchdog_timeout = seconds;
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"set-allow-access-expired") &&
                c->argc == 3)
@@ -918,6 +1154,21 @@ NULL
                c->argc == 3)
     {
         server.skip_checksum_validation = atoi(c->argv[2]->ptr);
+        addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"bitmap-raw") && c->argc == 3) {
+        kvobj *kv = lookupKeyReadOrReply(c, c->argv[2], shared.nokeyerr);
+        if (kv == NULL || checkType(c, kv, OBJ_BITMAP)) return;
+
+        sds raw = bitroarMaterializeForDebug(kv);
+        if (raw == NULL) {
+            addReplyError(c, "bitmap length exceeds proto-max-bulk-len, cannot materialize");
+            return;
+        }
+        addReplyBulkSds(c, raw);
+    } else if (!strcasecmp(c->argv[1]->ptr,"enable-keymeta-runtime-registration") &&
+               c->argc == 3)
+    {
+        server.allow_keymeta_registration = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"aof-flush-sleep") &&
                c->argc == 3)
@@ -946,6 +1197,11 @@ NULL
         sizes = sdscatprintf(sizes,"sdshdr32:%d ",(int)sizeof(struct sdshdr32));
         sizes = sdscatprintf(sizes,"sdshdr64:%d ",(int)sizeof(struct sdshdr64));
         addReplyBulkSds(c,sizes);
+    } else if (!strcasecmp(c->argv[1]->ptr,"defrag-frag-cache-stats")) {
+        sds stats = sdsempty();
+        stats = sdscatprintf(stats, "defrag_frag_cache_hits:%lld\r\n", server.defrag_frag_cache.hits);
+        addReplyVerbatim(c,stats,sdslen(stats),"txt");
+        sdsfree(stats);
     } else if (!strcasecmp(c->argv[1]->ptr,"htstats") && c->argc >= 3) {
         long dbid;
         sds stats = sdsempty();
@@ -1075,6 +1331,9 @@ NULL
             return;
         }
         addReply(c, shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"reply-copy-avoidance") && c->argc == 3) {
+        server.reply_copy_avoidance_enabled = atoi(c->argv[2]->ptr);
+        addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr, "repl-pause") && c->argc == 3) {
         if (!strcasecmp(c->argv[2]->ptr, "clear")) {
             server.repl_debug_pause = REPL_DEBUG_PAUSE_NONE;
@@ -1093,6 +1352,10 @@ NULL
         server.dict_resizing = atoi(c->argv[2]->ptr);
         addReply(c, shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"script") && c->argc == 3) {
+        if (server.hide_user_data_from_log) {
+            addReplyError(c, "DEBUG SCRIPT is disabled when hide-user-data-from-log is enabled");
+            return;
+        }
         if (!strcasecmp(c->argv[2]->ptr,"list")) {
             dictIterator di;
             dictEntry *de;
@@ -1263,11 +1526,16 @@ void serverLogObjectDebugInfo(const robj *o) {
      * random memory portion to be "leaked" into the logfile. */
     if (o->type == OBJ_STRING && sdsEncodedObject(o)) {
         serverLog(LL_WARNING,"Object raw string len: %zu", sdslen(o->ptr));
-        if (sdslen(o->ptr) < 4096) {
+        if (!server.hide_user_data_from_log && sdslen(o->ptr) < 4096) {
             sds repr = sdscatrepr(sdsempty(),o->ptr,sdslen(o->ptr));
             serverLog(LL_WARNING,"Object raw string content: %s", repr);
             sdsfree(repr);
         }
+    } else if (o->type == OBJ_BITMAP) {
+        serverLog(LL_WARNING,"Bitmap logical byte length: %llu",
+                  (unsigned long long)bitroarLen(o));
+        serverLog(LL_WARNING,"Bitmap allocation size: %zu",
+                  bitroarAllocSize(o));
     } else if (o->type == OBJ_LIST) {
         serverLog(LL_WARNING,"List length: %d", (int) listTypeLength(o));
     } else if (o->type == OBJ_SET) {
@@ -1280,6 +1548,12 @@ void serverLogObjectDebugInfo(const robj *o) {
             serverLog(LL_WARNING,"Skiplist level: %d", (int) ((const zset*)o->ptr)->zsl->level);
     } else if (o->type == OBJ_STREAM) {
         serverLog(LL_WARNING,"Stream size: %d", (int) streamLength(o));
+#ifdef ENABLE_GCRA
+    } else if (o->type == OBJ_GCRA) {
+#if UINTPTR_MAX == 0xffffffffffffffff
+        serverLog(LL_WARNING, "GCRA object: %lld", (long long)o->ptr);
+#endif
+#endif
     }
 #endif
 }
@@ -1325,6 +1599,12 @@ void _serverPanic(const char *file, int line, const char *msg, ...) {
 
 /* Start a bug report, returning 1 if this is the first time this function was called, 0 otherwise. */
 int bugReportStart(void) {
+    /* Signals, asserts and panics all start here. Arms on the first report,
+     * and again for a nested report while the deadline is paused (memtest).
+     * A running deadline is never extended. A second thread waiting on
+     * signal_handler_lock is covered by the first thread's deadline. */
+    crashWatchdogArmIfIdle();
+
     pthread_mutex_lock(&bug_report_start_mutex);
     if (bug_report_start == 0) {
         bug_report_start = 1;
@@ -1391,6 +1671,8 @@ static void* getAndSetMcontextEip(ucontext_t *uc, void *eip) {
     GET_SET_RETURN(uc->uc_mcontext.arm_pc, eip);
     #elif defined(__aarch64__) /* Linux AArch64 */
     GET_SET_RETURN(uc->uc_mcontext.pc, eip);
+    #elif defined(__loongarch_lp64) /* Linux LoongArch64 */
+    GET_SET_RETURN(uc->uc_mcontext.__pc, eip);
     #else
     NOT_SUPPORTED();
     #endif
@@ -1724,6 +2006,50 @@ void logRegisters(ucontext_t *uc) {
 	      (unsigned long) uc->uc_mcontext.fault_address
 		      );
 	      logStackContent((void**)uc->uc_mcontext.arm_sp);
+    #elif defined(__loongarch_lp64) /* Linux LoongArch64 */
+    serverLog(LL_WARNING,
+        "\n"
+        "ra:%016llx tp:%016llx\nsp:%016llx a0:%016llx\n"
+        "a1:%016llx a2:%016llx\na3:%016llx a4:%016llx\n"
+        "a5:%016llx a6:%016llx\na7:%016llx t0:%016llx\n"
+        "t1:%016llx t2:%016llx\nt3:%016llx t4:%016llx\n"
+        "t5:%016llx t6:%016llx\nt7:%016llx t8:%016llx\n"
+        "fp:%016llx s0:%016llx\ns1:%016llx s2:%016llx\n"
+        "s3:%016llx s4:%016llx\ns5:%016llx s6:%016llx\n"
+        "s7:%016llx s8:%016llx\npc:%016llx\n",
+        (unsigned long long) uc->uc_mcontext.__gregs[1],
+        (unsigned long long) uc->uc_mcontext.__gregs[2],
+        (unsigned long long) uc->uc_mcontext.__gregs[3],
+        (unsigned long long) uc->uc_mcontext.__gregs[4],
+        (unsigned long long) uc->uc_mcontext.__gregs[5],
+        (unsigned long long) uc->uc_mcontext.__gregs[6],
+        (unsigned long long) uc->uc_mcontext.__gregs[7],
+        (unsigned long long) uc->uc_mcontext.__gregs[8],
+        (unsigned long long) uc->uc_mcontext.__gregs[9],
+        (unsigned long long) uc->uc_mcontext.__gregs[10],
+        (unsigned long long) uc->uc_mcontext.__gregs[11],
+        (unsigned long long) uc->uc_mcontext.__gregs[12],
+        (unsigned long long) uc->uc_mcontext.__gregs[13],
+        (unsigned long long) uc->uc_mcontext.__gregs[14],
+        (unsigned long long) uc->uc_mcontext.__gregs[15],
+        (unsigned long long) uc->uc_mcontext.__gregs[16],
+        (unsigned long long) uc->uc_mcontext.__gregs[17],
+        (unsigned long long) uc->uc_mcontext.__gregs[18],
+        (unsigned long long) uc->uc_mcontext.__gregs[19],
+        (unsigned long long) uc->uc_mcontext.__gregs[20],
+        (unsigned long long) uc->uc_mcontext.__gregs[22],
+        (unsigned long long) uc->uc_mcontext.__gregs[23],
+        (unsigned long long) uc->uc_mcontext.__gregs[24],
+        (unsigned long long) uc->uc_mcontext.__gregs[25],
+        (unsigned long long) uc->uc_mcontext.__gregs[26],
+        (unsigned long long) uc->uc_mcontext.__gregs[27],
+        (unsigned long long) uc->uc_mcontext.__gregs[28],
+        (unsigned long long) uc->uc_mcontext.__gregs[29],
+        (unsigned long long) uc->uc_mcontext.__gregs[30],
+        (unsigned long long) uc->uc_mcontext.__gregs[31],
+        (unsigned long long) uc->uc_mcontext.__pc
+    );
+    logStackContent((void**)uc->uc_mcontext.__gregs[3]);
     #else
 	NOT_SUPPORTED();
     #endif
@@ -2245,7 +2571,7 @@ void logCurrentClient(client *cc, const char *title) {
         robj *key = getDecodedObject(cc->argv[1]);
         kvobj *kv = dbFind(cc->db, key->ptr);
         if (kv) {
-            serverLog(LL_WARNING,"key '%s' found in DB containing the following object:", (char*)key->ptr);
+            serverLog(LL_WARNING,"key '%s' found in DB containing the following object:", redactLogCstr((char*)key->ptr));
             serverLogObjectDebugInfo(kv);
         }
         decrRefCount(key);
@@ -2305,12 +2631,19 @@ int memtest_test_linux_anonymous_maps(void) {
         regions++;
     }
 
+    /* This loop's time grows with memory size, but it takes no locks (the
+     * memtest functions print only in --test-memory mode), so it can be slow
+     * without being stuck. Pause the crash watchdog for it only, so the
+     * timeout doesn't depend on instance size. killThreads() and the fopen()
+     * above, and dumpCodeAroundEIP() later, can block and stay covered. */
+    crashWatchdogSet(0);
     int errors = 0;
     for (j = 0; j < regions; j++) {
         if (write(fd,".",1) == -1) { /* Nothing to do. */ }
         errors += memtest_preserving_test((void*)start_vect[j],size_vect[j],1);
         if (write(fd, errors ? "E" : "O",1) == -1) { /* Nothing to do. */ }
     }
+    crashWatchdogSet(crash_watchdog_timeout);
     if (write(fd,"\n",1) == -1) { /* Nothing to do. */ }
 
     /* NOTE: It is very important to close the file descriptor only now
@@ -2493,6 +2826,8 @@ void setupDebugSigHandlers(void) {
     setupStacktracePipe();
 
     setupSigSegvHandler();
+
+    crashWatchdogInit();
 
     struct sigaction act;
 
@@ -2782,9 +3117,14 @@ static size_t get_ready_to_signal_threads_tids(int sig_num, pid_t tids[TIDS_MAX_
     snprintf_async_signal_safe(path_buff, PATH_MAX, "/proc/%d/task", getpid());
 
     int dir;
-    if (-1 == (dir = open(path_buff,  O_RDONLY | O_DIRECTORY))) return 0;
+    if (-1 == (dir = open(path_buff,  O_RDONLY | O_DIRECTORY))) {
+        serverLogFromHandler(LL_WARNING,
+            "get_ready_to_signal_threads_tids(): Failed to open %s, errno=%d", path_buff, errno);
+        return 0;
+    }
 
     size_t tids_count = 0;
+    size_t threads_seen = 0;
     pid_t calling_tid = syscall(SYS_gettid);
     int current_thread_index = -1;
     long nread;
@@ -2809,6 +3149,7 @@ static size_t get_ready_to_signal_threads_tids(int sig_num, pid_t tids[TIDS_MAX_
            long tid;
            string2l(entry->d_name, strlen(entry->d_name), &tid);
 
+            ++threads_seen;
             if(!is_thread_ready_to_signal(path_buff, entry->d_name, sig_num)) continue;
 
             if(tid == calling_tid) {
@@ -2837,6 +3178,13 @@ static size_t get_ready_to_signal_threads_tids(int sig_num, pid_t tids[TIDS_MAX_
     }
 
     close(dir);
+
+    /* 0 ready threads is either a failed scan or every thread blocking the signal. */
+    if (tids_count == 0) {
+        serverLogFromHandler(LL_WARNING,
+            "get_ready_to_signal_threads_tids(): %lu threads found, none can receive signal %d",
+            (unsigned long)threads_seen, sig_num);
+    }
 
     return tids_count;
 }

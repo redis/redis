@@ -1,0 +1,53 @@
+{
+    "ARDEL": {
+        "summary": "Deletes elements at the specified indices in an array.",
+        "complexity": "O(N) where N is the number of indices to delete",
+        "group": "array",
+        "since": "8.8.0",
+        "arity": -3,
+        "function": "ardelCommand",
+        "command_flags": [
+            "WRITE",
+            "FAST"
+        ],
+        "acl_categories": [
+            "ARRAY"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "DELETE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "description": "Number of elements deleted.",
+            "type": "integer"
+        },
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "index",
+                "type": "integer",
+                "multiple": true
+            }
+        ]
+    }
+}

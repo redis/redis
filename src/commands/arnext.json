@@ -1,0 +1,56 @@
+{
+    "ARNEXT": {
+        "summary": "Returns the next index ARINSERT would use.",
+        "complexity": "O(1)",
+        "group": "array",
+        "since": "8.8.0",
+        "arity": 2,
+        "function": "arnextCommand",
+        "command_flags": [
+            "READONLY",
+            "FAST"
+        ],
+        "acl_categories": [
+            "ARRAY"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "The next index ARINSERT would use. Returns 0 for missing keys or when no insert happened yet.",
+                    "type": "integer"
+                },
+                {
+                    "description": "Null when the insertion cursor is exhausted (next insert would overflow).",
+                    "type": "null"
+                }
+            ]
+        },
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            }
+        ]
+    }
+}

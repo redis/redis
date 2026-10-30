@@ -1,4 +1,5 @@
 #include "server.h"
+#include "bitroar.h"
 #include "bio.h"
 #include "atomicvar.h"
 #include "functions.h"
@@ -20,11 +21,22 @@ void lazyfreeFreeObject(void *args[]) {
 /* Release a database from the lazyfree thread. The 'db' pointer is the
  * database which was substituted with a fresh one in the main thread
  * when the database was logically deleted. */
-void lazyfreeFreeDatabase(void *args[]) {
+static void lazyfreeFreeKvs(void *args[]) {
     kvstore *da1 = args[0];
     kvstore *da2 = args[1];
     estore *subexpires = args[2];
+    dict *stream_idmp_keys = args[3];
+    kvstore *blessed = args[4]; /* optional bless index (NULL if none) */
+
+    /* Run the optional callback in the BIO thread before releasing the
+     * detached kvstores. args[5] holds the callback and args[6] its userdata. */
+    lazyfreeKvsCallback callback = (lazyfreeKvsCallback)(uintptr_t)args[5];
+    void *userdata = args[6];
+    if (callback) callback(da1, userdata);
+
     estoreRelease(subexpires);
+    dictRelease(stream_idmp_keys);
+    if (blessed) kvstoreRelease(blessed);
     size_t numkeys = kvstoreSize(da1);
     kvstoreRelease(da1);
     kvstoreRelease(da2);
@@ -111,6 +123,13 @@ void lazyfreeResetStats(void) {
     atomicSet(lazyfreed_objects,0);
 }
 
+/* If there are enough allocations to free the value object asynchronously, it
+ * may be put into a lazy free list instead of being freed synchronously. The
+ * lazy free list will be reclaimed in a different bio.c thread. If the value is
+ * composed of a few allocations, to free in a lazy way is actually just
+ * slower... So under a certain limit we just free the object synchronously. */
+#define LAZYFREE_THRESHOLD 64
+
 /* Return the amount of work needed in order to free an object.
  * The return value is not always the actual number of allocations the
  * object is composed of, but a number proportional to it.
@@ -136,9 +155,14 @@ size_t lazyfreeGetFreeEffort(robj *key, robj *obj, int dbid) {
     } else if (obj->type == OBJ_ZSET && obj->encoding == OBJ_ENCODING_SKIPLIST){
         zset *zs = obj->ptr;
         return zs->zsl->length;
+    } else if (obj->type == OBJ_ZSET && obj->encoding == OBJ_ENCODING_BTREE) {
+        return zsetLength(obj);
     } else if (obj->type == OBJ_HASH && obj->encoding == OBJ_ENCODING_HT) {
         dict *ht = obj->ptr;
         return dictSize(ht);
+    } else if (obj->type == OBJ_HASH && obj->encoding == OBJ_ENCODING_TMPL_ARRAY) {
+        hashTemplateArray *hta = obj->ptr;
+        return hta->field_count;
     } else if (obj->type == OBJ_STREAM) {
         size_t effort = 0;
         stream *s = obj->ptr;
@@ -168,17 +192,22 @@ size_t lazyfreeGetFreeEffort(robj *key, robj *obj, int dbid) {
         /* If the module's free_effort returns 0, we will use asynchronous free
          * memory by default. */
         return effort == 0 ? ULONG_MAX : effort;
+    } else if (obj->type == OBJ_ARRAY) {
+        redisArray *ar = obj->ptr;
+        return arCount(ar);
+    } else if (obj->type == OBJ_BITMAP) {
+        /* The caller only compares the returned effort with
+         * LAZYFREE_THRESHOLD. Stop at the first container count that exceeds
+         * it instead of walking every leaf of a large sparse bitmap. */
+        size_t container_limit = (LAZYFREE_THRESHOLD - 2) / 2 + 1;
+        size_t containers = bitroarContainerCountUpTo(obj, container_limit);
+        /* Each Roaring container owns at least one allocation for the container
+         * and often another for its payload, plus top-level bitmap metadata. */
+        return containers == 0 ? 1 : containers * 2 + 2;
     } else {
         return 1; /* Everything else is a single allocation. */
     }
 }
-
-/* If there are enough allocations to free the value object asynchronously, it
- * may be put into a lazy free list instead of being freed synchronously. The
- * lazy free list will be reclaimed in a different bio.c thread. If the value is
- * composed of a few allocations, to free in a lazy way is actually just
- * slower... So under a certain limit we just free the object synchronously. */
-#define LAZYFREE_THRESHOLD 64
 
 /* Free an object, if the object is huge enough, free it in async way. */
 void freeObjAsync(robj *key, robj *obj, int dbid) {
@@ -195,6 +224,88 @@ void freeObjAsync(robj *key, robj *obj, int dbid) {
     }
 }
 
+/* Duplicate client reply objects that reference database objects to avoid race
+ * conditions with bio threads during async flushdb.
+ *
+ * Since incrRefCount/decrRefCount are not thread-safe, and bio thread may
+ * free database objects while main thread/IO threads send client replies, we need to
+ * create independent copies of the string objects to avoid concurrent access. */
+static void protectClientReplyObjects(void) {
+    /* If there are no clients with pending ref replies, exit ASAP. */
+    if (!listLength(server.clients_with_pending_ref_reply))
+        return;
+
+    /* Pause all IO threads to safely duplicate string objects. */
+    int allpaused = 0;
+    if (server.io_threads_num > 1) {
+        serverAssert(pthread_equal(server.main_thread_id, pthread_self()) || moduleThreadHoldsGIL());
+        allpaused = 1;
+        pauseAllIOThreads();
+    }
+
+    listNode *ln;
+    listIter li;
+    listRewind(server.clients_with_pending_ref_reply, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        client *c = listNodeValue(ln);
+
+        /* Process c->buf if it's encoded */
+        if (c->buf_encoded && c->bufpos > 0) {
+            char *ptr = c->buf;
+            while (ptr < c->buf + c->bufpos) {
+                payloadHeader *header = (payloadHeader *)ptr;
+                ptr += sizeof(payloadHeader);
+
+                if (header->payload_type == BULK_STR_REF) {
+                    bulkStrRef *str_ref = (bulkStrRef *)ptr;
+                    if (str_ref->obj != NULL) {
+                        /* Duplicate the string object */
+                        robj *new_obj = dupStringObject(str_ref->obj);
+                        decrRefCount(str_ref->obj);
+                        str_ref->obj = new_obj;
+                    }
+                }
+                ptr += header->payload_len;
+            }
+        }
+
+        /* Process reply list */
+        if (c->reply && listLength(c->reply)) {
+            listIter reply_li;
+            listNode *reply_ln;
+            listRewind(c->reply, &reply_li);
+            while ((reply_ln = listNext(&reply_li))) {
+                clientReplyBlock *block = listNodeValue(reply_ln);
+                if (block && block->buf_encoded) {
+                    char *ptr = block->buf;
+                    while (ptr < block->buf + block->used) {
+                        payloadHeader *header = (payloadHeader *)ptr;
+                        ptr += sizeof(payloadHeader);
+
+                        if (header->payload_type == BULK_STR_REF) {
+                            bulkStrRef *str_ref = (bulkStrRef *)ptr;
+                            if (str_ref->obj != NULL) {
+                                /* Duplicate the string object */
+                                robj *new_obj = dupStringObject(str_ref->obj);
+                                decrRefCount(str_ref->obj);
+                                str_ref->obj = new_obj;
+                            }
+                        }
+                        ptr += header->payload_len;
+                    }
+                }
+            }
+        }
+
+        /* Process references in IO deferred objects and remove client from
+         * pending ref list since all refs have been duplicated above. */
+        freeClientIODeferredObjects(c, 0);
+        tryUnlinkClientFromPendingRefReply(c, 1);
+    }
+
+    if (allpaused) resumeAllIOThreads();
+}
+
 /* Empty a Redis DB asynchronously. What the function does actually is to
  * create a new empty set of hash tables and scheduling the old ones for
  * lazy freeing. */
@@ -207,16 +318,29 @@ void emptyDbAsync(redisDb *db) {
     }
     kvstore *oldkeys = db->keys, *oldexpires = db->expires;
     estore *oldsubexpires = db->subexpires;
+    dict *old_stream_idmp_keys = db->stream_idmp_keys;
+    kvstore *oldblessed = db->blessed_keys;
     db->keys = kvstoreCreate(&kvstoreExType, &dbDictType, slot_count_bits, flags);
     db->expires = kvstoreCreate(&kvstoreBaseType, &dbExpiresDictType, slot_count_bits, flags);
     db->subexpires = estoreCreate(&subexpiresBucketsType, slot_count_bits);
-    emptyDbDataAsync(oldkeys, oldexpires, oldsubexpires);
+    db->stream_idmp_keys = dictCreate(&objectKeyNoValueDictType);
+    db->blessed_keys = blessedKvstoreCreate(slot_count_bits, flags);
+    protectClientReplyObjects(); /* Protect client reply objects before async free. */
+    /* The old blessed index is freed on the BIO thread with the other structures. */
+    emptyDbDataAsync(oldkeys, oldexpires, oldsubexpires, old_stream_idmp_keys,
+                     oldblessed, NULL, NULL);
 }
 
-/* Empty a Redis DB data asynchronously. */
-void emptyDbDataAsync(kvstore *keys, kvstore *expires, ebuckets hexpires) {
+/* Empty kvstore data asynchronously. If callback is provided, invoke it from
+ * the BIO thread before releasing the detached kvstores. */
+void emptyDbDataAsync(kvstore *keys, kvstore *expires, ebuckets hexpires,
+                      dict *stream_idmp_keys, kvstore *blessed,
+                      lazyfreeKvsCallback callback, void *userdata) {
+    serverAssert(callback || userdata == NULL);
+
     atomicIncr(lazyfree_objects, kvstoreSize(keys));
-    bioCreateLazyFreeJob(lazyfreeFreeDatabase, 3, keys, expires, hexpires);
+    bioCreateLazyFreeJob(lazyfreeFreeKvs, 7, keys, expires, hexpires, stream_idmp_keys,
+                         blessed, (void *)(uintptr_t)callback, userdata);
 }
 
 /* Free the key tracking table.

@@ -228,6 +228,27 @@ start_server {tags {"bitops"}} {
         r get dest{t}
     } "\x55\xff\x00\xaa"
 
+    test {BITOP NOT allows string inputs longer than proto-max-bulk-len} {
+        # A source can exceed the current proto-max-bulk-len if it was created
+        # under a larger limit; BITOP no longer rejects it, matching the
+        # historical behavior (it only fails on a genuine allocation failure).
+        set limit 1048576
+        set oldval [config_get_set proto-max-bulk-len [expr {$limit + 1}]]
+        r del bitop:not:big{t} bitop:not:out{t}
+        r setbit bitop:not:big{t} [expr {($limit + 1) * 8 - 1}] 1
+        r config set proto-max-bulk-len $limit
+
+        assert_equal [expr {$limit + 1}] [r bitop not bitop:not:out{t} bitop:not:big{t}]
+        assert_equal [expr {$limit + 1}] [r strlen bitop:not:out{t}]
+        assert_equal 1 [r getbit bitop:not:out{t} 0]
+
+        # Restore the limit before reading the high bit (GETBIT caps its offset
+        # at proto-max-bulk-len too).
+        r config set proto-max-bulk-len $oldval
+        assert_equal 0 [r getbit bitop:not:out{t} [expr {($limit + 1) * 8 - 1}]]
+        r del bitop:not:big{t} bitop:not:out{t}
+    }
+
     test {BITOP NOT with multiple source keys} {
         r set s{t} "\xaa\x00\xff\x55"
         assert_error "ERR BITOP NOT*" { r bitop not dest{t} s{t} s{t} }
@@ -310,6 +331,31 @@ start_server {tags {"bitops"}} {
             r set str{t} $str
             r bitop not target{t} str{t}
             assert_equal [r get target{t}] [simulate_bit_op not $str]
+        }
+    }
+
+    # The AVX-512 BITOP path is triggered when minlen >= 10000 and numkeys >= 8.
+    foreach op {and or xor diff diff1 andor one} {
+        test "BITOP $op with large values (AVX-512 path)" {
+            set min_args 1
+            if {$op eq "diff" || $op eq "diff1" || $op eq "andor"} {
+                set min_args 2
+            }
+            # Test at and above the 10000-byte / 8-key threshold.
+            foreach {numvec strlen} {8 10000 10 10001 10 12000} {
+                assert {$numvec >= $min_args}
+                r flushall
+                set vec {}
+                set veckeys {}
+                for {set j 0} {$j < $numvec} {incr j} {
+                    set str [randstring $strlen $strlen]
+                    lappend vec $str
+                    lappend veckeys vector_$j{t}
+                    r set vector_$j{t} $str
+                }
+                r bitop $op target{t} {*}$veckeys
+                assert_equal [r get target{t}] [simulate_bit_op $op {*}$vec]
+            }
         }
     }
 
@@ -667,7 +713,9 @@ start_server {tags {"bitops"}} {
         set bytes [expr (1 << 29) + 1]
         set bitpos [expr (1 << 32)]
         set oldval [lindex [r config get proto-max-bulk-len] 1]
+        set oldroaring [lindex [r config get bitmap-default-roaring] 1]
         r config set proto-max-bulk-len $bytes
+        r config set bitmap-default-roaring no
         r setbit mykey $bitpos 1
         assert_equal $bytes [r strlen mykey]
         assert_equal 1 [r getbit mykey $bitpos]
@@ -685,7 +733,24 @@ start_server {tags {"bitops"}} {
             assert_equal [expr $bitpos + 8] [r bitcount mykey]
             assert_equal -1 [r bitpos mykey 0 0 [expr $bytes - 1]]
         }
+
+        # A sparse Roaring source one byte beyond UINT32_MAX remains usable
+        # when proto-max-bulk-len permits it.
+        r del bitop:wide-source{t}
+        r config set bitmap-default-roaring yes
+        r setbit bitop:wide-source{t} 0 1
+        r setbit bitop:wide-source{t} $bitpos 1
+        r set bitop:wide:dest{t} sentinel
+        assert_equal $bytes [r bitop or bitop:wide:dest{t} bitop:wide-source{t}]
+        assert_equal string [r type mykey]
+        assert_equal $bytes [r strlen mykey]
+        assert_equal bitmap [r type bitop:wide:dest{t}]
+        assert_equal 1 [r getbit bitop:wide:dest{t} 0]
+        assert_equal 1 [r getbit bitop:wide:dest{t} $bitpos]
+
+        r config set bitmap-default-roaring $oldroaring
         r config set proto-max-bulk-len $oldval
+        r del bitop:wide:dest{t} bitop:wide-source{t}
         r del mykey
     } {1} {large-memory}
 

@@ -10,9 +10,6 @@
 #ifndef __SLOWLOG_H__
 #define __SLOWLOG_H__
 
-#define SLOWLOG_ENTRY_MAX_ARGC 32
-#define SLOWLOG_ENTRY_MAX_STRING 128
-
 /* This structure defines an entry inside the slow log list */
 typedef struct slowlogEntry {
     robj **argv;
@@ -22,10 +19,11 @@ typedef struct slowlogEntry {
     time_t time;        /* Unix time at which the query was executed. */
     sds cname;          /* Client name. */
     sds peerid;         /* Client network address. */
+    int cmd_argc;       /* Total argument count of the command. */
 } slowlogEntry;
 
 /* Exported API */
 void slowlogInit(void);
-void slowlogPushEntryIfNeeded(client *c, robj **argv, int argc, long long duration);
+int slowlogPushEntryIfNeeded(client *c, robj **argv, int argc, long long duration);
 
 #endif /* __SLOWLOG_H__ */
