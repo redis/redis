@@ -240,6 +240,133 @@ proc count_log_message {srv_idx pattern} {
     return [count_message_lines $stdout $pattern]
 }
 
+# Run the openssl command line client against $host:$port with the given extra
+# arguments and return its whole output (stdout and stderr), whatever its exit
+# status. The connection is held open for a second: in TLS 1.3 the server sends
+# session tickets only after the handshake has completed, and a client that
+# disconnects at once would leave without a token to resume from. The report
+# says "New, TLSv1.x" after a full handshake and "Reused, TLSv1.x" after a
+# resumed session; -sess_out FILE saves the session, -sess_in FILE resumes it.
+# The connection is closed before the command returns; openssl_s_client_open
+# keeps one open.
+proc openssl_s_client {host port args} {
+    set cmd "sleep 1 | openssl s_client -connect $host:$port -CAfile $::tlsdir/ca.crt $args 2>&1"
+    catch {exec sh -c $cmd} out
+    return $out
+}
+
+# Like openssl_s_client, but keeps the connection open: s_client's standard
+# input is held, so it neither exits nor shuts the connection down until
+# openssl_s_client_close is called on the returned handle, which then returns
+# the whole output. A session established on the connection stays in the
+# server's cache only while the connection lasts: OpenSSL drops a cached session
+# when its connection is freed without a close_notify having been sent, and the
+# server sends none for a connection its peer closed first. Tickets are
+# unaffected, as the client holds them.
+proc openssl_s_client_open {host port args} {
+    set out [file join [pwd] tests/tmp s_client.[pid].[incr ::openssl_s_client_seq].out]
+    set fd [open "|[list openssl s_client -connect $host:$port -CAfile $::tlsdir/ca.crt {*}$args >& $out]" w]
+    return [list $fd $out]
+}
+
+proc openssl_s_client_close {handle} {
+    lassign $handle fd out
+    # End of input: s_client shuts the connection down and exits.
+    catch {close $fd}
+    set f [open $out]
+    set result [read $f]
+    close $f
+    file delete $out
+    return $result
+}
+
+# Classify the output of openssl s_client asked for one protocol version:
+# "ok" when that version was negotiated, "unsupported" when the version is not
+# available on the client or on the server, "failed" for anything else.
+proc openssl_s_client_result {out version} {
+    # A completed handshake prints a session block. Its protocol line is the
+    # negotiated version; the version printed beside "New" is not, older
+    # clients print the cipher's own there ("TLSv1/SSLv3" for a TLS 1.2
+    # handshake). A failed handshake prints the block too, with the cipher
+    # shown as "(NONE)" by current clients and "0000" by old ones, so the
+    # cipher line tells a real negotiation from an aborted one. An alert
+    # anywhere in the output means the handshake did not complete cleanly,
+    # whatever else was printed.
+    if {[regexp -line {^\s*Protocol\s*:\s*(\S+)} $out -> proto] && $proto eq $version &&
+        [regexp -line {^\s*Cipher\s*:\s*(\S+)} $out -> cipher] &&
+        $cipher ne "(NONE)" && $cipher ne "0000" &&
+        ![string match {*alert*} $out]} {
+        return ok
+    }
+    # Three failures mean the version itself is unavailable. A client older
+    # than the version rejects the flag ("unknown option" or "Unrecognized
+    # flag", depending on its age). A client built without the version has
+    # "no protocols available" to offer. A server without the version, or
+    # restricted by tls-protocols, answers the ClientHello with a protocol
+    # version alert, alert number 70. Anything else is a real failure.
+    if {[regexp -nocase {unknown option|unrecognized flag|no protocols available|alert protocol version|alert number 70|unsupported protocol} $out]} {
+        return unsupported
+    }
+    return failed
+}
+
+# Whether a TLS 1.3 handshake with the server at host:port works. Tests that
+# try every way a session can be resumed need TLS 1.3 for the pre-shared-key
+# path, which OpenSSL before 1.1.1 does not have, on the server or in the
+# openssl client; those variants are skipped there while the TLS 1.2 ones
+# still run. Only a failure that means TLS 1.3 is unavailable leads to a skip,
+# and only once a TLS 1.2 handshake has shown the server to be reachable; any
+# other failure fails the test with the output of the attempt.
+proc tls13_supported {host port} {
+    # One probe per server. The tests ask several times, once per block or
+    # per variant table, and the answer cannot change for a running server.
+    if {[info exists ::tls13_supported($host:$port)]} {
+        return $::tls13_supported($host:$port)
+    }
+    # The suite's client certificate is presented, so the probe also works
+    # against a server that requires one; a server that does not ignores it.
+    set client [list -cert $::tlsdir/client.crt -key $::tlsdir/client.key]
+    # Ask for TLS 1.3 and nothing else, so that the server cannot fall back
+    # to TLS 1.2 and hide the answer.
+    set out13 [openssl_s_client $host $port -tls1_3 {*}$client]
+    switch [openssl_s_client_result $out13 TLSv1.3] {
+        ok {
+            set supported 1
+        }
+        unsupported {
+            # TLS 1.3 is absent for a known reason. Before skipping on that,
+            # make sure a handshake with this server works at all: a server
+            # that is down or misconfigured must fail the test, not look like
+            # an old library. Both outputs go into the failure, as the first
+            # one is what the diagnosis needs.
+            set out12 [openssl_s_client $host $port -tls1_2 {*}$client]
+            if {[openssl_s_client_result $out12 TLSv1.2] ne "ok"} {
+                fail "no TLS handshake with $host:$port.\nTLS 1.3 attempt:\n$out13\nTLS 1.2 attempt:\n$out12"
+            }
+            if {$::verbose} {
+                puts "Skipping the TLS 1.3 variants, TLS 1.3 is not supported."
+            }
+            set supported 0
+        }
+        default {
+            # Any other failure, an internal error alert or a refused
+            # connection for instance, is not a reason to skip: a TLS 1.3
+            # regression must surface here, with the output that shows it.
+            fail "unexpected TLS 1.3 handshake failure with $host:$port:\n$out13"
+        }
+    }
+    return [set ::tls13_supported($host:$port) $supported]
+}
+
+# The protocol version flags for openssl s_client that the server at
+# host:port supports, TLS 1.3 first when it has it.
+proc tls_client_versions {host port} {
+    if {[tls13_supported $host $port]} {
+        return {-tls1_3 -tls1_2}
+    }
+    return {-tls1_2}
+}
+
 # verify pattern exists in server's sdtout after a certain line number
 proc verify_log_message {srv_idx pattern from_line} {
     incr from_line
