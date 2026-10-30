@@ -298,97 +298,10 @@ error:
     return NULL;
 }
 
-/* Configure the TLS options shared by server-side listeners. Each listener
- * receives a distinct session namespace, so TLS sessions cannot cross roles. */
 static int configureServerSSLContext(SSL_CTX *ctx,
                                      redisTLSContextConfig *ctx_config,
                                      const char *session_id_context,
-                                     unsigned int session_id_context_len) {
-    char errbuf[256];
-
-    if (ctx_config->session_caching) {
-        SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_SERVER);
-        SSL_CTX_sess_set_cache_size(ctx, ctx_config->session_cache_size);
-        SSL_CTX_set_timeout(ctx, ctx_config->session_cache_timeout);
-        if (!SSL_CTX_set_session_id_context(ctx,
-                (const unsigned char *)session_id_context,
-                session_id_context_len)) {
-            ERR_error_string_n(ERR_get_error(), errbuf, sizeof(errbuf));
-            serverLog(LL_WARNING, "Failed to set TLS session context: %s", errbuf);
-            return C_ERR;
-        }
-    } else {
-        SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_OFF);
-    }
-
-#ifdef SSL_OP_NO_CLIENT_RENEGOTIATION
-    SSL_CTX_set_options(ctx, SSL_OP_NO_CLIENT_RENEGOTIATION);
-#endif
-    if (ctx_config->prefer_server_ciphers)
-        SSL_CTX_set_options(ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
-#if ((OPENSSL_VERSION_NUMBER < 0x30000000L) && defined(SSL_CTX_set_ecdh_auto))
-    SSL_CTX_set_ecdh_auto(ctx, 1);
-#endif
-    SSL_CTX_set_options(ctx, SSL_OP_SINGLE_DH_USE);
-
-    if (ctx_config->dh_params_file) {
-        FILE *dhfile = fopen(ctx_config->dh_params_file, "r");
-        if (!dhfile) {
-            serverLog(LL_WARNING, "Failed to load %s: %s",
-                      ctx_config->dh_params_file, strerror(errno));
-            return C_ERR;
-        }
-
-#if (OPENSSL_VERSION_NUMBER >= 0x30000000L)
-        EVP_PKEY *pkey = NULL;
-        OSSL_DECODER_CTX *dctx = OSSL_DECODER_CTX_new_for_pkey(
-                &pkey, "PEM", NULL, "DH", OSSL_KEYMGMT_SELECT_DOMAIN_PARAMETERS, NULL, NULL);
-        if (!dctx) {
-            serverLog(LL_WARNING, "No decoder for DH params.");
-            fclose(dhfile);
-            return C_ERR;
-        }
-        if (!OSSL_DECODER_from_fp(dctx, dhfile)) {
-            serverLog(LL_WARNING, "%s: failed to read DH params.", ctx_config->dh_params_file);
-            OSSL_DECODER_CTX_free(dctx);
-            fclose(dhfile);
-            return C_ERR;
-        }
-        OSSL_DECODER_CTX_free(dctx);
-        fclose(dhfile);
-
-        if (SSL_CTX_set0_tmp_dh_pkey(ctx, pkey) <= 0) {
-            ERR_error_string_n(ERR_get_error(), errbuf, sizeof(errbuf));
-            serverLog(LL_WARNING, "Failed to load DH params file: %s: %s",
-                      ctx_config->dh_params_file, errbuf);
-            EVP_PKEY_free(pkey);
-            return C_ERR;
-        }
-        /* Not freeing pkey, it is owned by OpenSSL now */
-#else
-        DH *dh = PEM_read_DHparams(dhfile, NULL, NULL, NULL);
-        fclose(dhfile);
-        if (!dh) {
-            serverLog(LL_WARNING, "%s: failed to read DH params.", ctx_config->dh_params_file);
-            return C_ERR;
-        }
-        if (SSL_CTX_set_tmp_dh(ctx, dh) <= 0) {
-            ERR_error_string_n(ERR_get_error(), errbuf, sizeof(errbuf));
-            serverLog(LL_WARNING, "Failed to load DH params file: %s: %s",
-                      ctx_config->dh_params_file, errbuf);
-            DH_free(dh);
-            return C_ERR;
-        }
-        DH_free(dh);
-#endif
-    } else {
-#if (OPENSSL_VERSION_NUMBER >= 0x30000000L)
-        SSL_CTX_set_dh_auto(ctx, 1);
-#endif
-    }
-
-    return C_OK;
-}
+                                     unsigned int session_id_context_len);
 
 /* Attempt to configure/reconfigure TLS. This operation is atomic and will
  * leave the SSL_CTX unchanged if fails.
@@ -463,6 +376,100 @@ error:
     if (client_ctx) SSL_CTX_free(client_ctx);
     if (cluster_ctx) SSL_CTX_free(cluster_ctx);
     return C_ERR;
+}
+
+/* Configure the TLS options shared by server-side listeners. Each listener
+ * receives a distinct session namespace, so TLS sessions cannot cross roles. */
+static int configureServerSSLContext(SSL_CTX *ctx,
+                                     redisTLSContextConfig *ctx_config,
+                                     const char *session_id_context,
+                                     unsigned int session_id_context_len) {
+    char errbuf[256];
+
+    if (ctx_config->session_caching) {
+        SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_SERVER);
+        SSL_CTX_sess_set_cache_size(ctx, ctx_config->session_cache_size);
+        SSL_CTX_set_timeout(ctx, ctx_config->session_cache_timeout);
+        if (!SSL_CTX_set_session_id_context(ctx,
+                (const unsigned char *)session_id_context,
+                session_id_context_len)) {
+            ERR_error_string_n(ERR_get_error(), errbuf, sizeof(errbuf));
+            serverLog(LL_WARNING, "Failed to set TLS session context: %s", errbuf);
+            return C_ERR;
+        }
+    } else {
+        SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_OFF);
+    }
+
+#ifdef SSL_OP_NO_CLIENT_RENEGOTIATION
+    SSL_CTX_set_options(ctx, SSL_OP_NO_CLIENT_RENEGOTIATION);
+#endif
+
+    if (ctx_config->prefer_server_ciphers)
+        SSL_CTX_set_options(ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
+
+#if ((OPENSSL_VERSION_NUMBER < 0x30000000L) && defined(SSL_CTX_set_ecdh_auto))
+    SSL_CTX_set_ecdh_auto(ctx, 1);
+#endif
+    SSL_CTX_set_options(ctx, SSL_OP_SINGLE_DH_USE);
+
+    if (ctx_config->dh_params_file) {
+        FILE *dhfile = fopen(ctx_config->dh_params_file, "r");
+        if (!dhfile) {
+            serverLog(LL_WARNING, "Failed to load %s: %s", ctx_config->dh_params_file, strerror(errno));
+            return C_ERR;
+        }
+
+#if (OPENSSL_VERSION_NUMBER >= 0x30000000L)
+        EVP_PKEY *pkey = NULL;
+        OSSL_DECODER_CTX *dctx = OSSL_DECODER_CTX_new_for_pkey(
+                &pkey, "PEM", NULL, "DH", OSSL_KEYMGMT_SELECT_DOMAIN_PARAMETERS, NULL, NULL);
+        if (!dctx) {
+            serverLog(LL_WARNING, "No decoder for DH params.");
+            fclose(dhfile);
+            return C_ERR;
+        }
+        if (!OSSL_DECODER_from_fp(dctx, dhfile)) {
+            serverLog(LL_WARNING, "%s: failed to read DH params.", ctx_config->dh_params_file);
+            OSSL_DECODER_CTX_free(dctx);
+            fclose(dhfile);
+            return C_ERR;
+        }
+
+        OSSL_DECODER_CTX_free(dctx);
+        fclose(dhfile);
+
+        if (SSL_CTX_set0_tmp_dh_pkey(ctx, pkey) <= 0) {
+            ERR_error_string_n(ERR_get_error(), errbuf, sizeof(errbuf));
+            serverLog(LL_WARNING, "Failed to load DH params file: %s: %s", ctx_config->dh_params_file, errbuf);
+            EVP_PKEY_free(pkey);
+            return C_ERR;
+        }
+        /* Not freeing pkey, it is owned by OpenSSL now */
+#else
+        DH *dh = PEM_read_DHparams(dhfile, NULL, NULL, NULL);
+        fclose(dhfile);
+        if (!dh) {
+            serverLog(LL_WARNING, "%s: failed to read DH params.", ctx_config->dh_params_file);
+            return C_ERR;
+        }
+
+        if (SSL_CTX_set_tmp_dh(ctx, dh) <= 0) {
+            ERR_error_string_n(ERR_get_error(), errbuf, sizeof(errbuf));
+            serverLog(LL_WARNING, "Failed to load DH params file: %s: %s", ctx_config->dh_params_file, errbuf);
+            DH_free(dh);
+            return C_ERR;
+        }
+
+        DH_free(dh);
+#endif
+    } else {
+#if (OPENSSL_VERSION_NUMBER >= 0x30000000L)
+        SSL_CTX_set_dh_auto(ctx, 1);
+#endif
+    }
+
+    return C_OK;
 }
 
 #ifdef TLS_DEBUGGING
