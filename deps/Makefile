@@ -157,11 +157,6 @@ ifneq ($(DEB_HOST_GNU_TYPE),)
 JEMALLOC_CONFIGURE_OPTS += --host=$(DEB_HOST_GNU_TYPE)
 endif
 
-# Redis builds jemalloc with a je_ prefix alongside the system malloc, so it
-# must not take over libc's private malloc hooks (e.g. FreeBSD libthr calls
-# _malloc_thread_cleanup/_malloc_prefork/_malloc_postfork into libc's malloc).
-JEMALLOC_CONFIGURE_OPTS += ac_cv_func__malloc_thread_cleanup=no ac_cv_func__pthread_mutex_init_calloc_cb=no
-
 jemalloc: .make-prerequisites
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
 	cd jemalloc && ./configure --disable-cxx --with-version=5.3.0-0-g0 --with-lg-quantum=3 --disable-cache-oblivious --with-jemalloc-prefix=je_ CFLAGS="$(JEMALLOC_CFLAGS)" LDFLAGS="$(JEMALLOC_LDFLAGS)" $(JEMALLOC_CONFIGURE_OPTS)
