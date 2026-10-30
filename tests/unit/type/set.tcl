@@ -1213,6 +1213,32 @@ foreach type {single multiple single_multiple} {
         }
     }
 
+    test "SRANDMEMBER with <count> does not corrupt a large hashtable set" {
+        # Exercises the hashtable borrow fast path at scale for both strategies:
+        # CASE 3 (count a large fraction of the set -> copy the whole set into a
+        # temp dict, then remove down to count) and CASE 4 (small count -> sample).
+        # Because the fast path BORROWS the set's live member SDS instead of
+        # copying, a regression that frees or aliases those members would corrupt
+        # the source set. We assert the reply shape AND that the source set is
+        # byte-for-byte unchanged after many borrowing calls.
+        r del myset
+        for {set i 0} {$i < 500} {incr i} { r sadd myset member:$i }
+        assert_encoding hashtable myset
+        set expected [lsort [r smembers myset]]
+
+        foreach count {480 250 50 5} {
+            for {set rep 0} {$rep < 20} {incr rep} {
+                set res [r srandmember myset $count]
+                assert_equal [llength $res] $count
+                assert_equal [llength [lsort -unique $res]] $count
+                foreach ele $res { assert {[string match "member:*" $ele]} }
+            }
+        }
+        # The source set must be intact and unchanged after all the borrowing.
+        assert_equal 500 [r scard myset]
+        assert_equal $expected [lsort [r smembers myset]]
+    }
+
     foreach {type contents} {
         listpack {
             1 5 10 50 125
