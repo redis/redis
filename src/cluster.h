@@ -239,8 +239,9 @@ int clusterNodeTlsPort(clusterNode *node);
  *   to start an import operation.
  * - Redis calls clusterAsmOnEvent() when an ASM event occurs.
  * - On the source side, Redis will call clusterAsmOnEvent(ASM_EVENT_HANDOFF_PREP)
- *   when slots are ready to be handed off and the write pause is needed.
- * - Implementation stops the traffic to the slots and calls clusterAsmProcess(ASM_EVENT_HANDOFF)
+ *   when slots are ready to be handed off.
+ * - Implementation calls clusterAsmProcess(ASM_EVENT_HANDOFF), then Redis pauses
+ *   writes until the migration completes or fails.
  * - On the destination side, Redis calls clusterAsmOnEvent(ASM_EVENT_TAKEOVER)
  *   when destination node is ready to take over the slot, waiting for ownership change.
  * - Cluster implementation updates the config and calls clusterAsmProcess(ASM_EVENT_DONE)
