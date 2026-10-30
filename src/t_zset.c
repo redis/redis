@@ -2554,17 +2554,9 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
         case ZRANGE_SCORE:
             deleted = zbtreeDeleteRangeByScore(zs, range.min, range.minex, range.max, range.maxex);
             break;
-        case ZRANGE_LEX: {
-            zbtreeIterator first_iter, last_iter;
-            unsigned long first, last;
-            if (zbtreeIteratorSeekLex(zs, lexrange.min, lexrange.minex, 0, &first_iter, &first) &&
-                zbtreeIteratorSeekLex(zs, lexrange.max, lexrange.maxex, 1, &last_iter, &last) &&
-                last >= first)
-            {
-                deleted = zbtreeDeleteRangeByRank(zs, first, last);
-            }
+        case ZRANGE_LEX:
+            deleted = zbtreeDeleteRangeByLex(zs, lexrange.min, lexrange.minex, lexrange.max, lexrange.maxex);
             break;
-        }
         }
         if (zbtreeLength(zs) == 0) {
             if (server.memory_tracking_enabled)

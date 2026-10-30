@@ -114,6 +114,8 @@ unsigned long zbtreeDeleteRangeByRank(zbtreeSet *zs, unsigned long start,
                                       unsigned long end);
 unsigned long zbtreeDeleteRangeByScore(zbtreeSet *zs, double min, int minex,
                                        double max, int maxex);
+unsigned long zbtreeDeleteRangeByLex(zbtreeSet *zs, sds min, int minex,
+                                     sds max, int maxex);
 
 /* Ordered access. A successful seek leaves the iterator on its result; Next
  * returns that result and advances in the requested direction. Its member,

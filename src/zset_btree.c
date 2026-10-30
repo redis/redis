@@ -3867,21 +3867,6 @@ unsigned long zbtreeDeleteRangeByRank(zbtreeSet *zs, unsigned long start,
     return deleted;
 }
 
-/* Delete all elements inside a score interval. Convert its two bounds to
- * ranks and use the rank deletion path above. */
-unsigned long zbtreeDeleteRangeByScore(zbtreeSet *zs, double min, int minex,
-                                       double max, int maxex)
-{
-    zbtreeIterator first, last;
-    unsigned long first_rank, last_rank;
-    if (!zbtreeIteratorSeekScore(zs, min, minex, 0, &first, &first_rank))
-        return 0;
-    if (!zbtreeIteratorSeekScore(zs, max, maxex, 1, &last, &last_rank))
-        return 0;
-    if (last_rank < first_rank) return 0;
-    return zbtreeDeleteRangeByRank(zs, first_rank, last_rank);
-}
-
 /* ------------------------------ Iterators ------------------------------- */
 
 /* Iterators are a score leaf plus a logical position. zbtreeIteratorNext()
@@ -4152,6 +4137,16 @@ static unsigned long zbtScoreRankForBound(const zbtreeSet *zs, double score,
     return rank + zbtScoreLeafScoreBound(leaf, score, after_equal);
 }
 
+/* Return the number of elements not above an upper score bound (below it
+ * when exclusive). An inclusive +inf bound is the whole set and needs no
+ * tree walk. */
+static unsigned long zbtScoreRankAfterMax(const zbtreeSet *zs, double max,
+                                          int maxex)
+{
+    return !maxex && isinf(max) && max > 0 ? zs->length :
+        zbtScoreRankForBound(zs, max, !maxex);
+}
+
 /* Count a score range as the difference between its two insertion ranks.
  * Inclusive infinities are already the first and final ranks and need no
  * tree walk. */
@@ -4160,9 +4155,66 @@ unsigned long zbtreeCountByScore(const zbtreeSet *zs, double min, int minex,
 {
     unsigned long first = !minex && isinf(min) && min < 0 ? 0 :
         zbtScoreRankForBound(zs, min, minex);
-    unsigned long last = !maxex && isinf(max) && max > 0 ? zs->length :
-        zbtScoreRankForBound(zs, max, !maxex);
+    unsigned long last = zbtScoreRankAfterMax(zs, max, maxex);
     return last > first ? last - first : 0;
+}
+
+/* Delete a score range. Reject empty ranges from the bounds or the first
+ * matching member before computing ranks. Non-empty ranges use rank deletion. */
+unsigned long zbtreeDeleteRangeByScore(zbtreeSet *zs, double min, int minex,
+                                       double max, int maxex)
+{
+    if (min > max || (min == max && (minex || maxex))) return 0;
+
+    /* An inclusive -inf bound starts at the first element, so the common
+     * trim from the low end needs no seek. */
+    zbtreeIterator first;
+    if (!minex && isinf(min) && min < 0) {
+        if (!zbtreeIteratorStart(zs, 0, &first)) return 0;
+    } else if (!zbtreeIteratorSeekScore(zs, min, minex, 0, &first, NULL)) {
+        return 0;
+    }
+    double score = zbtScoreLeafScore(first.leaf, first.pos);
+    if (maxex ? score >= max : score > max) return 0;
+
+    /* The first member is in range, so the upper insertion rank must be
+     * greater than its rank. Keep the guard in release builds too. Counting
+     * the upper rank favors -inf trims over seeking both bounds. */
+    unsigned long first_rank = zbtScoreRank(first.leaf, first.pos);
+    unsigned long end_rank = zbtScoreRankAfterMax(zs, max, maxex);
+    debugServerAssert(end_rank > first_rank);
+    if (end_rank <= first_rank) return 0;
+    return zbtreeDeleteRangeByRank(zs, first_rank, end_rank - 1);
+}
+
+/* Delete a lexical range, preserving the two-seek behavior on mixed scores.
+ * Both seeks search at the set's lowest score. If the first lower-bound
+ * member is outside the upper bound, the upper seek would stop before it, so
+ * the range is empty without a second seek. */
+unsigned long zbtreeDeleteRangeByLex(zbtreeSet *zs, sds min, int minex,
+                                     sds max, int maxex)
+{
+    zbtreeIterator first, last;
+    unsigned long first_rank, last_rank;
+    if (max == shared.minstring) return 0;
+    if (!zbtreeIteratorSeekLex(zs, min, minex, 0, &first, NULL)) return 0;
+    if (max != shared.maxstring) {
+        size_t len;
+        const unsigned char *ele =
+            zbtScoreLeafElement(first.leaf, first.pos, &len);
+        int cmp = zbtCompareElements(ele, len, (unsigned char *)max,
+                                     sdslen(max));
+        if (maxex ? cmp >= 0 : cmp > 0) return 0;
+    }
+
+    first_rank = zbtScoreRank(first.leaf, first.pos);
+    /* last_rank < first_rank is reachable, not an invariant: with mixed
+     * scores the upper seek can stop before the first member (for example
+     * {a:0, b:1} with [c (d). Keep it a check, not an assertion. */
+    if (!zbtreeIteratorSeekLex(zs, max, maxex, 1, &last, &last_rank) ||
+        last_rank < first_rank)
+        return 0;
+    return zbtreeDeleteRangeByRank(zs, first_rank, last_rank);
 }
 
 /* Load eight leaf tags so that numeric byte i is tags[i] on every host. This
@@ -4830,6 +4882,70 @@ static int zbtTestVerify(zbtreeSet *zs, int n, const double *ref,
     return count == zbtreeLength(zs);
 }
 
+/* Draw a random interval bound from a small set that hits members, gaps
+ * between them, both ends, signed zeros and infinities. */
+static double zbtTestRangeBound(uint64_t *r) {
+    static const double extra[] = {-INFINITY, -1, -0.0, 0.0, 0.5, 19.5,
+                                   40.5, 41, INFINITY};
+    uint64_t x = zbtTestRand(r) % 64;
+    if (x < 42) return (double)x;
+    return extra[x % (sizeof(extra) / sizeof(extra[0]))];
+}
+
+/* Return the number of live reference members whose score is in range and
+ * mark them dead, independently of the tree. */
+static unsigned long zbtTestRefDeleteByScore(int n, const double *ref,
+                                             char *alive, double min,
+                                             int minex, double max,
+                                             int maxex)
+{
+    unsigned long count = 0;
+    for (int i = 0; i < n; i++) {
+        if (!alive[i]) continue;
+        double v = ref[i];
+        if ((minex ? v > min : v >= min) && (maxex ? v < max : v <= max)) {
+            alive[i] = 0;
+            count++;
+        }
+    }
+    return count;
+}
+
+/* Same as above for a lexical interval over the members "m:<i>:". */
+static unsigned long zbtTestRefDeleteByLex(int n, char *alive, sds min,
+                                           int minex, sds max, int maxex)
+{
+    char buf[32];
+    unsigned long count = 0;
+    for (int i = 0; i < n; i++) {
+        if (!alive[i]) continue;
+        size_t len = zbtTestMember(buf, i, 0);
+        int cmin = zbtCompareElements((unsigned char *)buf, len,
+                                      (unsigned char *)min, sdslen(min));
+        int cmax = zbtCompareElements((unsigned char *)buf, len,
+                                      (unsigned char *)max, sdslen(max));
+        if ((minex ? cmin > 0 : cmin >= 0) && (maxex ? cmax < 0 : cmax <= 0)) {
+            alive[i] = 0;
+            count++;
+        }
+    }
+    return count;
+}
+
+/* A random lexical bound: a member, a prefix of one, or a string outside
+ * the members' range. */
+static sds zbtTestLexBound(uint64_t *r, int n) {
+    static const char *extra[] = {"", "a", "m:", "m:1", "m:9:", "z"};
+    char buf[32];
+    uint64_t x = zbtTestRand(r) % 8;
+    if (x < 6) {
+        size_t len = zbtTestMember(buf, (int)(zbtTestRand(r) % n), 0);
+        if (x == 5) len--; /* Drop the trailing ':' to land between members. */
+        return sdsnewlen(buf, len);
+    }
+    return sdsnew(extra[zbtTestRand(r) % 6]);
+}
+
 static unsigned long zbtTestLeaves(zbtreeSet *zs) {
     unsigned long leaves = 0;
     for (zbtScoreLeaf *leaf = zs->score_first; leaf; leaf = leaf->next)
@@ -4892,7 +5008,6 @@ static uint64_t zbtTestScanMaxGroups(zbtreeSet *zs) {
 int zsetBtreeTest(int argc, char **argv, int flags) {
     UNUSED(argc);
     UNUSED(argv);
-    UNUSED(flags);
 
     printf("Testing B+ tree zbtreeReserve()\n");
 
@@ -6189,6 +6304,175 @@ int zsetBtreeTest(int argc, char **argv, int flags) {
             zbtreeFree(alike);
         }
         zbtreeFree(zs);
+    }
+
+    /* The reference checks below rescan every member per round; run fewer
+     * rounds under valgrind. */
+    const int slow = flags & REDIS_TEST_VALGRIND;
+    const unsigned long score_rounds = slow ? 1000 : 4000;
+    const unsigned long lex_rounds = slow ? 750 : 3000;
+    const unsigned long mixed_rounds = slow ? 5000 : 20000;
+
+    printf("Testing B+ tree range deletions by score against a reference\n");
+    {
+        /* Few distinct scores, so equal scores span several leaves, and many
+         * empty intervals, so every early exit is taken. */
+        const int n = 3000;
+        double *ref = zmalloc(sizeof(double) * n);
+        char *alive = zcalloc(n);
+        uint64_t r = 7;
+        char buf[32];
+        zbtreeSet *zs = zbtreeCreate();
+        int ok = 1;
+        unsigned long empty = 0, nonempty = 0;
+        for (unsigned long round = 0; round < score_rounds && ok; round++) {
+            if (zbtreeLength(zs) < (unsigned long)n / 4) {
+                for (int i = 0; i < n; i++) {
+                    if (alive[i]) continue;
+                    uint64_t x = zbtTestRand(&r) % 50;
+                    ref[i] = x < 42 ? (double)x :
+                             x < 45 ? -0.0 : x < 47 ? -INFINITY : INFINITY;
+                    size_t len = zbtTestMember(buf, i, 0);
+                    zbtTestSet(zs, buf, len, ref[i]);
+                    alive[i] = 1;
+                }
+            }
+            double min = zbtTestRangeBound(&r), max = zbtTestRangeBound(&r);
+            int minex = zbtTestRand(&r) & 1, maxex = zbtTestRand(&r) & 1;
+            /* Keep small ranges common: most real calls delete little. */
+            if (zbtTestRand(&r) % 3 == 0) max = min;
+            unsigned long expected = zbtTestRefDeleteByScore(n, ref, alive,
+                                                             min, minex,
+                                                             max, maxex);
+            unsigned long deleted =
+                zbtreeDeleteRangeByScore(zs, min, minex, max, maxex);
+            if (deleted != expected) ok = 0;
+            if (expected) nonempty++; else empty++;
+            if (round % 64 == 0 || expected)
+                ok = ok && zbtTestVerify(zs, n, ref, alive, NULL);
+        }
+        ok = ok && zbtTestCheck(zs);
+        test_cond("Score range deletions match a reference, empty or not",
+                  ok && empty > score_rounds / 4 &&
+                  nonempty > score_rounds / 8);
+        zbtreeFree(zs);
+
+        /* The early exits on a multi-leaf set of one repeated score. */
+        zs = zbtreeCreate();
+        for (int i = 0; i < 500; i++) {
+            size_t len = zbtTestMember(buf, i, 0);
+            zbtTestSet(zs, buf, len, i < 250 ? 5 : 7);
+        }
+        ok = zbtTestLeaves(zs) > 2 &&
+             zbtreeDeleteRangeByScore(zs, 5, 0, 5, 1) == 0 &&
+             zbtreeDeleteRangeByScore(zs, 5, 1, 5, 0) == 0 &&
+             zbtreeDeleteRangeByScore(zs, 7, 0, 5, 0) == 0 &&
+             zbtreeDeleteRangeByScore(zs, 5, 1, 7, 1) == 0 &&
+             zbtreeDeleteRangeByScore(zs, 6, 0, 6.5, 0) == 0 &&
+             zbtreeDeleteRangeByScore(zs, 7, 1, INFINITY, 0) == 0 &&
+             zbtreeDeleteRangeByScore(zs, -INFINITY, 0, 5, 1) == 0 &&
+             zbtreeDeleteRangeByScore(zs, -INFINITY, 0, -0.0, 0) == 0 &&
+             zbtreeLength(zs) == 500 &&
+             zbtreeDeleteRangeByScore(zs, -INFINITY, 0, 5, 0) == 250 &&
+             zbtreeDeleteRangeByScore(zs, 7, 0, INFINITY, 0) == 250 &&
+             zbtreeLength(zs) == 0;
+        test_cond("Empty score ranges on equal scores across leaves", ok);
+        zbtreeFree(zs);
+        zfree(ref);
+        zfree(alive);
+    }
+
+    printf("Testing B+ tree range deletions by member against a reference\n");
+    {
+        /* With a single score (signed zeros included, as they compare equal)
+         * the members are in lexical order and any lexical range is defined. */
+        const int n = 3000;
+        char *alive = zcalloc(n);
+        uint64_t r = 11;
+        char buf[32];
+        zbtreeSet *zs = zbtreeCreate();
+        int ok = 1;
+        unsigned long empty = 0, nonempty = 0, live = 0;
+        for (unsigned long round = 0; round < lex_rounds && ok; round++) {
+            if (zbtreeLength(zs) < (unsigned long)n / 4) {
+                for (int i = 0; i < n; i++) {
+                    if (alive[i]) continue;
+                    size_t len = zbtTestMember(buf, i, 0);
+                    zbtTestSet(zs, buf, len, zbtTestRand(&r) & 1 ? 0.0 : -0.0);
+                    alive[i] = 1;
+                    live++;
+                }
+            }
+            sds min = zbtTestLexBound(&r, n), max = zbtTestLexBound(&r, n);
+            int minex = zbtTestRand(&r) & 1, maxex = zbtTestRand(&r) & 1;
+            if (zbtTestRand(&r) % 3 == 0) {
+                sdsfree(max);
+                max = sdsdup(min);
+            }
+            unsigned long expected = zbtTestRefDeleteByLex(n, alive, min,
+                                                           minex, max, maxex);
+            unsigned long deleted =
+                zbtreeDeleteRangeByLex(zs, min, minex, max, maxex);
+            if (deleted != expected) ok = 0;
+            if (expected) nonempty++; else empty++;
+            live -= expected;
+            if (zbtreeLength(zs) != live) ok = 0;
+            sdsfree(min);
+            sdsfree(max);
+        }
+        ok = ok && zbtTestCheck(zs);
+        test_cond("Lexical range deletions on one score match a reference",
+                  ok && empty > lex_rounds / 3 &&
+                  nonempty > lex_rounds / 10);
+        zbtreeFree(zs);
+
+        /* Lexical ranges on mixed scores are unspecified. On this encoding
+         * they have always meant the members between the two bound seeks,
+         * which can differ from the listpack encoding. The early return must
+         * not change that, so check against the two-seek definition on small
+         * sets, where a bound often names a member whose score is not the
+         * lowest one. */
+        zs = zbtreeCreate();
+        ok = 1;
+        for (unsigned long round = 0; round < mixed_rounds && ok; round++) {
+            const int small = 40;
+            if (round == 0 || zbtreeLength(zs) < (unsigned long)small / 4) {
+                for (int i = 0; i < small; i++) {
+                    size_t len = zbtTestMember(buf, i, 0);
+                    zbtTestSet(zs, buf, len, (double)(zbtTestRand(&r) % 4));
+                }
+            }
+            sds min = zbtTestLexBound(&r, small), max;
+            int minex = zbtTestRand(&r) & 1, maxex = zbtTestRand(&r) & 1;
+            max = zbtTestRand(&r) % 3 ? zbtTestLexBound(&r, small) : sdsdup(min);
+            zbtreeIterator it;
+            unsigned long first, last, expected = 0;
+            if (zbtreeIteratorSeekLex(zs, min, minex, 0, &it, &first) &&
+                zbtreeIteratorSeekLex(zs, max, maxex, 1, &it, &last) &&
+                last >= first)
+                expected = last - first + 1;
+            unsigned long before = zbtreeLength(zs);
+            unsigned long deleted =
+                zbtreeDeleteRangeByLex(zs, min, minex, max, maxex);
+            if (deleted != expected || zbtreeLength(zs) != before - deleted)
+                ok = 0;
+            sdsfree(min);
+            sdsfree(max);
+        }
+        ok = ok && zbtTestCheck(zs);
+        zbtreeFree(zs);
+        zs = zbtreeCreate();
+        zbtTestSet(zs, "a", 1, 0);
+        zbtTestSet(zs, "b", 1, 1);
+        sds b = sdsnew("b");
+        ok = ok && zbtreeDeleteRangeByLex(zs, b, 0, b, 1) == 0 &&
+             zbtreeDeleteRangeByLex(zs, b, 0, b, 0) == 1 &&
+             zbtreeLength(zs) == 1;
+        sdsfree(b);
+        test_cond("Lexical range deletions on mixed scores keep their meaning",
+                  ok);
+        zbtreeFree(zs);
+        zfree(alive);
     }
 
     return 0;
