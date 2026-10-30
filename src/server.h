@@ -5108,6 +5108,7 @@ void killThreads(void);
 void makeThreadKillable(void);
 void swapMainDbWithTempDb(redisDb *tempDb);
 sds getVersion(void);
+sds getShortVersion(void);
 void debugPauseProcess(void);
 
 /* Log redaction helpers: return "*redacted*" when hide-user-data-from-log is on. */
