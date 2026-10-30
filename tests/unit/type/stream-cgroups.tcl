@@ -3048,7 +3048,7 @@ start_server {
             
             wait_for_blocked_client
             
-            after 100
+            after 100 ;# Before min-idle-time
             r XADD mystream 2-0 f v2
             
             set result [$rd read]
