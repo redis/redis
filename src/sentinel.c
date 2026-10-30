@@ -13,6 +13,7 @@
 #if USE_OPENSSL == 1 /* BUILD_YES */
 #include "openssl/ssl.h"
 #include "hiredis_ssl.h"
+#include "tlshelpers.h"
 #endif
 #include "async.h"
 
@@ -27,6 +28,9 @@ extern char **environ;
 #if USE_OPENSSL == 1 /* BUILD_YES */
 extern SSL_CTX *redis_tls_ctx;
 extern SSL_CTX *redis_tls_client_ctx;
+/* Peer identity helpers from tls.c (linked in with USE_OPENSSL == 1). */
+extern int tlsSetVerifyName(SSL *ssl, const char *names);
+extern int tlsSetVerifyIdentity(SSL *ssl, const char *name);
 #endif
 
 #define REDIS_SENTINEL_PORT 26379
@@ -85,6 +89,8 @@ static mstime_t sentinel_default_failover_timeout = 60*3*1000;
 #define SENTINEL_DEFAULT_DENY_SCRIPTS_RECONFIG 1
 #define SENTINEL_DEFAULT_RESOLVE_HOSTNAMES 0
 #define SENTINEL_DEFAULT_ANNOUNCE_HOSTNAMES 0
+#define SENTINEL_DEFAULT_TLS_VERIFY_HOSTNAMES 1
+#define SENTINEL_TLS_IDENTITY_WARN_PERIOD 60000 /* Rate limit for identity-mismatch warnings, ms. */
 
 /* Failover machine different states. */
 #define SENTINEL_FAILOVER_STATE_NONE 0  /* No failover in progress. */
@@ -157,6 +163,12 @@ typedef struct instanceLink {
                                  if the link is idle and must be reconnected. */
     mstime_t last_reconn_time;  /* Last reconnection attempt performed when
                                    the link was down. */
+    mstime_t last_tls_identity_warn; /* Last time a TLS identity mismatch was
+                                        logged for this link (rate limiting). */
+    int tls_identity_err;  /* X509 error recorded by sentinelTLSVerifyCallback()
+                              when a certificate on this link failed the identity
+                              check, 0 if none. Reported through a live instance,
+                              and reset, by sentinelReportTLSIdentityMismatch(). */
 } instanceLink;
 
 typedef struct sentinelRedisInstance {
@@ -255,6 +267,8 @@ struct sentinelState {
     char *sentinel_auth_user;    /* Username for ACLs AUTH against other sentinel. */
     int resolve_hostnames;       /* Support use of hostnames, assuming DNS is well configured. */
     int announce_hostnames;      /* Announce hostnames instead of IPs when we have them. */
+    int tls_verify_hostnames;    /* Verify that each instance's TLS certificate
+                                    carries the address we connect to. */
 } sentinel;
 
 /* A script execution job. */
@@ -455,7 +469,8 @@ const char *preMonitorCfgName[] = {
     "current-epoch",
     "myid",
     "resolve-hostnames",
-    "announce-hostnames"
+    "announce-hostnames",
+    "tls-verify-hostnames"
 };
 
 /* Returns 1 if the string contains control characters (0x00-0x1F or 0x7F),
@@ -505,6 +520,7 @@ void initSentinel(void) {
     sentinel.sentinel_auth_user = NULL;
     sentinel.resolve_hostnames = SENTINEL_DEFAULT_RESOLVE_HOSTNAMES;
     sentinel.announce_hostnames = SENTINEL_DEFAULT_ANNOUNCE_HOSTNAMES;
+    sentinel.tls_verify_hostnames = SENTINEL_DEFAULT_TLS_VERIFY_HOSTNAMES;
     memset(sentinel.myid,0,sizeof(sentinel.myid));
     server.sentinel_config = NULL;
 }
@@ -1027,6 +1043,8 @@ instanceLink *createInstanceLink(void) {
     link->cc_conn_time = 0;
     link->pc_conn_time = 0;
     link->last_reconn_time = 0;
+    link->last_tls_identity_warn = 0;
+    link->tls_identity_err = 0;
     link->pc_last_activity = 0;
     /* We set the act_ping_time to "now" even if we actually don't have yet
      * a connection with the node, nor we sent a ping.
@@ -2010,6 +2028,11 @@ const char *sentinelHandleConfiguration(char **argv, int argc) {
         if ((sentinel.announce_hostnames = yesnotoi(argv[1])) == -1) {
             return "Please specify yes or no for the announce-hostnames option.";
         }
+    } else if (!strcasecmp(argv[0],"tls-verify-hostnames") && argc == 2) {
+        /* tls-verify-hostnames <yes|no> */
+        if ((sentinel.tls_verify_hostnames = yesnotoi(argv[1])) == -1) {
+            return "Please specify yes or no for the tls-verify-hostnames option.";
+        }
     } else if (!strcasecmp(argv[0],"master-reboot-down-after-period") && argc == 3) {
         /* master-reboot-down-after-period <name> <milliseconds> */
         ri = sentinelGetMasterByName(argv[1]);
@@ -2057,6 +2080,12 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
                         sentinel.announce_hostnames ? "yes" : "no");
     rewriteConfigRewriteLine(state,"sentinel announce-hostnames",line,
                              sentinel.announce_hostnames != SENTINEL_DEFAULT_ANNOUNCE_HOSTNAMES);
+
+    /* sentinel tls-verify-hostnames. */
+    line = sdscatprintf(sdsempty(), "sentinel tls-verify-hostnames %s",
+                        sentinel.tls_verify_hostnames ? "yes" : "no");
+    rewriteConfigRewriteLine(state,"sentinel tls-verify-hostnames",line,
+                             sentinel.tls_verify_hostnames != SENTINEL_DEFAULT_TLS_VERIFY_HOSTNAMES);
 
     /* For every master emit a "sentinel monitor" config entry. */
     dictInitIterator(&di, sentinel.masters);
@@ -2384,11 +2413,127 @@ void sentinelSetClientName(sentinelRedisInstance *ri, redisAsyncContext *c, char
     }
 }
 
-static int instanceLinkNegotiateTLS(redisAsyncContext *context) {
+#if USE_OPENSSL == 1 /* BUILD_YES */
+#if CONN_TLS_SUPPORTS_VERIFY_NAME
+/* The identity an instance's certificate is verified against, or NULL when no
+ * identity is verified -- used to name it in the mismatch event below. The
+ * configured tls-expected-peer-name wins: it is an
+ * identity anchored in local configuration that every instance carries.
+ * Otherwise it is the address the instance is known by -- the hostname the
+ * operator configured or the instance announced, or its IP -- which is what a
+ * TLS client normally verifies. Unlike redis-cli, Sentinel has no separate SNI
+ * setting: the address returned here is also what the link sends as SNI when
+ * it is a DNS name, so there is no distinct server name to prefer over it. */
+static const char *sentinelInstanceExpectedTLSIdentity(sentinelRedisInstance *ri) {
+    const char *name = server.tls_ctx_config.expected_peer_name;
+    if (name && name[0]) return name;
+    if (sentinel.tls_verify_hostnames) return ri->addr->hostname;
+    return NULL;
+}
+
+/* OpenSSL verify callback installed on every instance link. It changes no
+ * verdict -- the handshake still fails on a mismatch -- it only records an
+ * identity mismatch on the link, for sentinelReportTLSIdentityMismatch() to
+ * report: otherwise the failure would surface as nothing more than a
+ * DEBUG-level link reconnection event, and a Sentinel monitoring instances
+ * whose certificates lack their address would go dark silently.
+ *
+ * The callback is handed the link, never an instance. Links to other
+ * Sentinels are shared between the masters that know them, and the instance
+ * that negotiated a connection can be released -- SENTINEL REMOVE or RESET of
+ * its master, an address switch -- while the handshake is still pending, with
+ * the link kept alive by another master's instance. The link does outlive the
+ * connection: it owns the hiredis context that owns this SSL object, and
+ * releaseInstanceLink() frees the contexts before the link itself, just as the
+ * contexts' own data pointer relies on. */
+static int sentinelTLSVerifyCallback(int preverify_ok, X509_STORE_CTX *store_ctx) {
+    if (preverify_ok) return 1;
+
+    int err = X509_STORE_CTX_get_error(store_ctx);
+    if (err != X509_V_ERR_HOSTNAME_MISMATCH && err != X509_V_ERR_IP_ADDRESS_MISMATCH)
+        return preverify_ok;
+
+    SSL *ssl = X509_STORE_CTX_get_ex_data(store_ctx, SSL_get_ex_data_X509_STORE_CTX_idx());
+    instanceLink *link = ssl ? SSL_get_app_data(ssl) : NULL;
+    if (link) link->tls_identity_err = err;
+    return preverify_ok;
+}
+#endif
+#endif
+
+/* Report the TLS identity mismatch that sentinelTLSVerifyCallback() recorded
+ * on this instance's link, if any, then clear it. Called from
+ * sentinelReconnectInstance(), which runs for every instance holding a down
+ * link and so always has a live instance to name in the event -- unlike the
+ * callback, see there. Rate limited per link, since a down link is retried
+ * every second. */
+static void sentinelReportTLSIdentityMismatch(sentinelRedisInstance *ri) {
+    instanceLink *link = ri->link;
+    int err = link->tls_identity_err;
+    if (!err) return;
+    link->tls_identity_err = 0;
+#if USE_OPENSSL == 1 && CONN_TLS_SUPPORTS_VERIFY_NAME
+    mstime_t now = mstime();
+    if (now - link->last_tls_identity_warn < SENTINEL_TLS_IDENTITY_WARN_PERIOD) return;
+    link->last_tls_identity_warn = now;
+    const char *expected = sentinelInstanceExpectedTLSIdentity(ri);
+    sentinelEvent(LL_WARNING, "-tls-identity-mismatch", ri,
+        "%@ #%s: the certificate does not carry the expected identity '%s'. "
+        "Reissue it with that name in its Subject Alternative Name, set "
+        "tls-expected-peer-name to a name every instance carries, or set "
+        "'sentinel tls-verify-hostnames no' to verify only the CA chain.",
+        X509_verify_cert_error_string(err), expected ? expected : "?");
+#endif
+}
+
+/* Negotiate TLS on a freshly connected link to `ri`. Besides the CA chain
+ * validation the shared context performs, the instance's certificate must
+ * carry the expected identity (see sentinelInstanceExpectedTLSIdentity):
+ * these links carry the credentials sentinelSendAuthIfNeeded() sends, so
+ * without that any certificate issued by the trusted CA could impersonate a
+ * master, replica or sentinel and capture them. Fails closed if the identity
+ * cannot be applied. */
+static int instanceLinkNegotiateTLS(redisAsyncContext *context, sentinelRedisInstance *ri) {
 #if USE_OPENSSL == 1 /* BUILD_YES */
     if (!redis_tls_ctx) return C_ERR;
     SSL *ssl = SSL_new(redis_tls_client_ctx ? redis_tls_client_ctx : redis_tls_ctx);
     if (!ssl) return C_ERR;
+
+    /* Announce the instance's name (SNI) when it is one. Redis itself ignores
+     * SNI; this is for a TLS proxy or load balancer in front of an instance,
+     * which may route by SNI or present the certificate issued for that name,
+     * the identity verified below. SNI cannot carry an IP literal, and the
+     * address is an IP unless resolve-hostnames or announced hostnames are in
+     * use. */
+    const char *addr = ri->addr->hostname;
+    if (!tlsIsIPAddressLiteral(addr)) SSL_set_tlsext_host_name(ssl, addr);
+
+    const char *peer_name = server.tls_ctx_config.expected_peer_name;
+    int rc = C_OK, verifying = 0;
+    if (peer_name && peer_name[0]) {
+        rc = tlsSetVerifyName(ssl, peer_name);
+        verifying = 1;
+    } else if (sentinel.tls_verify_hostnames) {
+        rc = tlsSetVerifyIdentity(ssl, addr);
+        verifying = 1;
+    }
+    if (rc != C_OK) {
+        sentinelEvent(LL_WARNING, "-tls-identity", ri,
+            "%@ #Failed to set the expected TLS identity for this link");
+        SSL_free(ssl);
+        return C_ERR;
+    }
+#if CONN_TLS_SUPPORTS_VERIFY_NAME
+    if (verifying) {
+        /* The link, not the instance: see sentinelTLSVerifyCallback(). */
+        SSL_set_app_data(ssl, ri->link);
+        SSL_set_verify(ssl, SSL_get_verify_mode(ssl), sentinelTLSVerifyCallback);
+    }
+#else
+    /* Compiled out: tlsSetVerifyName()/tlsSetVerifyIdentity() have warned and
+     * set no expectation, so there is no mismatch for a callback to report. */
+    UNUSED(verifying);
+#endif
 
     if (redisInitiateSSL(&context->c, ssl) == REDIS_ERR) {
         SSL_free(ssl);
@@ -2396,6 +2541,7 @@ static int instanceLinkNegotiateTLS(redisAsyncContext *context) {
     }
 #else
     UNUSED(context);
+    UNUSED(ri);
 #endif
     return C_OK;
 }
@@ -2412,6 +2558,10 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
 
     if (now - ri->link->last_reconn_time < sentinel_ping_period) return;
     ri->link->last_reconn_time = now;
+
+    /* A TLS identity mismatch that brought this link down is reported here,
+     * through an instance that is certainly alive. */
+    sentinelReportTLSIdentityMismatch(ri);
 
     /* Commands connection. */
     if (link->cc == NULL) {
@@ -2434,7 +2584,7 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
         if (!link->cc) {
             sentinelEvent(LL_DEBUG,"-cmd-link-reconnection",ri,"%@ #Failed to establish connection");
         } else if (!link->cc->err && server.tls_replication &&
-                (instanceLinkNegotiateTLS(link->cc) == C_ERR)) {
+                (instanceLinkNegotiateTLS(link->cc, ri) == C_ERR)) {
             sentinelEvent(LL_DEBUG,"-cmd-link-reconnection",ri,"%@ #Failed to initialize TLS");
             instanceLinkCloseConnection(link,link->cc);
         } else if (link->cc->err) {
@@ -2464,8 +2614,12 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
         if (!link->pc) {
             sentinelEvent(LL_DEBUG,"-pubsub-link-reconnection",ri,"%@ #Failed to establish connection");
         } else if (!link->pc->err && server.tls_replication &&
-                (instanceLinkNegotiateTLS(link->pc) == C_ERR)) {
+                (instanceLinkNegotiateTLS(link->pc, ri) == C_ERR)) {
             sentinelEvent(LL_DEBUG,"-pubsub-link-reconnection",ri,"%@ #Failed to initialize TLS");
+            /* Close it like the command link above: a context left in link->pc
+             * is never attached to the event loop, yet counts as connected
+             * below, so the Pub/Sub link would never be retried. */
+            instanceLinkCloseConnection(link,link->pc);
         } else if (link->pc->err) {
             sentinelEvent(LL_DEBUG,"-pubsub-link-reconnection",ri,"%@ #%s",
                 link->pc->errstr);
@@ -3218,6 +3372,7 @@ void sentinelConfigSetCommand(client *c) {
         "resolve-hostnames",
         "announce-port",
         "announce-hostnames",
+        "tls-verify-hostnames",
         "loglevel",
         NULL};
     static dict *options_dict = NULL;
@@ -3255,6 +3410,8 @@ void sentinelConfigSetCommand(client *c) {
         if (!strcasecmp(option, "resolve-hostnames")) {
             if ((yesnotoi(val->ptr)) == -1) goto badfmt;
         } else if (!strcasecmp(option, "announce-hostnames")) {
+            if ((yesnotoi(val->ptr)) == -1) goto badfmt;
+        } else if (!strcasecmp(option, "tls-verify-hostnames")) {
             if ((yesnotoi(val->ptr)) == -1) goto badfmt;
         } else if (!strcasecmp(option, "announce-port")) {
             if (getLongLongFromObject(val, &numval) == C_ERR ||
@@ -3295,6 +3452,10 @@ void sentinelConfigSetCommand(client *c) {
             val = c->argv[++i];
             numval = yesnotoi(val->ptr);
             sentinel.announce_hostnames = numval;
+        } else if (!strcasecmp(option, "tls-verify-hostnames") && moreargs > 0) {
+            val = c->argv[++i];
+            numval = yesnotoi(val->ptr);
+            sentinel.tls_verify_hostnames = numval;
         } else if (!strcasecmp(option, "announce-ip") && moreargs > 0) {
             val = c->argv[++i];
             if (sentinel.announce_ip) sdsfree(sentinel.announce_ip);
@@ -3359,6 +3520,12 @@ void sentinelConfigGetCommand(client *c) {
             addReplyBulkCString(c,"announce-hostnames");
             addReplyBulkCString(c,sentinel.announce_hostnames ? "yes" : "no");
             dictAdd(d, "announce-hostnames", NULL);
+            matches++;
+        }
+        if (stringmatch(pattern, "tls-verify-hostnames", 1) && !dictFind(d, "tls-verify-hostnames")) {
+            addReplyBulkCString(c,"tls-verify-hostnames");
+            addReplyBulkCString(c,sentinel.tls_verify_hostnames ? "yes" : "no");
+            dictAdd(d, "tls-verify-hostnames", NULL);
             matches++;
         }
         if (stringmatch(pattern, "announce-ip", 1) && !dictFind(d, "announce-ip")) {

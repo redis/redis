@@ -71,6 +71,16 @@ start_cluster 1 0 {tags {external:skip cluster}} {
         assert_equal 0 [r 0 cluster COUNTKEYSINSLOT 5061] ;# bar slot
     }
 
+    test {A command with keys in different slots is rejected inside a script} {
+        assert_error "ERR Command 'mset' in script attempted to access keys that don't hash to the same slot*" {
+            r 0 eval "redis.call('mset', 'foo', 'bar', 'bar', 'foo')" 0}
+        # MSETEX finds its keys through a numkeys argument
+        assert_error "ERR Command 'msetex' in script attempted to access keys that don't hash to the same slot*" {
+            r 0 eval "redis.call('msetex', 2, 'foo', 'bar', 'bar', 'foo')" 0}
+        # and its values are not keys
+        assert_equal 1 [r 0 eval "return redis.call('msetex', 2, 'foo{t}', 'foo', 'bar{t}', 'bar')" 0]
+    }
+
     test "Function no-cluster flag" {
         R 0 function load {#!lua name=test
             redis.register_function{function_name='f1', callback=function() return 'hello' end, flags={'no-cluster'}}

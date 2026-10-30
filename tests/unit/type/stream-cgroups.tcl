@@ -1,6 +1,9 @@
 start_server {
     tags {"stream"}
 } {
+    # Also cover the INFO Streams bookkeeping: every consumer-group command.
+    arm_stream_stats_assert
+
     test {XGROUP CREATE: creation and duplicate group name detection} {
         r DEL mystream
         r XADD mystream * foo bar
@@ -3041,11 +3044,11 @@ start_server {
             r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
             
             set rd [redis_deferring_client]
-            $rd XREADGROUP GROUP group1 consumer2 BLOCK 5000 CLAIM 1000 STREAMS mystream >
+            $rd XREADGROUP GROUP group1 consumer2 BLOCK 20000 CLAIM 10000 STREAMS mystream >
             
             wait_for_blocked_client
             
-            after 100  # Before min-idle-time
+            after 100 ;# Before min-idle-time
             r XADD mystream 2-0 f v2
             
             set result [$rd read]
@@ -3053,6 +3056,7 @@ start_server {
             # Unblock with new message immediately, not wait for CLAIM threshold
             lassign [lindex $result 0] stream_name messages
             assert_equal [llength $messages] 1
+            assert_equal [lindex $messages 0 0] 2-0
             
             $rd close
         }
@@ -4145,9 +4149,9 @@ start_server {
         r XGROUP CREATE mystream grp 0
         r XREADGROUP GROUP grp c1 STREAMS mystream >
 
-        # c2 blocks waiting for claimable entries with min-idle 1000ms
+        # c2 blocks waiting for claimable entries with min-idle 10000ms
         set rd [redis_deferring_client]
-        $rd XREADGROUP GROUP grp c2 BLOCK 5000 CLAIM 1000 STREAMS mystream >
+        $rd XREADGROUP GROUP grp c2 BLOCK 20000 CLAIM 10000 STREAMS mystream >
         wait_for_blocked_client
 
         # XNACK makes entries immediately claimable, waking c2
