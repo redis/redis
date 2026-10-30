@@ -3749,6 +3749,20 @@ start_server {tags {"stream"} overrides {stream-node-max-entries 2}} {
         close_replication_stream $repl
         assert_equal {{3-0 {f v}}} [r XRANGE tombstone - +]
     } {} {needs:repl}
+
+    test {XADD IDMP deduplicated request propagates the recorded ID} {
+        # The retry must not be propagated as '*', otherwise a replica (or an
+        # AOF replay) that lost the IDMP record appends a duplicate entry.
+        r DEL idmpdup
+        set id [r XADD idmpdup IDMP p1 req-1 * item book]
+        set repl [attach_to_replication_stream]
+        assert_equal $id [r XADD idmpdup IDMP p1 req-1 * item book]
+        assert_replication_stream $repl [list \
+            {select *} \
+            [list xadd idmpdup IDMP p1 req-1 $id item book]]
+        close_replication_stream $repl
+        assert_equal 1 [r XLEN idmpdup]
+    } {} {needs:repl}
 }
 
 start_server {tags {"stream"}} {
@@ -3911,6 +3925,24 @@ start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-
         assert_equal [dict get [r xinfo stream mystream] last-generated-id] "2-2"
     }
 
+    test {XADD IDMP deduplicated request does not resurrect the entry on AOF replay} {
+        r DEL idmpstream
+        r XADD idmpstream * seed 1
+        set id [r XADD idmpstream IDMP p1 req-1 * item book]
+        r XDEL idmpstream $id
+
+        # The rewrite drops XIDMPRECORD for the deleted entry, but XSETID
+        # keeps last-generated-id, so replaying the retry must not append.
+        r bgrewriteaof
+        waitForBgrewriteaof r
+
+        assert_equal $id [r XADD idmpstream IDMP p1 req-1 * item book]
+        r debug loadaof
+        assert_equal 1 [r XLEN idmpstream]
+        assert_equal 1 [dict get [r XINFO STREAM idmpstream] iids-duplicates]
+        assert_equal $id [dict get [r XINFO STREAM idmpstream] last-generated-id]
+    }
+
     test {XDELEX DELREF propagates PEL-only changes} {
         r DEL xdelex-stream
         r XADD xdelex-stream 1-0 f v
@@ -3932,6 +3964,31 @@ start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-
 
         r DEBUG LOADAOF
         assert_equal {0 {} {} {}} [r XPENDING xdelex-stream group]
+    }
+}
+
+start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-preamble yes}} {
+    test {XADD IDMP deduplicated request does not append after the record expires on AOF reload} {
+        r XADD idmp-expire * seed 1
+        r XCFGSET idmp-expire IDMP-DURATION 5
+        set id [r XADD idmp-expire IDMP p1 req-1 * item book]
+
+        # The rewrite stores the record in the RDB base, but the record expires
+        # before the AOF is loaded, so the replay cannot look it up.
+        r bgrewriteaof
+        waitForBgrewriteaof r
+        assert_equal $id [r XADD idmp-expire IDMP p1 req-1 * item book]
+
+        wait_for_condition 100 100 {
+            [dict get [r XINFO STREAM idmp-expire] iids-tracked] == 0
+        } else {
+            fail "IDMP record did not expire"
+        }
+
+        r debug loadaof
+        assert_equal 2 [r XLEN idmp-expire]
+        assert_equal 1 [dict get [r XINFO STREAM idmp-expire] iids-duplicates]
+        assert_equal $id [dict get [r XINFO STREAM idmp-expire] last-generated-id]
     }
 }
 
