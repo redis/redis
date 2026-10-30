@@ -531,6 +531,37 @@ start_server {overrides {save {900 1}} tags {"modules external:skip"}} {
     test "Cluster keyslot" {
         assert_equal 12182 [r test.keyslot foo]
     }
+
+    test "GetRawUsedMemoryRatio is 0 without maxmemory" {
+        r config set maxmemory 0
+        assert_equal 0 [r test.raw_used_memory_ratio]
+        assert_equal 0 [r test.raw_used_memory_ratio_bg]
+        assert_equal 0 [r test.used_memory_ratio]
+    }
+
+    test "GetRawUsedMemoryRatio tracks used_memory and maxmemory" {
+        set maxmemory [expr {[s used_memory] * 4}]
+        r config set maxmemory $maxmemory
+        set ratio [r test.raw_used_memory_ratio]
+        set expected [expr {double([s used_memory]) / $maxmemory}]
+        assert_range $ratio [expr {$expected * 0.95}] [expr {$expected * 1.05}]
+
+        # Never smaller than RM_GetUsedMemoryRatio(), which subtracts the
+        # replication and AOF buffers. Allow for noise between the two calls.
+        set ratio_main [r test.used_memory_ratio]
+        assert_morethan_equal $ratio [expr {$ratio_main * 0.99}]
+
+        # A new maxmemory is reflected on the very next call.
+        r config set maxmemory [expr {$maxmemory * 2}]
+        set ratio_halved [r test.raw_used_memory_ratio]
+        assert_range $ratio_halved [expr {$ratio / 2 * 0.95}] [expr {$ratio / 2 * 1.05}]
+
+        # Same value from a thread that does not hold the GIL.
+        set ratio_bg [r test.raw_used_memory_ratio_bg]
+        assert_range $ratio_bg [expr {$ratio_halved * 0.95}] [expr {$ratio_halved * 1.05}]
+
+        r config set maxmemory 0
+    }
 }
 
 start_server {tags {"modules external:skip"}} {
