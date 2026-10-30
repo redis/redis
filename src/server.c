@@ -1383,23 +1383,23 @@ void databasesCron(void) {
     }
 }
 
-static inline void updateCachedTimeWithUs(int update_daylight_info, const long long ustime) {
+static inline void updateCachedTimeWithUs(const long long ustime) {
     server.ustime = ustime;
     server.mstime = server.ustime / 1000;
     time_t unixtime = server.mstime / 1000;
     atomicSet(server.unixtime, unixtime);
+}
 
-    /* To get information about daylight saving time, we need to call
-     * localtime_r and cache the result. However calling localtime_r in this
-     * context is safe since we will never fork() while here, in the main
-     * thread. The logging function will call a thread safe version of
-     * localtime that has no locks. */
-    if (update_daylight_info) {
-        struct tm tm;
-        time_t ut = server.unixtime;
-        localtime_r(&ut,&tm);
-        atomicSet(server.daylight_active, tm.tm_isdst);
-    }
+/* To get information about daylight saving time, we need to call
+ * localtime_r and cache the result. However calling localtime_r in this
+ * context is safe since we will never fork() while here, in the main
+ * thread. The logging function will call a thread safe version of
+ * localtime that has no locks. */
+static void updateDaylightInfo(void) {
+    struct tm tm;
+    time_t ut = server.unixtime;
+    localtime_r(&ut,&tm);
+    atomicSet(server.daylight_active, tm.tm_isdst);
 }
 
 /* We take a cached value of the unix time in the global state because with
@@ -1408,13 +1408,10 @@ static inline void updateCachedTimeWithUs(int update_daylight_info, const long l
  * a lot faster than calling time(NULL).
  *
  * This function should be fast because it is called at every command execution
- * in call(), so it is possible to decide if to update the daylight saving
- * info or not using the 'update_daylight_info' argument. Normally we update
- * such info only when calling this function from serverCron() but not when
- * calling it from call(). */
-void updateCachedTime(int update_daylight_info) {
+ * in call(). */
+void updateCachedTime(void) {
     const long long us = ustime();
-    updateCachedTimeWithUs(update_daylight_info, us);
+    updateCachedTimeWithUs(us);
 }
 
 /* Performing required operations in order to enter an execution unit.
@@ -1428,7 +1425,7 @@ void enterExecutionUnit(int update_cached_time, long long us) {
         if (us == 0) {
             us = ustime();
         }
-        updateCachedTimeWithUs(0, us);
+        updateCachedTimeWithUs(us);
         server.cmd_time_snapshot = server.mstime;
     }
 }
@@ -1607,6 +1604,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     if (server.pause_cron) return 1000/server.hz;
 
     monotime cron_start = getMonotonicUs();
+
+    run_with_period(1000) updateDaylightInfo();
 
     run_with_period(100) {
         long long stat_net_input_bytes, stat_net_output_bytes;
@@ -1881,7 +1880,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
 void blockingOperationStarts(void) {
     if(!server.blocking_op_nesting++){
-        updateCachedTime(0);
+        updateCachedTime();
         server.blocked_last_cron = server.mstime;
     }
 }
@@ -1916,6 +1915,8 @@ void whileBlockedCron(void) {
     int cronloops = (server.mstime - server.blocked_last_cron + (hz_ms - 1)) / hz_ms; /* rounding up */
     server.blocked_last_cron += cronloops * hz_ms;
     server.cronloops += cronloops;
+
+    run_with_period(1000) updateDaylightInfo();
 
     mstime_t latency;
     latencyStartMonitor(latency);
@@ -2208,7 +2209,7 @@ void afterSleep(struct aeEventLoop *eventLoop) {
     if (server.io_threads_num > 1) atomicSetWithSync(server.running, 1);
 
     /* Update the time cache. */
-    updateCachedTime(1);
+    updateCachedTime();
 
     /* Update command time snapshot in case it'll be required without a command
      * e.g. somehow used by module timers. Don't update it while yielding to a
@@ -2425,7 +2426,8 @@ void initServerConfig(void) {
     char *default_bindaddr[CONFIG_DEFAULT_BINDADDR_COUNT] = CONFIG_DEFAULT_BINDADDR;
 
     initConfigValues();
-    updateCachedTime(1);
+    updateCachedTime();
+    updateDaylightInfo();
     server.cmd_time_snapshot = server.mstime;
     getRandomHexChars(server.runid,CONFIG_RUN_ID_SIZE);
     server.runid[CONFIG_RUN_ID_SIZE] = '\0';
@@ -4205,7 +4207,7 @@ void call(client *c, int flags) {
             if (monotonic_start - server.monotonic_us_when_ustime > 10 ||
                 server.accum_call_count_since_ustime > 25)
             {
-                updateCachedTime(0);
+                updateCachedTime();
                 /* Recalculate monotonic_start after time update as ustime()
                  * in updateCachedTime() might have taken some time */
                 monotonic_start = getMonotonicUs();
