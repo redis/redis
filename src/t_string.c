@@ -352,6 +352,7 @@ int parseExtendedStringArgumentsOrReply(client *c, int start_pos, extendedString
             args->flags |= OBJ_EX;
             args->expire = next;
             args->expire_pos = j;
+            args->unit = UNIT_SECONDS;
             j++;
         } else if ((opt[0] == 'p' || opt[0] == 'P') &&
                    (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
@@ -882,10 +883,38 @@ void msetexCommand(client *c) {
 
     /* Handle replication rewriting for relative expiration times */
     if (args.expire && !(args.flags & OBJ_PXAT) && !(args.flags & OBJ_EXAT) && args.expire_pos != -1) {
-        /* Convert EX/PX (relative) to PXAT (absolute) for consistent replication */
+        /* Convert EX/PX (relative) to PXAT (absolute) for consistent replication.
+         * Walk through argv to remove all earlier EX/PX pairs, keeping only the final one
+         * which we'll replace with PXAT. This handles repeated EX/PX (last wins). */
         robj *milliseconds_obj = createStringObjectFromLongLong(milliseconds);
-        rewriteClientCommandArgument(c, args.expire_pos, shared.pxat);
-        rewriteClientCommandArgument(c, args.expire_pos + 1, milliseconds_obj);
+        
+        /* Build new argv: MSETEX <numkeys> <k1> <v1> ... [NX|XX] PXAT <ms> */
+        int new_argc = 0;
+        robj **new_argv = zmalloc(sizeof(robj*) * c->argc);
+        
+        int opts_start = kv_count * 2 + 2;
+        for (int i = 0; i < c->argc; i++) {
+            if (i >= opts_start && i != args.expire_pos && i + 1 < c->argc) {
+                char *arg = c->argv[i]->ptr;
+                if (!strcasecmp(arg, "ex") || !strcasecmp(arg, "px")) {
+                    i++; /* Drop earlier EX/PX pair (last one wins) */
+                    continue;
+                }
+            }
+            if (i == args.expire_pos) {
+                /* Replace final EX/PX with PXAT <ms> */
+                new_argv[new_argc++] = shared.pxat;
+                incrRefCount(shared.pxat);
+                new_argv[new_argc++] = milliseconds_obj;
+                incrRefCount(milliseconds_obj);
+                i++; /* Skip the old expire value */
+            } else {
+                new_argv[new_argc++] = c->argv[i];
+                incrRefCount(c->argv[i]);
+            }
+        }
+
+        replaceClientCommandVector(c, new_argc, new_argv);
         decrRefCount(milliseconds_obj);
     }
 
