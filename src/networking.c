@@ -5508,11 +5508,15 @@ int checkClientOutputBufferLimits(client *c) {
     if (class == CLIENT_TYPE_SLAVE && hard_limit_bytes &&
         (long long)hard_limit_bytes < server.repl_backlog_size)
         hard_limit_bytes = server.repl_backlog_size;
+    unsigned long long soft_limit_bytes = server.client_obuf_limits[class].soft_limit_bytes;
+    if (class == CLIENT_TYPE_SLAVE && soft_limit_bytes &&
+        soft_limit_bytes < (unsigned long long)server.repl_backlog_size)
+        soft_limit_bytes = server.repl_backlog_size;
     if (server.client_obuf_limits[class].hard_limit_bytes &&
         used_mem >= hard_limit_bytes)
         hard = 1;
     if (server.client_obuf_limits[class].soft_limit_bytes &&
-        used_mem >= server.client_obuf_limits[class].soft_limit_bytes)
+        used_mem >= soft_limit_bytes)
         soft = 1;
 
     /* We need to check if the soft limit is reached continuously for the
