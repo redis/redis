@@ -33,6 +33,34 @@ start_server {tags {"introspection"}} {
         assert_match "id=$myid * cmd=client|list *" [lindex $cl 0]
     }
 
+    test {CLIENT LIST ID fast-path preserves order and duplicates} {
+        # Spawn an extra client so we have at least two ids to play with.
+        set rd [redis_deferring_client]
+        $rd client id
+        set rd_id [$rd read]
+        set my_id [r client id]
+
+        # Order is preserved: requesting [rd_id, my_id] must produce the
+        # rd_id line before the my_id line.
+        set ordered [r client list id $rd_id $my_id]
+        set lines [split [string trim $ordered] "\r\n"]
+        assert_equal 2 [llength $lines]
+        assert_match "id=$rd_id *" [lindex $lines 0]
+        assert_match "id=$my_id *" [lindex $lines 1]
+
+        # Duplicates: requesting [my_id, my_id] must emit two lines.
+        set dup_lines [split [string trim [r client list id $my_id $my_id]] "\r\n"]
+        assert_equal 2 [llength $dup_lines]
+
+        # Unknown ids are silently dropped.
+        set mixed [r client list id $my_id 999999999]
+        set mixed_lines [split [string trim $mixed] "\r\n"]
+        assert_equal 1 [llength $mixed_lines]
+        assert_match "*id=$my_id *" $mixed
+
+        $rd close
+    }
+
     test {CLIENT INFO} {
         set client [r client info]
         if {[lindex [r config get io-threads] 1] == 1} {
@@ -62,6 +90,138 @@ start_server {tags {"introspection"}} {
             }
         }
         return ""
+    }
+
+    # Helper: count the non-empty client lines in the given CLIENT LIST output.
+    proc count_client_list {output} {
+        set n 0
+        foreach line [split [string trim $output] "\r\n"] {
+            if {$line ne ""} { incr n }
+        }
+        return $n
+    }
+
+    test {CLIENT LIST IDLE filter rejects invalid values} {
+        assert_error "ERR *not an integer or out of range*" {r client list idle notanumber}
+        assert_error "ERR *greater than 0*" {r client list idle -1}
+        assert_error "ERR *greater than 0*" {r client list idle 0}
+    }
+
+    test {CLIENT LIST IDLE filter excludes recently active clients} {
+        # The current connection just interacted with the server, so a
+        # large idle threshold should produce no output at all.
+        assert_equal "" [string trim [r client list idle 1000000]]
+    }
+
+    test {CLIENT LIST IDLE filter includes idle clients} {
+        # Spawn a deferred client and wait until its idle time exceeds the
+        # threshold before checking.
+        set rd [redis_deferring_client]
+        $rd client id
+        set rd_id [$rd read]
+        wait_for_condition 50 200 {
+            [get_field_in_client_list $rd_id [r client list] idle] >= 2
+        } else {
+            fail "deferred client idle did not reach 2 seconds"
+        }
+        set filtered [r client list idle 2]
+        assert_match "*id=$rd_id*" $filtered
+        foreach line [split [string trim $filtered] "\r\n"] {
+            if {$line eq ""} continue
+            assert_morethan_equal [get_field_in_client_info $line idle] 2
+        }
+        $rd close
+    }
+
+    test {CLIENT LIST NAME / NOT-NAME filters} {
+        set rd [redis_deferring_client]
+        $rd client setname filterclient
+        $rd read
+        set out [r client list name filterclient]
+        assert_match "*name=filterclient*" $out
+        # Exactly one line, since names are unique here.
+        assert_equal 1 [count_client_list $out]
+
+        # NOT-NAME excludes the client from the listing.
+        set out2 [r client list not-name filterclient]
+        assert_no_match "*name=filterclient*" $out2
+
+        $rd close
+    }
+
+    test {CLIENT LIST FLAGS / NOT-FLAGS filters} {
+        # Our own connection has flags=N (no special flags set).
+        set out [r client list flags N]
+        assert_match "*flags=N*" $out
+        # NOT-FLAGS N excludes "no-flag" clients; for our test setup this
+        # leaves an empty (or all-flagged) list, which is fine to assert.
+        set out2 [r client list not-flags N]
+        assert_no_match "*id=[r client id] *flags=N*" $out2
+
+        # Bogus flag char must be rejected.
+        assert_error "ERR Unknown flags*" {r client list flags Z}
+        assert_error "ERR Unknown flags*" {r client list not-flags Z}
+    }
+
+    test {CLIENT LIST DB / NOT-DB filters} {
+        # The test framework selects DB 9 by default; filter against it.
+        set my_db [get_field_in_client_info [r client info] db]
+        set out [r client list db $my_db]
+        assert_match "*db=$my_db*" $out
+        set out2 [r client list not-db $my_db]
+        assert_no_match "*id=[r client id] *db=$my_db*" $out2
+
+        assert_error "ERR DB number should be between*" {r client list db 9999}
+        assert_error "ERR NOT-DB number should be between*" {r client list not-db -1}
+    }
+
+    test {CLIENT LIST IP / NOT-IP filters} {
+        # The current connection runs over loopback.
+        set me [r client list id [r client id]]
+        regexp {addr=([^:]+):} $me _ peer_ip
+        if {$peer_ip ne ""} {
+            set out [r client list ip $peer_ip]
+            assert_match "*addr=$peer_ip:*" $out
+            set out2 [r client list not-ip $peer_ip]
+            assert_no_match "*addr=$peer_ip:*" $out2
+
+            # The IP filter must match the *full* IP, not a prefix
+            # (regression: Cursor Bugbot reported this for IPv6 in the
+            # form "[fe80::1]:6379" matching filter "fe80"). Drop the
+            # final character of the peer IP and assert the filter no
+            # longer matches it.
+            if {[string length $peer_ip] > 1} {
+                set partial [string range $peer_ip 0 end-1]
+                set out3 [r client list ip $partial]
+                assert_no_match "*addr=$peer_ip:*" $out3
+            }
+        }
+    }
+
+    test {CLIENT LIST combines multiple filters with AND} {
+        # ID + NAME must produce exactly the matching client.
+        set rd [redis_deferring_client]
+        $rd client setname combo
+        $rd read
+        $rd client id
+        set rd_id [$rd read]
+        set out [r client list id $rd_id name combo]
+        assert_match "*id=$rd_id*name=combo*" $out
+        assert_equal 1 [count_client_list $out]
+
+        # Mismatched conjunction yields zero matches.
+        assert_equal "" [string trim [r client list id $rd_id name nosuchname]]
+
+        $rd close
+    }
+
+    test {CLIENT LIST NOT-ID excludes the listed clients} {
+        set rd [redis_deferring_client]
+        $rd client id
+        set rd_id [$rd read]
+        set out [r client list not-id $rd_id]
+        assert_no_match "*id=$rd_id *" $out
+        $rd close
     }
 
     test {CLIENT INFO input/output/cmds-processed stats} {
@@ -211,21 +371,54 @@ start_server {tags {"introspection"}} {
 
     test {CLIENT KILL with illegal arguments} {
         assert_error "ERR wrong number of arguments for 'client|kill' command" {r client kill}
+
+        # 'id' now accepts multiple values; a non-numeric token directly
+        # after ID means no ids were collected, so we error explicitly
+        # instead of silently matching zero clients.
+        assert_error "ERR ID requires at least one client-id" {r client kill id str}
+        # When at least one valid id was consumed, a trailing non-numeric
+        # token is treated as the start of the next filter and yields a
+        # syntax error.
         assert_error "ERR syntax error*" {r client kill id 10 wrong_arg}
 
-        assert_error "ERR *greater than 0*" {r client kill id str}
         assert_error "ERR *greater than 0*" {r client kill id -1}
         assert_error "ERR *greater than 0*" {r client kill id 0}
 
         assert_error "ERR Unknown client type*" {r client kill type wrong_type}
+        assert_error "ERR Unknown client type*" {r client kill not-type wrong_type}
 
         assert_error "ERR No such user*" {r client kill user wrong_user}
+        assert_error "ERR No such user*" {r client kill not-user wrong_user}
 
         assert_error "ERR syntax error*" {r client kill skipme yes_or_no}
 
         assert_error "ERR *not an integer or out of range*" {r client kill maxage str}
         assert_error "ERR *not an integer or out of range*" {r client kill maxage 9999999999999999999}
         assert_error "ERR *greater than 0*" {r client kill maxage -1}
+
+        # IDLE filter validation.
+        assert_error "ERR *not an integer or out of range*" {r client kill idle str}
+        assert_error "ERR *not an integer or out of range*" {r client kill idle 9999999999999999999}
+        assert_error "ERR *greater than 0*" {r client kill idle -1}
+        assert_error "ERR *greater than 0*" {r client kill idle 0}
+
+        # FLAGS / NOT-FLAGS filter validation.
+        assert_error "ERR Unknown flags*" {r client kill flags Z}
+        assert_error "ERR Unknown flags*" {r client kill not-flags Z}
+
+        # DB / NOT-DB filter validation.
+        assert_error "ERR DB is not an integer*" {r client kill db str}
+        assert_error "ERR DB number should be between*" {r client kill db -1}
+        assert_error "ERR NOT-DB number should be between*" {r client kill not-db 99999}
+
+        # ID / NOT-ID without any numeric value must error rather than
+        # silently match no clients (regression: Cursor Bugbot).
+        # Note: "CLIENT KILL ID" (argc==3) hits the legacy <addr> form
+        # and yields "No such client", so it doesn't exercise this path.
+        assert_error "ERR ID requires at least one client-id" {r client kill id type normal}
+        assert_error "ERR NOT-ID requires at least one client-id" {r client kill not-id type normal}
+        assert_error "ERR ID requires at least one client-id" {r client list id type normal}
+        assert_error "ERR NOT-ID requires at least one client-id" {r client list not-id type normal}
     }
 
     test {CLIENT KILL maxAGE will kill old clients} {
@@ -267,6 +460,58 @@ start_server {tags {"introspection"}} {
         $rd1 close
         $rd2 close
     } {0} {"needs:debug"}
+
+    test {CLIENT KILL IDLE will kill idle clients} {
+        set rd_idle [redis_deferring_client]
+        $rd_idle client setname idle_target
+        $rd_idle read
+        set rd_active [redis_deferring_client]
+        $rd_active client setname active_target
+        $rd_active read
+
+        wait_for_condition 50 200 {
+            [regexp {name=idle_target [^\n]*idle=([0-9]+)} \
+                [r client list] - idle] && $idle >= 2
+        } else {
+            fail "idle_target client did not reach 2 seconds idle"
+        }
+        # Touch the active client so its idle is reset.
+        $rd_active ping
+        $rd_active read
+
+        set killed [r client kill idle 2]
+        assert_morethan_equal $killed 1
+
+        # The active client must still be connected.
+        $rd_active ping
+        assert_equal "PONG" [$rd_active read]
+
+        # The idle client must have been disconnected.
+        assert_no_match "*name=idle_target*" [r client list]
+
+        $rd_active close
+        catch {$rd_idle close}
+    }
+
+    test {CLIENT KILL combines TYPE NOT-USER filters} {
+        # Create a normal client authenticated as a custom user. Killing
+        # 'normal' clients while excluding that user must spare it.
+        r acl setuser dummy_keep on nopass +@all
+        set rd_keep [redis_deferring_client]
+        $rd_keep auth dummy_keep ""
+        $rd_keep read
+
+        set killed [r client kill type normal not-user dummy_keep]
+        # At least one client (the redis_deferring_client used implicitly
+        # by the test framework) was killed; the dummy_keep client was not.
+        assert_morethan_equal $killed 0
+
+        # rd_keep is still alive.
+        $rd_keep ping
+        assert_equal "PONG" [$rd_keep read]
+        $rd_keep close
+        r acl deluser dummy_keep
+    }
 
     test {CLIENT KILL SKIPME YES/NO will kill all clients} {
         # Kill all clients except `me`
