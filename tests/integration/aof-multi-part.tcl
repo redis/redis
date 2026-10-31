@@ -1536,3 +1536,97 @@ tags {"external:skip"} {
         }
     }
 }
+
+# The following tests inject an AOF write error by lowering RLIMIT_FSIZE of the
+# running server with prlimit, so the current INCR file can't grow while a new,
+# empty INCR file can. SIGXFSZ must be ignored so write(2) fails with EFBIG
+# instead of killing the server, which is why the server is spawned through a
+# bash wrapper. Requires Linux (prlimit) and is skipped under valgrind.
+if {!$::valgrind && ![catch {exec prlimit --version}] && ![catch {exec bash -c true}]} {
+    rename spawn_server orig_spawn_server
+    proc spawn_server {config_file stdout stderr args} {
+        set cmd [list src/redis-server $config_file]
+        set args {*}$args
+        if {[llength $args] > 0} {
+            lappend cmd {*}$args
+        }
+        set env [list \
+            "ASAN_OPTIONS=allocator_may_return_null=1" \
+            "MSAN_OPTIONS=allocator_may_return_null=1" \
+            "TSAN_OPTIONS=allocator_may_return_null=1,detect_deadlocks=0,suppressions=src/tsan.sup" \
+        ]
+        # Ignored signal dispositions survive exec.
+        set pid [exec /usr/bin/env {*}$env bash -c {trap '' XFSZ; exec "$@"} bash {*}$cmd >> $stdout 2>> $stderr &]
+        send_data_packet $::test_server_fd server-spawned $pid
+        return $pid
+    }
+
+    proc read_aof_file {path} {
+        set fd [open $path r]
+        fconfigure $fd -translation binary
+        set content [read $fd]
+        close $fd
+        return $content
+    }
+
+    tags {"external:skip"} {
+        start_server {overrides {appendonly yes appendfsync everysec auto-aof-rewrite-percentage 0 aof-use-rdb-preamble no}} {
+            test {AOF rewrite is refused while the AOF buffer can't be written} {
+                r flushall
+                waitForBgrewriteaof r
+
+                # Grow the INCR file, but keep the dataset (and thus BASE) small.
+                r set junk [string repeat x 60000]
+                r del junk
+
+                set old_incr [get_last_incr_aof_path r]
+                set old_size [file size $old_incr]
+                set pid [srv 0 pid]
+
+                # The next INCR record can't fit in the current INCR file.
+                exec prlimit --pid $pid --fsize=[expr {$old_size + 8}]:unlimited
+
+                # The command is executed and acknowledged before the AOF
+                # write fails in beforeSleep, so it stays in the AOF buffer.
+                assert_equal 1 [r incr counter]
+                wait_for_condition 100 50 {
+                    [s aof_last_write_status] eq {err}
+                } else {
+                    fail "AOF write error was not triggered"
+                }
+                assert_equal $old_size [file size $old_incr]
+
+                # Starting a rewrite now would snapshot the INCR in BASE and
+                # later append the buffered INCR to the new INCR file as well,
+                # so it would be replayed twice on load.
+                assert_error {*Can't execute an AOF background rewriting*} {r bgrewriteaof}
+                assert_equal 0 [s aof_rewrite_in_progress]
+                assert_equal $old_incr [get_last_incr_aof_path r]
+
+                # Once the error is resolved, the buffer goes to the current INCR file.
+                exec prlimit --pid $pid --fsize=unlimited:unlimited
+                wait_for_condition 100 50 {
+                    [s aof_last_write_status] eq {ok}
+                } else {
+                    fail "AOF write error did not clear"
+                }
+                assert_match "*incr*counter*" [read_aof_file $old_incr]
+
+                r bgrewriteaof
+                waitForBgrewriteaof r
+                set new_incr [get_last_incr_aof_path r]
+                assert {$new_incr ne $old_incr}
+                assert_match "*counter*" [read_aof_file [get_base_aof_path r]]
+                assert_no_match "*counter*" [read_aof_file $new_incr]
+
+                r debug loadaof
+                assert_equal 1 [r get counter]
+                restart_server 0 true false
+                assert_equal 1 [r get counter]
+            }
+        }
+    }
+
+    rename spawn_server {}
+    rename orig_spawn_server spawn_server
+}
