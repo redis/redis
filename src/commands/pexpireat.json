@@ -10,6 +10,10 @@
             [
                 "7.0.0",
                 "Added options: `NX`, `XX`, `GT` and `LT`."
+            ],
+            [
+                "255.255.255",
+                "Added options: `IFEQ`, `IFNE`, `IFDEQ` and `IFDNE`."
             ]
         ],
         "command_flags": [
@@ -86,6 +90,34 @@
                         "name": "lt",
                         "type": "pure-token",
                         "token": "LT"
+                    }
+                ]
+            },
+            {
+                "name": "match",
+                "type": "oneof",
+                "optional": true,
+                "since": "255.255.255",
+                "arguments": [
+                    {
+                        "name": "ifeq-value",
+                        "type": "string",
+                        "token": "IFEQ"
+                    },
+                    {
+                        "name": "ifne-value",
+                        "type": "string",
+                        "token": "IFNE"
+                    },
+                    {
+                        "name": "ifdeq-digest",
+                        "type": "string",
+                        "token": "IFDEQ"
+                    },
+                    {
+                        "name": "ifdne-digest",
+                        "type": "string",
+                        "token": "IFDNE"
                     }
                 ]
             }
