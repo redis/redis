@@ -1627,6 +1627,10 @@ typedef struct client {
                                buffer or object being sent. */
     time_t ctime;           /* Client creation time. */
     long duration;          /* Current command duration. Used for measuring latency of blocking/non-blocking cmds */
+    long cpu_duration;      /* CPU time (usec) of the current command; measured only off the
+                               main thread. Accumulates/resets with duration. */
+    long cpu_nvcsw;         /* Voluntary context switches, same rule. */
+    long cpu_nivcsw;        /* Involuntary context switches, same rule. */
     int slot;               /* The slot the client is executing against. Set to -1 if no slot is being used */
     int cluster_compatibility_check_slot; /* The slot the client is executing against for cluster compatibility check.
                                            * -2 means we don't need to check slot violation, or we already found
@@ -1779,6 +1783,15 @@ typedef struct client {
     size_t stat_avg_pipeline_length_cnt; /* Count of pipeline length samples */
     void *himport_fieldsets;      /* Session-local HIMPORT fieldsets */
 } client;
+
+/* Clear the current command's timing, wall-clock and CPU, in one place so no
+ * field is missed. */
+static inline void resetClientCommandDuration(client *c) {
+    c->duration = 0;
+    c->cpu_duration = 0;
+    c->cpu_nvcsw = 0;
+    c->cpu_nivcsw = 0;
+}
 
 typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) {
     uint8_t id;                                 /* The unique ID assigned, if IO_THREADS_MAX_NUM is more
@@ -2139,6 +2152,14 @@ typedef enum childInfoType {
 
 typedef struct hotkeyStats hotkeyStats;
 
+/* A thread sample (wall clock, CPU time, context switches), for diffing. */
+typedef struct cpuSample {
+    monotime wall;
+    ustime_t cpu_us;    /* user+sys */
+    long nvcsw;
+    long nivcsw;
+} cpuSample;
+
 struct redisServer {
     /* General */
     pid_t pid;                  /* Main process pid. */
@@ -2316,6 +2337,11 @@ struct redisServer {
     long long stat_slowlog_count;          /* Total slowlog entries ever pushed */
     long long stat_slowlog_time_us_sum;    /* Sum of all slowlog entry durations (usec) */
     long long stat_slowlog_time_us_max;    /* Max slowlog entry duration (usec) */
+    long long stat_slow_command_off_cpu_events; /* Slowlog entries reported as off-CPU */
+    long long stat_eventloop_off_cpu_events;     /* Event-loop cycles reported as off-CPU */
+    cpuSample cpu_checkpoint;   /* Start of the main thread's CPU window. */
+    cpuSample el_cpu_start;     /* Sample at the start of the event-loop cycle; never
+                                   moved by commands. */
     struct malloc_stats cron_malloc_stats; /* sampled in serverCron(). */
     struct defragFragCache defrag_frag_cache; /* see struct defragFragCache. */
     redisAtomic long long stat_net_input_bytes; /* Bytes read from network. */
@@ -2408,6 +2434,7 @@ struct redisServer {
     int pause_cron;                 /* Don't run cron tasks (debug) */
     int dict_resizing;              /* Whether to allow main dict and expired dict to be resized (debug) */
     int latency_tracking_enabled;   /* 1 if extended latency tracking is enabled, 0 otherwise. */
+    int off_cpu_tracking;           /* Sample CPU time to report off-CPU commands and cycles. */
     double *latency_tracking_info_percentiles; /* Extended latency tracking info output percentile list configuration. */
     int latency_tracking_info_percentiles_len;
     int memory_tracking_enabled;    /* Account used memory per slot */
@@ -4003,7 +4030,9 @@ void forceCommandPropagation(client *c, int flags);
 void preventCommandPropagation(client *c);
 void preventCommandAOF(client *c);
 void preventCommandReplication(client *c);
-void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t duration);
+void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t duration, const cpuSample *cpu_start);
+void cpuSampleTake(cpuSample *s);
+void offCpuCheckEventLoopCycle(ustime_t excluded_us);
 void updateCommandLatencyHistogram(struct hdr_histogram** latency_histogram, int64_t duration_hist);
 int prepareForShutdown(int flags);
 void replyToClientsBlockedOnShutdown(void);

@@ -2076,7 +2076,8 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
         flushAppendOnlyFile(0);
 
     /* Record time consumption of AOF writing. */
-    durationAddSample(EL_DURATION_TYPE_AOF, getMonotonicUs() - aof_start_time);
+    monotime aof_duration = getMonotonicUs() - aof_start_time;
+    durationAddSample(EL_DURATION_TYPE_AOF, aof_duration);
 
     /* Update the fsynced replica offset.
      * If an initial rewrite is in progress then not all data is guaranteed to have actually been
@@ -2150,6 +2151,11 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     if (server.el_start > 0) {
         monotime el_duration = getMonotonicUs() - server.el_start;
         durationAddSample(EL_DURATION_TYPE_EL, el_duration);
+        /* Off-CPU check of the whole cycle, including commands handed over by
+         * IO threads above. The AOF write/fsync time is excluded so disk waits
+         * aren't counted. Not reached while nested: ProcessingEventsWhileBlocked
+         * returns early above. */
+        offCpuCheckEventLoopCycle((ustime_t)aof_duration);
     }
     server.el_cron_duration += duration_before_aof + duration_after_write;
     durationAddSample(EL_DURATION_TYPE_CRON, server.el_cron_duration);
@@ -2184,6 +2190,7 @@ void afterSleep(struct aeEventLoop *eventLoop) {
      * Do NOT add anything above moduleAcquireGIL !!! *
      ***************************** ********************/
     if (!ProcessingEventsWhileBlocked) {
+        int cpu_sampled = !server.off_cpu_tracking;
         /* Acquire the modules GIL so that their threads won't touch anything. */
         if (moduleCount()) {
             mstime_t latency;
@@ -2192,11 +2199,22 @@ void afterSleep(struct aeEventLoop *eventLoop) {
             atomicSet(server.module_gil_acquiring, 1);
             moduleAcquireGIL();
             atomicSet(server.module_gil_acquiring, 0);
+            /* Start the CPU window after the GIL (waiting for it isn't counted)
+             * and before module events, which may run commands. */
+            if (!cpu_sampled) {
+                cpuSampleTake(&server.cpu_checkpoint);
+                server.el_cpu_start = server.cpu_checkpoint;
+                cpu_sampled = 1;
+            }
             moduleFireServerEvent(REDISMODULE_EVENT_EVENTLOOP,
                                   REDISMODULE_SUBEVENT_EVENTLOOP_AFTER_SLEEP,
                                   NULL);
             latencyEndMonitor(latency);
             latencyAddSampleIfNeeded("module-acquire-GIL",latency);
+        }
+        if (!cpu_sampled) {
+            cpuSampleTake(&server.cpu_checkpoint);
+            server.el_cpu_start = server.cpu_checkpoint;
         }
         /* Set the eventloop start time. */
         server.el_start = getMonotonicUs();
@@ -3009,6 +3027,8 @@ void resetServerStats(void) {
     server.stat_slowlog_count = 0;
     server.stat_slowlog_time_us_sum = 0;
     server.stat_slowlog_time_us_max = 0;
+    server.stat_slow_command_off_cpu_events = 0;
+    server.stat_eventloop_off_cpu_events = 0;
     lazyfreeResetStats();
 }
 
@@ -3116,6 +3136,8 @@ void initServer(void) {
     adjustOpenFilesLimit();
     const char *clk_msg = monotonicInit(monotonicLogCallback);
     serverLog(LL_NOTICE, "monotonic clock: %s", clk_msg);
+    /* Initial CPU window, until the first afterSleep(). */
+    cpuSampleTake(&server.cpu_checkpoint);
     server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);
     if (server.el == NULL) {
         serverLog(LL_WARNING,
@@ -3927,17 +3949,24 @@ int getPropagateTargetsForCall(client *c, int flags) {
     return targets;
 }
 
-/* Log the last command a client executed into the slowlog. */
-void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t duration) {
+/* Log the last command a client executed into the slowlog, with its CPU time
+ * (see slowlogMeasureCpu()), and warn if it was mostly off-CPU. */
+void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t duration, const cpuSample *cpu_start) {
     /* Some commands may contain sensitive data that should not be available in the slowlog. */
     if (cmd->flags & CMD_SKIP_SLOWLOG)
         return;
+    /* Don't sample for commands that won't be logged. */
+    if (!slowlogWouldLog(duration))
+        return;
+
+    slowlogCpu cpu;
+    slowlogMeasureCpu(c, cpu_start, &cpu);
 
     /* If command argument vector was rewritten, use the original
      * arguments. */
     robj **argv = c->original_argv ? c->original_argv : c->argv;
     int argc = c->original_argv ? c->original_argc : c->argc;
-    if (slowlogPushEntryIfNeeded(c,argv,argc,duration)) {
+    if (slowlogPushEntryIfNeeded(c,argv,argc,duration,cpu.cpu)) {
         server.stat_slowlog_count++;
         server.stat_slowlog_time_us_sum += duration;
         if (duration > server.stat_slowlog_time_us_max)
@@ -3946,6 +3975,7 @@ void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t dur
         cmd->slowlog_time_us_sum += duration;
         if (duration > cmd->slowlog_time_us_max)
             cmd->slowlog_time_us_max = duration;
+        slowlogReportOffCpu(&cpu);
     }
 }
 
@@ -4218,7 +4248,22 @@ void call(client *c, int flags) {
     /* Pass current server.ustime to avoid ustime() call if monotonic clock is used
      * and time will be updated before command execution based on monotonic clock. */
     const long long call_timer = use_hw_clock ? server.ustime : ustime();
+    /* This command's CPU window starts at the current checkpoint. Slow commands
+     * it calls move the checkpoint, not this copy (see slowlogMeasureCpu()). */
+    const cpuSample window_start = server.cpu_checkpoint;
+    /* Measured only if tracking was on when it started, so its start is fresh. */
+    const int cpu_tracked = server.off_cpu_tracking;
     enterExecutionUnit(1, call_timer);
+
+    /* Per-command CPU sample only on a module thread; main-thread commands
+     * are estimated from server.cpu_checkpoint (no syscall per command). */
+    const int on_main_thread = pthread_equal(pthread_self(), server.main_thread_id);
+    const int sample_cpu = update_command_stats && cpu_tracked &&
+                           server.slowlog_log_slower_than >= 0 &&
+                           server.slowlog_max_len > 0 &&
+                           !on_main_thread;
+    cpuSample cpu_start;
+    if (sample_cpu) cpuSampleTake(&cpu_start);
 
     /* setting the CLIENT_EXECUTING_COMMAND flag so we will avoid
      * sending client side caching message in the middle of a command reply.
@@ -4266,6 +4311,14 @@ void call(client *c, int flags) {
     /* Store for afterCommandEx before we reset c->duration. */
     ustime_t total_duration = c->duration;
 
+    if (sample_cpu) {
+        cpuSample cpu_end;
+        cpuSampleTake(&cpu_end);
+        c->cpu_duration += cpu_end.cpu_us - cpu_start.cpu_us;
+        c->cpu_nvcsw += cpu_end.nvcsw - cpu_start.nvcsw;
+        c->cpu_nivcsw += cpu_end.nivcsw - cpu_start.nivcsw;
+    }
+
     dirty = server.dirty-dirty;
     if (dirty < 0) dirty = 0;
 
@@ -4301,10 +4354,16 @@ void call(client *c, int flags) {
             durationAddSample(EL_DURATION_TYPE_CMD, duration);
     }
 
-    /* Log the command into the Slow log if needed.
+    /* Log the command into the Slow log if needed (also flags off-CPU time).
      * If the client is blocked we will handle slowlog when it is unblocked. */
     if (update_command_stats && !(c->flags & CLIENT_BLOCKED))
-        slowlogPushCurrentCommand(c, real_cmd, c->duration);
+        /* Measure only if c->duration is this run alone (a command re-executed
+         * after blocking also carries the time of its earlier run, which the
+         * window doesn't cover), and on a module thread only if it was sampled. */
+        slowlogPushCurrentCommand(c, real_cmd, c->duration,
+                                  c->duration == duration && server.off_cpu_tracking &&
+                                  ((on_main_thread && cpu_tracked) || sample_cpu) ?
+                                  &window_start : NULL);
 
     /* Send the command to clients in MONITOR mode if applicable,
      * since some administrative commands are considered too dangerous to be shown.
@@ -4349,7 +4408,7 @@ void call(client *c, int flags) {
     /* The duration needs to be reset after each call except for a blocked command,
      * which is expected to record and reset the duration after unblocking. */
     if (!(c->flags & CLIENT_BLOCKED)) {
-        c->duration = 0;
+        resetClientCommandDuration(c);
     }
 
     /* Propagate the command into the AOF and replication link.
@@ -4467,7 +4526,7 @@ void call(client *c, int flags) {
  * Note: 'reply' is expected to end with \r\n */
 void rejectCommand(client *c, robj *reply) {
     flagTransaction(c);
-    c->duration = 0;
+    resetClientCommandDuration(c);
     if (c->cmd) c->cmd->rejected_calls++;
     if (c->cmd && c->cmd->proc == execCommand) {
         execCommandAbort(c, reply->ptr);
@@ -4479,7 +4538,7 @@ void rejectCommand(client *c, robj *reply) {
 
 void rejectCommandSds(client *c, sds s) {
     flagTransaction(c);
-    c->duration = 0;
+    resetClientCommandDuration(c);
     if (c->cmd) c->cmd->rejected_calls++;
     if (c->cmd && c->cmd->proc == execCommand) {
         execCommandAbort(c, s);
@@ -4821,7 +4880,7 @@ int processCommand(client *c) {
                 flagTransaction(c);
             }
             clusterRedirectClient(c,n,c->slot,error_code);
-            c->duration = 0;
+            resetClientCommandDuration(c);
             c->cmd->rejected_calls++;
             return C_OK;
         }
@@ -7124,6 +7183,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "slowlog_commands_count:%lld\r\n", server.stat_slowlog_count,
             "slowlog_commands_time_ms_max:%.2f\r\n", (double)server.stat_slowlog_time_us_max / 1000,
             "slowlog_commands_time_ms_sum:%.2f\r\n", (double)server.stat_slowlog_time_us_sum / 1000,
+            "slow_command_off_cpu_events:%lld\r\n", server.stat_slow_command_off_cpu_events,
+            "eventloop_off_cpu_events:%lld\r\n", server.stat_eventloop_off_cpu_events,
             "hash_templates:%zu\r\n", hashTemplateRegistrySize(),
             "hash_template_keys:%zu\r\n", hashTemplateKeyCount()));
         info = genRedisInfoStringACLStats(info);

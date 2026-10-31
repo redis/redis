@@ -3258,6 +3258,17 @@ static int updateMemoryTrackingEnabled(const char **err) {
     return 1;
 }
 
+/* Start a fresh window when turned on, so the time it was off isn't reported
+ * as off-CPU. */
+static int updateOffCpuTracking(const char **err) {
+    UNUSED(err);
+    if (server.off_cpu_tracking) {
+        cpuSampleTake(&server.cpu_checkpoint);
+        server.el_cpu_start = server.cpu_checkpoint;
+    }
+    return 1;
+}
+
 static int isValidAnnouncedNodename(char *val,const char **err) {
     if (!(isValidAuxString(val,sdslen(val)))) {
         *err = "Announced human node name contained invalid character";
@@ -4235,6 +4246,7 @@ standardConfig static_configs[] = {
     createBoolConfig("cluster-allow-replica-migration", NULL, MODIFIABLE_CONFIG, server.cluster_allow_replica_migration, 1, NULL, NULL),
     createBoolConfig("replica-announced", NULL, MODIFIABLE_CONFIG, server.replica_announced, 1, NULL, NULL),
     createBoolConfig("latency-tracking", NULL, MODIFIABLE_CONFIG, server.latency_tracking_enabled, 1, NULL, NULL),
+    createBoolConfig("off-cpu-tracking", NULL, MODIFIABLE_CONFIG, server.off_cpu_tracking, 1, NULL, updateOffCpuTracking),
     createBoolConfig("aof-disable-auto-gc", NULL, MODIFIABLE_CONFIG | HIDDEN_CONFIG, server.aof_disable_auto_gc, 0, NULL, updateAofAutoGCEnabled),
     createBoolConfig("replica-ignore-disk-write-errors", NULL, MODIFIABLE_CONFIG, server.repl_ignore_disk_write_error, 0, NULL, NULL),
     createBoolConfig("hide-user-data-from-log", NULL, MODIFIABLE_CONFIG, server.hide_user_data_from_log, 0, NULL, NULL),
