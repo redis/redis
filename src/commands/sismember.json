@@ -13,6 +13,9 @@
         "acl_categories": [
             "SET"
         ],
+        "command_tips": [
+            "CACHEABLE_REPLY"
+        ],
         "key_specs": [
             {
                 "flags": [
