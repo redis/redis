@@ -35,6 +35,7 @@ start_cluster 2 2 {tags {external:skip cluster}} {
 
         # Sorted set move commands also declare both source and destination keys.
         assert_error {*CROSSSLOT Keys in request don't hash to the same slot*} {R 0 ZMOVE foo bar MIN}
+        assert_error {*CROSSSLOT Keys in request don't hash to the same slot*} {R 0 ZMOVE foo bar BYSCORE -inf +inf LIMIT 10}
         assert_error {*CROSSSLOT Keys in request don't hash to the same slot*} {R 0 ZMOVEMEMBER foo bar member}
         assert_error {*CROSSSLOT Keys in request don't hash to the same slot*} {R 0 BZMOVE foo bar MIN 0}
     } 

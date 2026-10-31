@@ -37,7 +37,7 @@
             {
                 "flags": [
                     "RW",
-                    "INSERT"
+                    "UPDATE"
                 ],
                 "begin_search": {
                     "index": {

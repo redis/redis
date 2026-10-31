@@ -5634,13 +5634,166 @@ static void zmoveGenericCommand(client *c, robj *srckey, robj *dstkey, int where
     }
 }
 
+/* Stream a score range into the destination without changing the source while
+ * its iterator is live. Only the first member is retained: after iteration, the
+ * moved members form one contiguous rank range that can be deleted in bulk. */
+typedef struct {
+    kvobj *dstobj;
+    robj *dstkey;
+    sds first;
+    void *replylen;
+    size_t dst_old_size;
+    unsigned long moved, added, updated;
+} zmoveRangeState;
+
+static void zmoveRangeBegin(zrange_result_handler *handler, long length) {
+    UNUSED(length);
+    zmoveRangeState *state = handler->userdata;
+    state->replylen = addReplyDeferredLen(handler->client);
+}
+
+static void zmoveRangeEmit(zrange_result_handler *handler, const void *value,
+                           size_t len, double score) {
+    zmoveRangeState *state = handler->userdata;
+    client *c = handler->client;
+    sds ele = sdsnewlen(value, len);
+    if (!state->first) state->first = sdsdup(ele);
+    if (!state->dstobj) {
+        robj *newobj = zsetTypeCreate(1, len);
+        state->dstobj = dbAdd(c->db, state->dstkey, &newobj);
+        if (server.memory_tracking_enabled)
+            state->dst_old_size = kvobjAllocSize(state->dstobj);
+    }
+    int flags = 0;
+    serverAssert(zsetAdd(state->dstobj, score, ele, ZADD_IN_NONE, &flags, NULL));
+    if (flags & ZADD_OUT_ADDED) state->added++;
+    if (flags & ZADD_OUT_UPDATED) state->updated++;
+    addReplyArrayLen(c, 2);
+    addReplyBulkCBuffer(c, ele, sdslen(ele));
+    addReplyDouble(c, score);
+    sdsfree(ele);
+}
+
+static void zmoveRangeEmitLongLong(zrange_result_handler *handler, long long value,
+                                   double score) {
+    char buf[LONG_STR_SIZE];
+    size_t len = ll2string(buf, sizeof(buf), value);
+    zmoveRangeEmit(handler, buf, len, score);
+}
+
+static void zmoveRangeFinalize(zrange_result_handler *handler, size_t count) {
+    zmoveRangeState *state = handler->userdata;
+    state->moved = count;
+    setDeferredArrayLen(handler->client, state->replylen, count);
+}
+
+static void zmoveRangeCommand(client *c, zrangespec *range, long limit) {
+    robj *srckey = c->argv[1], *dstkey = c->argv[2];
+    kvobj *sobj = lookupKeyWriteOrReply(c, srckey, shared.emptyarray);
+    if (sobj == NULL || checkType(c, sobj, OBJ_ZSET)) return;
+    kvobj *dobj = lookupKeyWrite(c->db, dstkey);
+    if (checkType(c, dobj, OBJ_ZSET)) return;
+    if (sobj == dobj || limit == 0 || zsetLength(sobj) == 0) {
+        addReply(c, shared.emptyarray);
+        return;
+    }
+
+    int64_t src_old_len = zsetLength(sobj);
+    int64_t dst_old_len = dobj ? (int64_t)zsetLength(dobj) : 0;
+    size_t src_old_size = server.memory_tracking_enabled ? kvobjAllocSize(sobj) : 0;
+    zmoveRangeState state = {.dstobj = dobj, .dstkey = dstkey};
+    if (server.memory_tracking_enabled && dobj)
+        state.dst_old_size = kvobjAllocSize(dobj);
+    zrange_result_handler handler = {
+        .client = c,
+        .userdata = &state,
+        .beginResultEmission = zmoveRangeBegin,
+        .emitResultFromCBuffer = zmoveRangeEmit,
+        .emitResultFromLongLong = zmoveRangeEmitLongLong,
+        .finalizeResultEmission = zmoveRangeFinalize,
+    };
+    genericZrangebyscoreCommand(&handler, range, sobj, 0, limit, 0);
+    if (!state.moved) return;
+
+    /* Rank lookup can finish a B+tree index rehash; src_old_size includes it.
+     * Deleting by rank also handles LIMIT cutting through equal-score ties. */
+    long first = zsetRank(sobj, state.first, 0, NULL);
+    sdsfree(state.first);
+    serverAssert(first >= 0);
+    unsigned long deleted = 0;
+    if (sobj->encoding == OBJ_ENCODING_LISTPACK) {
+        sobj->ptr = zzlDeleteRangeByRank(sobj->ptr, first + 1,
+                                        first + state.moved, &deleted);
+    } else if (sobj->encoding == OBJ_ENCODING_SKIPLIST) {
+        zset *zs = sobj->ptr;
+        dictPauseAutoResize(zs->dict);
+        deleted = zslDeleteRangeByRank(zs->zsl, first + 1,
+                                       first + state.moved, zs->dict);
+        dictResumeAutoResize(zs->dict);
+        dictShrinkIfNeeded(zs->dict);
+    } else if (sobj->encoding == OBJ_ENCODING_BTREE) {
+        deleted = zbtreeDeleteRangeByRank(sobj->ptr, first, first + state.moved - 1);
+    } else {
+        serverPanic("Unknown sorted set encoding");
+    }
+    serverAssert(deleted == state.moved);
+    if (server.memory_tracking_enabled) {
+        updateSlotAllocSize(c->db, getKeySlot(srckey->ptr), sobj, src_old_size, kvobjAllocSize(sobj));
+        updateSlotAllocSize(c->db, getKeySlot(dstkey->ptr), state.dstobj,
+                            state.dst_old_size, kvobjAllocSize(state.dstobj));
+    }
+    int64_t src_new_len = src_old_len - state.moved;
+    notifyKeyspaceEvent(NOTIFY_ZSET, "zrem", srckey, c->db->id);
+    if (src_new_len == 0) {
+        dbDeleteSkipKeysizesUpdate(c->db, srckey);
+        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", srckey, c->db->id);
+        src_new_len = -1;
+    }
+    updateKeysizesHist(c->db, OBJ_ZSET, src_old_len, src_new_len);
+    keyModified(c, c->db, srckey, src_new_len > 0 ? sobj : NULL, 1);
+    if (state.added)
+        updateKeysizesHist(c->db, OBJ_ZSET, dst_old_len, dst_old_len + state.added);
+    if (state.added || state.updated) {
+        keyModified(c, c->db, dstkey, state.dstobj, 1);
+        notifyKeyspaceEvent(NOTIFY_ZSET, "zadd", dstkey, c->db->id);
+    }
+    server.dirty += state.moved + state.added + state.updated;
+}
+
 /* ZMOVEMEMBER <source> <destination> <member> */
 void zmovememberCommand(client *c) {
     zmoveGenericCommand(c, c->argv[1], c->argv[2], 0, c->argv[3]);
 }
 
-/* ZMOVE <source> <destination> MIN|MAX */
+/* ZMOVE <source> <destination> MIN|MAX
+ * ZMOVE <source> <destination> BYSCORE <min> <max> [LIMIT <count>] */
 void zmoveCommand(client *c) {
+    if (!strcasecmp(c->argv[3]->ptr, "BYSCORE")) {
+        if (c->argc != 6 && c->argc != 8) {
+            addReplyErrorArity(c);
+            return;
+        }
+        zrangespec range;
+        if (zslParseRange(c->argv[4], c->argv[5], &range) != C_OK) {
+            addReplyError(c, "min or max is not a float");
+            return;
+        }
+        long limit = -1;
+        if (c->argc == 8) {
+            if (strcasecmp(c->argv[6]->ptr, "LIMIT")) {
+                addReplyErrorObject(c, shared.syntaxerr);
+                return;
+            }
+            if (getRangeLongFromObjectOrReply(c, c->argv[7], 0, LONG_MAX, &limit,
+                                              "LIMIT must be a non-negative integer") != C_OK) return;
+        }
+        zmoveRangeCommand(c, &range, limit);
+        return;
+    }
+    if (c->argc != 4) {
+        addReplyErrorArity(c);
+        return;
+    }
     int where;
     if (zsetGetPositionOrReply(c, c->argv[3], &where) != C_OK)
         return;

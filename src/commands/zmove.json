@@ -1,10 +1,10 @@
 {
     "ZMOVE": {
-        "summary": "Returns a highest- or lowest-scoring member after moving it from one sorted set to another. Deletes the source sorted set if the last member was moved.",
-        "complexity": "O(log(N)+log(M)) with N being the number of elements in the source sorted set and M being the number of elements in the destination sorted set.",
+        "summary": "Moves a highest- or lowest-scoring member, or a score range of members, from one sorted set to another, preserving scores. Deletes the source sorted set if the last member was moved.",
+        "complexity": "O(log(N) + K*(log(N)+log(M))) where N and M are the source and destination sizes and K is the number of moved members.",
         "group": "sorted_set",
         "since": "8.8.0",
-        "arity": 4,
+        "arity": -4,
         "function": "zmoveCommand",
         "command_flags": [
             "WRITE",
@@ -36,7 +36,7 @@
             {
                 "flags": [
                     "RW",
-                    "INSERT"
+                    "UPDATE"
                 ],
                 "begin_search": {
                     "index": {
@@ -55,11 +55,11 @@
         "reply_schema": {
             "oneOf": [
                 {
-                    "description": "The source key does not exist, or source and destination are the same sorted set.",
+                    "description": "With MIN or MAX, the source key does not exist, or source and destination are the same sorted set.",
                     "type": "null"
                 },
                 {
-                    "description": "The moved member and its score.",
+                    "description": "With MIN or MAX, the moved member and its score.",
                     "type": "array",
                     "minItems": 2,
                     "maxItems": 2,
@@ -73,6 +73,25 @@
                             "type": "number"
                         }
                     ]
+                },
+                {
+                    "description": "With BYSCORE, moved member and score pairs in ascending score order, or an empty array if nothing was moved.",
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "items": [
+                            {
+                                "type": "string",
+                                "description": "Member"
+                            },
+                            {
+                                "type": "number",
+                                "description": "Score"
+                            }
+                        ]
+                    }
                 }
             ]
         },
@@ -88,7 +107,7 @@
                 "key_spec_index": 1
             },
             {
-                "name": "where",
+                "name": "selection",
                 "type": "oneof",
                 "arguments": [
                     {
@@ -100,6 +119,31 @@
                         "name": "max",
                         "type": "pure-token",
                         "token": "MAX"
+                    },
+                    {
+                        "name": "score-range",
+                        "type": "block",
+                        "arguments": [
+                            {
+                                "name": "byscore",
+                                "type": "pure-token",
+                                "token": "BYSCORE"
+                            },
+                            {
+                                "name": "min",
+                                "type": "string"
+                            },
+                            {
+                                "name": "max",
+                                "type": "string"
+                            },
+                            {
+                                "name": "count",
+                                "type": "integer",
+                                "token": "LIMIT",
+                                "optional": true
+                            }
+                        ]
                     }
                 ]
             }
