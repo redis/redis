@@ -496,8 +496,9 @@ int decompressInto(compressionState *state, char *buf, size_t buflen) {
 
 /* Read data from input_buf and decompress it immediately. The result is written
  * into output_buf.
- * Return number of bytes decompressed. *consumed stores number of bytes consumed
- * from input_buf.
+ * Return number of bytes decompressed, or -1 if no compression state is
+ * configured or decompression fails (connection closed). *consumed stores
+ * bytes consumed from input_buf.
  * Note, that we may have enough compressed data inside input buf so that decompressing
  * it will exceed output_len. The function must be ran in a loop until input_buf
  * is fully consumed - so make sure to have free space in output_buf on each call. */
@@ -528,8 +529,10 @@ int clientReadBufAndDecompress(client *c, char *input_buf, size_t input_len,
                                           output_len - tot_decompressed);
         if (decompressed <= 0) {
             /* Compression library failure, we should close the connection */
-            if (decompressed < 0)
+            if (decompressed < 0) {
                 c->conn->state = CONN_STATE_CLOSED;
+                return -1;
+            }
             break;
         }
         tot_decompressed += decompressed;
