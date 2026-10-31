@@ -1579,6 +1579,143 @@ start_server {tags {"zset"}} {
         r config set zset-max-listpack-entries $original_max
     }
 
+    test {ZINTER, ZINTERCARD and ZMSCORE on B+ tree sets match listpack} {
+        set old_entries [lindex [r config get zset-max-listpack-entries] 1]
+        set old_value [lindex [r config get zset-max-listpack-value] 1]
+        # A fixed seed, so that a failure can be reproduced.
+        expr {srand(15635)}
+
+        # Member lengths of 0, 36 and around 4, 8 and 16 bytes. Most of them
+        # share a prefix and differ only in their last bytes, and with
+        # thousands of members in leaves of up to 96, many members of one
+        # leaf share a tag.
+        proc zbt_member {len i} {
+            if {$len == 0} {return ""}
+            set id [format %x $i]
+            if {[string length $id] >= $len} {
+                return [string range $id end-[expr {$len - 1}] end]
+            }
+            return "[string repeat m [expr {$len - [string length $id]}]]$id"
+        }
+        set pool {}
+        foreach len {0 1 2 3 4 7 8 9 15 16 17 36} {
+            for {set i 0} {$i < 300} {incr i} {
+                lappend pool [zbt_member $len $i]
+            }
+        }
+        set pool [lsort -unique $pool]
+
+        # The same sets, each in both encodings: A, B and C are large,
+        # S is small and stays a listpack, U is a plain set.
+        unset -nocomplain zbt_args
+        foreach name {a b c s} pct {70 60 50 3} {
+            set zbt_args($name) {}
+            foreach m $pool {
+                if {[expr {rand() * 100}] < $pct} {
+                    lappend zbt_args($name) [expr {int(rand() * 1000)}] $m
+                }
+            }
+        }
+        set umembers {}
+        set imembers {}
+        foreach m $pool {
+            if {rand() < 0.4} {lappend umembers $m}
+            if {[regexp {^(0|[1-9][0-9]*)$} $m]} {lappend imembers $m}
+        }
+        r del zbtx-u{t} zbtx-i{t}
+        r sadd zbtx-u{t} {*}$umembers
+        r sadd zbtx-i{t} {*}$imembers
+        assert_encoding intset zbtx-i{t}
+
+        r config set zset-max-listpack-value 64
+        foreach {enc entries} {lp 1000000 bt 0} {
+            r config set zset-max-listpack-entries $entries
+            foreach name {a b c} {
+                r del zbtx-$name-$enc{t}
+                r zadd zbtx-$name-$enc{t} {*}$zbt_args($name)
+            }
+        }
+        # R holds every member, added one at a time with decreasing scores.
+        # Prepending like this builds leaves that store their members in
+        # reverse physical order.
+        set zbt_args(r) {}
+        set score [llength $pool]
+        r del zbtx-r-lp{t} zbtx-r-bt{t}
+        foreach m $pool {
+            incr score -1
+            lappend zbt_args(r) $score $m
+            r zadd zbtx-r-bt{t} $score $m
+        }
+        r config set zset-max-listpack-entries 1000000
+        r zadd zbtx-r-lp{t} {*}$zbt_args(r)
+        r config set zset-max-listpack-entries 128
+        r del zbtx-s{t}
+        r zadd zbtx-s{t} {*}$zbt_args(s)
+        assert_encoding listpack zbtx-s{t}
+        foreach name {a b c r} {
+            assert_encoding listpack zbtx-$name-lp{t}
+            assert_encoding btree zbtx-$name-bt{t}
+        }
+
+        proc zbt_check {} {
+            set cmds {
+                {zintercard 2 A B} {zintercard 2 A B limit 1}
+                {zintercard 2 A B limit 7} {zintercard 2 B A limit 0}
+                {zintercard 3 A B C} {zintercard 2 A A} {zintercard 3 A B A}
+                {zintercard 2 zbtx-s{t} B} {zintercard 2 zbtx-u{t} A}
+                {zintercard 3 zbtx-u{t} A B} {zintercard 2 zbtx-i{t} A}
+                {zinter 2 A B withscores} {zinter 2 B A}
+                {zinter 3 A B C weights 1 2 3 aggregate max withscores}
+                {zinter 3 A B A aggregate min withscores}
+                {zinter 2 zbtx-s{t} A withscores}
+                {zinter 3 zbtx-u{t} A B withscores}
+                {zinter 2 zbtx-i{t} B weights 2 1 withscores}
+                {zintercard 2 A R} {zinter 2 A R withscores}
+                {zinter 3 B R C aggregate max withscores}
+            }
+            foreach cmd $cmds {
+                foreach enc {lp bt} {
+                    set c [string map [list A zbtx-a-$enc{t} B zbtx-b-$enc{t} \
+                                            C zbtx-c-$enc{t} R zbtx-r-$enc{t}] $cmd]
+                    set reply($enc) [r {*}$c]
+                }
+                assert_equal $reply(lp) $reply(bt)
+            }
+            foreach name {a r} {
+                for {set i 0} {$i < [llength $::zbt_probe]} {incr i 40} {
+                    set members [lrange $::zbt_probe $i [expr {$i + 39}]]
+                    assert_equal [r zmscore zbtx-$name-lp{t} {*}$members] \
+                                 [r zmscore zbtx-$name-bt{t} {*}$members]
+                }
+            }
+        }
+        set ::zbt_probe {}
+        foreach m $pool {
+            if {rand() < 0.15} {lappend ::zbt_probe $m "${m}x"}
+        }
+        zbt_check
+
+        # Again after a large ZREM, which may leave a member index resize in
+        # progress.
+        set removed {}
+        foreach {score m} $zbt_args(a) {
+            if {rand() < 0.8} {lappend removed $m}
+        }
+        r zrem zbtx-a-lp{t} {*}$removed
+        r zrem zbtx-a-bt{t} {*}$removed
+        assert_encoding btree zbtx-a-bt{t}
+        zbt_check
+
+        r del zbtx-a-lp{t} zbtx-b-lp{t} zbtx-c-lp{t} zbtx-r-lp{t} \
+              zbtx-a-bt{t} zbtx-b-bt{t} zbtx-c-bt{t} zbtx-r-bt{t} \
+              zbtx-s{t} zbtx-u{t} zbtx-i{t}
+        r config set zset-max-listpack-entries $old_entries
+        r config set zset-max-listpack-value $old_value
+        unset zbt_args ::zbt_probe
+        rename zbt_member {}
+        rename zbt_check {}
+    }
+
     test "ZPOP/ZMPOP against wrong type" {
         r set foo{t} bar
         assert_error "*WRONGTYPE*" {r zpopmin foo{t}}
