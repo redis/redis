@@ -505,6 +505,13 @@ void activeExpireCycle(int type) {
                 }
             }
         } while (repeat);
+
+        /* The time limit above is not checked for DBs without volatile keys,
+         * while activeSubexpiresCycle() runs on every iteration. */
+        if (!timelimit_exit && ustime()-start > timelimit) {
+            timelimit_exit = 1;
+            server.stat_expired_time_cap_reached_count++;
+        }
     }
 
     elapsed = ustime()-start;
