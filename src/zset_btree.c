@@ -1506,11 +1506,9 @@ int zbtScoreLeafFindShort(zbtScoreLeaf *leaf, uint8_t tag,
     }
 }
 
-/* Look for an exact member of at most ZBT_SHORT_MEMBER_MAX bytes in one score
- * leaf. The byte tags are contiguous, so almost every unrelated member is
- * rejected before its packed bytes are touched. Always inlined, so that the
- * short search runs without a call: see zbtScoreLeafFindMember() for the
- * copy that callers which update the index use. */
+/* Look up a member, inlining the short-member search when eligible and using
+ * the generic search otherwise. Index updates use the out-of-line copy in
+ * zbtScoreLeafFindMember(). */
 static inline __attribute__((always_inline))
 int zbtScoreLeafFindMemberInline(zbtScoreLeaf *leaf, uint32_t hash,
                                  const unsigned char *ele, size_t elelen,
@@ -2167,7 +2165,8 @@ static inline zbtScoreLeaf *zbtIndexSlotLeaf(zbtreeSet *zs, uint32_t id) {
 
 /* Search one table. A matching hash still has to be checked against the
  * member in its score leaf because the stored hash is not a unique key.
- * Inline so read-only callers can omit the insertion/cursor bookkeeping. */
+ * Inline so read-only callers can omit the insertion/cursor bookkeeping.
+ * Keep the home-bucket probe in sync with zbtreeLookupStart(). */
 static inline __attribute__((always_inline))
 int zbtIndexTableFind(zbtreeSet *zs, zbtIndexTable *table,
                              uint32_t hash, const unsigned char *ele,
@@ -3491,9 +3490,7 @@ uint32_t zbtreeMemberHash(const unsigned char *ele, size_t elelen) {
     return (uint32_t)dictGenHashFunction(ele, elelen);
 }
 
-/* Look a member up with a hash the caller already computed with
- * zbtreeMemberHash(). ZINTER probes every input for the same member, so
- * hashing it once per input would repeat the most expensive part of a hit. */
+/* Look up a member using a hash returned by zbtreeMemberHash(). */
 int zbtreeScoreRawWithHash(zbtreeSet *zs, uint32_t hash,
                            const unsigned char *ele, size_t elelen,
                            double *score)

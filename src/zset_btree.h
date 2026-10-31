@@ -77,10 +77,8 @@ int zbtreeDefragStep(zbtreeSet *zs, zbtreeDefragState *state,
 int zbtreeScore(zbtreeSet *zs, sds ele, double *score);
 int zbtreeScoreRaw(zbtreeSet *zs, const unsigned char *ele,
                    size_t elelen, double *score);
-/* The member hash the index is built on. A caller that probes several sets
- * for the same member computes it once and passes it to the two functions
- * below: WithHash looks the member up, Prefetch only brings its index bucket
- * into cache so that the lookup that follows does not wait for memory. */
+/* Compute a member hash once for lookups in multiple sets. Prefetch requests
+ * the index bucket used by a later lookup. */
 uint32_t zbtreeMemberHash(const unsigned char *ele, size_t elelen);
 int zbtreeScoreRawWithHash(zbtreeSet *zs, uint32_t hash,
                            const unsigned char *ele, size_t elelen,
