@@ -296,6 +296,119 @@ start_server {tags {"hash"}} {
         set _ $rv
     } {0 newval1 1 0 newval2 1 1 1}
 
+    test {HSET fresh wide build (batch fast path) - basic} {
+        r del fresh
+        set args {}
+        for {set i 0} {$i < 64} {incr i} { lappend args f$i v$i }
+        assert_equal 64 [r hset fresh {*}$args]
+        assert_equal 64 [r hlen fresh]
+        assert_encoding listpack fresh
+        assert_equal v0 [r hget fresh f0]
+        assert_equal v63 [r hget fresh f63]
+    }
+
+    test {HSET fresh wide build - in-command duplicate fields are last-wins} {
+        r del freshdup
+        # >=5 distinct fields so the fresh-build fast path engages; f1 repeats
+        # (a->c->d) to exercise the fast-path dedup: created counts unique fields only.
+        assert_equal 5 [r hset freshdup f1 a f2 b f3 x f4 y f1 c f5 z f1 d]
+        assert_equal 5 [r hlen freshdup]
+        assert_equal d [r hget freshdup f1]
+        assert_equal b [r hget freshdup f2]
+        assert_equal z [r hget freshdup f5]
+    }
+
+    test {HSET fresh wide build - dedup keys on raw field bytes (123 vs 0123 distinct)} {
+        # The fast path dedups fields through a dict keyed on the raw field sds
+        # (byte compare), while listpack int-encoding happens per entry at append.
+        # "123" int-encodes and "0123" stays a string: they must remain two fields.
+        # >=5 distinct fields so the fresh-build fast path engages.
+        r del freshint
+        assert_equal 5 [r hset freshint 123 x 0123 y 5 a 05 b 999 c]
+        assert_equal 5 [r hlen freshint]
+        assert_equal x [r hget freshint 123]
+        assert_equal y [r hget freshint 0123]
+        assert_equal b [r hget freshint 05]
+    }
+
+    test {HSET fresh build crossing hash-max-listpack-entries converts to hashtable} {
+        # hashTypeTryConversion runs before the fast-path gate, so a build that
+        # exceeds the entry limit is hashtable and never enters the fast path.
+        set prev [lindex [r config get hash-max-listpack-entries] 1]
+        r config set hash-max-listpack-entries 128
+        r del freshbig
+        set args {}
+        for {set i 0} {$i < 200} {incr i} { lappend args f$i v$i }
+        assert_equal 200 [r hset freshbig {*}$args]
+        assert_equal 200 [r hlen freshbig]
+        assert_encoding hashtable freshbig
+        assert_equal v199 [r hget freshbig f199]
+        r config set hash-max-listpack-entries $prev
+    }
+
+    test {HMSET fresh wide build returns OK and stores all fields} {
+        r del freshhmset
+        set args {}
+        for {set i 0} {$i < 32} {incr i} { lappend args g$i w$i }
+        assert_equal {OK} [r hmset freshhmset {*}$args]
+        assert_equal 32 [r hlen freshhmset]
+        assert_equal w31 [r hget freshhmset g31]
+    }
+
+    test {HSET fresh wide build above the stack threshold (300 fields) stays listpack} {
+        # 300 > HSET_LP_STACK_PAIRS(128) but < default hash-max-listpack-entries(512):
+        # exercises the heap-allocated pairs[] path; stays listpack.
+        r del freshheap
+        set args {}
+        for {set i 0} {$i < 300} {incr i} { lappend args f$i v$i }
+        assert_equal 300 [r hset freshheap {*}$args]
+        assert_equal 300 [r hlen freshheap]
+        assert_encoding listpack freshheap
+        assert_equal v0 [r hget freshheap f0]
+        assert_equal v299 [r hget freshheap f299]
+    }
+
+    test {HSET fresh wide build - wide command with one duplicate field, last-wins} {
+        r del freshwidedup
+        set args {}
+        for {set i 0} {$i < 60} {incr i} { lappend args k$i u$i }
+        # repeat k0 at the tail with a new value -> dict collapses it last-wins
+        lappend args k0 LAST
+        assert_equal 60 [r hset freshwidedup {*}$args]
+        assert_equal 60 [r hlen freshwidedup]
+        assert_encoding listpack freshwidedup
+        assert_equal LAST [r hget freshwidedup k0]
+        assert_equal u59 [r hget freshwidedup k59]
+    }
+
+    test {HSET fresh build with an over-limit value converts to hashtable} {
+        set prev [lindex [r config get hash-max-listpack-value] 1]
+        r config set hash-max-listpack-value 64
+        r del freshbigval
+        set big [string repeat x 100]
+        assert_equal 2 [r hset freshbigval f1 v1 f2 $big]
+        assert_encoding hashtable freshbigval
+        assert_equal $big [r hget freshbigval f2]
+        r config set hash-max-listpack-value $prev
+    }
+
+    test {HSET fresh wide build is byte-identical to the per-field path} {
+        # The fast path must produce exactly the listpack the per-field loop would:
+        # same fields, same first-occurrence order, same last-wins values.
+        # (Delete keys one at a time -- they may live in different cluster slots.)
+        r del fastp
+        r del perfieldp
+        # Fast path: one wide HSET (incl. a duplicate field to exercise last-wins).
+        r hset fastp a 1 b 2 c 3 a 9 d 4
+        # Per-field path: separate single-field HSETs (numfields==1 each -> not fast).
+        foreach {f v} {a 1 b 2 c 3 a 9 d 4} { r hset perfieldp $f $v }
+        assert_encoding listpack fastp
+        assert_encoding listpack perfieldp
+        # HGETALL list equality checks both content AND physical order.
+        assert_equal [r hgetall fastp] [r hgetall perfieldp]
+        assert_equal [r debug digest-value fastp] [r debug digest-value perfieldp]
+    } {} {needs:debug}
+
     test {HSETNX target key missing - small hash} {
         r hsetnx smallhash __123123123__ foo
         r hget smallhash __123123123__

@@ -335,6 +335,30 @@ start_server {tags {"pubsub network"}} {
         $rd1 close
     }
 
+    test "Keyspace notifications: bitmap events test" {
+        r config set bitmap-default-roaring yes
+        r config set notify-keyspace-events KEb
+        r del mybitmap{t} mybitmap_copy{t}
+        set rd1 [redis_deferring_client]
+        assert_equal {1} [psubscribe $rd1 *]
+
+        r setbit mybitmap{t} 0 1
+        assert_equal "pmessage * __keyspace@${db}__:mybitmap{t} setbit" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:setbit mybitmap{t}" [$rd1 read]
+
+        r bitfield mybitmap{t} SET u1 1 1
+        assert_equal "pmessage * __keyspace@${db}__:mybitmap{t} setbit" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:setbit mybitmap{t}" [$rd1 read]
+
+        r bitop or mybitmap_copy{t} mybitmap{t}
+        assert_equal "pmessage * __keyspace@${db}__:mybitmap_copy{t} set" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:set mybitmap_copy{t}" [$rd1 read]
+
+        $rd1 close
+        r config set bitmap-default-roaring no
+        r config set notify-keyspace-events {}
+    }
+
     test "Keyspace notifications: set events test" {
         r config set notify-keyspace-events Ks
         r del myset
@@ -679,6 +703,8 @@ start_server {tags {"pubsub network"}} {
         assert_equal {AK} [lindex [r config get notify-keyspace-events] 1]
         r config set notify-keyspace-events EA
         assert_equal {AE} [lindex [r config get notify-keyspace-events] 1]
+        r config set notify-keyspace-events Eb
+        assert_equal {bE} [lindex [r config get notify-keyspace-events] 1]
     }
 
     test "Keyspace notifications: new key test" {
@@ -1369,5 +1395,134 @@ start_server {tags {"pubsub network"}} {
         assert_equal [r publish foo vaz] {1}
         assert_equal [r read] {message foo vaz}
     } {} {resp3}
+}
 
+start_server {tags {"pubsub network"}} {
+    # Helper proc for tests that subscribe multiple times until hitting OOM
+    proc test_subscribe_oom_loop {cmd description clients} {
+        test "$cmd $description fails with OOM when memory limit exceeded" {
+            # Set 10MB memory limit
+            r config set maxmemory 10485760
+            r config set maxmemory-policy noeviction
+            
+            # Create clients
+            if {$clients == 1} {
+                set rd [redis_deferring_client]
+            } else {
+                set rd1 [redis_deferring_client]
+                set rd2 [redis_deferring_client]
+            }
+            
+            set base_str [string repeat "a" 2048]
+            set success_count 0
+            set oom_occurred 0
+            
+            # Try to subscribe until we hit OOM
+            for {set i 0} {$i < 5000} {incr i} {
+                # Select client
+                if {$clients == 1} {
+                    set client $rd
+                } else {
+                    set client [expr {$i % 2 ? $rd1 : $rd2}]
+                }
+                
+                # Build channel/pattern name
+                if {$cmd eq "psubscribe"} {
+                    set channel_name "${base_str}${i}*"
+                } else {
+                    set channel_name "${base_str}${i}"
+                }
+                
+                $client $cmd $channel_name
+                if {[catch {$client read} err]} {
+                    if {[string match "*OOM command not allowed*" $err]} {
+                        set oom_occurred 1
+                        break
+                    }
+                    error "Unexpected error: $err"
+                }
+                incr success_count
+            }
+            
+            # Verify we had at least one success and hit OOM
+            assert {$success_count > 10}
+            assert {$oom_occurred == 1}
+            
+            # Close clients
+            if {$clients == 1} {
+                $rd close
+            } else {
+                $rd1 close
+                $rd2 close
+            }
+        }
+    }
+
+    # Helper proc for tests with single large channel that immediately fails
+    proc test_subscribe_large_channel_oom {cmd channel_type} {
+        test "$cmd with large $channel_type name fails due to OOM" {
+            # Set maxmemory to 2MB
+            r config set maxmemory 2097152
+            r config set maxmemory-policy noeviction
+            
+            # Create large channel/pattern name: 2MB
+            set channel_name [string repeat "a" 2097152]
+            
+            # Create a single pubsub client
+            set rd [redis_deferring_client]
+            
+            # Subscribe should fail with OOM error
+            $rd $cmd $channel_name
+            assert_error "*OOM command not allowed when used memory > 'maxmemory'*" {$rd read}
+            
+            # Cleanup
+            $rd close
+        }
+    }
+
+    # Helper proc for tests with small success then large failure
+    proc test_subscribe_small_then_large_oom {cmd channel_type} {
+        test "$cmd succeeds with small $channel_type but fails with large $channel_type due to OOM" {
+            # Set maxmemory to 5MB
+            r config set maxmemory 5242880
+            r config set maxmemory-policy noeviction
+            
+            # Create channel names: first 10KB, second 5MB
+            set channel1 [string repeat "a" 10240]
+            set channel2 [string repeat "b" 5242880]
+            
+            # Create a single pubsub client
+            set rd [redis_deferring_client]
+            
+            # First subscribe should succeed (10KB)
+            $rd $cmd $channel1
+            set reply1 [$rd read]
+            assert_equal [list $cmd] [lindex $reply1 0]
+            
+            # Second subscribe should fail with OOM error (5MB exceeds limit)
+            $rd $cmd $channel2
+            assert_error "*OOM command not allowed when used memory > 'maxmemory'*" {$rd read}
+            
+            # Cleanup
+            $rd close
+        }
+    }
+
+    # Multiple subscriptions until OOM tests
+    test_subscribe_oom_loop "subscribe" "" 1
+    test_subscribe_oom_loop "ssubscribe" "" 1
+    test_subscribe_oom_loop "psubscribe" "" 1
+    test_subscribe_oom_loop "subscribe" "with 2 clients" 2
+    test_subscribe_oom_loop "ssubscribe" "with 2 clients" 2
+    test_subscribe_oom_loop "psubscribe" "with 2 clients" 2
+
+    # Single large channel immediate OOM tests
+    test_subscribe_large_channel_oom "subscribe" "channel"
+    test_subscribe_large_channel_oom "psubscribe" "pattern"
+    test_subscribe_large_channel_oom "ssubscribe" "shard channel"
+
+    # Small success then large failure tests
+    test_subscribe_small_then_large_oom "subscribe" "channel"
+    test_subscribe_small_then_large_oom "psubscribe" "pattern"
+    test_subscribe_small_then_large_oom "ssubscribe" "channel"
 }

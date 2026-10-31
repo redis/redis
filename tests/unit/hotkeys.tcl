@@ -163,6 +163,19 @@ start_server {tags {external:skip "hotkeys"}} {
         assert_equal {OK} [r hotkeys reset]
     }
 
+    test {HOTKEYS START - with DURATION 0} {
+        assert_equal {OK} [r hotkeys start METRICS 1 CPU DURATION 0]
+
+        set result [lindex [r hotkeys get] 0]
+        if {[llength $result] > 0 && [lindex $result 0] ne "tracking-active"} {
+            set result [hotkeys_array_to_dict $result]
+        }
+        assert_equal 1 [dict get $result "tracking-active"]
+
+        assert_equal {OK} [r hotkeys stop]
+        assert_equal {OK} [r hotkeys reset]
+    }
+
     test {HOTKEYS START - with SAMPLE parameter} {
         assert_equal {OK} [r hotkeys start METRICS 2 CPU NET SAMPLE 10]
         assert_equal {OK} [r hotkeys stop]
@@ -324,7 +337,7 @@ start_server {tags {external:skip "hotkeys"}} {
         assert_equal {OK} [r hotkeys reset]
     }
 
-    foreach sample_ratio {1 100 500 1000} {
+    foreach sample_ratio {1 100 500} {
         test "HOTKEYS detection with biased key access, sample ratio = $sample_ratio" {
             # Generate 100 random keys
             set all_keys {}

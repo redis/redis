@@ -30,6 +30,15 @@ start_server {tags {"other"}} {
             assert_equal {OK} [r memory purge]
         }
     }
+    
+    test {je_malloc_conf compile-time tuning is active} {
+        # Verify je_malloc_conf in src/zmalloc.c overrides jemalloc defaults:
+        # (tcache_nslots_small_max: 200, lg_tcache_nslots_mul: 1).
+        if {[string match {*jemalloc*} [s mem_allocator]]} {
+            assert_equal 1000 [r debug mallctl opt.tcache_nslots_small_max]
+            assert_equal 3    [r debug mallctl opt.lg_tcache_nslots_mul]
+        }
+    } {} {needs:debug}
 
     test {SAVE - make sure there are all the types as values} {
         # Wait for a background saving in progress to terminate

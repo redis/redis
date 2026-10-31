@@ -9,8 +9,8 @@
 #  cmd         -  A command that should be run before the verification.
 #  expOutput   -  This is a string that represents the expected output abbreviated.
 #                 Instead of the output of "strings_len_exp_distrib" write "STR". 
-#                 Similarly for LIST, SET, ZSET and HASH. Spaces and newlines are 
-#                 ignored.
+#                 Similarly for LIST, SET, ZSET, HASH, STREAM and BITMAP. Spaces and
+#                 newlines are ignored.
 #
 #                 Alternatively, you can set "__EVAL_DB_HIST__". The function
 #                 will read all the keys from the server for selected db index,
@@ -34,6 +34,8 @@ proc run_cmd_verify_hist {cmd expOutput {waitCond 0}} {
     
         # Replace all placeholders with the actual values. Remove spaces & newlines.
         set res [string map {
+            "BITMAP" "distrib_bitmaps_sizes"
+            "STREAM" "distrib_streams_items"
             "STR" "distrib_strings_sizes"
             "LIST" "distrib_lists_items"
             "SET" "distrib_sets_items"
@@ -113,6 +115,14 @@ proc eval_db_histogram {server dbid} {
                 set value [$server hlen $key]
                 set type "HASH"
             }
+            "stream" {
+                set value [$server xlen $key]
+                set type "STREAM"
+            }
+            "bitmap" {
+                set value [string length [$server debug bitmap-raw $key]]
+                set type "BITMAP"
+            }
             default {
                 continue  ; # Skip unknown types
             }
@@ -126,7 +136,7 @@ proc eval_db_histogram {server dbid} {
     }
 
     set result {}
-    foreach type {STR LIST SET ZSET HASH} {
+    foreach type {STR LIST SET ZSET HASH STREAM BITMAP} {
         if {[array exists type_counts] && [array names type_counts $type,*] ne ""} {
             set sorted_powers [lsort -integer [lmap item [array names type_counts $type,*] {
                 lindex [split $item ,] 1  ; # Extracts only the numeric part
@@ -506,11 +516,11 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server FLUSHALL} {}
         createComplexDataset $server 1000
         run_cmd_verify_hist {} {__EVAL_DB_HIST__ 0}
-        
+
         run_cmd_verify_hist {$server FLUSHALL} {}
         createComplexDataset $server 1000 {useexpire usehexpire}
         run_cmd_verify_hist {} {__EVAL_DB_HIST__ 0} 1
-    } {} {cluster:skip}
+    } {} {cluster:skip needs:debug}
     
     start_server {tags {"cluster:skip" "external:skip" "needs:debug"}} {
         test "KEYSIZES - Test DEBUG KEYSIZES-HIST-ASSERT command" {
@@ -703,16 +713,46 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server BITOP XOR b5 b1 b2} {db0_STR:8=5}        
         # SETBIT
         run_cmd_verify_hist {$server FLUSHALL} {}
+        # Grow an existing empty string
+        run_cmd_verify_hist {$server SET b1 ""} {db0_STR:0=1}
+        run_cmd_verify_hist {$server SETBIT b1 72 1} {db0_STR:8=1}
+        run_cmd_verify_hist {$server FLUSHALL} {}
         run_cmd_verify_hist {$server setbit b1 71 1} {db0_STR:8=1}
         run_cmd_verify_hist {$server setbit b1 72 1} {db0_STR:8=1}
         run_cmd_verify_hist {$server setbit b2 72 1} {db0_STR:8=2}
         run_cmd_verify_hist {$server setbit b2 640 0} {db0_STR:8=1,64=1}
         # BITFIELD
         run_cmd_verify_hist {$server FLUSHALL} {}
+        # Grow an existing empty string
+        run_cmd_verify_hist {$server SET b1 ""} {db0_STR:0=1}
+        run_cmd_verify_hist {$server BITFIELD b1 SET u8 72 255} {db0_STR:8=1}
+        run_cmd_verify_hist {$server FLUSHALL} {}
         run_cmd_verify_hist {$server bitfield b3 set u8 6 255} {db0_STR:2=1}
         run_cmd_verify_hist {$server bitfield b3 set u8 65 255} {db0_STR:8=1}
         run_cmd_verify_hist {$server bitfield b4 set u8 1000 255} {db0_STR:8=1,64=1}
     } {} {cluster:skip}
+
+    test "KEYSIZES - Native bitmap byte lengths are tracked $suffixRepl" {
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        set old_bitmap_default [lindex [$server config get bitmap-default-roaring] 1]
+        $server config set bitmap-default-roaring yes
+
+        # SETBIT walks logical byte lengths across histogram boundaries. A zero
+        # write beyond the end still extends a native bitmap's logical length.
+        run_cmd_verify_hist {$server SETBIT bitmap:hist 0 1} {db0_BITMAP:1=1}
+        run_cmd_verify_hist {$server SETBIT bitmap:hist 63 1} {db0_BITMAP:8=1}
+        run_cmd_verify_hist {$server SETBIT bitmap:hist 64 1} {db0_BITMAP:8=1}
+        run_cmd_verify_hist {$server SETBIT bitmap:hist 127 0} {db0_BITMAP:16=1}
+
+        # BITFIELD uses the same native mutation accounting, including writes
+        # of zero that only extend the logical length.
+        run_cmd_verify_hist {$server BITFIELD bitmap:hist SET u8 256 1} {db0_BITMAP:32=1}
+        run_cmd_verify_hist {$server BITFIELD bitmap:hist SET u8 1024 0} {db0_BITMAP:128=1}
+
+        # Async deletion removes the bitmap row on both primary and replica.
+        run_cmd_verify_hist {$server UNLINK bitmap:hist} {} 1
+        $server config set bitmap-default-roaring $old_bitmap_default
+    } {OK} {cluster:skip}
        
     test "KEYSIZES - Test RESTORE $suffixRepl" {
         run_cmd_verify_hist {$server FLUSHALL} {}
@@ -726,6 +766,14 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server FLUSHALL} {}
         run_cmd_verify_hist {$server RPUSH l12 1 2 3 4} {db0_LIST:4=1}
         run_cmd_verify_hist {$server RENAME l12 l13} {db0_LIST:4=1}
+    } {} {cluster:skip}
+
+    test "KEYSIZES - Test COPY $suffixRepl" {
+        # COPY births a new key via dbAdd; the histogram should count the copy.
+        # Exercised on a stream so a stream goes through this generic path too.
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server XADD st1 1-1 f v} {db0_STREAM:1=1}
+        run_cmd_verify_hist {$server COPY st1 st2} {db0_STREAM:1=2}
     } {} {cluster:skip}
     
     test "KEYSIZES - Test MOVE $suffixRepl" {
@@ -752,6 +800,68 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server DEL l10} {db0_STR:8=1}
         run_cmd_verify_hist {$server DEBUG RELOAD} {db0_STR:8=1}
     } {} {cluster:skip needs:debug}
+
+    test "KEYSIZES - Stream entries are tracked in the keysizes histogram $suffixRepl" {
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        # Bin walk (floor-log2): 1->"1", 2,3->"2", 4..7->"4", 8->"8".
+        run_cmd_verify_hist {$server XADD st 1-1 f v} {db0_STREAM:1=1}
+        run_cmd_verify_hist {$server XADD st 2-1 f v} {db0_STREAM:2=1}
+        run_cmd_verify_hist {$server XADD st 3-1 f v} {db0_STREAM:2=1}
+        run_cmd_verify_hist {$server XADD st 4-1 f v} {db0_STREAM:4=1}
+        run_cmd_verify_hist {$server XADD st 5-1 f v} {db0_STREAM:4=1}
+        run_cmd_verify_hist {$server XADD st 6-1 f v} {db0_STREAM:4=1}
+        run_cmd_verify_hist {$server XADD st 7-1 f v} {db0_STREAM:4=1}
+        run_cmd_verify_hist {$server XADD st 8-1 f v} {db0_STREAM:8=1}
+        # XTRIM and XDEL move the sample down; emptying lands it in bin 0.
+        run_cmd_verify_hist {$server XTRIM st maxlen 4} {db0_STREAM:4=1}  ;# keeps 5-1..8-1
+        run_cmd_verify_hist {$server XDEL st 5-1 6-1} {db0_STREAM:2=1}
+        run_cmd_verify_hist {$server XDEL st 7-1 8-1} {db0_STREAM:0=1}
+        # Deleting the key removes its sample entirely.
+        run_cmd_verify_hist {$server DEL st} {}
+        # XGROUP CREATE ... MKSTREAM births an empty stream in bin 0.
+        run_cmd_verify_hist {$server XGROUP CREATE st2 g 0 MKSTREAM} {db0_STREAM:0=1}
+    }
+
+    test "KEYSIZES - XADD that appends and trims in one command $suffixRepl" {
+        # xaddCommand appends then trims within the same command, with a single
+        # post-command histogram update. MAXLEN 0 leaves the (newly created)
+        # stream key at length 0 -> bin 0; later MAXLEN 1 must keep it at bin 1.
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server XADD st MAXLEN 0 1-1 f v} {db0_STREAM:0=1}
+        run_cmd_verify_hist {$server XADD st 2-1 f v} {db0_STREAM:1=1}
+        run_cmd_verify_hist {$server XADD st MAXLEN 1 3-1 f v} {db0_STREAM:1=1}
+    }
+
+    test "KEYSIZES - XDELEX and XACKDEL update the stream histogram $suffixRepl" {
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        for {set i 1} {$i <= 4} {incr i} { $server XADD st $i-1 f v }
+        run_cmd_verify_hist {$server XLEN st} {db0_STREAM:4=1}
+        run_cmd_verify_hist {$server XDELEX st IDS 2 4-1 3-1} {db0_STREAM:2=1}
+        $server XGROUP CREATE st g 0
+        $server XREADGROUP GROUP g c COUNT 2 STREAMS st >
+        run_cmd_verify_hist {$server XACKDEL st g IDS 2 1-1 2-1} {db0_STREAM:0=1}
+    }
+
+    test "KEYSIZES - Stream survives DEBUG RELOAD $suffixRepl" {
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server XADD st 1-1 f v} {db0_STREAM:1=1}
+        run_cmd_verify_hist {$server XADD st 2-1 f v} {db0_STREAM:2=1}
+        run_cmd_verify_hist {$server DEBUG RELOAD} {db0_STREAM:2=1}
+    } {} {cluster:skip needs:debug}
+
+    test "KEYSIZES - Untracked types stay out of the histogram $suffixRepl" {
+        # Only strings, the four collections, streams and bitmaps own a histogram row.
+        # A key of any other type (here an array) must not be counted into some
+        # other type's row, neither when created nor when modified in place.
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server ARSET arr 0 a b c d} {}
+        assert_equal {array} [$server TYPE arr]
+        assert_equal 4 [$server ARLEN arr]
+        run_cmd_verify_hist {$server SET s1 1234} {db0_STR:4=1}
+        run_cmd_verify_hist {$server ARSET arr 4 e f g h} {db0_STR:4=1}
+        assert_equal 8 [$server ARLEN arr]
+        run_cmd_verify_hist {$server DEL arr} {db0_STR:4=1}
+    }
 
     test "KEYSIZES - Test RDB $suffixRepl" {
         run_cmd_verify_hist {$server FLUSHALL} {}
@@ -798,7 +908,8 @@ start_server {} {
 # The key memory histogram (distrib_*_sizes) requires key-memory-histograms or
 # cluster-slot-stats-enabled to be set on startup (which enables memory_tracking).
 #
-# Note: Strings are not tracked to avoid confusion with distrib_strings_sizes.
+# Note: String and bitmap allocation rows are not exposed because their logical
+# byte histograms already use the conventional distrib_*_sizes field names.
 ################################################################################
 
 # Query and Strip result of "info keysizes" from header, spaces, and newlines,
@@ -807,8 +918,8 @@ proc get_info_keymem_stripped {server} {
     set info [$server info keysizes]
     set result ""
     foreach line [split $info "\n"] {
-        # Match key memory histograms: lists_sizes, sets_sizes, zsets_sizes, hashes_sizes
-        if {[regexp {distrib_(lists|sets|zsets|hashes)_sizes} $line]} {
+        # Match key memory histograms: lists/sets/zsets/hashes/streams _sizes.
+        if {[regexp {distrib_(lists|sets|zsets|hashes|streams)_sizes} $line]} {
             append result [string map {" " "" "\r" ""} $line]
         }
     }
@@ -855,8 +966,91 @@ start_server {tags {external:skip needs:debug} overrides {key-memory-histograms 
         r SADD "set" x y z
         r ZADD "zset" 1 a 2 b
         r HSET "hash" f1 v1
+        r XADD "stream" 1-1 f v
 
-        verify_keymem_non_empty r {lists sets zsets hashes}
+        verify_keymem_non_empty r {lists sets zsets hashes streams}
+    }
+
+    test "KEY-MEMORY-STATS - Stream keys should appear in key memory histogram" {
+        r FLUSHALL
+        for {set i 1} {$i <= 8} {incr i} { r XADD mystream $i-1 f v }
+        verify_keymem_non_empty r {streams}
+        r FLUSHALL
+        verify_keymem_empty r
+    }
+
+    if {[s arch_bits] == 64} {
+        test "KEYSIZES - Sparse native bitmap saturates into the final histogram bin" {
+            r SELECT 0
+            r FLUSHALL
+            set bitmap_len [expr {1 << 59}]
+            set bit_offset [expr {($bitmap_len - 1) * 8}]
+            set old_bulk_limit [config_get_set proto-max-bulk-len $bitmap_len]
+            set old_bitmap_default [config_get_set bitmap-default-roaring yes]
+            assert_equal OK [r DEBUG KEYSIZES-HIST-ASSERT 1]
+
+            # Writing zero at the end changes only the logical length, so this
+            # exercises the final histogram bin without a matching allocation.
+            # The length exceeds the final bin's range and saturates into it.
+            assert_equal 0 [r SETBIT bitmap:hist:top $bit_offset 0]
+            assert_equal bitmap [r TYPE bitmap:hist:top]
+            assert_match "*db0_distrib_bitmaps_sizes:256P=1*" [r INFO KEYSIZES]
+
+            assert_equal 1 [r DEL bitmap:hist:top]
+            assert_equal OK [r DEBUG KEYSIZES-HIST-ASSERT 0]
+            r CONFIG SET bitmap-default-roaring $old_bitmap_default
+            r CONFIG SET proto-max-bulk-len $old_bulk_limit
+        }
+    }
+
+    test "KEY-MEMORY-STATS - BITFIELD Roaring transitions keep histograms consistent" {
+        r SELECT 0
+        r FLUSHALL
+        assert_equal OK [r DEBUG KEYSIZES-HIST-ASSERT 1]
+        assert_equal OK [r DEBUG ALLOCSIZE-SLOTS-ASSERT 1]
+        assert_equal OK [r config set bitmap-default-roaring yes]
+
+        # Exercise both construction paths: BITFIELD can create a new native
+        # bitmap or convert an existing string in place.
+        assert_equal {0} [r bitfield bitmap_new SET u1 65536 1]
+        assert_equal bitmap [r type bitmap_new]
+
+        r set "bitmap:keymem:bf:convert" ""
+        assert_equal {0} [r bitfield "bitmap:keymem:bf:convert" SET u1 65536 1]
+        assert_equal bitmap [r type "bitmap:keymem:bf:convert"]
+
+        # COPY, RESTORE, and BITOP each install a bitmap through different
+        # keyspace/accounting paths.
+        assert_equal 1 [r copy bitmap_new "bitmap:keymem:copy"]
+        r restore "bitmap:keymem:restore" 0 [r dump bitmap_new]
+        r bitop or "bitmap:keymem:bitop" bitmap_new
+        assert_match "*db0_distrib_bitmaps_sizes:8K=5*" [r INFO KEYSIZES]
+
+        foreach key {
+            bitmap_new
+            bitmap:keymem:copy
+            bitmap:keymem:restore
+            bitmap:keymem:bitop
+        } {
+            # Growing every installed value validates both the logical-size
+            # histogram and per-slot allocation accounting update paths.
+            assert_equal 0 [r setbit $key 131072 1]
+        }
+
+        assert_match "*db0_distrib_bitmaps_sizes:8K=1,16K=4*" [r INFO KEYSIZES]
+
+        # RDB loading reconstructs both histogram rows through the generic
+        # key-install path. Allocation accounting is checked internally.
+        assert_equal OK [r DEBUG RELOAD]
+        assert_match "*db0_distrib_bitmaps_sizes:8K=1,16K=4*" [r INFO KEYSIZES]
+        assert_equal 1 [r DEL "bitmap:keymem:bf:convert"]
+        assert_match "*db0_distrib_bitmaps_sizes:16K=4*" [r INFO KEYSIZES]
+
+        assert_equal OK [r DEBUG ALLOCSIZE-SLOTS-ASSERT 0]
+        assert_equal OK [r DEBUG KEYSIZES-HIST-ASSERT 0]
+        assert_equal OK [r config set bitmap-default-roaring no]
+        r FLUSHALL
+        verify_keymem_empty r
     }
 
     test "KEY-MEMORY-STATS - Histogram bins should use power-of-2 labels" {
@@ -1025,11 +1219,15 @@ start_server {tags {external:skip} overrides {key-memory-histograms no}} {
         r SADD "set" x y z
         r ZADD "zset" 1 a 2 b
         r HSET "hash" f1 v1
+        set old_bitmap_default [config_get_set bitmap-default-roaring yes]
+        r SETBIT "bitmap" 63 1
+        r CONFIG SET bitmap-default-roaring $old_bitmap_default
 
         set info [r info keysizes]
         # Keysizes (sizes/items) should be present
         assert {[string match "*distrib_strings_sizes*" $info]}
         assert {[string match "*distrib_lists_items*" $info]}
+        assert {[string match "*distrib_bitmaps_sizes*" $info]}
         # Key memory histogram should NOT be present (note: lists_sizes
         # is only present when memory tracking is enabled, but lists_items always is)
         set stripped [get_info_keymem_stripped r]
@@ -1097,6 +1295,48 @@ start_cluster 1 0 {tags {external:skip cluster needs:debug} overrides {cluster-s
         createComplexDataset r 100 {usetag}
         createComplexDataset r 100 {usetag useexpire usehexpire}
         # If we get here without crash, the assertion passed
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
+    }
+
+    test "SLOT-ALLOCSIZE - SUNION/SDIFF family keep slot alloc tracking across rehash" {
+        # Every command routed through sunionDiffGenericCommand() is exercised
+        # against a source set that is mid-rehash. The DIFF commands dictFind()
+        # into that set and complete its rehash, freeing the old hash table and
+        # shrinking the set's allocation - which must be recorded via
+        # updateSlotAllocSize(). The UNION commands only iterate the set (no
+        # resize); they are gated out of the tracking and must keep the per-slot
+        # accounting correct anyway. The per-slot assertion runs after every
+        # command, so any miscounting panics inside the loop below.
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+        r FLUSHALL
+
+        # The "driver" set is only iterated (sets[0] of the DIFF algorithm), so
+        # it can be bulk-loaded for speed.
+        set driver {}
+        for {set i 0} {$i < 2000} {incr i} { lappend driver "d-$i" }
+        r SADD "driver{t}" {*}$driver
+
+        foreach cmd {
+            {SUNION driver{t} src{t}}
+            {SUNIONSTORE dst{t} driver{t} src{t}}
+            {SUNIONCARD 2 driver{t} src{t}}
+            {SUNIONCARD 2 driver{t} src{t} APPROX}
+            {SDIFF driver{t} src{t}}
+            {SDIFFSTORE dst{t} driver{t} src{t}}
+            {SDIFFCARD 2 driver{t} src{t}}
+        } {
+            # Recreate src{t} before each command, leaving it mid-rehash.
+            # We add one member per SADD on purpose: a single SADD with many
+            # members would pre-size the dict and skip rehashing. A set's dict
+            # is only rehashed by operations on it, so stopping shortly after an
+            # expand boundary (here 256) leaves the rehash unfinished.
+            r DEL "src{t}"
+            for {set i 0} {$i < 265} {incr i} { r SADD "src{t}" "s-$i" }
+            assert_encoding hashtable "src{t}"
+
+            r {*}$cmd
+        }
+
         r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
     }
 

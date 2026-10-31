@@ -60,6 +60,9 @@
                                     "const": "hyperloglog"
                                 },
                                 {
+                                    "const": "array"
+                                },
+                                {
                                     "const": "list"
                                 },
                                 {

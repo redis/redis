@@ -158,7 +158,7 @@ proc wait_for_replica_key_exists {key key_count} {
 # Test cases for CLUSTER SLOT-STATS cpu-usec metric correctness.
 # -----------------------------------------------------------------------------
 
-start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-enabled yes}} {
+start_cluster 1 0 {tags {external:skip cluster}} {
 
     # Define shared variables.
     set key "FOO"
@@ -361,7 +361,7 @@ start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-en
 # Test cases for CLUSTER SLOT-STATS network-bytes-in.
 # -----------------------------------------------------------------------------
 
-start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-enabled yes}} {
+start_cluster 1 0 {tags {external:skip cluster}} {
 
     # Define shared variables.
     set key "key"
@@ -388,6 +388,7 @@ start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-en
         # SET key value\r\n --> 15 bytes.
         $rd write "SET $key value\r\n"
         $rd flush
+        assert_equal OK [$rd read]
 
         set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE 0 16383]
         set expected_slot_stats [
@@ -471,7 +472,7 @@ start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-en
     R 0 FLUSHALL
 }
 
-start_cluster 1 1 {tags {external:skip cluster} overrides {cluster-slot-stats-enabled yes}} {
+start_cluster 1 1 {tags {external:skip cluster}} {
     set channel "channel"
     set key_slot [R 0 cluster keyslot $channel]
     set metrics_to_assert [list network-bytes-in]
@@ -489,8 +490,8 @@ start_cluster 1 1 {tags {external:skip cluster} overrides {cluster-slot-stats-en
         set slot [R 0 cluster keyslot $channel]
         set primary [Rn 0]
         set replica [Rn 1]
-        set replica_subcriber [redis_deferring_client -1]
-        $replica_subcriber SSUBSCRIBE $channel
+        set replica_subscriber [redis_deferring_client -1]
+        $replica_subscriber SSUBSCRIBE $channel
         # *2\r\n$10\r\nssubscribe\r\n$7\r\nchannel\r\n --> 34 bytes.
         $primary SPUBLISH $channel hello
         # *3\r\n$8\r\nspublish\r\n$7\r\nchannel\r\n$5\r\nhello\r\n --> 42 bytes.
@@ -525,7 +526,6 @@ start_cluster 1 0 {tags {external:skip cluster}} {
     set key_slot [R 0 cluster keyslot $key]
     set expected_slots_to_key_count [dict create $key_slot 1]
     set metrics_to_assert [list network-bytes-out]
-    R 0 CONFIG SET cluster-slot-stats-enabled yes
 
     test "CLUSTER SLOT-STATS network-bytes-out, for non-slot specific commands." {
         R 0 INFO
@@ -583,7 +583,6 @@ start_cluster 1 1 {tags {external:skip cluster}} {
     set key "FOO"
     set key_slot [R 0 CLUSTER KEYSLOT $key]
     set metrics_to_assert [list network-bytes-out]
-    R 0 CONFIG SET cluster-slot-stats-enabled yes
 
     # Setup replication.
     assert {[s -1 role] eq {slave}}
@@ -616,7 +615,6 @@ start_cluster 1 1 {tags {external:skip cluster}} {
     set channel_secondary "channel2"
     set key_slot_secondary [R 0 cluster keyslot $channel_secondary]
     set metrics_to_assert [list network-bytes-out]
-    R 0 CONFIG SET cluster-slot-stats-enabled yes
 
     test "CLUSTER SLOT-STATS network-bytes-out, sharded pub/sub, single channel." {
         set slot [R 0 cluster keyslot $channel]
@@ -700,7 +698,7 @@ start_cluster 1 1 {tags {external:skip cluster}} {
 # Test cases for CLUSTER SLOT-STATS key-count metric correctness.
 # -----------------------------------------------------------------------------
 
-start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-enabled yes}} {
+start_cluster 1 0 {tags {external:skip cluster}} {
 
     # Define shared variables.
     set key "FOO"
@@ -785,7 +783,7 @@ start_cluster 1 0 {tags {external:skip cluster}} {
 # Test cases for CLUSTER SLOT-STATS ORDERBY sub-argument.
 # -----------------------------------------------------------------------------
 
-start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-enabled yes}} {
+start_cluster 1 0 {tags {external:skip cluster}} {
 
     set metrics [list "key-count" "memory-bytes" "cpu-usec" "network-bytes-in" "network-bytes-out"]
 
@@ -891,7 +889,7 @@ start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-en
 # Test cases for CLUSTER SLOT-STATS replication.
 # -----------------------------------------------------------------------------
 
-start_cluster 1 1 {tags {external:skip cluster} overrides {cluster-slot-stats-enabled yes}} {
+start_cluster 1 1 {tags {external:skip cluster}} {
 
     # Define shared variables.
     set key "key"
@@ -994,7 +992,7 @@ start_cluster 1 1 {tags {external:skip cluster} overrides {cluster-slot-stats-en
     R 1 CONFIG RESETSTAT
 }
 
-start_cluster 2 2 {tags {external:skip cluster} overrides {cluster-slot-stats-enabled yes}} {
+start_cluster 2 2 {tags {external:skip cluster}} {
     test "CLUSTER SLOT-STATS reset upon atomic slot migration" {
         # key on slot-0
         set key0 "{06S}mykey0"
@@ -1044,7 +1042,7 @@ start_cluster 2 2 {tags {external:skip cluster} overrides {cluster-slot-stats-en
 # Test cases for CLUSTER SLOT-STATS memory-bytes field presence.
 # -----------------------------------------------------------------------------
 
-start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-enabled yes}} {
+start_cluster 1 0 {tags {external:skip cluster}} {
     # Define shared variables.
     set key "FOO"
     set key_slot [R 0 cluster keyslot $key]
@@ -1169,12 +1167,76 @@ start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-en
 }
 
 # -----------------------------------------------------------------------------
+# Test cases for CLUSTER SLOT-STATS memory-bytes with IDMP expiry.
+# -----------------------------------------------------------------------------
+
+start_cluster 1 0 {tags {external:skip cluster needs:debug} overrides {cluster-slot-stats-enabled mem stream-idmp-duration 1}} {
+    # Check slot memory accounting after every command.
+    R 0 DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+
+    test "CLUSTER SLOT-STATS memory-bytes follows IDMP expiry after DEL" {
+        # Keep one key in the slot and record its memory as the baseline.
+        set drained_stream "{idmp-expiry-drained}stream"
+        R 0 SET "{idmp-expiry-drained}keep" value
+        set drained_slot [R 0 CLUSTER KEYSLOT "{idmp-expiry-drained}keep"]
+        set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE $drained_slot $drained_slot]
+        set drained_baseline [dict get [lindex [lindex $slot_stats 0] 1] memory-bytes]
+
+        # Add one producer and let cron expire it completely.
+        R 0 XADD $drained_stream IDMP p0 i0 * f v
+        wait_for_condition 100 50 {
+            [dict get [R 0 XINFO STREAM $drained_stream] pids-tracked] == 0
+        } else {
+            fail "IDMP producer did not expire"
+        }
+
+        # Deleting the drained stream should leave only the keeper's charge.
+        R 0 DEL $drained_stream
+        set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE $drained_slot $drained_slot]
+        set drained_actual [dict get [lindex [lindex $slot_stats 0] 1] memory-bytes]
+
+        # Use a separate slot to record another keeper-only baseline.
+        set partial_stream "{idmp-expiry-partial}stream"
+        R 0 SET "{idmp-expiry-partial}keep" value
+        set partial_slot [R 0 CLUSTER KEYSLOT "{idmp-expiry-partial}keep"]
+        set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE $partial_slot $partial_slot]
+        set partial_baseline [dict get [lindex [lindex $slot_stats 0] 1] memory-bytes]
+
+        # Stagger two producers so expiry removes the older one first.
+        R 0 XADD $partial_stream * f v
+        R 0 XCFGSET $partial_stream IDMP-DURATION 10
+        R 0 XADD $partial_stream IDMP p0 old-request * f v
+        # Age the first producer before adding the newer producer.
+        after 2000
+        assert_equal 1 [dict get [R 0 XINFO STREAM $partial_stream] pids-tracked]
+        R 0 XADD $partial_stream IDMP p1 new-request * f v
+        assert_equal 2 [dict get [R 0 XINFO STREAM $partial_stream] pids-tracked]
+        # Wait for the older producer to expire while the newer one stays tracked.
+        wait_for_condition 200 50 {
+            [dict get [R 0 XINFO STREAM $partial_stream] pids-tracked] == 1
+        } else {
+            fail "IDMP expiry did not leave the newer producer tracked"
+        }
+
+        # Deleting the stream should leave its keeper-only charge for the final comparison.
+        R 0 DEL $partial_stream
+        set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE $partial_slot $partial_slot]
+        set partial_actual [dict get [lindex [lindex $slot_stats 0] 1] memory-bytes]
+
+        # Both post-delete slot charges must match their keeper-only baselines.
+        set expected [list $drained_baseline $partial_baseline]
+        set actual [list $drained_actual $partial_actual]
+        assert_equal $expected $actual
+    }
+}
+
+# -----------------------------------------------------------------------------
 # Test cases for memory tracking accuracy with DEBUG ALLOCSIZE-SLOTS-ASSERT.
 # These tests verify that memory accounting is correct after operations that
 # may change object encoding (e.g., listTypeTryConversion).
 # -----------------------------------------------------------------------------
 
-start_cluster 1 0 {tags {external:skip cluster needs:debug} overrides {cluster-slot-stats-enabled yes}} {
+start_cluster 1 0 {tags {external:skip cluster needs:debug}} {
     # Enable debug assertion that validates memory tracking after each command.
     # This will cause a panic if tracked memory doesn't match actual memory.
     R 0 DEBUG ALLOCSIZE-SLOTS-ASSERT 1
@@ -1232,5 +1294,16 @@ start_cluster 1 0 {tags {external:skip cluster needs:debug} overrides {cluster-s
         assert_equal "d" [R 0 LRANGE mylist{t} 0 -1]
 
         R 0 CONFIG SET list-max-listpack-size [lindex $origin_conf 1]
+    }
+}
+
+start_server {} {
+    test "CLUSTER SLOT-STATS memory tracking cannot be re-enabled after being disabled (non-clustered mode)" {
+        # Once memory tracking is disabled, it cannot be re-enabled at runtime
+        assert_error "ERR*memory tracking cannot be enabled at runtime*" {r CONFIG SET cluster-slot-stats-enabled yes}
+        assert_error "ERR*memory tracking cannot be enabled at runtime*" {r CONFIG SET cluster-slot-stats-enabled mem}
+
+        # But cpu and net can still be enabled
+        assert_match "OK" [r CONFIG SET cluster-slot-stats-enabled "cpu net"]
     }
 }

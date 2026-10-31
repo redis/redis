@@ -1,0 +1,57 @@
+# OSNICK=noble — Ubuntu 24.04 Redis build environment.
+#
+# Single Ubuntu Dockerfile for the workspace. The base image
+# `ubuntu:24.04` is published as a multi-arch manifest on Docker Hub
+# (linux/amd64 + linux/arm64), so `docker buildx build --platform
+# linux/amd64,linux/arm64 -f docker/Dockerfile.noble .` produces images
+# that run natively on both x86_64 and aarch64 hosts. All apt packages
+# below are arch-agnostic (gcc/g++/clang/cmake/etc. resolve to the
+# matching native toolchain at install time).
+#
+# Layout:
+#   1. FROM ubuntu:24.04 + OSNICK env (consumed by per-module
+#      install_script.sh so it skips its own auto-detect).
+#   2. Redis system prereqs from README §"Build and run Redis with all
+#      data structures - Ubuntu 24.04 (Noble)".
+#   3. COPY modules/ (which now carries modules.yaml inside it), then RUN
+#      modules/docker-install-bundled-module-deps.sh to invoke each
+#      bundled module's .install/install_script.sh.
+#
+# Build / use:
+#   docker buildx build --platform linux/amd64,linux/arm64 \
+#       -f docker/Dockerfile.noble -t redis-build:noble --load .
+#   docker run --rm -it -v "$(pwd):/workspace" -w /workspace redis-build:noble bash
+#   # inside container:
+#   make build
+
+FROM ubuntu:24.04
+
+WORKDIR /workspace
+ENV OSNICK=noble
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Apt resilience for transient archive/CDN flakes (matches the upstream
+# RTS Dockerfiles — keeps CI from failing on transient connection drops).
+RUN printf 'Acquire::Retries "3";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\n' \
+    > /etc/apt/apt.conf.d/80-retries
+
+# 1. Redis prereqs (apt's cmake on noble is recent enough — no pip cmake fallback).
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates wget dpkg-dev gcc g++ libc6-dev libssl-dev make git cmake \
+        python3 python3-pip python3-venv python3-dev \
+        unzip rsync clang automake autoconf libtool pkg-config python-is-python3 && \
+    rm -rf /var/lib/apt/lists/*
+
+# 2. Bundled module deps. The helper iterates modules/modules.yaml and runs
+# each module's src/.install/install_script.sh, picking the apt branch for
+# Ubuntu.
+#
+# Only the manifest + module helper scripts are baked into the image — the
+# Redis source tree, Makefile, redis.conf, and the per-module clones are
+# mounted at runtime via `-v $PWD:/workspace`. See README § "Build and run
+# Redis with all data structures - Ubuntu 24.04 (Noble)".
+COPY modules /workspace/modules
+COPY scripts/lib/manifest.sh /workspace/scripts/lib/manifest.sh
+RUN chmod +x /workspace/modules/docker-install-bundled-module-deps.sh && \
+    /workspace/modules/docker-install-bundled-module-deps.sh

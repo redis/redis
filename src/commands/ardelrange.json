@@ -1,0 +1,62 @@
+{
+    "ARDELRANGE": {
+        "summary": "Deletes elements in one or more ranges.",
+        "complexity": "Proportional to the number of existing elements / slices touched, not to the numeric span of the requested ranges",
+        "group": "array",
+        "since": "8.8.0",
+        "arity": -4,
+        "function": "ardelrangeCommand",
+        "command_flags": [
+            "WRITE"
+        ],
+        "acl_categories": [
+            "ARRAY"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "DELETE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "description": "Number of elements deleted.",
+            "type": "integer"
+        },
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "range",
+                "type": "block",
+                "multiple": true,
+                "arguments": [
+                    {
+                        "name": "start",
+                        "type": "integer"
+                    },
+                    {
+                        "name": "end",
+                        "type": "integer"
+                    }
+                ]
+            }
+        ]
+    }
+}

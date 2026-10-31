@@ -13,6 +13,16 @@
 #include <limits.h>
 #include <math.h>
 
+#ifdef __linux__
+#include <arpa/inet.h>
+#include <linux/errqueue.h>
+#include <linux/net_tstamp.h>
+#include <netinet/in.h>
+#include <sys/epoll.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
+
 #include "hiredis.h"
 #include "async.h"
 #include "adapters/poll.h"
@@ -945,6 +955,158 @@ static void test_blocking_connection_errors(void) {
     redisFree(c);
 #endif
 }
+
+#ifdef __linux__
+static uint32_t wait_for_epollerr(int epoll_fd) {
+    struct epoll_event event;
+    int count;
+
+    do {
+        count = epoll_wait(epoll_fd, &event, 1, 2000);
+    } while (count == -1 && errno == EINTR);
+
+    assert(count == 1);
+    assert(event.events & EPOLLERR);
+    return event.events;
+}
+
+static void consume_timestamp_error(redisFD fd) {
+    union {
+        struct cmsghdr align;
+        unsigned char data[512];
+    } control;
+    struct sock_extended_err *socket_error = NULL;
+    struct msghdr message = {0};
+    struct iovec iov;
+    struct cmsghdr *cmsg;
+    char byte;
+
+    iov.iov_base = &byte;
+    iov.iov_len = sizeof(byte);
+    message.msg_iov = &iov;
+    message.msg_iovlen = 1;
+    message.msg_control = control.data;
+    message.msg_controllen = sizeof(control.data);
+
+    assert(recvmsg(fd, &message, MSG_ERRQUEUE | MSG_DONTWAIT) >= 0);
+    assert(!(message.msg_flags & MSG_CTRUNC));
+    for (cmsg = CMSG_FIRSTHDR(&message); cmsg != NULL;
+         cmsg = CMSG_NXTHDR(&message, cmsg)) {
+        if (cmsg->cmsg_level == SOL_IP && cmsg->cmsg_type == IP_RECVERR) {
+            socket_error = (struct sock_extended_err *)CMSG_DATA(cmsg);
+            break;
+        }
+    }
+    assert(socket_error != NULL);
+    assert(socket_error->ee_origin == SO_EE_ORIGIN_TIMESTAMPING);
+}
+
+static void test_nonblocking_connect_error_queue(void) {
+    const int timestamping = SOF_TIMESTAMPING_TX_SOFTWARE |
+                             SOF_TIMESTAMPING_SOFTWARE |
+                             SOF_TIMESTAMPING_OPT_TSONLY;
+    const char pong[] = "+PONG\r\n";
+    struct sockaddr_in address = {0};
+    struct epoll_event event = {0};
+    redisContext *context;
+    redisReply *reply = NULL;
+    socklen_t address_length = sizeof(address);
+    socklen_t option_length;
+    char byte = 'x';
+    int listener_fd;
+    int peer_fd;
+    int epoll_fd;
+    int completed = 0;
+    int option;
+    int count;
+    ssize_t result;
+
+    listener_fd = socket(AF_INET, SOCK_STREAM, 0);
+    assert(listener_fd != -1);
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    address.sin_port = 0;
+    assert(bind(listener_fd, (struct sockaddr *)&address, sizeof(address)) == 0);
+    assert(listen(listener_fd, 1) == 0);
+    assert(getsockname(listener_fd, (struct sockaddr *)&address,
+                       &address_length) == 0);
+
+    context = redisConnectNonBlock("127.0.0.1", ntohs(address.sin_port));
+    assert(context != NULL && context->err == 0);
+    peer_fd = accept(listener_fd, NULL, NULL);
+    assert(peer_fd != -1);
+
+    epoll_fd = epoll_create1(EPOLL_CLOEXEC);
+    assert(epoll_fd != -1);
+    event.events = EPOLLIN;
+    event.data.fd = context->fd;
+    assert(epoll_ctl(epoll_fd, EPOLL_CTL_ADD, context->fd, &event) == 0);
+    count = setsockopt(context->fd, SOL_SOCKET, SO_TIMESTAMPING,
+                       &timestamping, sizeof(timestamping));
+    if (count == -1 && errno == ENOPROTOOPT) {
+        test("Nonblocking connect error queue (SO_TIMESTAMPING unavailable): ");
+        test_skipped();
+        goto cleanup;
+    }
+    assert(count == 0);
+
+    /* Timestamp records use the same sk_error_queue occupancy predicate as
+     * queued ICMP errors, without requiring raw sockets or a network race. */
+    assert(send(context->fd, &byte, sizeof(byte), 0) == (ssize_t)sizeof(byte));
+    assert(recv(peer_fd, &byte, sizeof(byte), 0) == (ssize_t)sizeof(byte));
+    (void)wait_for_epollerr(epoll_fd);
+    consume_timestamp_error(context->fd);
+    assert(epoll_wait(epoll_fd, &event, 1, 0) == 0);
+
+    assert(send(context->fd, &byte, sizeof(byte), 0) == (ssize_t)sizeof(byte));
+    assert(recv(peer_fd, &byte, sizeof(byte), 0) == (ssize_t)sizeof(byte));
+    (void)wait_for_epollerr(epoll_fd);
+
+    option = 0;
+    assert(setsockopt(context->fd, SOL_SOCKET, SO_TIMESTAMPING,
+                      &option, sizeof(option)) == 0);
+    option_length = sizeof(option);
+    assert(getsockopt(context->fd, IPPROTO_IP, IP_RECVERR,
+                      &option, &option_length) == 0 && option == 0);
+    option_length = sizeof(option);
+    assert(getsockopt(context->fd, SOL_SOCKET, SO_TIMESTAMPING,
+                      &option, &option_length) == 0 && option == 0);
+    option_length = sizeof(option);
+    assert(getsockopt(context->fd, SOL_SOCKET, SO_ERROR,
+                      &option, &option_length) == 0 && option == 0);
+    errno = 0;
+    result = recv(context->fd, &byte, sizeof(byte), MSG_DONTWAIT);
+    assert(result == -1 && (errno == EAGAIN || errno == EWOULDBLOCK));
+    assert(wait_for_epollerr(epoll_fd) & EPOLLERR);
+
+    context->flags |= REDIS_BLOCK;
+    assert(redisCheckConnectDone(context, &completed) == REDIS_OK);
+    context->flags &= ~REDIS_BLOCK;
+    assert(completed == 1);
+    count = epoll_wait(epoll_fd, &event, 1, 0);
+    test("Successful connect drains the error queue in blocking mode: ");
+    test_cond(count == 0);
+
+    assert(send(peer_fd, pong, sizeof(pong) - 1, 0) ==
+           (ssize_t)(sizeof(pong) - 1));
+    do {
+        count = epoll_wait(epoll_fd, &event, 1, 2000);
+    } while (count == -1 && errno == EINTR);
+    assert(count == 1 && (event.events & EPOLLIN));
+    assert(redisBufferRead(context) == REDIS_OK);
+    assert(redisGetReplyFromReader(context, (void **)&reply) == REDIS_OK);
+    test("Connection with a queued error remains usable: ");
+    test_cond(reply != NULL && reply->type == REDIS_REPLY_STATUS &&
+              strcmp(reply->str, "PONG") == 0);
+
+cleanup:
+    freeReplyObject(reply);
+    close(epoll_fd);
+    close(peer_fd);
+    close(listener_fd);
+    redisFree(context);
+}
+#endif
 
 /* Test push handler */
 void push_handler(void *privdata, void *r) {
@@ -2337,6 +2499,9 @@ int main(int argc, char **argv) {
     test_reply_reader();
     test_blocking_connection_errors();
     test_free_null();
+#ifdef __linux__
+    test_nonblocking_connect_error_queue();
+#endif
 
     printf("\nTesting against TCP connection (%s:%d):\n", cfg.tcp.host, cfg.tcp.port);
     cfg.type = CONN_TCP;

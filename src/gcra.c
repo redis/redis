@@ -9,6 +9,8 @@
 #include "server.h"
 #include <math.h>
 
+#ifdef ENABLE_GCRA
+
 /* GCRA algorithm for rate limiting.
  * Implementation is heavily based on the implementation of (redis-cell)
  * [https://github.com/brandur/redis-cell] by (brandur)[https://github.com/brandur].
@@ -278,3 +280,5 @@ robj *gcraDup(robj *o) {
     getLongLongFromGCRAObject(o, &val);
     return createGCRAObject(val);
 }
+
+#endif /* ENABLE_GCRA */

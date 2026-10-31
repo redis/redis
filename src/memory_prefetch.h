@@ -15,12 +15,26 @@
 #ifndef MEMORY_PREFETCH_H
 #define MEMORY_PREFETCH_H
 
-struct client;
+#include <stddef.h>
 
+struct client;
+struct dict;
+
+/* Cross-command batch prefetching */
 void prefetchCommandsBatchInit(void);
 int determinePrefetchCount(int len);
 int addCommandToBatch(struct client *c);
 void resetCommandsBatch(void);
 void prefetchCommands(void);
+
+/* Intra-command prefetch: prefetch dict lookup data for an array of keys.
+ * Reuses the same state machine as the cross-command path. The dict's
+ * dictType drives any key/value payload prefetching via the
+ * prefetchEntryKey / prefetchEntryValue callbacks.
+ *
+ * nkeys must be <= DICT_PREFETCH_MAX_SIZE (the function asserts this).
+ * Callers should batch larger inputs into chunks of this size or smaller. */
+#define DICT_PREFETCH_MAX_SIZE 64
+void dictPrefetchKeys(struct dict **dicts, void **keys, size_t nkeys);
 
 #endif /* MEMORY_PREFETCH_H */

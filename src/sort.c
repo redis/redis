@@ -10,6 +10,7 @@
 
 #include "fast_float_strtod.h"
 #include "server.h"
+#include "zset_btree.h"
 #include "pqsort.h" /* Partial qsort for SORT+LIMIT */
 #include <math.h> /* isnan() */
 #include "cluster.h"
@@ -338,11 +339,11 @@ void sortCommandGeneric(client *c, int readonly) {
         sortby = NULL;
     }
 
-    /* Destructively convert encoded sorted sets for SORT. */
-    if (sortval->type == OBJ_ZSET) {
+    /* Destructively convert listpack encoded sorted sets for SORT. */
+    if (sortval->type == OBJ_ZSET && sortval->encoding == OBJ_ENCODING_LISTPACK) {
         if (server.memory_tracking_enabled)
             oldsize = kvobjAllocSize(sortval);
-        zsetConvert(sortval, OBJ_ENCODING_SKIPLIST);
+        zsetConvert(sortval, OBJ_ENCODING_BTREE);
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), sortval, oldsize, kvobjAllocSize(sortval));
     }
@@ -350,8 +351,23 @@ void sortCommandGeneric(client *c, int readonly) {
     /* Obtain the length of the object to sort. */
     switch(sortval->type) {
     case OBJ_LIST: vectorlen = listTypeLength(sortval); break;
-    case OBJ_SET: vectorlen =  setTypeSize(sortval); break;
-    case OBJ_ZSET: vectorlen = dictSize(((zset*)sortval->ptr)->dict); break;
+    case OBJ_SET:
+        if (setTypeHasExpireSupport(sortval)) {
+            /* The members that are logically expired are not sorted, so count
+             * the others. */
+            setTypeIterator lsi;
+            char *lstr;
+            size_t llen;
+            int64_t lll;
+            vectorlen = 0;
+            setTypeInitIterator(&lsi, sortval, SET_ITER_SKIP_EXPIRED);
+            while (setTypeNext(&lsi, &lstr, &llen, &lll) != -1) vectorlen++;
+            setTypeResetIterator(&lsi);
+        }
+        else
+            vectorlen = setTypeSize(sortval);
+        break;
+    case OBJ_ZSET: vectorlen = zsetLength(sortval); break;
     default: vectorlen = 0; serverPanic("Bad SORT type"); /* Avoid GCC warning */
     }
 
@@ -428,7 +444,7 @@ void sortCommandGeneric(client *c, int readonly) {
             oldsize = kvobjAllocSize(sortval);
         setTypeIterator si;
         sds sdsele;
-        setTypeInitIterator(&si, sortval);
+        setTypeInitIterator(&si, sortval, SET_ITER_SKIP_EXPIRED);
         while((sdsele = setTypeNextObject(&si)) != NULL) {
             vector[j].obj = createObject(OBJ_STRING,sdsele);
             vector[j].u.score = 0;
@@ -446,54 +462,79 @@ void sortCommandGeneric(client *c, int readonly) {
          * Note that in this case we also handle LIMIT here in a direct
          * way, just getting the required range, as an optimization. */
 
-        zset *zs = sortval->ptr;
-        zskiplist *zsl = zs->zsl;
-        zskiplistNode *ln;
-        sds sdsele;
         int rangelen = vectorlen;
-
-        /* Check if starting point is trivial, before doing log(N) lookup. */
-        if (desc) {
-            long zsetlen = dictSize(((zset*)sortval->ptr)->dict);
-
-            ln = zsl->tail;
-            if (start > 0)
-                ln = zslGetElementByRank(zsl,zsetlen-start);
+        if (sortval->encoding == OBJ_ENCODING_BTREE) {
+            serverAssert(zsetLength(sortval) > 0);
+            zbtreeIterator iter;
+            const unsigned char *ele;
+            size_t len;
+            unsigned long rank =
+                desc ? zsetLength(sortval) - (unsigned long)start - 1 :
+                       (unsigned long)start;
+            serverAssert(zbtreeIteratorSeekRank(sortval->ptr, rank, &iter));
+            while(rangelen--) {
+                serverAssert(zbtreeIteratorNext(&iter, desc, &ele, &len, NULL));
+                vector[j].obj = createStringObject((char *)ele,len);
+                vector[j].u.score = 0;
+                vector[j].u.cmpobj = NULL;
+                j++;
+            }
         } else {
-            ln = zsl->header->level[0].forward;
-            if (start > 0)
-                ln = zslGetElementByRank(zsl,start+1);
-        }
+            zset *zs = sortval->ptr;
+            zskiplist *zsl = zs->zsl;
+            zskiplistNode *ln;
 
-        while(rangelen--) {
-            serverAssertWithInfo(c,sortval,ln != NULL);
-            sdsele = zslGetNodeElement(ln);
-            vector[j].obj = createStringObject(sdsele,sdslen(sdsele));
-            vector[j].u.score = 0;
-            vector[j].u.cmpobj = NULL;
-            j++;
-            ln = desc ? ln->backward : ln->level[0].forward;
+            if (desc) {
+                ln = zsl->tail;
+                if (start > 0)
+                    ln = zslGetElementByRank(zsl,zsetLength(sortval)-start);
+            } else {
+                ln = zsl->header->level[0].forward;
+                if (start > 0)
+                    ln = zslGetElementByRank(zsl,start+1);
+            }
+
+            while(rangelen--) {
+                serverAssertWithInfo(c,sortval,ln != NULL);
+                sds ele = zslGetNodeElement(ln);
+                vector[j].obj = createStringObject(ele,sdslen(ele));
+                vector[j].u.score = 0;
+                vector[j].u.cmpobj = NULL;
+                j++;
+                ln = desc ? ln->backward : ln->level[0].forward;
+            }
         }
         /* Fix start/end: output code is not aware of this optimization. */
         end -= start;
         start = 0;
     } else if (sortval->type == OBJ_ZSET) {
-        dict *set = ((zset*)sortval->ptr)->dict;
-        dictIterator di;
-        dictEntry *setele;
-        sds sdsele;
-
         if (server.memory_tracking_enabled)
             oldsize = kvobjAllocSize(sortval);
-        dictInitIterator(&di, set);
-        while((setele = dictNext(&di)) != NULL) {
-            sdsele = zslGetNodeElement(dictGetKey(setele));
-            vector[j].obj = createStringObject(sdsele,sdslen(sdsele));
-            vector[j].u.score = 0;
-            vector[j].u.cmpobj = NULL;
-            j++;
+        if (sortval->encoding == OBJ_ENCODING_BTREE) {
+            zbtreeIterator iter;
+            const unsigned char *ele;
+            size_t len;
+            zbtreeIteratorStart(sortval->ptr, 0, &iter);
+            while(zbtreeIteratorNext(&iter, 0, &ele, &len, NULL)) {
+                vector[j].obj = createStringObject((char *)ele,len);
+                vector[j].u.score = 0;
+                vector[j].u.cmpobj = NULL;
+                j++;
+            }
+        } else {
+            dict *set = ((zset*)sortval->ptr)->dict;
+            dictIterator di;
+            dictEntry *setele;
+            dictInitIterator(&di, set);
+            while((setele = dictNext(&di)) != NULL) {
+                sds ele = zslGetNodeElement(dictGetKey(setele));
+                vector[j].obj = createStringObject(ele,sdslen(ele));
+                vector[j].u.score = 0;
+                vector[j].u.cmpobj = NULL;
+                j++;
+            }
+            dictResetIterator(&di);
         }
-        dictResetIterator(&di);
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), sortval, oldsize, kvobjAllocSize(sortval));
     } else {

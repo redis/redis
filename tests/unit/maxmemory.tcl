@@ -15,7 +15,6 @@ start_server {tags {"maxmemory" "external:skip"}} {
     r config set maxmemory 11mb
     r config set maxmemory-policy allkeys-lru
     set server_pid [s process_id]
-    r debug reply-copy-avoidance 0 ;# Disable copy avoidance because it affects memory usage
 
     proc init_test {client_eviction} {
         r flushdb
@@ -29,11 +28,11 @@ start_server {tags {"maxmemory" "external:skip"}} {
         }
 
         r config resetstat
-        # fill 5mb using 50 keys of 100kb
-        for {set j 0} {$j < 50} {incr j} {
-            r setrange $j 100000 x
+        # fill 5mb using 500 keys of 10kb
+        for {set j 0} {$j < 500} {incr j} {
+            r setrange key$j 10000 x
         }
-        assert_equal [r dbsize] 50
+        assert_equal [r dbsize] 500
     }
     
     # Return true if the eviction occurred (client or key) based on argument
@@ -44,12 +43,12 @@ start_server {tags {"maxmemory" "external:skip"}} {
         
         if $client_eviction {
             if {[lindex [r config get io-threads] 1] == 1} {
-                return [expr $evicted_clients > 0 && $evicted_keys == 0 && $dbsize == 50]
+                return [expr $evicted_clients > 0 && $evicted_keys == 0 && $dbsize == 500]
             } else {
-                return [expr $evicted_clients >= 0 && $evicted_keys >= 0 && $dbsize <= 50]
+                return [expr $evicted_clients >= 0 && $evicted_keys >= 0 && $dbsize <= 500]
             }
         } else {
-            return [expr $evicted_clients == 0 && $evicted_keys > 0 && $dbsize < 50]
+            return [expr $evicted_clients == 0 && $evicted_keys > 0 && $dbsize < 500]
         }
     }
 
@@ -84,7 +83,7 @@ start_server {tags {"maxmemory" "external:skip"}} {
             while {![check_eviction_test $client_eviction] && [expr [clock seconds] - $t] < 20} {
                 foreach rr $clients {
                     if {[catch {
-                        $rr mget 1
+                        $rr mget key1 key2 key3 key4 key5 key6 key7 key8 key9 key10
                         $rr flush
                     } err]} {
                         lremove clients $rr

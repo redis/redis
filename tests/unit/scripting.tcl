@@ -73,6 +73,48 @@ start_server {tags {"scripting"}} {
         run_script {return 'hello'} 0
     } {hello}
 
+    test {Lua tostring hides object addresses} {
+        set result [run_script {
+            local objects = {
+                tostring, pairs, pcall, function() end,
+                coroutine, string, math, table,
+                coroutine.create(function() end), cjson.null
+            }
+            for i = 1, 5 do table.insert(objects, {}) end
+            local result = {}
+            for _, object in ipairs(objects) do
+                table.insert(result, tostring(object))
+            end
+            return result
+        } 0]
+        foreach expected_type {function function function function table table table table thread userdata
+                               table table table table table} value $result {
+            assert_equal "$expected_type: <opaque>" $value
+        }
+    }
+
+    test {Lua tostring preserves scalar conversions} {
+        run_script {
+            return {tostring(nil), tostring(true), tostring(false),
+                    tostring(42), tostring(-1), tostring(1.5),
+                    tostring('hello'), tostring('')}
+        } 0
+    } {nil true false 42 -1 1.5 hello {}}
+
+    test {Lua tostring honors custom metamethods and their errors} {
+        run_script {
+            local object = setmetatable({name = 'custom'}, {
+                __tostring = function(self) return self.name end
+            })
+            local failing = setmetatable({}, {
+                __tostring = function() error('custom tostring error') end
+            })
+            local ok, err = pcall(tostring, failing)
+            assert(not ok and string.find(err, 'custom tostring error', 1, true))
+            return tostring(object)
+        } 0
+    } {custom}
+
     test {EVAL - Return _G} {
         run_script {return _G} 0
     } {}
@@ -1331,6 +1373,23 @@ start_server [subst {tags {"scripting external:skip"} overrides {lua-enable-depr
             assert_match {*Script attempted to access nonexistent global variable 'newproxy'*} $e
         }
     }
+
+    if {$enabled} {
+        test {Lua tostring hides full userdata addresses} {
+            run_script {return {tostring(newproxy(false)), tostring(newproxy(true))}} 0
+        } {{userdata: <opaque>} {userdata: <opaque>}}
+
+        test {Lua tostring honors full userdata metamethods} {
+            run_script {
+                local object = newproxy(true)
+                getmetatable(object).__tostring = function(self)
+                    assert(self == object)
+                    return 'custom userdata'
+                end
+                return tostring(object)
+            } 0
+        } {custom userdata}
+    }
 }
 }
 
@@ -1348,6 +1407,40 @@ start_server {tags {"scripting"}} {
         after 200 ; # Give some time to Lua to call the hook again...
         assert_equal [r ping] "PONG"
         $rd close
+    }
+
+    test {Timedout scripts stuck in Lua pattern matching can be killed by SCRIPT KILL} {
+        set rd [redis_deferring_client]
+        r config set lua-time-limit 10
+        # Catastrophic backtracking: this pattern never matches and would run
+        # (effectively) forever. The whole match runs inside the C function
+        # match() in deps/lua/src/lstrlib.c, so before the fix neither
+        # lua-time-limit nor SCRIPT KILL could interrupt it and the entire
+        # server hung until it was killed with SIGKILL.
+        run_script_on_connection $rd {return string.find(string.rep('A', 100), string.rep('(.+)', 10) .. '!')} 0
+
+        # The server must stay responsive (report BUSY) rather than hang.
+        wait_for_condition 50 100 {
+            [catch {r ping} e] == 1
+        } else {
+            fail "Can't wait for script to start running"
+        }
+        catch {r ping} e
+        assert_match {BUSY*} $e
+
+        kill_script
+
+        wait_for_condition 50 100 {
+            [catch {r ping} e] == 0
+        } else {
+            fail "Can't wait for script to be killed"
+        }
+        assert_equal [r ping] "PONG"
+
+        catch {$rd read} res
+        $rd close
+
+        assert_match {*killed by user*} $res
     }
 
     test {Timedout read-only scripts can be killed by SCRIPT KILL even when use pcall} {
@@ -1382,7 +1475,7 @@ start_server {tags {"scripting"}} {
         set rd [redis_deferring_client]
         r config set lua-time-limit 10
 
-        # senging (in a pipeline):
+        # sending (in a pipeline):
         # 1. eval "while 1 do redis.call('ping') end" 0
         # 2. ping
         if {$is_eval == 1} {
@@ -1665,6 +1758,157 @@ start_server {tags {"scripting repl external:skip"}} {
             r debug loadaof
 
             assert {[r mget a b c d] eq {1 {} 3 4}}
+        }
+
+        test "HEXPIRE HGETDEL HGETEX honor redis.set_repl REPL_NONE" {
+            r del h h2 h3
+            r hset h f v
+            r hset h2 a 1
+            r hset h3 c 1
+            run_script {
+                redis.set_repl(redis.REPL_NONE);
+                redis.call('hexpire','h',100,'FIELDS','1','f');
+                redis.call('hgetdel','h2','FIELDS','1','a');
+                redis.call('hgetex','h3','EX','100','FIELDS','1','c');
+            } 3 h h2 h3
+            r debug loadaof
+            assert_equal [r httl h FIELDS 1 f] -1
+            assert_equal [r hexists h2 a] 1
+            assert_equal [r httl h3 FIELDS 1 c] -1
+        }
+
+        test "Test selective replication of effect commands from Lua" {
+            # Commands that replace their own propagation (the counted form of
+            # SPOP propagates as SREM) queue the replacement via
+            # alsoPropagate(), which must honor set_repl() as well.
+            set keys {s1{t} s2{t} s3{t} s4{t}}
+            r del {*}$keys
+            foreach key $keys {
+                r sadd $key a b c d e
+            }
+            run_script {
+                redis.call('spop',KEYS[1],2);
+                redis.set_repl(redis.REPL_NONE);
+                redis.call('spop',KEYS[2],2);
+                redis.set_repl(redis.REPL_AOF);
+                redis.call('spop',KEYS[3],2);
+                redis.set_repl(redis.REPL_ALL);
+                redis.call('spop',KEYS[4],2);
+            } 4 {*}$keys
+
+            # The master popped members from all the four sets.
+            assert_equal {3 3 3 3} [lmap key $keys {r scard $key}]
+
+            # Only the SREM of s1 and s4 should have reached the replica.
+            wait_for_condition 50 100 {
+                [lmap key $keys {r -1 scard $key}] eq {3 5 5 3}
+            } else {
+                fail "Only the SREM of s1 and s4 should be replicated to replica"
+            }
+
+            # After an AOF reload only s1, s3 and s4 should be trimmed.
+            r debug loadaof
+
+            assert_equal {3 5 3 3} [lmap key $keys {r scard $key}]
+        }
+
+        test "Test selective replication of HIMPORT SET from Lua" {
+            # HIMPORT SET replaces its own propagation with a RESTORE queued via
+            # alsoPropagate(), so it must honor set_repl() too. The fieldset
+            # prepared by HIMPORT PREPARE is per-client state, hence both calls
+            # have to happen inside the same script.
+            r del ht1{t} ht2{t}
+            run_script {
+                redis.call('himport','prepare','fs','f1','f2');
+                redis.set_repl(redis.REPL_NONE);
+                redis.call('himport','set',KEYS[1],'fs','v1','v2');
+                redis.set_repl(redis.REPL_ALL);
+                redis.call('himport','set',KEYS[2],'fs','v3','v4');
+            } 2 ht1{t} ht2{t}
+
+            assert_equal {v1 v2} [r hmget ht1{t} f1 f2]
+            assert_equal {v3 v4} [r hmget ht2{t} f1 f2]
+
+            wait_for_condition 50 100 {
+                [r -1 hmget ht2{t} f1 f2] eq {v3 v4}
+            } else {
+                fail "The RESTORE of ht2 should be replicated to replica"
+            }
+            assert_equal 0 [r -1 exists ht1{t}]
+        }
+
+        test "Test implicit deletions are replicated despite set_repl(REPL_NONE)" {
+            # Keys and hash fields deleted because they expired are an implicit
+            # decision of the server, so they must always be propagated, no
+            # matter what the script that happened to touch them asked for.
+            r debug set-active-expire 0
+            r del expkey{t} exphash{t} sentinel{t}
+            r set expkey{t} v px 1
+            r hset exphash{t} f1 v1 f2 v2
+            r hpexpire exphash{t} 1 fields 1 f1
+            after 20
+
+            set repl [attach_to_replication_stream]
+            run_script {
+                redis.set_repl(redis.REPL_NONE);
+                redis.call('get',KEYS[1]);
+                redis.call('hget',KEYS[2],'f1');
+                redis.set_repl(redis.REPL_ALL);
+                redis.call('set',KEYS[3],'1');
+            } 3 expkey{t} exphash{t} sentinel{t}
+
+            if {$is_eval} {
+                assert_replication_stream $repl {
+                    {multi}
+                    {select *}
+                    {del expkey{t}}
+                    {hdel exphash{t} f1}
+                    {set sentinel{t} 1}
+                    {exec}
+                }
+            } else {
+                assert_replication_stream $repl {
+                    {select *}
+                    {function load *}
+                    {multi}
+                    {del expkey{t}}
+                    {hdel exphash{t} f1}
+                    {set sentinel{t} 1}
+                    {exec}
+                }
+            }
+            close_replication_stream $repl
+            r debug set-active-expire 1
+        }
+
+        test "Test no empty MULTI/EXEC is replicated for AOF-only effects" {
+            # Both SREM the SPOP calls queue are restricted to the AOF, so the
+            # replica must receive nothing at all: not even the MULTI / EXEC
+            # that wraps them in the AOF.
+            r del myset{t} sentinel{t}
+            r sadd myset{t} a b c d e
+
+            set repl [attach_to_replication_stream]
+            run_script {
+                redis.set_repl(redis.REPL_AOF);
+                redis.call('spop',KEYS[1],2);
+                redis.call('spop',KEYS[1],2);
+            } 1 myset{t}
+            r set sentinel{t} 1
+
+            if {$is_eval} {
+                assert_replication_stream $repl {
+                    {select *}
+                    {set sentinel{t} 1}
+                }
+            } else {
+                assert_replication_stream $repl {
+                    {select *}
+                    {function load *}
+                    {set sentinel{t} 1}
+                }
+            }
+            close_replication_stream $repl
         }
 
         test "PRNG is seeded randomly for command replication" {
@@ -2189,6 +2433,41 @@ start_server {tags {"scripting"}} {
         assert_match {*Unexpected flag in script shebang*} $e
     }
 
+    foreach command {eval eval_ro {script load}} {
+        foreach {field shebang} {
+            engine {#!"lua%s" flags=no-writes}
+            option {#!lua flags=no-writes "bad=%s"}
+            flags {#!lua flags="no-writes,bad%s,allow-oom"}
+        } {
+            test "Reject CR and LF in shebang $field - $command" {
+                # Quoted shebang arguments decode escapes, including hex escapes.
+                # Check the entire token, even after an embedded NUL byte.
+                foreach symbols [list {\r} {\n} {\r\n+INJECTED\r\n} \
+                                      {\x0d} {\x0a} {\x0d\x0a+INJECTED\x0d\x0a} \
+                                      {\x00\r} {\x00\n} "\r"] {
+                    set script "[format $shebang $symbols]\nreturn 1"
+                    set args [list $script]
+                    if {$command ne "script load"} {lappend args 0}
+                    assert_error {ERR Invalid symbols in script shebang} {
+                        r {*}$command {*}$args
+                    }
+                    # An injected reply must not be left on the connection.
+                    assert_equal PONG [r ping]
+                }
+            }
+        }
+
+        test "Quoted shebang tokens with CRLF line endings - $command" {
+            set script "#!\"lua\" flags=\"no-writes,allow-oom\"\r\nreturn 1 -- $command"
+            if {$command eq "script load"} {
+                set sha [r script load $script]
+                assert_equal 1 [r evalsha_ro $sha 0]
+            } else {
+                assert_equal 1 [r $command $script 0]
+            }
+        }
+    }
+
     test "allow-oom shebang flag" {
         r set x 123
     
@@ -2604,6 +2883,14 @@ start_server {tags {"scripting"}} {
             r eval {return redis.error_reply("")} 0
         }
         assert_equal [errorrstat ERR r] {count=1}
+    }
+
+    test "LUA redis.error_reply API with CRLF injection attempt" {
+        catch {
+            r eval {error(redis.error_reply("X\r\n+INJECTED"))} 0
+        } err
+        # The error message should have CRLF replaced with spaces
+        assert_match {ERR X  +INJECTED*} $err
     }
 
     test "LUA redis.status_reply API" {

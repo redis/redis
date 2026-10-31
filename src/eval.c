@@ -344,6 +344,17 @@ int evalExtractShebangFlags(sds body, uint64_t *out_flags, ssize_t *out_shebang_
             sdsfreesplitres(parts, numparts);
             return C_ERR;
         }
+        /* sdssplitargs decodes escapes in quoted arguments. Reject CR/LF in
+         * every token before any of them can be included in an error reply. */
+        for (j = 0; j < numparts; j++) {
+            if (memchr(parts[j], '\r', sdslen(parts[j])) ||
+                memchr(parts[j], '\n', sdslen(parts[j]))) {
+                if (err)
+                    *err = sdsnew("Invalid symbols in script shebang");
+                sdsfreesplitres(parts, numparts);
+                return C_ERR;
+            }
+        }
         /* Verify lua interpreter was specified */
         if (strcmp(parts[0], "#!lua")) {
             if (err)
@@ -1027,7 +1038,7 @@ int ldbDelBreakpoint(int line) {
     for (j = 0; j < ldb.bpcount; j++) {
         if (ldb.bp[j] == line) {
             ldb.bpcount--;
-            memmove(ldb.bp+j,ldb.bp+j+1,ldb.bpcount-j);
+            memmove(ldb.bp+j,ldb.bp+j+1,(ldb.bpcount-j) * sizeof(int));
             return 1;
         }
     }
@@ -1502,7 +1513,9 @@ void ldbEval(lua_State *lua, sds *argv, int argc) {
     sdsfree(code);
     sdsfree(expr);
     if (lua_pcall(lua,0,1,0)) {
-        ldbLog(sdscatfmt(sdsempty(),"<error> %s",lua_tostring(lua,-1)));
+        const char *err = lua_tostring(lua,-1);
+        ldbLog(sdscatfmt(sdsempty(),"<error> %s",
+            err ? err : "(error object is not a string)"));
         lua_pop(lua,1);
         return;
     }
