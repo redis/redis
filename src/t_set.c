@@ -236,7 +236,13 @@ static void maybeConvertToIntset(robj *set) {
 /* Add the specified sds value into a set.
  *
  * If the value was already member of the set, nothing is done and 0 is
- * returned, otherwise the new element is added and 1 is returned. */
+ * returned, otherwise the new element is added and 1 is returned.
+ *
+ * It and setTypeAddAux() are forced inline into the callers of this file: when
+ * they are not, SADD pays for a function call (frame, saved registers, stack
+ * protector) per member. They are still defined out of line for the other files,
+ * since server.h declares them without inline. */
+__attribute__((always_inline)) inline
 int setTypeAdd(robj *subject, sds value) {
     return setTypeAddAux(subject, value, sdslen(value), 0, 1);
 }
@@ -247,6 +253,7 @@ int setTypeAdd(robj *subject, sds value) {
  * is set to NULL and llval is provided instead.
  *
  * Returns 1 if the value was added and 0 if it was already a member. */
+__attribute__((always_inline)) inline
 int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds) {
     char tmpbuf[LONG_STR_SIZE];
     if (!str && set->encoding != OBJ_ENCODING_INTSET) {
