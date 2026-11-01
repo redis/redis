@@ -451,18 +451,19 @@ start_server {tags {"maxmemory external:skip"}} {
     test {Shrink the dict even when used memory is at maxmemory} {
         r config set maxmemory 0
         r config set maxmemory-policy allkeys-random
+        set db [expr {$::singledb ? 0 : 9}]
 
         set base [s used_memory]
         populate 50000 "" 100
-        assert_match "*table size: 65536*" [r debug HTSTATS 9]
+        assert_match "*table size: 65536*" [r debug HTSTATS $db]
 
         # Evicting most of the keys keeps used memory at the limit.
         r config set maxmemory [expr {$base + ([s used_memory] - $base) / 8}]
 
         wait_for_condition 100 50 {
-            ![string match "*table size: 65536*" [r debug HTSTATS 9]]
+            ![string match "*table size: 65536*" [r debug HTSTATS $db]]
         } else {
-            puts [r debug HTSTATS 9]
+            puts [r debug HTSTATS $db]
             fail "dict wasn't shrunk"
         }
     } {} {needs:debug}
