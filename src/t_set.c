@@ -3159,6 +3159,14 @@ void sinterGenericCommand(client *c, robj **setkeys,
      * the element against all the other sets, if at least one set does
      * not include the element it is discarded */
     int only_integers = 1;
+    /* A stored member gets the nearest expiration of the sets it is in, which
+     * needs a lookup of it in each set. If none of the sets can hold
+     * expirations there is nothing to look up, for any member. */
+    int sourcesCanExpire = 0;
+    if (dstkey && !cardinality_only) {
+        for (j = 0; j < setnum; j++)
+            sourcesCanExpire |= setTypeHasExpireSupport(sets[j].set);
+    }
     setTypeInitIterator(&si, sets[0].set, SET_ITER_SKIP_EXPIRED);
     while((encoding = setTypeNext(&si, &str, &len, &intobj)) != -1) {
         for (j = 1; j < setnum; j++) {
@@ -3172,7 +3180,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
         if (j == setnum) {
             /* The stored member gets the nearest expiration of all the sets. */
             uint64_t expire = EB_EXPIRE_TIME_INVALID;
-            if (dstkey && !cardinality_only) {
+            if (sourcesCanExpire) {
                 for (j = 0; j < setnum; j++) {
                     uint64_t e = si.expire;
                     if (j > 0 && sets[j].set != sets[0].set) {
