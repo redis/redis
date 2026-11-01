@@ -2221,8 +2221,10 @@ void saddCommand(client *c) {
     if (server.memory_tracking_enabled)
         oldsize = kvobjAllocSize(set);
     /* A logically expired member that is added again is replaced in place, so
-     * the number of added members is not the growth of the set. */
-    unsigned long oldlen = setTypeSize(set);
+     * for a set that can hold expirations the number of added members is not the
+     * growth of the set. For the other sets it is, which saves the size lookup. */
+    const int canExpire = setTypeHasExpireSupport(set);
+    unsigned long oldlen = canExpire ? setTypeSize(set) : 0;
     for (j = 2; j < c->argc; j++) {
         if (setTypeAdd(set,c->argv[j]->ptr)) added++;
     }
@@ -2230,6 +2232,7 @@ void saddCommand(client *c) {
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), set, oldsize, kvobjAllocSize(set));
     if (added) {
         unsigned long size = setTypeSize(set);
+        if (!canExpire) oldlen = size - added;
         if (size != oldlen) updateKeysizesHist(c->db, OBJ_SET, oldlen, size);
         keyModified(c,c->db,c->argv[1],set,1);
         notifyKeyspaceEvent(NOTIFY_SET,"sadd",c->argv[1],c->db->id);
