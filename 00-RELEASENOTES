@@ -13,6 +13,19 @@ SECURITY: There are security fixes in the release.
 
 
 ===================================================================
+Redis 8.12-RC2 (v8.11.241)    Released Sun 1 Nov 2026 18:00:00 IST
+===================================================================
+
+This is the second Release Candidate of Redis 8.12 in Redis Open Source.
+
+Release Candidates are feature-complete pre-releases. Pre-releases are not suitable for production use.
+
+### New Features
+
+- #16082 Update the Search module to include all Redis Search related content that was intended for RC1 
+
+
+===================================================================
 Redis 8.12-RC1 (v8.11.240)    Released Thu 29 Oct 2026 14:00:00 IST
 ===================================================================
 
