@@ -2375,8 +2375,11 @@ void smoveCommand(client *c) {
         oldDstAllocSize = kvobjAllocSize(dstset);
     int added, expireChanged = 0, persisted = 0;
     /* A destination member that is logically expired and could not be removed
-     * above is replaced in place, so 'added' is not always a growth of the set. */
-    unsigned long dstOldLen = setTypeSize(dstset);
+     * above is replaced in place, so 'added' is not always a growth of the set,
+     * but only if the destination could hold expirations before the add: for the
+     * other sets the old size is derived from the new one. */
+    const int dstCanExpire = setTypeHasExpireSupport(dstset);
+    unsigned long dstOldLen = dstCanExpire ? setTypeSize(dstset) : 0;
     if (srcExpire != EB_EXPIRE_TIME_INVALID) {
         setTypeConvertToExpireEncoding(dstset);
         added = setTypeAddExAux(dstset, ele->ptr, sdslen(ele->ptr), 0, 1, srcExpire);
@@ -2394,6 +2397,7 @@ void smoveCommand(client *c) {
     /* An extra key has changed when ele was successfully added to dstset */
     if (added) {
         unsigned long dstLen = setTypeSize(dstset);
+        if (!dstCanExpire) dstOldLen = dstLen - added;
         if (dstLen != dstOldLen) updateKeysizesHist(c->db, OBJ_SET, dstOldLen, dstLen);
     }
     if (added || expireChanged || persisted) {
