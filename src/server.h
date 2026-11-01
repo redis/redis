@@ -4104,7 +4104,15 @@ void setHashtableAddExpireSupport(robj *set);
 ExpireMeta *setHashtableGetExpireMeta(const robj *set);
 int setHasSubexpiry(const kvobj *o);
 uint64_t setTypeGetMinExpire(robj *o, int accurate);
-int setTypeHasExpireSupport(const robj *set);
+/* Returns 1 if the set can hold member expirations as it is: it is a listpack
+ * with expirations, or a hashtable that has the metadata of the expirations. The
+ * intset and the plain listpack never can, so for them this is a compare of the
+ * encoding. Inline since it is checked on the hot paths of the set commands. */
+static inline int setTypeHasExpireSupport(const robj *set) {
+    if (set->encoding == OBJ_ENCODING_HT)
+        return ((const dict *)set->ptr)->type == &setDictTypeWithExpire;
+    return set->encoding == OBJ_ENCODING_LISTPACK_EX;
+}
 int setTypeExpireTimeElapsed(uint64_t expire);
 int setTypeGetExpire(robj *set, sds member, uint64_t *expire);
 void setTypeConvertToExpireEncoding(robj *set);
@@ -4127,7 +4135,13 @@ int setListpackExValidate(unsigned char *lp, size_t size, int deep);
 #define SET_LAZY_AVOID_SET_DEL        (1<<4) /* Do not delete the key if the set gets empty */
 int setTypeIsMemberLazy(redisDb *db, kvobj *set, sds member, int flags, int *setDeleted);
 uint64_t setTypeExpire(redisDb *db, kvobj *set, uint32_t *quota, int updateSubexpires, int activeEx);
-int setTypeExpireIfNeeded(redisDb *db, kvobj *set);
+int setTypeExpireIfNeededSlow(redisDb *db, kvobj *set);
+/* See setTypeExpireIfNeededSlow(). A set that cannot hold member expirations has
+ * nothing to expire, which is checked inline. */
+static inline int setTypeExpireIfNeeded(redisDb *db, kvobj *set) {
+    if (!setTypeHasExpireSupport(set)) return 0;
+    return setTypeExpireIfNeededSlow(db, set);
+}
 void setTypeConvert(robj *subject, int enc);
 int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic);
 robj *setTypeDup(robj *o);

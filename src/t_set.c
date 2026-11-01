@@ -658,14 +658,6 @@ int setIsRegisteredInSubexpires(const kvobj *set) {
            ebGetExpireTime(&subexpiresBucketsType, (kvobj *)set) != EB_EXPIRE_TIME_INVALID;
 }
 
-/* Returns 1 if the set can hold member expirations as it is: it is a listpack
- * with expirations, or a hashtable that has the metadata of the expirations. */
-int setTypeHasExpireSupport(const robj *set) {
-    if (set->encoding == OBJ_ENCODING_HT)
-        return setHashtableHasExpire(set);
-    return setTypeGetOps(set->encoding)->getExpire != NULL;
-}
-
 /* Returns 1 if an expiration time (absolute, in milliseconds) has passed and the
  * member it belongs to must be treated as if it did not exist. Like for hash
  * fields, the expiration time itself is not yet expired, and nothing is expired
@@ -987,9 +979,9 @@ uint64_t setTypeExpire(redisDb *db, kvobj *set, uint32_t *quota, int updateSubex
  * delete expired data right now (a replica, loading, expirations paused, or
  * access to expired data allowed), nothing is swept and the commands that
  * sample (SPOP, SRANDMEMBER) can pick a logically expired member. */
-int setTypeExpireIfNeeded(redisDb *db, kvobj *set) {
+int setTypeExpireIfNeededSlow(redisDb *db, kvobj *set) {
     const setTypeOps *ops = setTypeGetOps(set->encoding);
-    if (ops->minExpire == NULL) return 0;
+    serverAssert(ops->minExpire != NULL); /* setTypeExpireIfNeeded() checked it */
 
     uint64_t minExpire = ops->minExpire(set, 1);
     /* Nothing to expire */
@@ -2205,7 +2197,7 @@ void saddCommand(client *c) {
      * of each: a member that is added again must not be replaced silently, because
      * a replica (or the AOF) that does not judge by its own clock would keep the
      * old one, with its expiration. If they were all expired, the key is gone. */
-    if (set && setTypeHasExpireSupport(set) && setTypeExpireIfNeeded(c->db, set))
+    if (set && setTypeExpireIfNeeded(c->db, set))
         set = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
 
     if (set == NULL) {
@@ -2799,13 +2791,11 @@ void srandmemberWithCountCommand(client *c) {
     if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.emptyarray))
         == NULL || checkType(c,set,OBJ_SET)) return;
 
-    if (setTypeHasExpireSupport(set)) {
-        /* Remove the members that are logically expired first. If they were all
-         * expired, the key is gone. */
-        if (setTypeExpireIfNeeded(c->db, set)) {
-            addReply(c,shared.emptyarray);
-            return;
-        }
+    /* Remove the members that are logically expired first. If they were all
+     * expired, the key is gone. */
+    if (setTypeExpireIfNeeded(c->db, set)) {
+        addReply(c,shared.emptyarray);
+        return;
     }
     size = setTypeSize(set);
 
@@ -3008,12 +2998,10 @@ void srandmemberCommand(client *c) {
     if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]))
         == NULL || checkType(c,set,OBJ_SET)) return;
 
-    if (setTypeHasExpireSupport(set)) {
-        /* Same as for the variant with a count. */
-        if (setTypeExpireIfNeeded(c->db, set)) {
-            addReplyNull(c);
-            return;
-        }
+    /* Same as for the variant with a count. */
+    if (setTypeExpireIfNeeded(c->db, set)) {
+        addReplyNull(c);
+        return;
     }
 
     if (server.memory_tracking_enabled)
@@ -3089,7 +3077,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
         /* The result of a STORE command is written as a set, so remove the
          * logically expired members of its sources first, with the SREM of each
          * propagated: the replica must not decide on its own which ones count. */
-        if (dstkey && setTypeHasExpireSupport(kv) && setTypeExpireIfNeeded(c->db, kv)) {
+        if (dstkey && setTypeExpireIfNeeded(c->db, kv)) {
             empty += 1;
             sets[j].set = NULL;
             sets[j].oldsize = 0;
@@ -3383,7 +3371,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         /* The result of a STORE command is written as a set, so remove the
          * logically expired members of its sources first, with the SREM of each
          * propagated: the replica must not decide on its own which ones count. */
-        if (dstkey && setTypeHasExpireSupport(setobj) && setTypeExpireIfNeeded(c->db, setobj)) {
+        if (dstkey && setTypeExpireIfNeeded(c->db, setobj)) {
             sets[j].set = NULL;
             sets[j].oldsize = 0;
             continue;
@@ -4316,7 +4304,7 @@ void saddexCommand(client *c) {
 
     /* Remove the members that are logically expired first, with the SREM of each
      * propagated, as SADD does. If they were all expired, the key is gone. */
-    if (set && setTypeHasExpireSupport(set) && setTypeExpireIfNeeded(c->db, set))
+    if (set && setTypeExpireIfNeeded(c->db, set))
         set = lookupKeyWriteWithLink(c->db, keyArg, &link);
 
     /* With MXX all the members must exist, so a missing key means nothing is added. */
