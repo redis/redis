@@ -3340,6 +3340,7 @@ int rewriteAppendOnlyFileBackground(void) {
      * feedAppendOnlyFile() to issue a SELECT command. */
     server.aof_selected_db = -1;
     flushAppendOnlyFile(1);
+
     /* If the AOF buffer could not be fully written (write error or short
      * write), its commands are already reflected in the dataset the child is
      * about to snapshot. Switching to a new INCR file now would later write
@@ -3353,6 +3354,7 @@ int rewriteAppendOnlyFileBackground(void) {
         server.aof_lastbgrewrite_status = C_ERR;
         return C_ERR;
     }
+
     if (openNewIncrAofForAppend() != C_OK) {
         server.aof_lastbgrewrite_status = C_ERR;
         return C_ERR;
