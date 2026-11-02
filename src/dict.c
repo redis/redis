@@ -1424,7 +1424,9 @@ void dictInitIterator(dictIterator *iter, dict *d)
 }
 
 /* Make dictNext() prefetch entries ahead. Use it for full scans that read
- * every entry, like the RDB save. */
+ * every entry, like the RDB save. It is meant for no_value dicts, where the
+ * entry is the key itself. In a dict with values only the dictEntry is
+ * prefetched, not the key it points to. */
 void dictIteratorEnablePrefetch(dictIterator *iter) {
     iter->prefetch = 1;
 }
@@ -1461,7 +1463,31 @@ dictIterator *dictGetSafeIterator(dict *d) {
 
 #define DICT_ITER_PREFETCH_AHEAD 16
 
-/* Prefetch each bucket in three steps as the iterator gets closer. */
+/* Prefetch the entries and the child bucket of bucket `b`, which must be in
+ * cache. An entry is the key itself or the dictEntry that holds it. */
+static inline void prefetchBucketEntries(const dictBucket *b) {
+    bucketBits present = b->presence;
+    while (present) {
+        redis_prefetch_read(b->slots[__builtin_ctz(present)]);
+        present &= present - 1;
+    }
+    if (b->chained) redis_prefetch_read(getChildBucket(b));
+}
+
+/* Prefetch the values of the entries of bucket `b`, whose entries must be in
+ * cache. */
+static inline void prefetchBucketValues(dict *d, const dictBucket *b) {
+    bucketBits present = b->presence;
+    while (present) {
+        void *addr = d->type->prefetchEntryValue(b->slots[__builtin_ctz(present)]);
+        present &= present - 1;
+        if (addr) redis_prefetch_read(addr);
+    }
+}
+
+/* Prefetch each bucket in three steps as the iterator gets closer: the bucket,
+ * its entries and their values. A child bucket is another allocation, so each
+ * of its steps comes one step after the same step of its parent. */
 static void dictIteratorPrefetchAhead(dictIterator *iter) {
     dict *d = iter->d;
     int t = iter->table;
@@ -1471,30 +1497,27 @@ static void dictIteratorPrefetchAhead(dictIterator *iter) {
     long idx = iter->index + 2*DICT_ITER_PREFETCH_AHEAD;
     if (idx < size) redis_prefetch_read(&d->ht_table[t][idx]);
 
-    /* Bucket AHEAD away: prefetch the entries, the bucket is in cache by now.
-     * An entry is the key itself or the dictEntry that holds it. */
+    /* Bucket AHEAD away: prefetch the entries and the child bucket, the
+     * bucket is in cache by now. */
     idx = iter->index + DICT_ITER_PREFETCH_AHEAD;
+    if (idx < size) prefetchBucketEntries(&d->ht_table[t][idx]);
+
+    /* Bucket AHEAD/2 away: prefetch the values and the entries of the child
+     * bucket, the entries and the child bucket are in cache by now. */
+    idx = iter->index + DICT_ITER_PREFETCH_AHEAD/2;
     if (idx < size) {
-        for (dictBucket *b = &d->ht_table[t][idx]; b; b = getChildBucket(b)) {
-            bucketBits present = b->presence;
-            while (present) {
-                redis_prefetch_read(b->slots[__builtin_ctz(present)]);
-                present &= present - 1;
-            }
-        }
+        dictBucket *b = &d->ht_table[t][idx];
+        if (d->type->prefetchEntryValue) prefetchBucketValues(d, b);
+        if (b->chained) prefetchBucketEntries(getChildBucket(b));
     }
 
-    /* Bucket AHEAD/2 away: prefetch the values, the entries are in cache by now. */
-    idx = iter->index + DICT_ITER_PREFETCH_AHEAD/2;
-    if (idx < size && d->type->prefetchEntryValue) {
-        for (dictBucket *b = &d->ht_table[t][idx]; b; b = getChildBucket(b)) {
-            bucketBits present = b->presence;
-            while (present) {
-                void *addr = d->type->prefetchEntryValue(b->slots[__builtin_ctz(present)]);
-                present &= present - 1;
-                if (addr) redis_prefetch_read(addr);
-            }
-        }
+    /* Bucket AHEAD/4 away: prefetch the values of the child bucket and the
+     * entries of its child, its entries and its child are in cache by now. */
+    idx = iter->index + DICT_ITER_PREFETCH_AHEAD/4;
+    if (idx < size && d->ht_table[t][idx].chained) {
+        dictBucket *child = getChildBucket(&d->ht_table[t][idx]);
+        if (d->type->prefetchEntryValue) prefetchBucketValues(d, child);
+        if (child->chained) prefetchBucketEntries(getChildBucket(child));
     }
 }
 
