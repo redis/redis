@@ -356,7 +356,15 @@ static int testCheck(iheap *h, testModel *m) {
 
 /* Insert keys 0..n-1 in order: ascending inserts never move an entry, so
  * key i sits at slot i and the array is a complete tree we can reason
- * about. */
+ * about. The update and remove cases use n = 15, which draws as:
+ *
+ *   slot:             0
+ *               1           2
+ *            3     4     5     6
+ *           7 8   9 10  11 12 13 14      (key == slot everywhere)
+ *
+ * Four levels, so the call bound is 4. Slots 7..14 are the leaves and
+ * slot 14 is the deepest one. */
 static void testFillAscending(iheap **hp, testModel *m, uint32_t n) {
     for (uint32_t i = 0; i < n; i++) {
         testItem *it = testModelAdd(m, i);
@@ -468,6 +476,7 @@ static int testQueueFuzz(uint64_t seed, uint32_t maxEntries, uint64_t ops) {
         if (n == 0 || (n < maxEntries && testRandBelow(100) < 55)) {
             uint64_t key = testRandBelow(1 << 16);
             keys[n++] = key;
+            /* The item is the key cast to a pointer; see the pop below. */
             iheapInsert(&h, key, (void*)(uintptr_t)key);
         } else {
             uint32_t j = 0;
@@ -475,6 +484,8 @@ static int testQueueFuzz(uint64_t seed, uint32_t maxEntries, uint64_t ops) {
                 if (keys[i] < keys[j]) j = i;
             uint64_t key;
             void *item;
+            /* The model's minimum must come out, still paired with the
+             * item that was inserted with it. */
             if (!iheapPop(h, &key, &item) || key != keys[j] ||
                 item != (void*)(uintptr_t)key)
                 err = "pop disagrees with the model";
@@ -580,8 +591,7 @@ int iheapTest(int argc, char *argv[], int flags) {
     }
 
     TEST("update: stays, sinks, rises") {
-        /* 15 ascending keys make a complete tree of four levels: slot 14
-         * is the deepest leaf and slots 7..14 are the leaves. */
+        /* The tree drawn at testFillAscending(). */
         const uint32_t n = 15, last = n - 1, firstLeaf = n / 2;
         testModel m;
         testModelInit(&m, n);
@@ -627,26 +637,30 @@ int iheapTest(int argc, char *argv[], int flags) {
     }
 
     TEST("remove: root, interior, leaf, last, only") {
-        const uint32_t n = 15;
+        const uint32_t n = 15; /* the tree drawn at testFillAscending() */
         testModel m;
         testModelInit(&m, n);
         iheap *h = iheapNew(&testType, 1);
         testFillAscending(&h, &m, n);
-        /* Each remove shrinks the heap, so slot 11 is the last slot by the
-         * time its turn comes. */
-        uint32_t slots[] = { 0, 1, 9, 11 }; /* root, interior, leaf, last */
+        /* Remove the root, an interior slot, a leaf and the last slot, in
+         * that order. Each remove takes one entry off the end of the array,
+         * so when slot 11's turn comes the heap holds 12 entries in slots
+         * 0..11, and 11 is the last one. */
+        uint32_t slots[] = { 0, 1, 9, 11 };
         const size_t nslots = sizeof(slots) / sizeof(slots[0]);
         ok = 1;
         for (size_t i = 0; i < nslots && ok; i++) {
             testItem *it = h->e[slots[i]].item;
             uint32_t count = iheapCount(h);
+            /* Removing the last slot leaves no hole to fill, so nothing
+             * moves and no call is allowed. Any other slot may cost up to
+             * the bound. */
+            uint64_t maxCalls = slots[i] == count - 1 ? 0 :
+                                testCallBound(count);
             testSetSlotCalls = 0;
             iheapRemove(h, slots[i]);
             testModelDel(&m, it);
-            ok = testSetSlotCalls <= testCallBound(count) &&
-                 testCheck(h, &m);
-            /* Removing the last slot moves nothing. */
-            if (slots[i] == count - 1) ok = ok && testSetSlotCalls == 0;
+            ok = testSetSlotCalls <= maxCalls && testCheck(h, &m);
         }
         while (ok && iheapCount(h) > 1) {
             testItem *it = h->e[iheapCount(h) / 2].item;
@@ -654,12 +668,15 @@ int iheapTest(int argc, char *argv[], int flags) {
             testModelDel(&m, it);
             ok = testCheck(h, &m);
         }
-        testItem *it = h->e[0].item;
-        testSetSlotCalls = 0;
-        iheapRemove(h, 0);
-        testModelDel(&m, it);
-        ok = ok && testSetSlotCalls == 0 && iheapCount(h) == 0 &&
-             testCheck(h, &m);
+        /* Removing the only entry moves nothing either. */
+        if (ok) {
+            testItem *it = h->e[0].item;
+            testSetSlotCalls = 0;
+            iheapRemove(h, 0);
+            testModelDel(&m, it);
+            ok = testSetSlotCalls == 0 && iheapCount(h) == 0 &&
+                 testCheck(h, &m);
+        }
         test_cond("removes at every position keep the heap valid", ok);
         iheapFree(h);
         testModelFree(&m);
@@ -742,6 +759,7 @@ int iheapTest(int argc, char *argv[], int flags) {
              item == NULL;
         item = (void*)1;
         ok = ok && iheapPop(h, &key, &item) && key == 3 && item == NULL;
+        item = (void*)1;
         ok = ok && iheapPop(h, &key, &item) && key == 5 && item == NULL;
         ok = ok && !iheapPop(h, &key, &item) && iheapCount(h) == 0;
         test_cond("NULL items are stored and returned", ok);
@@ -752,7 +770,10 @@ int iheapTest(int argc, char *argv[], int flags) {
         static const iheapType noCallbacks = { NULL, NULL };
         const iheapType *types[] = { NULL, &noCallbacks };
         const size_t ntypes = sizeof(types) / sizeof(types[0]);
-        /* Keys below n / 2, so that duplicates are common. */
+        /* Keys below n / 2, so that duplicates are common. There are no
+         * test items in this mode: the item is the key itself, cast to a
+         * pointer, so a pop can be checked to return the pair that went
+         * in together. */
         const int n = 1000;
         ok = 1;
         for (size_t t = 0; t < ntypes && ok; t++) {
@@ -767,6 +788,7 @@ int iheapTest(int argc, char *argv[], int flags) {
             void *item;
             int popped = 0;
             while (ok && iheapPop(h, &key, &item)) {
+                /* Non-decreasing keys, each still paired with its item. */
                 ok = key >= prev && item == (void*)(uintptr_t)key &&
                      iheapValidate(h);
                 prev = key;
