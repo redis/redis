@@ -2892,8 +2892,9 @@ int zuiNext(zsetopsrc *op, zsetopval *val) {
     return 1;
 }
 
-/* Members of a B+ tree input decoded a leaf at a time, see
- * zbtreeIteratorNextBatch(). */
+/* Members of a B+ tree input decoded a batch at a time, see
+ * zbtreeIteratorNextBatch(). Like the iterator, they point into the set and
+ * are valid only while it is not modified. */
 #define ZUI_BATCH_SIZE 16
 typedef struct {
     zbtreeIteratorElement ele[ZUI_BATCH_SIZE];
@@ -2901,15 +2902,16 @@ typedef struct {
 } zuiBatch;
 
 /* zuiNext() for a B+ tree input, taking members from 'batch'. A caller that
- * stops early (LIMIT) passes in 'remaining' how many more members it can use
- * besides the one it reads ahead, so a refill does not decode members it
- * never reads. Zero means no bound. */
+ * stops early (LIMIT) passes in 'remaining' how many more matches it can use,
+ * and a refill then decodes at most remaining + 1 members, the extra one
+ * being the member read ahead. Zero means no bound. */
 static inline int zuiNextBatched(zsetopsrc *op, zsetopval *val,
                                  zuiBatch *batch, unsigned long remaining)
 {
     if (batch->pos == batch->len) {
         unsigned int want = ZUI_BATCH_SIZE;
-        if (remaining && remaining < ZUI_BATCH_SIZE) want = remaining + 1;
+        if (remaining && remaining < ZUI_BATCH_SIZE)
+            want = (unsigned int)remaining + 1;
         batch->len = zbtreeIteratorNextBatch(&op->iter.zset.bt.iter, 1,
                                              batch->ele, want, !op->noscore);
         batch->pos = 0;
@@ -3512,21 +3514,21 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
     }
 
     if (op == SET_OP_INTER) {
-        /* When every input is the same object (e.g. ZINTERCARD 1 key), the
-         * intersection is that input, so its cardinality is the input's own,
-         * capped by the limit. There is no need to iterate its members. */
-        int single_input = 1;
+        /* When counting and every input is the same object (e.g. ZINTERCARD
+         * 1 key), the intersection is that input, so its cardinality is the
+         * input's own, capped by the limit. There is no need to iterate. */
+        int single_input = cardinality_only;
         for (j = 1; j < setnum && single_input; j++)
             single_input = src[j].subject == src[0].subject;
 
-        if (cardinality_only && single_input) {
+        if (single_input) {
             cardinality = zuiLength(&src[0]);
             if (limit && cardinality > (unsigned long)limit)
-                cardinality = limit;
+                cardinality = (unsigned long)limit;
         } else if (zuiLength(&src[0]) > 0) {
-            /* Skip everything if the smallest input is empty. */
-            /* Precondition: as src[0] is non-empty and the inputs are ordered
-             * by size, all src[i > 0] are non-empty too. */
+            /* Skip everything if the smallest input is empty. Precondition:
+             * as src[0] is non-empty and the inputs are ordered by size, all
+             * src[i > 0] are non-empty too. */
             src[0].noscore = cardinality_only;
             /* Whether the previous member was found in src[1]. */
             int prev_in_first = 1;
@@ -3547,10 +3549,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
             zbtreeLookup lookups[2];
             zsetopval *cur = &vals[0], *next = &vals[1];
             zbtreeLookup *curlookup = &lookups[0], *nextlookup = &lookups[1];
-            /* Walking a B+ tree one member per zuiNext() call decodes the
-             * leaf layout for every member, so read src[0] a leaf at a time
-             * instead. With LIMIT, decode no further than the members the
-             * limit can still use, plus the one read ahead. */
+            /* Read a B+ tree src[0] in batches, see zuiNextBatched(). */
             zuiBatch batchbuf;
             zuiBatch *batch = NULL;
             if (src[0].type == OBJ_ZSET &&

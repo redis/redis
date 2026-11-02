@@ -1954,9 +1954,8 @@ static int htRawRemove(robj *set, char *str, size_t len, int64_t llval, int str_
 static int htIsMember(robj *set, char *str, size_t len, int64_t llval, int str_is_sds) {
     UNUSED(llval);
     if (str_is_sds) return dictFind(set->ptr, (sds)str) != NULL;
-    /* The dict hashes and compares sds keys. Callers such as ZINTER probe
-     * every member of another input here, so build a short member on the
-     * stack instead of allocating a temporary sds for every lookup. */
+    /* Probe with a stack sds for members up to 124 bytes, saving an
+     * allocation per lookup. */
     char buf[128];
     if (sdsReqSize(len, SDS_TYPE_8) <= sizeof(buf)) {
         sds sdsval = sdsnewplacement(buf, sizeof(buf), SDS_TYPE_8, str, len);

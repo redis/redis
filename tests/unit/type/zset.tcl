@@ -1100,6 +1100,7 @@ start_server {tags {"zset"}} {
                 r zadd zprobel{t} [incr i] $m
                 r zadd zprobel{t} [incr i] "$m-miss"
             }
+            assert_encoding btree zprobel{t}
             r sadd sprobe{t} {*}$short {*}$long
             for {set j 0} {$j < 200} {incr j} {r sadd sprobe{t} filler$j}
             assert_encoding hashtable sprobe{t}
@@ -1139,6 +1140,8 @@ start_server {tags {"zset"}} {
                 }
             }
             r zadd zother{t} 1000000 extra
+            assert_encoding btree zbig{t}
+            assert_encoding btree zother{t}
             set n [expr {[llength $expected] / 2}]
             assert_equal $n [r zintercard 2 zbig{t} zother{t}]
             foreach limit {1 2 15 16 17 18 32 95 96 97 132 133 134 1000} {
