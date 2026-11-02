@@ -4412,8 +4412,14 @@ uint64_t zbtreeScan(zbtreeSet *zs, uint64_t cursor,
     uint64_t m1 = large ? zbtScanGroupMask(large) : m0;
 
     /* Finish a whole step before returning the cursor. COUNT is a hint, as
-     * it is for a normal dictionary scan. */
+     * it is for a normal dictionary scan. Like scanGenericCommand() does for
+     * dictionaries, also bound the steps, so a sparse table cannot be walked
+     * to its end in one call. A table reserved for a ZADD with many repeated
+     * members can hold one member in millions of buckets. Stopping early
+     * returns a valid cursor, so coverage is unchanged. */
     unsigned long emitted = 0;
+    unsigned long maxsteps = count > ULONG_MAX / 10 ? ULONG_MAX : count * 10;
+    if (maxsteps == 0) maxsteps = 1;
     do {
         emitted += zbtIndexScanGroup(zs, small, cursor & m0, fn, privdata);
         if (large == NULL) {
@@ -4424,7 +4430,7 @@ uint64_t zbtreeScan(zbtreeSet *zs, uint64_t cursor,
             emitted += zbtIndexScanGroup(zs, large, cursor & m1, fn, privdata);
             cursor = zbtScanNext(cursor, m1);
         } while (cursor & (m0 ^ m1));
-    } while (cursor != 0 && emitted < count);
+    } while (cursor != 0 && emitted < count && --maxsteps);
     return cursor;
 }
 

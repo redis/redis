@@ -635,6 +635,36 @@ proc test_scan {type} {
         assert_equal 5000 [llength [lsort -unique $seen]]
     }
 
+    test "{$type} ZSCAN bounds the work on a sparse index" {
+        # Repeating one pair makes ZADD reserve an index for every argument
+        # while the set keeps a single member.
+        r del zset
+        r zadd zset 1 a
+        set args {}
+        for {set j 0} {$j < 65536} {incr j} {
+            lappend args 1 a
+        }
+        r zadd zset nx {*}$args
+        assert_encoding btree zset
+        assert_equal 1 [r zcard zset]
+
+        # A small COUNT must not walk every empty bucket in one call.
+        lassign [r zscan zset 0 count 10] cursor items
+        assert {$cursor != 0}
+        set seen {}
+        set calls 1
+        while 1 {
+            foreach {member score} $items {
+                lappend seen $member
+            }
+            if {$cursor == 0} break
+            lassign [r zscan zset $cursor count 10] cursor items
+            incr calls
+            assert {$calls < 10000}
+        }
+        assert_equal {a} [lsort -unique $seen]
+    }
+
     test "{$type} SCAN guarantees check under write load" {
         r flushdb
         populate 100
