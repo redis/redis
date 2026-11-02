@@ -6,6 +6,9 @@ topk-unit: ../tests/topk/unit.c probabilistic/topk.o probabilistic/bloom_murmur.
 
 test-topk: $(REDIS_SERVER_NAME) topk-unit
 	./topk-unit
+ifneq (,$(findstring -DREDIS_TEST,$(FINAL_CFLAGS)))
+	./$(REDIS_SERVER_NAME) test topk
+endif
 	$(PYTHON) ../tests/topk/run.py
 
 .PHONY: test-topk

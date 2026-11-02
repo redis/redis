@@ -1,6 +1,7 @@
 /* Top-K algorithm regression workloads, derived from RedisBloom's unit demo.
  * Copyright (c) 2026-Present, Redis Ltd.; RSALv2/SSPLv1/AGPLv3. */
 #include "topk.h"
+#include "bloom_murmur.h"
 #include <assert.h>
 #include <stdio.h>
 void _serverAssert(const char *e, const char *f, int line) {
@@ -11,6 +12,15 @@ static void add(TopK *t, const char *s, unsigned n) {
     zfree(TopK_Add(t,s,strlen(s),n));
 }
 int main(void) {
+    /* SDS payloads can have any alignment. Keep the legacy hash identical. */
+    union { uint32_t alignment; unsigned char bytes[64]; } aligned, shifted;
+    const char sample[] = "legacy\0binary-key";
+    memcpy(aligned.bytes, sample, sizeof(sample));
+    uint32_t reference = MurmurHash2(aligned.bytes, sizeof(sample), 1919);
+    for (unsigned offset = 0; offset < 8; offset++) {
+        memcpy(shifted.bytes + offset, sample, sizeof(sample));
+        assert(reference == MurmurHash2(shifted.bytes + offset, sizeof(sample), 1919));
+    }
     HeapBucket heap[7]={{0}};
     const unsigned counts[]={5,51,12,2,21,18,8,14,35,19};
     for (unsigned i=0; i<sizeof(counts)/sizeof(*counts); i++) {

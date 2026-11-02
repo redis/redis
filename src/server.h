@@ -2103,6 +2103,7 @@ struct redisServer {
     int hz;                     /* serverCron() calls frequency in hertz */
     long long cf_capacity, cf_bucket, cf_iterations, cf_expansion, cf_max_expansions;
     long long bloom_capacity;
+    int topk_default_algorithm; /* Engine for new TOPK.RESERVE keys only. */
     long long bloom_expansion;
     sds bloom_error_rate;
     int in_fork_child;          /* indication that this is a fork child */

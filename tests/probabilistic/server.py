@@ -82,11 +82,12 @@ class Client:
 
 
 class Server:
-    def __init__(self, binary=SERVER, extra=()):
+    def __init__(self, binary=SERVER, extra=(), configfile=None):
         self.temp = tempfile.TemporaryDirectory(prefix="bf-")
         self.directory = Path(self.temp.name)
         self.path = self.directory / "s"
         self.binary, self.extra = binary, extra
+        self.configfile = configfile
         self.process = None
         self.client = None
         try:
@@ -107,7 +108,8 @@ class Server:
         for option in ("ASAN_OPTIONS", "MSAN_OPTIONS"):
             server_env[option] = server_env.get(option, "") + ":allocator_may_return_null=1"
         self.process = subprocess.Popen([
-            str(self.binary), "--port", "0", "--unixsocket", str(self.path),
+            str(self.binary), *([str(self.configfile)] if self.configfile else []),
+            "--port", "0", "--unixsocket", str(self.path),
             "--dir", str(self.directory), "--save", "", "--enable-debug-command", "yes",
             *self.extra,
         ], stdout=self.log, stderr=subprocess.STDOUT, env=server_env)
