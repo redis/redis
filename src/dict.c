@@ -2522,6 +2522,12 @@ static uint64_t fewBucketsHashCallback(const void *key) {
     return (hashCallback(key) & 0x3) | (hashCallback(key) & 0xff00000000000000ULL);
 }
 
+/* Keeps the real bucket index, but gives every key the same tag, so every
+ * entry of a bucket is a tag match. */
+static uint64_t sameTagHashCallback(const void *key) {
+    return (hashCallback(key) & 0x00ffffffffffffffULL) | 0x5a00000000000000ULL;
+}
+
 static dictType verifyDictType = {
     .hashFunction = hashCallback,
     .keyCompare = compareCallback,
@@ -2550,6 +2556,14 @@ static dictType fewBucketsDictType = {
     .hashFunction = fewBucketsHashCallback,
     .keyCompare = compareCallback,
     .keyDestructor = freeCallback,
+    .bucketChanged = testBucketChanged,
+};
+
+static dictType sameTagDictType = {
+    .hashFunction = sameTagHashCallback,
+    .keyCompare = compareCallback,
+    .keyDestructor = freeCallback,
+    .no_value = 1,
     .bucketChanged = testBucketChanged,
 };
 
@@ -2910,6 +2924,110 @@ static void testDeleteKey(dict *d, const char *key, int deletion) {
         }
         dictTwoPhaseUnlinkFree(d, link, table);
     }
+}
+
+/* The value hook of the prefetch tests: records the entry it is given, and
+ * returns an address that the lookup must hand out. */
+static const dictEntry *prefetch_value_entry;
+static int prefetch_value_calls;
+
+static void *prefetchValueHook(const dictEntry *de) {
+    prefetch_value_entry = de;
+    prefetch_value_calls++;
+    return &prefetch_value_calls;
+}
+
+/* Returns 1 if `addr` is a bucket that a dictFind() of a key with `hash`
+ * visits, or a tag-matching entry of such a bucket. */
+static int prefetchLookupReads(dict *d, uint64_t hash, const void *addr) {
+    for (int t = 0; t <= (dictIsRehashing(d) ? 1 : 0); t++) {
+        if (d->ht_used[t] == 0) continue;
+        size_t idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[t]);
+        if (t == 0 && (long)idx < d->rehashidx) continue;
+        for (dictBucket *b = &d->ht_table[t][idx]; b; b = getChildBucket(b)) {
+            if (addr == b) return 1;
+            bucketBits m = b->presence & findHashMatches(b->hashes, hashTag(hash));
+            for (; m; m &= m - 1)
+                if (addr == b->slots[__builtin_ctz(m)]) return 1;
+        }
+    }
+    return 0;
+}
+
+/* Runs a prefetch lookup of `key` to its end and checks it against dictFind():
+ * it ends, reads only what dictFind() reads, changes nothing, and finds the
+ * same entry. Returns 1 if it took the shortcut of a lone tag match. */
+static int prefetchCheckLookup(dict *d, const void *key, int present) {
+    const unsigned long size = dictSize(d), children = dictChildBuckets(d);
+    const unsigned long used0 = d->ht_used[0], used1 = d->ht_used[1];
+    const long rehashidx = d->rehashidx;
+    const unsigned pauses = d->pauserehash;
+    const uint64_t hash = dictGetHash(d, key);
+    dictPrefetchState st;
+    void *addr = NULL;
+    unsigned long steps = 0;
+
+    prefetch_value_entry = NULL;
+    prefetch_value_calls = 0;
+    dictPrefetchInit(&st, d, key);
+    while (!st.done) {
+        addr = dictPrefetchNext(&st);
+        /* A top-level bucket per table, the child buckets, the entries, the end. */
+        assert(++steps <= 3 + size + children);
+        if (addr && addr != &prefetch_value_calls) assert(prefetchLookupReads(d, hash, addr));
+    }
+    assert(dictPrefetchNext(&st) == NULL && st.done);
+    assert(dictSize(d) == size && dictChildBuckets(d) == children);
+    assert(d->ht_used[0] == used0 && d->ht_used[1] == used1);
+    assert(d->rehashidx == rehashidx && d->pauserehash == pauses);
+    assert(prefetch_value_calls <= 1);
+
+    dictEntry *found = dictFind(d, key);
+    assert((found != NULL) == present);
+    if (found) {
+        assert(st.current_entry == found);
+        assert(prefetch_value_calls == 1 && prefetch_value_entry == found);
+        assert(addr == &prefetch_value_calls);
+    }
+    return found && st.lone;
+}
+
+/* Prefetch test of a dict of `type` with `n` keys: looks up each key, and as
+ * many keys that are not in the dict. `chains` asserts that the dict has
+ * child buckets; `rehashing` pauses it in the middle of a rehash. Returns the
+ * number of lookups that took the shortcut of a lone tag match. */
+static int dictPrefetchTest(dictType *type, int n, int chains, int rehashing) {
+    dictType hooked = *type;
+    hooked.prefetchEntryValue = prefetchValueHook;
+    const int before_rehash = rehashing ? n / 2 : n;
+    int lone = 0;
+    test_buckets = 0;
+    dict *d = dictCreate(&hooked);
+    for (int i = 0; i < before_rehash; i++) assert(dictAdd(d, keyForId(i), NULL) == DICT_OK);
+    drainRehash(d);
+    if (rehashing) {
+        /* Move about half of the entries to the new table, then add the other
+         * keys, which go to the new table even when their bucket in the old
+         * table is not moved yet. Keep dictFind() from rehashing between a
+         * lookup and its check. */
+        assert(dictExpand(d, 4 * n) == DICT_OK);
+        while (d->ht_used[1] < d->ht_used[0]) dictRehash(d, 1);
+        dictPauseRehashing(d);
+        for (int i = before_rehash; i < n; i++) assert(dictAdd(d, keyForId(i), NULL) == DICT_OK);
+        assert(dictIsRehashing(d) && d->ht_used[0] > 0 && d->ht_used[1] > 0);
+    }
+    if (chains) assert(dictChildBuckets(d) > 0);
+    dictVerify(d);
+    for (int i = 0; i < 2 * n; i++) {
+        char *key = keyForId(i);
+        lone += prefetchCheckLookup(d, key, i < n);
+        zfree(key);
+    }
+    if (rehashing) dictResumeRehashing(d);
+    dictVerify(d);
+    dictRelease(d);
+    assert(test_buckets == 0);
+    return lone;
 }
 
 /* ./redis-server test dict [<count> | --accurate] */
@@ -3508,6 +3626,39 @@ int dictTest(int argc, char **argv, int flags) {
         dictSetResizeEnabled(DICT_RESIZE_ENABLE);
         dictRelease(dc);
         assert(test_buckets == 0);
+    }
+
+    TEST("Prefetch lookups follow dictFind() (one chain, equal tags)") {
+        dictPrefetchTest(&chainDictType, 4 * DICT_BUCKET_SLOTS, 1, 0);
+    }
+
+    TEST("Prefetch lookups follow dictFind() (long chains, with values)") {
+        dictPrefetchTest(&fewBucketsDictType, 200, 1, 0);
+    }
+
+    TEST("Prefetch lookups follow dictFind() (no_value)") {
+        /* Most keys are the only tag match of their bucket. */
+        assert(dictPrefetchTest(&verifyDictType, 1000, 0, 0) > 0);
+    }
+
+    TEST("Prefetch lookups follow dictFind() (with values)") {
+        assert(dictPrefetchTest(&verifyDictTypeVal, 1000, 0, 0) > 0);
+    }
+
+    TEST("Prefetch lookups follow dictFind() (equal tags)") {
+        dictPrefetchTest(&sameTagDictType, 1000, 0, 0);
+    }
+
+    TEST("Prefetch lookups follow dictFind() (long chains, paused mid-rehash)") {
+        dictPrefetchTest(&fewBucketsDictType, 200, 1, 1);
+    }
+
+    TEST("Prefetch lookups follow dictFind() (no_value, paused mid-rehash)") {
+        dictPrefetchTest(&verifyDictType, 1000, 0, 1);
+    }
+
+    TEST("Prefetch lookups follow dictFind() (equal tags, paused mid-rehash)") {
+        dictPrefetchTest(&sameTagDictType, 1000, 0, 1);
     }
 
     srand(12345);
