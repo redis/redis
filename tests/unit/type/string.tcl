@@ -1215,6 +1215,8 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
 
     test {DELEX frees like DEL under lazyfree-lazy-user-del} {
         r flushall
+        set orig_user [lindex [r config get lazyfree-lazy-user-del] 1]
+        set orig_server [lindex [r config get lazyfree-lazy-server-del] 1]
 
         # A hashtable-encoded hash is freed in many allocations, so it exceeds
         # LAZYFREE_THRESHOLD and shows whether the free happened in background.
@@ -1236,17 +1238,13 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
                 }
                 set before [s lazyfreed_objects]
                 r $cmd big
-                wait_for_condition 50 10 {
-                    [s lazyfree_pending_objects] == 0
-                } else {
-                    fail "lazyfree isn't done"
-                }
+                wait_lazyfree_done r
                 assert_equal [expr {$before + $async}] [s lazyfreed_objects]
             }
         }
 
-        r config set lazyfree-lazy-user-del no
-        r config set lazyfree-lazy-server-del no
+        r config set lazyfree-lazy-user-del $orig_user
+        r config set lazyfree-lazy-server-del $orig_server
     }
 
     test {DELEX with special characters and whitespace} {
