@@ -396,7 +396,7 @@ start_server {tags {"string"}} {
     }
 
     test {MSETEX - EX/PX are propagated as a single PXAT} {
-        r del repl:key1{t} repl:key2{t} repl:nx{t}
+        r del repl:key1{t} repl:key2{t} repl:nx{t} repl:nx2{t}
         set repl [attach_to_replication_stream]
         r msetex 2 repl:key1{t} v1 repl:key2{t} v2 ex 100
         r msetex 1 repl:key1{t} v3 px 100000 xx
@@ -404,14 +404,18 @@ start_server {tags {"string"}} {
         r msetex 1 repl:key1{t} v5 px 10000 px 100000
         r msetex 1 repl:nx{t} v6 ex 10 nx ex 100
         r msetex 1 repl:key1{t} v7 ex 10 xx ex 100
+        r msetex 1 repl:nx2{t} v8 nx px 10000 px 100000
+        r msetex 1 repl:key1{t} v9 ex 10 ex 5 xx
         assert_replication_stream $repl {
             {select *}
             {msetex 2 repl:key1{t} v1 repl:key2{t} v2 PXAT *}
-            {msetex 1 repl:key1{t} v3 XX PXAT *}
+            {msetex 1 repl:key1{t} v3 PXAT * XX}
             {msetex 1 repl:key1{t} v4 PXAT *}
             {msetex 1 repl:key1{t} v5 PXAT *}
             {msetex 1 repl:nx{t} v6 NX PXAT *}
             {msetex 1 repl:key1{t} v7 XX PXAT *}
+            {msetex 1 repl:nx2{t} v8 NX PXAT *}
+            {msetex 1 repl:key1{t} v9 PXAT * XX}
         }
         close_replication_stream $repl
     } {} {needs:repl}

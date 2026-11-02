@@ -883,24 +883,32 @@ void msetexCommand(client *c) {
     /* Handle replication rewriting for relative expiration times */
     if (args.expire && !(args.flags & OBJ_PXAT) && !(args.flags & OBJ_EXAT) && args.expire_pos != -1) {
         /* Convert EX/PX (relative) to PXAT (absolute) for consistent replication.
-         * All the arguments are already known, so rebuild the whole command as:
-         * MSETEX <numkeys> <k1> <v1> ... [NX|XX] PXAT <ms>
-         * This also drops any repeated EX/PX (last one wins). */
-        int prefix_argc = kv_count * 2 + 2; /* MSETEX, numkeys and the key-value pairs. */
-        int new_argc = prefix_argc + 2 + ((args.flags & (OBJ_SET_NX|OBJ_SET_XX)) ? 1 : 0);
-        robj **new_argv = zmalloc(sizeof(robj*) * new_argc);
-        int n = 0;
-        for (int i = 0; i < prefix_argc; i++) {
-            new_argv[n++] = c->argv[i];
-            incrRefCount(c->argv[i]);
+         * Keep everything before the options (MSETEX, numkeys and the key-value
+         * pairs), rewrite the option slots into a single PXAT <ms> (with the
+         * NX/XX condition, if any, kept on the same side of it as the user
+         * wrote it), and drop the remaining tail. This also removes repeated
+         * EX/PX (last one wins). */
+        int opts_start = kv_count * 2 + 2;
+        int has_cond = (args.flags & (OBJ_SET_NX|OBJ_SET_XX)) != 0;
+        int cond_first = 0;
+        for (int i = opts_start; has_cond && i < args.expire_pos; i++) {
+            if (!strcasecmp(c->argv[i]->ptr, "nx") || !strcasecmp(c->argv[i]->ptr, "xx")) {
+                cond_first = 1;
+                break;
+            }
         }
-        if (args.flags & OBJ_SET_NX) new_argv[n++] = createStringObject("NX", 2);
-        else if (args.flags & OBJ_SET_XX) new_argv[n++] = createStringObject("XX", 2);
-        new_argv[n++] = shared.pxat;
-        incrRefCount(shared.pxat); /* shared.pxat is a regular object, argv owns one ref. */
-        new_argv[n++] = createStringObjectFromLongLong(milliseconds);
-        serverAssert(n == new_argc);
-        replaceClientCommandVector(c, new_argc, new_argv);
+        robj *milliseconds_obj = createStringObjectFromLongLong(milliseconds);
+        robj *cond_obj = has_cond ? createStringObject((args.flags & OBJ_SET_NX) ? "NX" : "XX", 2) : NULL;
+        int pos = opts_start;
+        if (cond_first) rewriteClientCommandArgument(c, pos++, cond_obj);
+        rewriteClientCommandArgument(c, pos++, shared.pxat);
+        rewriteClientCommandArgument(c, pos++, milliseconds_obj);
+        if (has_cond && !cond_first) rewriteClientCommandArgument(c, pos++, cond_obj);
+        decrRefCount(milliseconds_obj);
+        if (cond_obj) decrRefCount(cond_obj);
+        /* Remove from the tail so no arguments need to be shifted. */
+        while (c->argc > pos)
+            rewriteClientCommandArgument(c, c->argc - 1, NULL);
     }
 
     server.dirty += kv_count;
