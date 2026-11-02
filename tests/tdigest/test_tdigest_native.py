@@ -86,3 +86,35 @@ class testNativeTDigest:
         r('AUTH','reader','secret')
         env.assertEqual(1.0,r('TDIGEST.MIN','t'))
         env.expect('TDIGEST.ADD','t',4).error().contains('NOPERM')
+        r('AUTH','default','')
+
+    def test_add_compression_boundary_is_atomic(self):
+        env=Env(protocol=3)
+        r=env.cmd
+        r('TDIGEST.CREATE','t','COMPRESSION',1)
+        # Capacity is 16; the next batch takes the transactional compression path.
+        r('TDIGEST.ADD','t',*range(15))
+        r('TDIGEST.QUANTILE','t',.5)
+        before=r('DUMP','t')
+        env.expect('TDIGEST.ADD','t',16,17,'inf').error()
+        assert r('DUMP','t')==before
+        r('TDIGEST.ADD','t',16,17,18)
+        assert r('TDIGEST.INFO','t')[b'Observations']==18
+        assert r('TDIGEST.QUANTILE','t',1)==[18.0]
+
+    def test_reads_and_copy_preserve_storage_without_retained_cache(self):
+        env=Env(protocol=3)
+        r=env.cmd
+        r('TDIGEST.CREATE','t','COMPRESSION',1000)
+        r('TDIGEST.ADD','t',*range(100))
+        raw=r('DUMP','t')
+        memory=r('MEMORY','USAGE','t')
+        for _ in range(4):
+            r('TDIGEST.QUANTILE','t',.1,.5,.9)
+            assert r('DUMP','t')==raw
+            assert r('MEMORY','USAGE','t')==memory
+        assert r('COPY','t','copy')==1
+        assert r('DUMP','copy')==raw
+        r('TDIGEST.ADD','copy',101,102)
+        assert r('DUMP','t')==raw
+        assert r('TDIGEST.INFO','copy')[b'Observations']==102
