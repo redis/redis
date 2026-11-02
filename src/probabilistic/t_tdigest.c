@@ -22,10 +22,9 @@ void tdigestDismiss(robj *o) {
 }
 static td_histogram_t *tdClone(td_histogram_t *t) {
     td_histogram_t *copy=zmalloc(sizeof(*copy)); *copy=*t;
-    /* Keep the reserved capacity, but copy only initialized, live nodes. */
-    size_t n=(size_t)(t->merged_nodes+t->unmerged_nodes);
-    copy->nodes_mean=zmalloc((size_t)t->cap*sizeof(double));
-    copy->nodes_weight=zmalloc((size_t)t->cap*sizeof(long long));
+    size_t n=(size_t)t->cap;
+    copy->nodes_mean=zmalloc(n*sizeof(double));
+    copy->nodes_weight=zmalloc(n*sizeof(long long));
     memcpy(copy->nodes_mean,t->nodes_mean,n*sizeof(double));
     memcpy(copy->nodes_weight,t->nodes_weight,n*sizeof(long long));
     return copy;
