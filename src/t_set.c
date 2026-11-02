@@ -355,9 +355,10 @@ static int setTypeAddMergeExpireSlow(robj *dst, char *str, size_t len, int64_t l
  * nearest value if it is false (as in SINTERSTORE), or the farthest with if it
  * is true (as in SUNIONSTORE).
  * Returns 1 if the member was added, 0 if it was already there.
- * Inline, since the common case (a source member without an expiration, a plain
- * add) runs for every member of the sources. */
-static inline int setTypeAddMergeExpire(robj *dst, char *str, size_t len, int64_t llval,
+ * Forced inline, since the common case (a source member without an expiration,
+ * a plain add) runs for every member of the sources, and as a call it costs
+ * about 30 instructions per member. */
+__attribute__((always_inline)) static inline int setTypeAddMergeExpire(robj *dst, char *str, size_t len, int64_t llval,
                                         int str_is_sds, uint64_t expire, int farthest)
 {
     if (expire == EB_EXPIRE_TIME_INVALID)
