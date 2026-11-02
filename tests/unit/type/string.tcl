@@ -1219,9 +1219,10 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
 
         # A hashtable-encoded hash is freed in many allocations, so it exceeds
         # LAZYFREE_THRESHOLD and shows whether the free happened in background.
-        foreach {user_del server_del async} {yes no 1 no yes 0} {
+        foreach {user_del server_del} {yes no no yes} {
             r config set lazyfree-lazy-user-del $user_del
             r config set lazyfree-lazy-server-del $server_del
+            set is_async_user_del [expr {[lindex [r config get lazyfree-lazy-user-del] 1] eq "yes"}]
 
             foreach cmd {del delex} {
                 r del big
@@ -1234,7 +1235,7 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
                 set before [s lazyfreed_objects]
                 r $cmd big
                 wait_lazyfree_done r
-                assert_equal [expr {$before + $async}] [s lazyfreed_objects]
+                assert_equal [expr {$before + $is_async_user_del}] [s lazyfreed_objects]
             }
         }
 
