@@ -9,6 +9,8 @@ robj *createTopkObject(void *p) { return createObject(OBJ_TOPK, p); }
 void freeTopkObject(robj *o) { TopK_Destroy(o->ptr); }
 size_t topkObjectLength(robj *o) {
     TopK *t=o->ptr;
+    /* A positive minimum means every min-heap slot is occupied. */
+    if (t->heap[0].count) return t->k;
     size_t n=0;
     for (uint32_t i=0; i<t->k; i++) n += t->heap[i].count != 0;
     return n;
@@ -120,6 +122,9 @@ void topkAddCommand(client *c) {
     }
     if (changed) {
         topkModified(c,o,oldsize,oldcount);
+        /* Match the core propagation gate before building the exact snapshot.
+         * Disconnected replication backlogs and slot migration still need it. */
+        if (!shouldPropagate(server.allowed_propagate_targets)) return;
         /* Randomized decay cannot be replayed verbatim. Propagate the exact state.
          * This is O(sketch size); a compact deterministic delta is future work. */
         rio payload;
