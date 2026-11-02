@@ -75,6 +75,31 @@ test {Zset listpack scores are validated before loading or conversion} {
     }
 }
 
+test {ZRANGESTORE builds an ordered btree from an unordered listpack} {
+    start_server {} {
+        r zadd order-source 1.5 a 2.5 b 3.5 c 4.5 d
+        assert_encoding listpack order-source
+        # Deep sanitization checks scores and duplicates, not their order,
+        # so a listpack holding 1.5 4.5 3.5 2.5 is accepted.
+        set payload [string map {2.5 4.5 4.5 2.5} [r dump order-source]]
+        r debug set-skip-checksum-validation 1
+        r config set sanitize-dump-payload yes
+        r restore unordered 0 $payload
+        assert_encoding listpack unordered
+        r config set zset-max-listpack-entries 1
+        foreach range {{0 -1} {-inf +inf byscore} {- + bylex}} {
+            r del dst
+            assert_equal 4 [r zrangestore dst unordered {*}$range]
+            assert_encoding btree dst
+            assert_equal {a 1.5 d 2.5 c 3.5 b 4.5} [r zrange dst 0 -1 withscores]
+            assert_equal 3 [r zcount dst 0 4]
+            assert_equal {a d c} [r zrangebyscore dst 0 4]
+        }
+        r debug set-skip-checksum-validation 0
+        r config set zset-max-listpack-entries 128
+    }
+}
+
 test {corrupt payload: #7445 - with sanitize} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload yes
