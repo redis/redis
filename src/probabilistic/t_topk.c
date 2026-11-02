@@ -120,6 +120,9 @@ void topkAddCommand(client *c) {
     }
     if (changed) {
         topkModified(c,o,oldsize,oldcount);
+        /* Match the core propagation gate before building the exact snapshot.
+         * Disconnected replication backlogs and slot migration still need it. */
+        if (!shouldPropagate(server.allowed_propagate_targets)) return;
         /* Randomized decay cannot be replayed verbatim. Propagate the exact state.
          * This is O(sketch size); a compact deterministic delta is future work. */
         rio payload;

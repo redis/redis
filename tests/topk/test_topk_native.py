@@ -1,9 +1,25 @@
 """Native Top-K lifecycle and exact-state propagation regressions."""
 import os
 import time
+from pathlib import Path
 from support import *
 
 class testNativeTopK:
+    def test_zero_count_child_keeps_module_value_length(self):
+        module=Path(__file__).resolve().parents[1]/'modules/hooks.so'
+        if not module.exists():
+            Env().skip('Build the standard hooks test module with make')
+        env=Env(extra=('--loadmodule',str(module)))
+        r=env.cmd
+        r('TOPK.RESERVE','t',7,1,1,1)
+        r('TOPK.ADD','t','A','B','C')
+        r('TOPK.INCRBY','t','A',0)
+        r('TOPK.ADD','t','D','E','F','G')
+        # Zero increments can leave an empty child under a positive root.
+        assert len(r('TOPK.LIST','t'))==6
+        r('DEL','t')
+        assert r('hooks.is_key_removed','t')==[b'6',b'deleted']
+
     def test_zero_count_empty_item_survives_reload(self):
         env=Env()
         env.cmd('TOPK.RESERVE','t',3)
@@ -65,6 +81,28 @@ class testNativeTopK:
                 assert before==s.client.command('DUMP','t')
             finally: s.close()
 
+    def test_enable_aof_after_local_only_writes(self):
+        s=Server(extra=('--appendonly','no','--auto-aof-rewrite-percentage','0'))
+        try:
+            r=s.client.command
+            r('TOPK.RESERVE','t',3,5,3,.9)
+            for i in range(100): r('TOPK.ADD','t',i%17)
+            r('CONFIG','SET','appendonly','yes')
+            for _ in range(400):
+                info=r('INFO','persistence')
+                if b'aof_rewrite_in_progress:0' in info and b'aof_rewrite_scheduled:0' in info: break
+                time.sleep(.025)
+            else: raise AssertionError('AOF enable timed out')
+            assert b'aof_last_bgrewrite_status:ok' in info
+            for i in range(100): r('TOPK.INCRBY','t',i%23,3)
+            before=r('DUMP','t')
+            s.stop()
+            # Restart with the now-enabled AOF, not the original launch setting.
+            s.extra=('--appendonly','yes','--auto-aof-rewrite-percentage','0')
+            s.start()
+            assert s.client.command('DUMP','t')==before
+        finally: s.close()
+
     def test_metadata_resp3(self):
         env=Env()
         r=env.cmd
@@ -79,6 +117,7 @@ class testNativeTopK:
         r('AUTH','reader','secret')
         env.assertEqual([True],r('TOPK.QUERY','t','a'))
         env.expect('TOPK.ADD','t','b').error().contains('NOPERM')
+        r('AUTH','default','')
 
     def test_external_compatibility(self):
         env=Env()
