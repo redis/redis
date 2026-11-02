@@ -508,6 +508,7 @@ int iheapTest(int argc, char *argv[], int flags) {
     int accurate = flags & REDIS_TEST_ACCURATE;
     /* Valgrind is slow; the fuzz regimes run a tenth of their operations. */
     uint64_t scale = (flags & REDIS_TEST_VALGRIND) ? 10 : 1;
+    uint64_t fuzzOps = 200000 / scale;
     int ok;
 
     TEST("empty heap") {
@@ -579,10 +580,13 @@ int iheapTest(int argc, char *argv[], int flags) {
     }
 
     TEST("update: stays, sinks, rises") {
+        /* 15 ascending keys make a complete tree of four levels: slot 14
+         * is the deepest leaf and slots 7..14 are the leaves. */
+        const uint32_t n = 15, last = n - 1, firstLeaf = n / 2;
         testModel m;
-        testModelInit(&m, 15);
+        testModelInit(&m, n);
         iheap *h = iheapNew(&testType, 1);
-        testFillAscending(&h, &m, 15);
+        testFillAscending(&h, &m, n);
         /* Slot 3 (key 3) has parent key 1 and children keys 7 and 8:
          * any key in 1..7 leaves it in place, ties included. */
         testItem *it = h->e[3].item;
@@ -599,22 +603,22 @@ int iheapTest(int argc, char *argv[], int flags) {
         ok = ok && testSetSlotCalls == 0 && it->slot == 3 &&
              h->e[3].key == 6 && testCheck(h, &m);
         /* A leaf set to its own key is the no-op case. */
-        it = h->e[14].item;
-        iheapUpdate(h, 14, it->key);
+        it = h->e[last].item;
+        iheapUpdate(h, last, it->key);
         ok = ok && testSetSlotCalls == 0 && testCheck(h, &m);
         /* The root raised above everything sinks to a leaf: three moves
-         * plus its own placement, the bound for 15 entries. */
+         * plus its own placement, the bound for n entries. */
         it = h->e[0].item;
         it->key = 100;
         iheapUpdate(h, 0, 100);
-        ok = ok && testSetSlotCalls == 4 && it->slot >= 7 &&
-             testCheck(h, &m);
+        ok = ok && testSetSlotCalls == testCallBound(n) &&
+             it->slot >= firstLeaf && testCheck(h, &m);
         /* The deepest leaf lowered below everything rises to the root. */
         testSetSlotCalls = 0;
-        it = h->e[14].item;
+        it = h->e[last].item;
         it->key = 0;
-        iheapUpdate(h, 14, 0);
-        ok = ok && testSetSlotCalls == 4 && it->slot == 0 &&
+        iheapUpdate(h, last, 0);
+        ok = ok && testSetSlotCalls == testCallBound(n) && it->slot == 0 &&
              testCheck(h, &m);
         test_cond("update in place makes no call, sinks and rises are "
                   "bounded", ok);
@@ -623,21 +627,26 @@ int iheapTest(int argc, char *argv[], int flags) {
     }
 
     TEST("remove: root, interior, leaf, last, only") {
+        const uint32_t n = 15;
         testModel m;
-        testModelInit(&m, 15);
+        testModelInit(&m, n);
         iheap *h = iheapNew(&testType, 1);
-        testFillAscending(&h, &m, 15);
+        testFillAscending(&h, &m, n);
+        /* Each remove shrinks the heap, so slot 11 is the last slot by the
+         * time its turn comes. */
         uint32_t slots[] = { 0, 1, 9, 11 }; /* root, interior, leaf, last */
+        const size_t nslots = sizeof(slots) / sizeof(slots[0]);
         ok = 1;
-        for (int i = 0; i < 4 && ok; i++) {
+        for (size_t i = 0; i < nslots && ok; i++) {
             testItem *it = h->e[slots[i]].item;
-            uint32_t n = iheapCount(h);
+            uint32_t count = iheapCount(h);
             testSetSlotCalls = 0;
             iheapRemove(h, slots[i]);
             testModelDel(&m, it);
-            ok = testSetSlotCalls <= testCallBound(n) && testCheck(h, &m);
+            ok = testSetSlotCalls <= testCallBound(count) &&
+                 testCheck(h, &m);
             /* Removing the last slot moves nothing. */
-            if (slots[i] == n - 1) ok = ok && testSetSlotCalls == 0;
+            if (slots[i] == count - 1) ok = ok && testSetSlotCalls == 0;
         }
         while (ok && iheapCount(h) > 1) {
             testItem *it = h->e[iheapCount(h) / 2].item;
@@ -657,23 +666,26 @@ int iheapTest(int argc, char *argv[], int flags) {
     }
 
     TEST("equal keys") {
+        /* Two 41s, eight 42s and two 43s. */
+        const uint32_t n41 = 2, n42 = 8, n43 = 2, n = n41 + n42 + n43;
         testModel m;
-        testModelInit(&m, 12);
+        testModelInit(&m, n);
         iheap *h = iheapNew(&testType, 1);
-        for (int i = 0; i < 12; i++) {
-            uint64_t key = i < 2 ? 41 :
-                           i < 10 ? 42 :
+        for (uint32_t i = 0; i < n; i++) {
+            uint64_t key = i < n41 ? 41 :
+                           i < n41 + n42 ? 42 :
                            43;
             iheapInsert(&h, key, testModelAdd(&m, key));
         }
         ok = testCheck(h, &m);
-        /* Remove the two 41s: one of the 42s must take the root. */
-        for (int i = 0; i < 2 && ok; i++) {
+        /* Remove the 41s one by one: the root stays 41 while one is left,
+         * then one of the 42s must take it. */
+        for (uint32_t i = 0; i < n41 && ok; i++) {
             testItem *it = h->e[0].item;
             iheapRemove(h, 0);
             testModelDel(&m, it);
             ok = testCheck(h, &m) &&
-                 h->e[0].key == (uint64_t)(i == 0 ? 41 : 42);
+                 h->e[0].key == (uint64_t)(i + 1 < n41 ? 41 : 42);
         }
         /* Remove an interior 42, then update another 42 to 42. */
         testItem *it = h->e[3].item;
@@ -691,10 +703,11 @@ int iheapTest(int argc, char *argv[], int flags) {
     }
 
     TEST("UINT64_MAX keys sort last") {
+        const uint32_t sentinels = 5;
         testModel m;
-        testModelInit(&m, 6);
+        testModelInit(&m, sentinels + 1);
         iheap *h = iheapNew(&testType, 1);
-        for (int i = 0; i < 5; i++)
+        for (uint32_t i = 0; i < sentinels; i++)
             iheapInsert(&h, UINT64_MAX, testModelAdd(&m, UINT64_MAX));
         uint64_t key;
         void *item;
@@ -708,6 +721,7 @@ int iheapTest(int argc, char *argv[], int flags) {
         iheapUpdate(h, 0, UINT64_MAX);
         ok = ok && iheapMin(h, &key, NULL) && key == UINT64_MAX &&
              testCheck(h, &m);
+        /* Every entry is a sentinel now; lower one of them. */
         it = h->e[4].item;
         it->key = 3;
         iheapUpdate(h, 4, 3);
@@ -737,38 +751,43 @@ int iheapTest(int argc, char *argv[], int flags) {
     TEST("priority queue without callbacks") {
         static const iheapType noCallbacks = { NULL, NULL };
         const iheapType *types[] = { NULL, &noCallbacks };
+        const size_t ntypes = sizeof(types) / sizeof(types[0]);
+        /* Keys below n / 2, so that duplicates are common. */
+        const int n = 1000;
         ok = 1;
-        for (int t = 0; t < 2 && ok; t++) {
+        for (size_t t = 0; t < ntypes && ok; t++) {
             iheap *h = iheapNew(types[t], 1);
             testRngState = 77 + t;
-            for (int i = 0; i < 1000 && ok; i++) {
-                uint64_t key = testRandBelow(500);
+            for (int i = 0; i < n && ok; i++) {
+                uint64_t key = testRandBelow(n / 2);
                 iheapInsert(&h, key, (void*)(uintptr_t)key);
                 ok = iheapValidate(h);
             }
             uint64_t prev = 0, key;
             void *item;
-            int n = 0;
+            int popped = 0;
             while (ok && iheapPop(h, &key, &item)) {
                 ok = key >= prev && item == (void*)(uintptr_t)key &&
                      iheapValidate(h);
                 prev = key;
-                n++;
+                popped++;
             }
-            ok = ok && n == 1000 && iheapCount(h) == 0;
+            ok = ok && popped == n && iheapCount(h) == 0;
             iheapFree(h);
         }
         test_cond("insert and pop without callbacks drain in order", ok);
     }
 
     TEST("growth across capacity boundaries") {
+        const int doublings = 12;
+        const uint32_t n = 1u << doublings;
         testModel m;
-        testModelInit(&m, 4096);
+        testModelInit(&m, n);
         iheap *h = iheapNew(&testType, 1);
         testRngState = 4096;
         int moved = 0, grows = 0;
         ok = 1;
-        for (uint32_t i = 0; i < 4096 && ok; i++) {
+        for (uint32_t i = 0; i < n && ok; i++) {
             iheap *before = h;
             uint32_t capacity = h->capacity;
             int full = h->count == capacity;
@@ -783,9 +802,11 @@ int iheapTest(int argc, char *argv[], int flags) {
             }
             ok = ok && testCheck(h, &m);
         }
-        /* Doubling from 1 reaches 4096 in 12 steps; allocator slack can
-         * only make that fewer. The array must have moved at least once. */
-        ok = ok && grows >= 1 && grows <= 12 && moved && h->capacity >= 4096;
+        /* Doubling from 1 reaches n in 'doublings' steps; allocator slack
+         * can only make that fewer. The array must have moved at least
+         * once. */
+        ok = ok && grows >= 1 && grows <= doublings && moved &&
+             h->capacity >= n;
         test_cond("growth keeps every slot right and tracks *h", ok);
         iheapFree(h);
         testModelFree(&m);
@@ -793,8 +814,9 @@ int iheapTest(int argc, char *argv[], int flags) {
 
     TEST("append and build") {
         uint32_t sizes[] = { 1, 2, 3, 7, 8, 1000, 4097 };
+        const size_t nsizes = sizeof(sizes) / sizeof(sizes[0]);
         ok = 1;
-        for (int s = 0; s < 7 && ok; s++) {
+        for (size_t s = 0; s < nsizes && ok; s++) {
             uint32_t n = sizes[s];
             testModel m;
             testModelInit(&m, n);
@@ -819,8 +841,9 @@ int iheapTest(int argc, char *argv[], int flags) {
 
     TEST("alloc size") {
         uint32_t capacities[] = { 1, 2, 3, 5, 8, 100, 1000 };
+        const size_t ncaps = sizeof(capacities) / sizeof(capacities[0]);
         ok = 1;
-        for (int c = 0; c < 7 && ok; c++) {
+        for (size_t c = 0; c < ncaps && ok; c++) {
             iheap *h = iheapNew(&testType, capacities[c]);
             size_t usable = zmalloc_usable_size(h);
             ok = h->capacity >= capacities[c] &&
@@ -834,24 +857,24 @@ int iheapTest(int argc, char *argv[], int flags) {
 
     TEST("fuzz: small heaps") {
         test_cond("small heaps agree with the model after every operation",
-                  testFuzz("small", 0x5EED0001, 16, 200000 / scale, 1));
+                  testFuzz("small", 0x5EED0001, 16, fuzzOps, 1));
     }
 
     TEST("fuzz: medium heaps") {
         test_cond("medium heaps agree with the model after every operation",
-                  testFuzz("medium", 0x5EED0002, 1000, 200000 / scale, 1));
+                  testFuzz("medium", 0x5EED0002, 1000, fuzzOps, 1));
     }
 
     TEST("fuzz: priority queue") {
         test_cond("queue mode agrees with the model",
-                  testQueueFuzz(0x5EED0003, 1000, 200000 / scale));
+                  testQueueFuzz(0x5EED0003, 1000, fuzzOps));
     }
 
     if (accurate) {
         TEST("fuzz: large heaps") {
             test_cond("large heaps hold the call bound at depth",
                       testFuzz("large", 0x5EED0004, 100000,
-                               2000000 / scale, 1024));
+                               10 * fuzzOps, 1024));
         }
     }
 
