@@ -1327,10 +1327,6 @@ double dictIncrDoubleVal(dictEntry *de, double val) {
     return de->v.d += val;
 }
 
-int dictEntryIsKey(const dictEntry *de) {
-    return entryIsKey(de);
-}
-
 void *dictGetKey(const dictEntry *de) {
     /* if entryIsKey() */
     if ((uintptr_t)de & ENTRY_PTR_IS_ODD_KEY) return (void *) de;
@@ -2283,7 +2279,6 @@ enum {
     PREFETCH_BUCKET,        /* Pick the next table and prefetch the key's bucket */
     PREFETCH_MATCH,         /* Match the hash tags of the bucket (now in cache) */
     PREFETCH_CANDIDATE,     /* Prefetch the next tag-matching entry, or the child bucket */
-    PREFETCH_ENTRY_KEY,     /* dictType-driven prefetch of the entry's key payload (for keyCompare) */
     PREFETCH_ENTRY_VALUE,   /* Compare keys; on match, dictType-driven prefetch of the value payload */
     PREFETCH_DONE           /* Indicates that prefetching for this key is complete */
 };
@@ -2314,10 +2309,11 @@ void dictPrefetchInit(dictPrefetchState *st, dict *d, const void *key) {
 
 /* Advance the lookup until it gets to an address that is worth prefetching,
  * and return it. The steps follow a dictFind(): the bucket, the hash tag
- * match in the bucket (which is in cache by then), the tag-matching entry,
- * the key payload of the entry, and the key compare followed by the value
- * payload of the entry. If the key is not found in a bucket, its child bucket
- * is next, and then the bucket in the other table if the dict is rehashing.
+ * match in the bucket (which is in cache by then), the tag-matching entry
+ * (the key itself in a no_value dict), and the key compare followed by the
+ * value payload of the entry. If the key is not found in a bucket, its child
+ * bucket is next, and then the bucket in the other table if the dict is
+ * rehashing.
  *
  * When the lookup completes, st->done is set and the address of the value
  * payload or NULL is returned. */
@@ -2363,7 +2359,7 @@ void *dictPrefetchNext(dictPrefetchState *st) {
                     int pos = __builtin_ctz(st->candidates);
                     st->candidates &= st->candidates - 1;
                     st->current_entry = b->slots[pos];
-                    st->stage = PREFETCH_ENTRY_KEY;
+                    st->stage = PREFETCH_ENTRY_VALUE;
                     return st->current_entry;
                 }
                 /* No (more) candidates here: the child bucket, else the next table. */
@@ -2376,13 +2372,6 @@ void *dictPrefetchNext(dictPrefetchState *st) {
                 st->stage = PREFETCH_BUCKET;
                 break;
             }
-            case PREFETCH_ENTRY_KEY:
-                st->stage = PREFETCH_ENTRY_VALUE;
-                if (d->type->prefetchEntryKey) {
-                    void *addr = d->type->prefetchEntryKey(st->current_entry);
-                    if (addr) return addr;
-                }
-                break;
             case PREFETCH_ENTRY_VALUE: {
                 const void *cmp_key = dictStoredKey2Key(d, dictGetKey(st->current_entry));
                 /* The only tag match in an unchained bucket, while not rehashing,

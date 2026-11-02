@@ -26,9 +26,9 @@
 /* dictPrefetcher drives a batch of dict lookups, each one a dictPrefetchState
  * advanced by dictPrefetchNext() (see dict.c), yielding to the next in-flight
  * lookup each time a prefetch is issued — so one lookup's memory stall
- * overlaps another's work. The lookups are fully dict-pure: any key/value
- * payload prefetching is delegated to the dictType->prefetchEntryKey /
- * prefetchEntryValue callbacks of each key's dict. The same prefetcher is
+ * overlaps another's work. The lookups are fully dict-pure: any value
+ * payload prefetching is delegated to the dictType->prefetchEntryValue
+ * callback of each key's dict. The same prefetcher is
  * used by both the cross-command batch path and the intra-command
  * dictPrefetchKeys() API. */
 typedef struct dictPrefetcher {
@@ -94,7 +94,7 @@ static void dictPrefetcherReset(dictPrefetcher *p, dict **dicts, void **keys, si
  *
  * Conceptually each dict lookup is a dictFind broken into stages (see
  * dictPrefetchNext()):
- *   bucket → tag match → entry → entry key payload → entry value payload
+ *   bucket → tag match → entry → entry value payload
  * If the key is not found in a bucket, the lookup goes on with its child
  * bucket, and then retries against ht[1] if the dict is mid-rehash.
  *
@@ -102,9 +102,8 @@ static void dictPrefetcherReset(dictPrefetcher *p, dict **dicts, void **keys, si
  * issues a prefetch and yields to another in-flight lookup, hiding the
  * memory access latency.
  *
- * Any prefetching of the entry's key payload (e.g. an out-of-line kvobj head)
- * and the entry's value payload (e.g. kv->ptr for a RAW string) is delegated
- * to dictType->prefetchEntryKey and prefetchEntryValue respectively. */
+ * Any prefetching of the entry's value payload (e.g. kv->ptr for a RAW
+ * string) is delegated to dictType->prefetchEntryValue. */
 static void dictPrefetcherRun(dictPrefetcher *p) {
     dictPrefetchState *lk;
     while ((lk = dictPrefetchNextInFlight(p))) {
@@ -134,7 +133,7 @@ static void dictPrefetcherRun(dictPrefetcher *p) {
  *               dicts[k] = d;
  *           }
  *           dictPrefetchKeys(dicts, keys, n);
- *           // Now process these n keys — dict bucket / entry / key payload
+ *           // Now process these n keys — dict bucket / entry (the kvobj)
  *           // (and value payload, if dictType->prefetchEntryValue is set)
  *           // are warm in cache.
  *       }

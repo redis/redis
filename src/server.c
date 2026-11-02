@@ -577,18 +577,12 @@ int dictResizeAllowed(size_t moreMem, double usedRatio) {
     }
 }
 
-/* dbDictType prefetch callbacks.
- * The main keyspace stores a kvobj as the entry's "stored key" (no_value=1).
- * The prefetch state machine (dictPrefetchNext() in dict.c) calls these hooks to:
- *  - Bring the kvobj head into L1 before keyCompare runs, if the entry is
- *    not the kvobj itself. The bucket slots hold the kvobj pointers, so the
- *    entry prefetch already brings it in and this returns NULL.
- *  - Bring kv->ptr into L1 when the value lives in its own allocation
- *    (RAW strings, listpacks, ...), since the caller reads it next. */
-static void *dbDictPrefetchEntryKey(const dictEntry *de) {
-    return dictEntryIsKey(de) ? NULL : dictGetKey(de);
-}
-
+/* dbDictType prefetch callback.
+ * The main keyspace stores a kvobj as the entry's "stored key" (no_value=1),
+ * so the bucket slots hold the kvobj pointers, and the entry prefetch of the
+ * prefetch state machine (dictPrefetchNext() in dict.c) already brings the
+ * kvobj head in. This hook brings kv->ptr into L1 when the value lives in its
+ * own allocation (RAW strings, listpacks, ...), since the caller reads it next. */
 static void *dbDictPrefetchEntryValue(const dictEntry *de) {
     kvobj *kv = dictGetKey(de);
     if (inlineEncodedObject(kv)) return NULL;
@@ -644,7 +638,6 @@ dictType dbDictType = {
     .no_value = 1,          /* keys and values are unified (kvobj) */
     .keys_are_odd = 0,      /* simple kvobj (robj) struct */
     .keyFromStoredKey = kvGetKey,    /* get key from stored-key */
-    .prefetchEntryKey = dbDictPrefetchEntryKey,
     .prefetchEntryValue = dbDictPrefetchEntryValue,
 };
 
