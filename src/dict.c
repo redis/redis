@@ -1421,7 +1421,6 @@ void dictInitIterator(dictIterator *iter, dict *d)
     iter->safe = 0;
     iter->bucket = NULL;
     iter->pos = 0;
-    iter->last_seen_size = 0;
     iter->prefetch = 0;
 }
 
@@ -1509,7 +1508,6 @@ dictEntry *dictNext(dictIterator *iter)
     if (iter->index == -1 && iter->table == 0) {
         if (iter->safe) {
             dictPauseRehashing(d);
-            iter->last_seen_size = d->ht_used[0];
         } else {
             iter->fingerprint = dictFingerprint(d);
         }
@@ -1555,9 +1553,11 @@ dictEntry *dictNext(dictIterator *iter)
             continue;
         }
 
-        /* The chain is done. Compact it if the table lost entries while the
-         * chain was walked, and nothing else pauses rehashing. */
-        if (iter->safe && d->pauserehash == 1 && d->ht_used[iter->table] < iter->last_seen_size)
+        /* The chain is done. Fill the holes that deletes left in it, also
+         * those made before the iterator got to it, unless something else
+         * pauses rehashing. The chains already walked keep their holes. */
+        if (iter->safe && d->pauserehash == 1 &&
+            d->ht_table[iter->table][iter->index].chained)
             compactBucketChain(d, iter->index, iter->table);
         iter->index++;
         if (iter->index >= (long) DICTHT_SIZE(d->ht_size_exp[iter->table])) {
@@ -1571,7 +1571,6 @@ dictEntry *dictNext(dictIterator *iter)
         }
         b = &d->ht_table[iter->table][iter->index];
         pos = 0;
-        if (iter->safe) iter->last_seen_size = d->ht_used[iter->table];
         if (iter->prefetch) dictIteratorPrefetchAhead(iter);
     }
 }
@@ -3456,6 +3455,36 @@ int dictTest(int argc, char **argv, int flags) {
         }
         dictVerify(dr);
         dictRelease(dr);
+        assert(test_buckets == 0);
+    }
+
+    TEST("Safe iterator compacts chains emptied before it reaches them") {
+        test_buckets = 0;
+        dict *dc = dictCreate(&fewBucketsDictType);
+        const int n = 200;
+        for (int i = 0; i < n; i++) assert(dictAdd(dc, keyForId(i), NULL) == DICT_OK);
+        drainRehash(dc);
+        /* The keys are in buckets 0..3, and each of them has a chain. */
+        for (int idx = 0; idx < 4; idx++) assert(dc->ht_table[0][idx].chained);
+        /* No shrink, so only the iterator can free the child buckets. */
+        dictSetResizeEnabled(DICT_RESIZE_FORBID);
+        dictIterator it;
+        dictInitSafeIterator(&it, dc);
+        assert(dictNext(&it) != NULL);
+        /* After the first entry, delete every key, also those of the chains
+         * that the iterator hasn't reached yet. */
+        for (int i = 0; i < n; i++) {
+            char *key = keyForId(i);
+            assert(dictDelete(dc, key) == DICT_OK);
+            zfree(key);
+        }
+        assert(dictSize(dc) == 0 && dictChildBuckets(dc) > 0);
+        assert(dictNext(&it) == NULL);
+        dictResetIterator(&it);
+        assert(dictChildBuckets(dc) == 0);
+        dictVerify(dc);
+        dictSetResizeEnabled(DICT_RESIZE_ENABLE);
+        dictRelease(dc);
         assert(test_buckets == 0);
     }
 

@@ -161,6 +161,9 @@ struct dict {
 
     dictBucket *ht_table[2];
     unsigned long ht_used[2];
+    /* Note: child_buckets is not only a statistic. Deletes while rehashing is
+     * paused can leave empty child buckets in a table with ht_used == 0, and
+     * tableIsEmpty() checks it so that such a table isn't freed with them. */
     unsigned long child_buckets[2]; /* number of child buckets in each table */
 
     long rehashidx; /* rehashing not in progress if rehashidx == -1 */
@@ -185,7 +188,6 @@ typedef struct dictIterator {
     int table, safe;
     dictBucket *bucket; /* bucket of the last returned entry, or NULL */
     int pos;            /* slot of the last returned entry in bucket */
-    unsigned long last_seen_size; /* safe iterator: ht_used of table when entering the chain */
     /* unsafe iterator fingerprint for misuse detection. */
     unsigned long long fingerprint;
     int prefetch; /* See dictIteratorEnablePrefetch(). */
