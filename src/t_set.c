@@ -695,14 +695,6 @@ int setTypeGetExpire(robj *set, sds member, uint64_t *expire) {
     return setTypeGetOps(set->encoding)->getExpire(set, member, sdslen(member), 0, 1, expire);
 }
 
-/* Returns 1 if the set can hold member expirations now or after being converted.
- * Every set can: a hashtable gets the metadata of the expirations, and a set that
- * is too big for a listpack is converted to a hashtable. */
-int setTypeCanHoldExpire(const robj *set) {
-    UNUSED(set);
-    return 1;
-}
-
 /* Prepares a set to hold member expirations: a set that cannot hold them as it is
  * (an intset or a listpack) is converted to the listpack with expirations
  * encoding if its members fit in a listpack, or to a hashtable otherwise, and a
