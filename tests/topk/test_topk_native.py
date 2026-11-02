@@ -1,9 +1,25 @@
 """Native Top-K lifecycle and exact-state propagation regressions."""
 import os
 import time
+from pathlib import Path
 from support import *
 
 class testNativeTopK:
+    def test_zero_count_child_keeps_module_value_length(self):
+        module=Path(__file__).resolve().parents[1]/'modules/hooks.so'
+        if not module.exists():
+            Env().skip('Build the standard hooks test module with make')
+        env=Env(extra=('--loadmodule',str(module)))
+        r=env.cmd
+        r('TOPK.RESERVE','t',7,1,1,1)
+        r('TOPK.ADD','t','A','B','C')
+        r('TOPK.INCRBY','t','A',0)
+        r('TOPK.ADD','t','D','E','F','G')
+        # Zero increments can leave an empty child under a positive root.
+        assert len(r('TOPK.LIST','t'))==6
+        r('DEL','t')
+        assert r('hooks.is_key_removed','t')==[b'6',b'deleted']
+
     def test_zero_count_empty_item_survives_reload(self):
         env=Env()
         env.cmd('TOPK.RESERVE','t',3)

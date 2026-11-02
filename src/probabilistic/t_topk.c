@@ -9,8 +9,6 @@ robj *createTopkObject(void *p) { return createObject(OBJ_TOPK, p); }
 void freeTopkObject(robj *o) { TopK_Destroy(o->ptr); }
 size_t topkObjectLength(robj *o) {
     TopK *t=o->ptr;
-    /* A positive minimum means every min-heap slot is occupied. */
-    if (t->heap[0].count) return t->k;
     size_t n=0;
     for (uint32_t i=0; i<t->k; i++) n += t->heap[i].count != 0;
     return n;
