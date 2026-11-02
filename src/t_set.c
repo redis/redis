@@ -233,28 +233,20 @@ static void maybeConvertToIntset(robj *set) {
     set->encoding = OBJ_ENCODING_INTSET;
 }
 
-/* Add the specified sds value into a set.
- *
- * If the value was already member of the set, nothing is done and 0 is
- * returned, otherwise the new element is added and 1 is returned.
- *
- * It and setTypeAddAux() are forced inline into the callers of this file: when
- * they are not, SADD pays for a function call (frame, saved registers, stack
- * protector) per member. They are still defined out of line for the other files,
- * since server.h declares them without inline. */
-__attribute__((always_inline)) inline
-int setTypeAdd(robj *subject, sds value) {
-    return setTypeAddAux(subject, value, sdslen(value), 0, 1);
-}
-
 /* Add member. This function is optimized for the different encodings. The
  * value can be provided as an sds string (indicated by passing str_is_sds =
  * 1), as string and length (str_is_sds = 0) or as an integer in which case str
  * is set to NULL and llval is provided instead.
  *
- * Returns 1 if the value was added and 0 if it was already a member. */
-__attribute__((always_inline)) inline
-int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds) {
+ * Returns 1 if the value was added and 0 if it was already a member.
+ *
+ * Forced inline into the callers of this file that run per member (see
+ * setTypeAddInline()): when it is a call, SADD pays for a frame, saved
+ * registers and the stack protector per member. setTypeAddAux() is the same
+ * for the other files. Static, since an inline function with external linkage
+ * must not use the static functions of this file (clang warns about it). */
+static __attribute__((always_inline)) inline
+int setTypeAddAuxInline(robj *set, char *str, size_t len, int64_t llval, int str_is_sds) {
     char tmpbuf[LONG_STR_SIZE];
     if (!str && set->encoding != OBJ_ENCODING_INTSET) {
         /* Only intset can consume a bare integer directly; other encodings
@@ -280,6 +272,23 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
      * limit converts to a hash table. */
     if (added && set->encoding == OBJ_ENCODING_INTSET) maybeConvertIntset(set);
     return added;
+}
+
+int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds) {
+    return setTypeAddAuxInline(set, str, len, llval, str_is_sds);
+}
+
+/* Add the specified sds value into a set.
+ *
+ * If the value was already member of the set, nothing is done and 0 is
+ * returned, otherwise the new element is added and 1 is returned. */
+static __attribute__((always_inline)) inline
+int setTypeAddInline(robj *subject, sds value) {
+    return setTypeAddAuxInline(subject, value, sdslen(value), 0, 1);
+}
+
+int setTypeAdd(robj *subject, sds value) {
+    return setTypeAddInline(subject, value);
 }
 
 /* Like setTypeAddAux(), and the member gets the given expiration, or none if it
@@ -362,7 +371,7 @@ __attribute__((always_inline)) static inline int setTypeAddMergeExpire(robj *dst
                                         int str_is_sds, uint64_t expire, int farthest)
 {
     if (expire == EB_EXPIRE_TIME_INVALID)
-        return setTypeAddAux(dst, str, len, llval, str_is_sds);
+        return setTypeAddAuxInline(dst, str, len, llval, str_is_sds);
     return setTypeAddMergeExpireSlow(dst, str, len, llval, str_is_sds, expire, farthest);
 }
 
@@ -2219,7 +2228,7 @@ void saddCommand(client *c) {
     const int canExpire = setTypeHasExpireSupport(set);
     unsigned long oldlen = canExpire ? setTypeSize(set) : 0;
     for (j = 2; j < c->argc; j++) {
-        if (setTypeAdd(set,c->argv[j]->ptr)) added++;
+        if (setTypeAddInline(set,c->argv[j]->ptr)) added++;
     }
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), set, oldsize, kvobjAllocSize(set));
@@ -2378,7 +2387,7 @@ void smoveCommand(client *c) {
         added = setTypeAddExAux(dstset, ele->ptr, sdslen(ele->ptr), 0, 1, srcExpire);
         expireChanged = 1;
     } else {
-        added = setTypeAdd(dstset,ele->ptr);
+        added = setTypeAddInline(dstset,ele->ptr);
         /* The member without an expiration overwrites the expiration of the one
          * that already was in the destination. */
         if (!added && dstExpire != EB_EXPIRE_TIME_INVALID) {
@@ -3557,7 +3566,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
 
             setTypeInitIterator(&si, sets[j].set, SET_ITER_SKIP_EXPIRED);
             while ((encoding = setTypeNext(&si, &str, &len, &llval)) != -1)
-                setTypeAddAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT);
+                setTypeAddAuxInline(dstset, str, len, llval, encoding == OBJ_ENCODING_HT);
             setTypeResetIterator(&si);
         }
 
