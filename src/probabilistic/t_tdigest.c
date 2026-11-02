@@ -22,9 +22,10 @@ void tdigestDismiss(robj *o) {
 }
 static td_histogram_t *tdClone(td_histogram_t *t) {
     td_histogram_t *copy=zmalloc(sizeof(*copy)); *copy=*t;
-    size_t n=(size_t)t->cap;
-    copy->nodes_mean=zmalloc(n*sizeof(double));
-    copy->nodes_weight=zmalloc(n*sizeof(long long));
+    /* Keep the reserved capacity, but copy only initialized, live nodes. */
+    size_t n=(size_t)(t->merged_nodes+t->unmerged_nodes);
+    copy->nodes_mean=zmalloc((size_t)t->cap*sizeof(double));
+    copy->nodes_weight=zmalloc((size_t)t->cap*sizeof(long long));
     memcpy(copy->nodes_mean,t->nodes_mean,n*sizeof(double));
     memcpy(copy->nodes_weight,t->nodes_weight,n*sizeof(long long));
     return copy;
@@ -103,12 +104,22 @@ void tdigestAddCommand(client *c) {
     td_histogram_t *t=o->ptr;
     if (td_size(t)>LLONG_MAX-n) { addReplyError(c,"T-Digest: overflow detected"); zfree(values); return; }
     size_t oldcount=tdigestObjectLength(o), oldsize=server.memory_tracking_enabled ? kvobjAllocSize(o) : 0;
-    /* Work on a copy: overflow must not leave an unpropagated partial mutation. */
-    td_histogram_t *copy=tdClone(t);
-    for (int i=0; i<n; i++) if (td_add(copy,values[i],1)) {
-        td_free(copy); zfree(values); addReplyError(c,"T-Digest: overflow detected"); return;
+    /* Finite values and the final unit-weight sum are already validated.
+     * Without compression, these appends cannot fail. Retain the transactional
+     * copy whenever a batch reaches the compression boundary. */
+    if (n<=t->cap-1-t->merged_nodes-t->unmerged_nodes) {
+        for (int i=0; i<n; i++) {
+            int rc=td_add(t,values[i],1);
+            serverAssert(rc==0);
+        }
+    } else {
+        td_histogram_t *copy=tdClone(t);
+        for (int i=0; i<n; i++) if (td_add(copy,values[i],1)) {
+            td_free(copy); zfree(values); addReplyError(c,"T-Digest: overflow detected"); return;
+        }
+        o->ptr=copy; td_free(t);
     }
-    zfree(values); o->ptr=copy; td_free(t);
+    zfree(values);
     tdModified(c,o,oldcount,oldsize); addReply(c,shared.ok);
 }
 void tdigestMergeCommand(client *c) {
