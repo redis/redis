@@ -75,6 +75,35 @@ test {Zset listpack scores are validated before loading or conversion} {
     }
 }
 
+test {Zset listpack duplicate members are rejected before conversion} {
+    start_server [list overrides [list use-exit-on-panic yes crash-memcheck-enabled no]] {
+        r zadd dup-source 1 alpha 2 bravo
+        assert_encoding listpack dup-source
+        # Both pairs stay ordered by (score, member), so only a uniqueness
+        # check can catch the duplicate.
+        set payload [string map {bravo alpha} [r dump dup-source]]
+        r debug set-skip-checksum-validation 1
+        foreach {sanitize limit} {yes 128 yes 1 no 1} {
+            r config set sanitize-dump-payload $sanitize
+            r config set zset-max-listpack-entries $limit
+            assert_error {*Bad data format*} {r restore dup 0 $payload}
+            assert_equal 0 [r exists dup]
+            assert_equal PONG [r ping]
+        }
+
+        # Without sanitization a listpack that stays one is trusted. A later
+        # conversion must not publish both copies.
+        r config set sanitize-dump-payload no
+        r config set zset-max-listpack-entries 128
+        r restore dup 0 $payload
+        assert_encoding listpack dup
+        r config set zset-max-listpack-entries 2
+        catch {r zadd dup 3 charlie}
+        assert_equal [count_log_message 0 "crashed by signal"] 0
+        assert_equal [count_log_message 0 "ASSERTION FAILED"] 1
+    }
+}
+
 test {corrupt payload: #7445 - with sanitize} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload yes

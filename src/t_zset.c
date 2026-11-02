@@ -1485,48 +1485,92 @@ static const unsigned char *zzlDecodeElement(unsigned char *eptr, char *buf,
     return vstr;
 }
 
+/* Return true if two listpack members with the same hash are equal. */
+static int zzlElementsEqual(unsigned char *aptr, unsigned char *bptr) {
+    char abuf[LONG_STR_SIZE], bbuf[LONG_STR_SIZE];
+    size_t alen, blen;
+    const unsigned char *a = zzlDecodeElement(aptr, abuf, sizeof(abuf), &alen);
+    const unsigned char *b = zzlDecodeElement(bptr, bbuf, sizeof(bbuf), &blen);
+    return alen == blen && memcmp(a, b, alen) == 0;
+}
+
 /* Verify a listpack-encoded zset is genuinely sorted (score, then member)
  * and duplicate-free -- its invariant when uncorrupted. A single linear
  * pass here lets the LISTPACK->BTREE conversion below use the descent-free
  * append path for every member instead of paying a full B+tree search (the
  * duplicate check) plus a second full descent (the insert) per element.
  * Only a corrupt listpack should make this return false, in which case the
- * caller falls back to the original per-element-checked, slower path. */
-static int zzlIsSortedNoDup(unsigned char *zl) {
+ * caller falls back to the original per-element-checked, slower path.
+ *
+ * Ordering alone cannot prove uniqueness: (a,1),(a,2) is ordered. So the
+ * member hashes are also checked in a small open-addressing table. They are
+ * stored in 'hashes', which must hold zzlLength(zl) entries, for the caller
+ * to reuse when it appends the members. */
+static int zzlIsSortedNoDup(unsigned char *zl, uint32_t *hashes) {
     unsigned char *preveptr = NULL;
     unsigned char *eptr, *sptr;
     double prevscore = 0;
+    unsigned long count = 0, length = zzlLength(zl);
+    int ok = 1;
 
     eptr = lpSeek(zl, 0);
     if (eptr == NULL) return 1;
     sptr = lpNext(zl, eptr);
     if (sptr == NULL) return 0;
 
+    /* Slots hold a member's position plus one, zero being empty. */
+    unsigned long slots = 4;
+    while (slots < length * 2) slots <<= 1;
+    uint32_t *table = zcalloc(sizeof(*table) * slots);
+
     while (eptr != NULL) {
         double score = zzlGetScore(sptr);
-        if (isnan(score)) return 0;
+        if (isnan(score)) { ok = 0; break; }
+        char buf[LONG_STR_SIZE];
+        size_t rawlen;
+        const unsigned char *raw = zzlDecodeElement(eptr, buf, sizeof(buf), &rawlen);
         if (preveptr != NULL) {
             int cmp;
             if (prevscore != score) {
                 cmp = prevscore < score ? -1 : 1;
             } else {
-                char prevbuf[LONG_STR_SIZE], buf[LONG_STR_SIZE];
-                size_t prevrawlen, rawlen;
+                char prevbuf[LONG_STR_SIZE];
+                size_t prevrawlen;
                 const unsigned char *prevraw = zzlDecodeElement(
                     preveptr, prevbuf, sizeof(prevbuf), &prevrawlen);
-                const unsigned char *raw = zzlDecodeElement(eptr, buf, sizeof(buf), &rawlen);
                 size_t minlen = prevrawlen < rawlen ? prevrawlen : rawlen;
                 cmp = memcmp(prevraw, raw, minlen);
                 if (cmp == 0)
                     cmp = prevrawlen < rawlen ? -1 : (prevrawlen > rawlen ? 1 : 0);
             }
-            if (cmp >= 0) return 0;
+            if (cmp >= 0) { ok = 0; break; }
         }
+
+        /* A corrupt listpack may hold more pairs than its header claims. */
+        if (count == length) { ok = 0; break; }
+        uint32_t hash = (uint32_t)dictGenHashFunction(raw, rawlen);
+        hashes[count] = hash;
+        unsigned long idx = hash & (slots - 1);
+        while (table[idx]) {
+            uint32_t other = table[idx] - 1;
+            if (hashes[other] == hash &&
+                zzlElementsEqual(lpSeek(zl, (long)other * 2), eptr))
+            {
+                ok = 0;
+                break;
+            }
+            idx = (idx + 1) & (slots - 1);
+        }
+        if (!ok) break;
+        table[idx] = (uint32_t)count + 1;
+        count++;
+
         preveptr = eptr;
         prevscore = score;
         zzlNext(zl, &eptr, &sptr);
     }
-    return 1;
+    zfree(table);
+    return ok && count == length;
 }
 
 /* Converts a zset to the specified encoding, pre-sizing it for 'cap' elements. */
@@ -1572,7 +1616,8 @@ void zsetConvertAndExpand(robj *zobj, int encoding, unsigned long cap) {
                 serverAssertWithInfo(NULL,zobj,sptr != NULL);
             }
 
-            if (zzlIsSortedNoDup(zl)) {
+            uint32_t *hashes = length ? zmalloc(sizeof(*hashes) * length) : NULL;
+            if (zzlIsSortedNoDup(zl, hashes)) {
                 /* Uncorrupted listpack (the common case, verified above):
                  * known sorted and duplicate-free, so every insert can use
                  * the descent-free append path -- no per-element duplicate
@@ -1583,17 +1628,20 @@ void zsetConvertAndExpand(robj *zobj, int encoding, unsigned long cap) {
                  * them out synchronously before returning, same contract the
                  * unbatched zbtreeInsertNewAppend() call it replaces had. */
                 zbtreeAppendBatch *batch = zbtreeAppendBatchCreate(bt);
+                unsigned long i = 0;
                 while (eptr != NULL) {
                     score = zzlGetScore(sptr);
                     serverAssert(!isnan(score));
                     char buf[LONG_STR_SIZE];
                     size_t rawlen;
                     const unsigned char *raw = zzlDecodeElement(eptr, buf, sizeof(buf), &rawlen);
-                    zbtreeAppendBatchAdd(batch, score, raw, rawlen);
+                    zbtreeAppendBatchAddWithHash(batch, score, raw, rawlen, hashes[i++]);
                     zzlNext(zl,&eptr,&sptr);
                 }
                 zbtreeAppendBatchFinish(batch);
+                zfree(hashes);
             } else {
+                zfree(hashes);
                 while (eptr != NULL) {
                     score = zzlGetScore(sptr);
                     serverAssert(!isnan(score));
@@ -5703,6 +5751,7 @@ int zsetTest(int argc, char **argv, int flags) {
          * accidentally agreeing because the two happened to correlate. */
         unsigned char *zl = lpNew(0);
         char namebuf[32];
+        uint32_t hashes[51];
         for (int i = 0; i < 50; i++) {
             snprintf(namebuf, sizeof(namebuf), "member:%04d", 49 - i);
             sds ele = sdsnew(namebuf);
@@ -5710,7 +5759,7 @@ int zsetTest(int argc, char **argv, int flags) {
             sdsfree(ele);
         }
         test_cond("zzlIsSortedNoDup accepts a genuinely sorted, duplicate-free listpack",
-            zzlIsSortedNoDup(zl) == 1);
+            zzlIsSortedNoDup(zl, hashes) == 1);
 
         /* Swap the last two entries' relative order by appending them in
          * reverse (zzlInsertAt(..., NULL, ...) always appends, ignoring
@@ -5730,7 +5779,7 @@ int zsetTest(int argc, char **argv, int flags) {
         sdsfree(elehigh);
         sdsfree(elelow);
         test_cond("zzlIsSortedNoDup rejects an out-of-order (but duplicate-free) listpack",
-            zzlIsSortedNoDup(zl2) == 0);
+            zzlIsSortedNoDup(zl2, hashes) == 0);
 
         /* Exact duplicate of the LAST element appended right after it, so
          * the only thing wrong is the (score, member) tie -- unlike
@@ -5748,7 +5797,23 @@ int zsetTest(int argc, char **argv, int flags) {
         zl3 = zzlInsertAt(zl3, NULL, dup, 49.0);
         sdsfree(dup);
         test_cond("zzlIsSortedNoDup rejects a listpack containing a duplicate",
-            zzlIsSortedNoDup(zl3) == 0);
+            zzlIsSortedNoDup(zl3, hashes) == 0);
+
+        /* A duplicate at a higher score is still ordered by (score, member),
+         * so only the uniqueness check can reject it. */
+        unsigned char *zl4 = lpNew(0);
+        for (int i = 0; i < 50; i++) {
+            snprintf(namebuf, sizeof(namebuf), "member:%04d", 49 - i);
+            sds ele = sdsnew(namebuf);
+            zl4 = zzlInsert(zl4, ele, (double)i);
+            sdsfree(ele);
+        }
+        sds early = sdsnew("member:0049"); /* i=0's member */
+        zl4 = zzlInsertAt(zl4, NULL, early, 100.0);
+        sdsfree(early);
+        test_cond("zzlIsSortedNoDup rejects an ordered duplicate at another score",
+            zzlIsSortedNoDup(zl4, hashes) == 0);
+        lpFree(zl4);
 
         /* End-to-end: a sorted source exercises the fast (append) path; an
          * out-of-order-but-duplicate-free source exercises the fallback
