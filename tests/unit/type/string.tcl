@@ -376,80 +376,60 @@ start_server {tags {"string"}} {
         assert_error {*syntax error*} {r msetex 2 key1{t} val1 key2{t} val2 keepttl px 5000}
     }
 
-    test {MSETEX - repeated EX/PX is accepted (last wins)} {
-        # Repeated EX/PX should be accepted with last-wins semantics,
-        # matching SET's behavior. The rewrite logic ensures only the final
-        # expiration is propagated to AOF/replicas as PXAT.
+    test {MSETEX - repeated EX/PX of the same unit, last wins} {
         r del dup:key{t}
-        
-        # Last EX wins
-        r msetex 1 dup:key{t} val ex 10 ex 20
-        assert_equal {val} [r get dup:key{t}]
-        set ttl [r ttl dup:key{t}]
-        assert_range $ttl 18 20
-        
-        # Last PX wins
+        r msetex 1 dup:key{t} val ex 10 ex 100
+        assert_range [r ttl dup:key{t}] 98 100
+
         r del dup:key{t}
-        r msetex 1 dup:key{t} val px 10000 px 20000
-        assert_equal {val} [r get dup:key{t}]
-        set pttl [r pttl dup:key{t}]
-        assert_range $pttl 18000 20000
-        
-        # Last EX wins even with NX
+        r msetex 1 dup:key{t} val px 10000 px 100000
+        assert_range [r ttl dup:key{t}] 98 100
+
+        # Repeated expire options with NX in between
         r del dup:key{t}
-        r msetex 1 dup:key{t} val ex 10 nx ex 20
-        assert_equal {val} [r get dup:key{t}]
-        set ttl [r ttl dup:key{t}]
-        assert_range $ttl 18 20
+        r msetex 1 dup:key{t} val ex 10 nx ex 100
+        assert_range [r ttl dup:key{t}] 98 100
+
+        # Mixing units is still a syntax error, in both orders
+        assert_error {*syntax error*} {r msetex 1 dup:key{t} val ex 10 px 5000}
+        assert_error {*syntax error*} {r msetex 1 dup:key{t} val px 5000 ex 10}
     }
 
-    test {MSETEX - repeated EX/PX last wins} {
-        # Ensure repeated EX/PX commands use last value
-        r del dup:key{t}
-        
-        # Execute command with repeated EX (last wins: 100)
-        r msetex 1 dup:key{t} value ex 10 ex 100
-        assert_equal {value} [r get dup:key{t}]
-        set ttl [r ttl dup:key{t}]
-        assert_range $ttl 98 100
-        
-        # Execute command with repeated PX (last wins: 100000ms = 100s)
-        r msetex 1 dup:key{t} value2 px 10000 px 100000
-        assert_equal {value2} [r get dup:key{t}]
-        set ttl [r ttl dup:key{t}]
-        assert_range $ttl 98 100
-    }
-
-    test {MSETEX - repeated EX/PX propagate correctly to replica} {
-        r del repl:dup{t}
-        set repl [attach_to_replication_stream]
-        
-        # Repeated EX should propagate as single PXAT
-        r msetex 1 repl:dup{t} v1 ex 10 ex 100
-        
-        # Repeated PX should propagate as single PXAT
-        r msetex 1 repl:dup{t} v2 px 10000 px 100000
-        
-        assert_replication_stream $repl {
-            {select *}
-            {msetex 1 repl:dup{t} v1 PXAT *}
-            {msetex 1 repl:dup{t} v2 PXAT *}
-        }
-        close_replication_stream $repl
-    } {} {needs:repl}
-
-    test {MSETEX - EX/PX propagate as PXAT to replica} {
-        r del repl:key1{t} repl:key2{t}
+    test {MSETEX - EX/PX are propagated as a single PXAT} {
+        r del repl:key1{t} repl:key2{t} repl:nx{t}
         set repl [attach_to_replication_stream]
         r msetex 2 repl:key1{t} v1 repl:key2{t} v2 ex 100
         r msetex 1 repl:key1{t} v3 px 100000 xx
+        r msetex 1 repl:key1{t} v4 ex 10 ex 100
+        r msetex 1 repl:key1{t} v5 px 10000 px 100000
+        r msetex 1 repl:nx{t} v6 ex 10 nx ex 100
+        r msetex 1 repl:key1{t} v7 ex 10 xx ex 100
         assert_replication_stream $repl {
             {select *}
             {msetex 2 repl:key1{t} v1 repl:key2{t} v2 PXAT *}
-            {msetex 1 repl:key1{t} v3 PXAT * xx}
+            {msetex 1 repl:key1{t} v3 XX PXAT *}
+            {msetex 1 repl:key1{t} v4 PXAT *}
+            {msetex 1 repl:key1{t} v5 PXAT *}
+            {msetex 1 repl:nx{t} v6 NX PXAT *}
+            {msetex 1 repl:key1{t} v7 XX PXAT *}
         }
         close_replication_stream $repl
     } {} {needs:repl}
+
+    test {SET and GETEX - EX/PX parsing is unchanged} {
+        r del foo
+        # Mixing units is a syntax error
+        assert_error {*syntax error*} {r set foo bar ex 10 px 5000}
+        assert_error {*syntax error*} {r set foo bar px 5000 ex 10}
+        r set foo bar
+        assert_error {*syntax error*} {r getex foo ex 10 px 5000}
+        assert_error {*syntax error*} {r getex foo px 5000 ex 10}
+        # A repeated option of the same unit keeps the last one
+        r set foo bar ex 10 ex 100
+        assert_range [r ttl foo] 98 100
+        r getex foo px 10000 px 100000
+        assert_range [r ttl foo] 98 100
+    }
 
     test "STRLEN against non-existing key" {
         assert_equal 0 [r strlen notakey]
