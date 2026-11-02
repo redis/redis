@@ -1479,7 +1479,7 @@ void delexCommand(client *c) {
 
     /* If there are no conditions specified we just delete the key */
     if (c->argc == 2) {
-        delGenericCommand(c, server.lazyfree_lazy_server_del);
+        delGenericCommand(c, server.lazyfree_lazy_user_del);
         return;
     }
 
@@ -1543,7 +1543,7 @@ void delexCommand(client *c) {
     }
 
     if (should_delete) {
-        deleted = server.lazyfree_lazy_server_del ?
+        deleted = server.lazyfree_lazy_user_del ?
                   dbAsyncDelete(c->db, key) :
                   dbSyncDelete(c->db, key);
     }

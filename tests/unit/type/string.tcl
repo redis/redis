@@ -1213,6 +1213,36 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         assert_error "*Invalid condition*" {r delex mykey EQ "hello"}
     }
 
+    test {DELEX frees like DEL under lazyfree-lazy-user-del} {
+        set orig_user [lindex [r config get lazyfree-lazy-user-del] 1]
+        set orig_server [lindex [r config get lazyfree-lazy-server-del] 1]
+
+        # A hashtable-encoded hash is freed in many allocations, so it exceeds
+        # LAZYFREE_THRESHOLD and shows whether the free happened in background.
+        foreach {user_del server_del} {yes no no yes} {
+            r config set lazyfree-lazy-user-del $user_del
+            r config set lazyfree-lazy-server-del $server_del
+            set is_async_user_del [expr {[lindex [r config get lazyfree-lazy-user-del] 1] eq "yes"}]
+
+            foreach cmd {del delex} {
+                r del big
+                for {set i 0} {$i < 1024} {incr i} {
+                    r hset big $i value
+                }
+                assert_encoding hashtable big
+
+                wait_lazyfree_done r
+                set before [s lazyfreed_objects]
+                r $cmd big
+                wait_lazyfree_done r
+                assert_equal [expr {$before + $is_async_user_del}] [s lazyfreed_objects]
+            }
+        }
+
+        r config set lazyfree-lazy-user-del $orig_user
+        r config set lazyfree-lazy-server-del $orig_server
+    }
+
     test {DELEX with special characters and whitespace} {
         r set mykey "  spaces  \t\n\r"
         assert_equal 1 [r delex mykey IFEQ "  spaces  \t\n\r"]
