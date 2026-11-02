@@ -15,13 +15,14 @@
  *
  * Dict usage of pointer tagging
  * -----------------------------
- * In the "normal" case (no_value=0), a dict slot contains only a pointer to a 
- * dictEntry, and dictEntry holds untagged pointers to key and value. But when a 
- * dict is used as a set (no_value=1), we optimize by storing direct key pointers 
- * in every slot, avoiding dictEntry allocation. Redis dicts uses pointer
- * tagging, to identify direct key pointers from dictEntry pointers, i.e embedding 
- * metadata in the lowest three bits of pointers. This requires 8-byte alignment, 
- * which zmalloc() guarantees on both 32-bit and 64-bit systems (via jemalloc/tcmalloc, 
+ * In the "normal" case (no_value=0), every bucket slot holds a pointer to a
+ * dictEntry, and dictEntry holds untagged pointers to key and value. When a
+ * dict is used as a set (no_value=1), every slot holds the key pointer itself,
+ * avoiding dictEntry allocation. Accessors such as dictGetKey() get only the
+ * entry pointer, not the dict, so the entry pointer itself tells which of the
+ * two it is: Redis dicts use pointer tagging, i.e. embedding metadata in the
+ * lowest three bits of pointers. This requires 8-byte alignment, which
+ * zmalloc() guarantees on both 32-bit and 64-bit systems (via jemalloc/tcmalloc,
  * or standard malloc with explicit PREFIX_SIZE=8).
  * 
  * Besides of distinguishing direct key pointers from dictEntry pointers, we also 
