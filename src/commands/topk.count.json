@@ -1,0 +1,49 @@
+{
+    "TOPK.COUNT": {
+        "summary": "Return the count for one or more items are in a sketch",
+        "complexity": "O(n) where n is the number of items",
+        "deprecated_since": "2.4",
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "item",
+                "type": "string",
+                "multiple": true
+            }
+        ],
+        "since": "8.8.0",
+        "group": "topk",
+        "function": "topkQueryCommand",
+        "arity": -3,
+        "command_flags": [
+            "READONLY"
+        ],
+        "acl_categories": [
+            "TOPK"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}
