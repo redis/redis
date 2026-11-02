@@ -12359,7 +12359,7 @@ float RM_GetUsedMemoryRatio(void){
  * is a plain field written by CONFIG SET. */
 static redisAtomic unsigned long long maxmemory_snapshot = 0;
 
-/* Publish server.maxmemory for RM_GetRawUsedMemoryRatio(). Must be
+/* Publish server.maxmemory for RM_GetUsedMemoryRatioEstimate(). Must be
  * called on the main thread after every change of server.maxmemory. */
 void moduleUpdateMaxmemorySnapshot(void) {
     atomicSet(maxmemory_snapshot, server.maxmemory);
@@ -12384,7 +12384,7 @@ void moduleUpdateMaxmemorySnapshot(void) {
  * * Exactly 1 - Memory limit reached.
  * * Greater 1 - More memory used than the configured limit.
  */
-float RM_GetRawUsedMemoryRatio(void) {
+float RM_GetUsedMemoryRatioEstimate(void) {
     unsigned long long maxmemory;
     atomicGet(maxmemory_snapshot, maxmemory);
     if (maxmemory == 0) return 0;
@@ -16250,7 +16250,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(SignalKeyAsReady);
     REGISTER_API(GetBlockedClientReadyKey);
     REGISTER_API(GetUsedMemoryRatio);
-    REGISTER_API(GetRawUsedMemoryRatio);
+    REGISTER_API(GetUsedMemoryRatioEstimate);
     REGISTER_API(MallocSize);
     REGISTER_API(MallocUsableSize);
     REGISTER_API(MallocSizeString);

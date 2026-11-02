@@ -603,20 +603,20 @@ int test_used_memory_ratio(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     return RedisModule_ReplyWithDouble(ctx, RedisModule_GetUsedMemoryRatio());
 }
 
-int test_raw_used_memory_ratio(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+int test_used_memory_ratio_estimate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     UNUSED(argv);
     if (argc != 1) return RedisModule_WrongArity(ctx);
-    return RedisModule_ReplyWithDouble(ctx, RedisModule_GetRawUsedMemoryRatio());
+    return RedisModule_ReplyWithDouble(ctx, RedisModule_GetUsedMemoryRatioEstimate());
 }
 
 static void *used_memory_ratio_thread_main(void *arg) {
-    *(float *)arg = RedisModule_GetRawUsedMemoryRatio();
+    *(float *)arg = RedisModule_GetUsedMemoryRatioEstimate();
     return NULL;
 }
 
-/* Calls RedisModule_GetRawUsedMemoryRatio() from a thread that does not
+/* Calls RedisModule_GetUsedMemoryRatioEstimate() from a thread that does not
  * hold the GIL. */
-int test_raw_used_memory_ratio_bg(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+int test_used_memory_ratio_estimate_bg(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     UNUSED(argv);
     if (argc != 1) return RedisModule_WrongArity(ctx);
     pthread_t tid;
@@ -707,9 +707,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx, "test.used_memory_ratio", test_used_memory_ratio, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    if (RedisModule_CreateCommand(ctx, "test.raw_used_memory_ratio", test_raw_used_memory_ratio, "", 0, 0, 0) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx, "test.used_memory_ratio_estimate", test_used_memory_ratio_estimate, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    if (RedisModule_CreateCommand(ctx, "test.raw_used_memory_ratio_bg", test_raw_used_memory_ratio_bg, "", 0, 0, 0) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx, "test.used_memory_ratio_estimate_bg", test_used_memory_ratio_estimate_bg, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
