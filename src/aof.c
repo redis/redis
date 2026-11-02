@@ -1387,6 +1387,34 @@ ssize_t aofWrite(int fd, const char *buf, size_t len) {
     return totwritten;
 }
 
+/* Test-only fault injection for flushAppendOnlyFile(), gating on the DEBUG
+ * AOF-FLUSH-FORCE-* flags below. Returns 1 if a fault was injected -- the
+ * caller must bail out immediately without touching the AOF -- or 0 to
+ * proceed with the real flush. */
+static int aofFlushFaultInjection(int force) {
+    UNUSED(force);
+
+    /* Simulate a main-thread AOF write failure (e.g. ENOSPC). We set the
+     * error status and bail before writing/fsyncing, so the buffered
+     * commands stay in aof_buf and fsynced_reploff stalls. Clearing the
+     * flag lets the next flush write the buffered data and recover to C_OK. */
+    if (server.aof_flush_force_error) {
+        if (server.aof_last_write_status == C_OK)
+            serverLog(LL_WARNING,"Simulating an AOF write error (debug aof-flush-force error).");
+        server.aof_last_write_status = C_ERR;
+        server.aof_last_write_errno = ENOSPC;
+        return 1;
+    }
+
+    /* Stall the durable offset (skip write+fsync) without flagging an
+     * error, so the buffered commands stay in aof_buf while new writes are
+     * still accepted. */
+    if (server.aof_flush_force_stall)
+        return 1;
+
+    return 0;
+}
+
 /* Write the append only file buffer on disk.
  *
  * Since we are required to write the AOF before replying to the client,
@@ -1410,6 +1438,9 @@ void flushAppendOnlyFile(int force) {
     ssize_t nwritten;
     int sync_in_progress = 0;
     mstime_t latency;
+
+    /* Test-only: DEBUG AOF-FLUSH-FORCE-* fault injection. */
+    if (aofFlushFaultInjection(force)) return;
 
     if (sdslen(server.aof_buf) == 0) {
         if (server.aof_last_incr_fsync_offset == server.aof_last_incr_size) {
