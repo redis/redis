@@ -1214,7 +1214,6 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
     }
 
     test {DELEX frees like DEL under lazyfree-lazy-user-del} {
-        r flushall
         set orig_user [lindex [r config get lazyfree-lazy-user-del] 1]
         set orig_server [lindex [r config get lazyfree-lazy-server-del] 1]
 
