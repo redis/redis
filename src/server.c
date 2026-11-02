@@ -2184,7 +2184,7 @@ void afterSleep(struct aeEventLoop *eventLoop) {
      * Do NOT add anything above moduleAcquireGIL !!! *
      ***************************** ********************/
     if (!ProcessingEventsWhileBlocked) {
-        int cpu_sampled = !server.off_cpu_tracking;
+        int cpu_sampled = 0;
         /* Acquire the modules GIL so that their threads won't touch anything. */
         if (moduleCount()) {
             mstime_t latency;
@@ -2195,18 +2195,18 @@ void afterSleep(struct aeEventLoop *eventLoop) {
             atomicSet(server.module_gil_acquiring, 0);
             /* Start the CPU window after the GIL (waiting for it isn't counted)
              * and before module events, which may run commands. */
-            if (!cpu_sampled) {
+            if (server.off_cpu_tracking) {
                 cpuSampleTake(&server.cpu_checkpoint);
                 server.el_cpu_start = server.cpu_checkpoint;
-                cpu_sampled = 1;
             }
+            cpu_sampled = 1;
             moduleFireServerEvent(REDISMODULE_EVENT_EVENTLOOP,
                                   REDISMODULE_SUBEVENT_EVENTLOOP_AFTER_SLEEP,
                                   NULL);
             latencyEndMonitor(latency);
             latencyAddSampleIfNeeded("module-acquire-GIL",latency);
         }
-        if (!cpu_sampled) {
+        if (!cpu_sampled && server.off_cpu_tracking) {
             cpuSampleTake(&server.cpu_checkpoint);
             server.el_cpu_start = server.cpu_checkpoint;
         }
