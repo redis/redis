@@ -2620,7 +2620,7 @@ typedef struct {
     int encoding;
     double weight;
     size_t oldsize;
-    int noscore; /* Skip B+ tree score decoding in zuiNext(). */
+    int noscore; /* Skip B+ tree score decoding when reading this input. */
 
     union {
         /* Set iterators. */
@@ -2681,8 +2681,7 @@ typedef struct {
     double score;
 } zsetopval;
 
-/* zuiNext() clears a zsetopval for every member it returns, so keep the
- * struct small enough for that clear to stay a few plain stores. */
+/* zuiNext() clears a zsetopval per member, so keep it small. */
 static_assert(sizeof(zsetopval) <= 80, "zsetopval grew past 80 bytes");
 
 typedef union _iterset iterset;
@@ -2876,8 +2875,7 @@ int zuiNext(zsetopsrc *op, zsetopval *val) {
         } else if (op->encoding == OBJ_ENCODING_BTREE) {
             const unsigned char *ele;
             size_t len;
-            /* A caller that only counts members skips the packed score
-             * decode, which is the costly part of stepping the leaf. */
+            /* Keep zuiNextBatched() in sync. */
             if (!zbtreeIteratorNext(&it->bt.iter, 1, &ele, &len,
                                     op->noscore ? NULL : &val->score))
                 return 0;
@@ -2892,19 +2890,17 @@ int zuiNext(zsetopsrc *op, zsetopval *val) {
     return 1;
 }
 
-/* Members of a B+ tree input decoded a batch at a time, see
- * zbtreeIteratorNextBatch(). Like the iterator, they point into the set and
- * are valid only while it is not modified. */
+/* Members of a B+ tree input decoded a batch at a time. They point into the
+ * set and are valid only while it is not modified. */
 #define ZUI_BATCH_SIZE 16
 typedef struct {
     zbtreeIteratorElement ele[ZUI_BATCH_SIZE];
     unsigned int pos, len;
 } zuiBatch;
 
-/* zuiNext() for a B+ tree input, taking members from 'batch'. A caller that
- * stops early (LIMIT) passes in 'remaining' how many more matches it can use,
- * and a refill then decodes at most remaining + 1 members, the extra one
- * being the member read ahead. Zero means no bound. */
+/* zuiNext() for a B+ tree input, taking members from 'batch'. A nonzero
+ * 'remaining' (LIMIT) caps a refill at min(ZUI_BATCH_SIZE, remaining + 1),
+ * so at most two members past the one reaching the limit are decoded. */
 static inline int zuiNextBatched(zsetopsrc *op, zsetopval *val,
                                  zuiBatch *batch, unsigned long remaining)
 {
@@ -3002,9 +2998,7 @@ static inline int zuiBufferFromValue(zsetopval *val) {
     return 1;
 }
 
-/* Return the member index hash of the current value, computing it on first
- * use. ZINTER probes every input for the same member, so this makes the hash
- * a per-member cost instead of a per-input one. */
+/* Return the member hash of the value, computing it on first use. */
 static inline uint32_t zuiMemberHash(zsetopval *val) {
     if (!(val->flags & OPVAL_VALID_HASH)) {
         zuiBufferFromValue(val);
@@ -3014,11 +3008,8 @@ static inline uint32_t zuiMemberHash(zsetopval *val) {
     return val->hash;
 }
 
-/* Start fetching what zuiFind(op,val) will read first, for inputs whose
- * lookup begins with a hash-addressed load. Called for the next input while
- * the current one is probed, so the two overlap instead of serializing. For
- * a B+ tree input this also computes the member hash, which zuiFind() called
- * with 'reuse_hash' then uses in every input. */
+/* Prefetch what zuiFind(op,val) reads first in a B+ tree input. This also
+ * computes the member hash that zuiFind() reuses with 'reuse_hash'. */
 static void zuiPrefetchFind(zsetopsrc *op, zsetopval *val) {
     if (op->subject == NULL) return;
     if (op->type == OBJ_ZSET && op->encoding == OBJ_ENCODING_BTREE)
@@ -3042,10 +3033,9 @@ static int zuiLookupFinish(zsetopsrc *op, zsetopval *val,
 }
 
 /* Find value pointed to by val in the source pointer to by op. When found,
- * return 1 and store its score in target. Return 0 otherwise. A NULL target
- * asks for membership only, which lets a packed encoding skip decoding the
- * score. With 'reuse_hash', a B+ tree input uses the member hash already in
- * 'val', if any, instead of hashing the member again. */
+ * return 1 and store its score in *score, unless score is NULL. Return 0
+ * otherwise. With 'reuse_hash', use the member hash cached in 'val', if
+ * any. */
 int zuiFind(zsetopsrc *op, zsetopval *val, double *score, int reuse_hash) {
     if (op->subject == NULL)
         return 0;
@@ -3514,9 +3504,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
     }
 
     if (op == SET_OP_INTER) {
-        /* When counting and every input is the same object (e.g. ZINTERCARD
-         * 1 key), the intersection is that input, so its cardinality is the
-         * input's own, capped by the limit. There is no need to iterate. */
+        /* Counting with a single distinct input: no need to iterate. */
         int single_input = cardinality_only;
         for (j = 1; j < setnum && single_input; j++)
             single_input = src[j].subject == src[0].subject;
@@ -3532,16 +3520,13 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
             src[0].noscore = cardinality_only;
             /* Whether the previous member was found in src[1]. */
             int prev_in_first = 1;
-            /* With two inputs each member is looked up once, so there is no
-             * hash to share: hash it once per member only from three. */
+            /* Sharing the member hash pays off from three inputs. */
             int reuse_hash = setnum > 2;
             zuiInitIterator(&src[0]);
-            /* A B+ tree lookup is a long chain of dependent loads, and with
-             * few inputs nothing else overlaps it. So read one member of
-             * src[0] ahead and start its lookup in src[1] before finishing
-             * the current one (see zbtreeLookupStart()). zuiNext() values
-             * point into the iterated object or into their own _buf, never
-             * into the iterator, so the value read ahead stays valid. */
+            /* Start the lookup of the next member in src[1] before finishing
+             * the current one. Values point into the set, which does not
+             * change, or hold the member themselves, never into the
+             * iterator, so the one read ahead stays valid. */
             int ahead = setnum > 1 && src[1].type == OBJ_ZSET &&
                         src[1].encoding == OBJ_ENCODING_BTREE &&
                         src[1].subject != src[0].subject;
@@ -3572,12 +3557,9 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                 score = zuiWeightedScore(cur->score, src[0].weight, aggregate);
                 if (isnan(score)) score = 0;
 
-                /* Keep one input ahead of the probes below: the first
-                 * memory access of a lookup in src[j+1] is issued while
-                 * src[j] is still being searched. It is wasted when src[j]
-                 * does not have the member. When most members are not in
-                 * src[1], that is most of the work spent here, so skip it
-                 * for src[2] unless the previous member was in src[1]. */
+                /* Prefetch src[j+1] while probing src[j]. That is wasted on
+                 * a miss, so do it for src[2] only while the previous member
+                 * was found in src[1]. */
                 if (reuse_hash && prev_in_first)
                     zuiPrefetchFind(&src[2],cur);
                 for (j = 1; j < setnum; j++) {
@@ -3590,8 +3572,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                         zunionInterAggregate(&score,value,aggregate);
                         continue;
                     }
-                    /* ZINTERCARD needs membership only, so do not ask the
-                     * input to produce the score. */
+                    /* ZINTERCARD needs membership only. */
                     double *target = cardinality_only ? NULL : &value;
                     int found = (j == 1 && ahead) ?
                         zuiLookupFinish(&src[1], cur, curlookup, target) :

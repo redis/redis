@@ -16,15 +16,14 @@
 #include <stdint.h>
 #include <string.h>
 
-/* The leaf search below compares 16 tag bytes at once where a baseline
- * vector unit exists. The NEON variant relies on little endian lane order. */
+/* Compare 16 leaf tags at once. The NEON variant relies on little endian
+ * lane order. */
 #if defined(HAVE_AARCH64_NEON) && !defined(__ARM_BIG_ENDIAN)
 #include <arm_neon.h>
 #define ZBT_TAG_SIMD 1
 #define ZBT_TAG_SIMD_NEON 1
 #elif defined(__SSE2__)
-/* Define __MM_MALLOC_H to prevent importing the memory aligned
- * allocation functions, which we don't use. */
+/* Avoid pulling in the aligned allocation functions. */
 #define __MM_MALLOC_H
 #include <emmintrin.h>
 #define ZBT_TAG_SIMD 1
@@ -384,15 +383,8 @@ static inline uint8_t *zbtScoreLeafHashTags(zbtScoreLeaf *leaf) {
     return zbtScoreLeafTagsAfter(zbtScoreLeafOffsets(leaf), leaf->n.count);
 }
 
-/* Searching a leaf reads the header, then the hash tags, then one offset,
- * then one member record and one packed score, each load waiting for the
- * previous one. zbtreeLookupStart() requests the first
- * ZBT_SCORE_LEAF_PREFETCH bytes of the leaf as soon as it knows it: the
- * header and the start of the packed scores, offsets and tags that follow
- * it. How much of those arrays this covers depends on the member count and
- * the score width; a leaf whose arrays extend further only loses part of
- * the overlap. Prefetches never fault, so lines past a small leaf's
- * allocation are harmless. */
+/* Prefetch the leaf header and the start of the arrays after it. Prefetches
+ * never fault, so lines past a small leaf's allocation are harmless. */
 #define ZBT_SCORE_LEAF_PREFETCH 256
 static inline void zbtScoreLeafPrefetchFront(const zbtScoreLeaf *leaf) {
     for (unsigned int off = 0; off < ZBT_SCORE_LEAF_PREFETCH;
@@ -1338,13 +1330,10 @@ static inline uint8_t zbtLeafTag(uint32_t hash) {
     return hash >> 24;
 }
 
-/* Search a leaf by its tag array: memchr() finds each candidate and the
- * record is compared with memcmp(). This works for every member and leaf.
- * zbtScoreLeafFindShort() below must return the same result for the
- * members and leaves it accepts; the zsetbtree self-test compares the two.
- * Out of line where that short search exists: this one makes calls anyway,
- * and inlined into the lookup its stack needs would be paid by every lookup,
- * including those that never reach a leaf. Other targets inline it. */
+/* Search a leaf with memchr() on its tags and memcmp() on candidates.
+ * zbtScoreLeafFindShort() must agree with it for the members and leaves it
+ * accepts; the zsetbtree self-test checks this. Out of line with SIMD, so its
+ * stack is not paid by every lookup. */
 #ifdef ZBT_TAG_SIMD
 static __attribute__((noinline))
 #else
@@ -1389,16 +1378,8 @@ int zbtScoreLeafFindMemberByTags(zbtScoreLeaf *leaf, uint32_t hash,
     return 0;
 }
 
-/* For short members the two library calls above cost more than the search
- * itself. With the 128 bit vector unit that every x86-64 and little endian
- * AArch64 CPU has, zbtScoreLeafFindShort() compares ZBT_TAG_SCAN_WIDTH tags
- * per step and the member with plain word loads, without any call.
- *
- * - ZBT_TAG_SCAN_WIDTH: tags compared per step, the vector width in bytes.
- * - ZBT_TAG_SCAN_MIN_COUNT: smallest leaf searched this way. Every step
- *   loads a full vector, which must lie inside the tag array.
- * - ZBT_SHORT_MEMBER_MAX: longest member compared with words. Two
- *   overlapping 8 byte loads cover it. */
+/* Short member search: each step loads ZBT_TAG_SCAN_WIDTH tags, which must
+ * lie inside the tag array, so smaller leaves take the generic search. */
 #define ZBT_TAG_SCAN_WIDTH 16
 #define ZBT_TAG_SCAN_MIN_COUNT ZBT_TAG_SCAN_WIDTH
 #define ZBT_SHORT_MEMBER_MAX 16
@@ -1407,22 +1388,21 @@ static_assert(ZBT_TAG_SCAN_MIN_COUNT >= ZBT_TAG_SCAN_WIDTH,
               "a tag scan step must not read past the tag array");
 static_assert(ZBT_SHORT_MEMBER_MAX <= 2 * sizeof(uint64_t),
               "two overlapping words must cover a short member");
-/* zbtShortMemberEqual() accepts a record whose first byte equals the member
- * length. Only the one byte length form starts that way for such lengths:
- * the other forms start with ZBT_PACKED_SHORT or ZBT_PACKED_EXTERNAL. */
+/* zbtShortMemberEqual() assumes a short member is stored inline with a one
+ * byte length: the other forms start with ZBT_PACKED_SHORT or
+ * ZBT_PACKED_EXTERNAL, and members only go external from
+ * ZBT_EXTERNAL_MEMBER_AT bytes. */
 static_assert(ZBT_SHORT_MEMBER_MAX < ZBT_PACKED_SHORT,
               "short members must use the one byte length form");
 
 #ifdef ZBT_TAG_SIMD
-/* Return a mask for the lanes where p[i] equals 'tag'. Shifting the index
- * of its lowest set bit right by ZBT_TAG_MATCH_SHIFT gives the first
- * matching lane. */
+/* Return a mask of the lanes where p[i] equals 'tag'. The first match is
+ * lane ctz(mask) >> ZBT_TAG_MATCH_SHIFT. */
 #if defined(ZBT_TAG_SIMD_NEON)
 #define ZBT_TAG_MATCH_SHIFT 2
 static inline uint64_t zbtTagMatch(const uint8_t *p, uint8_t tag) {
     uint8x16_t eq = vceqq_u8(vld1q_u8(p), vdupq_n_u8(tag));
-    /* Narrow each 0x00/0xff byte to a nibble and keep one bit of each. This
-     * relies on the little endian lane order, see the include above. */
+    /* One bit per lane; relies on little endian lane order. */
     uint8x8_t nibbles = vshrn_n_u16(vreinterpretq_u16_u8(eq), 4);
     return vget_lane_u64(vreinterpret_u64_u8(nibbles), 0) &
            UINT64_C(0x8888888888888888);
@@ -1436,12 +1416,8 @@ static inline uint64_t zbtTagMatch(const uint8_t *p, uint8_t tag) {
 }
 #endif /* ZBT_TAG_SIMD_NEON */
 
-/* Return 1 if 'record' holds 'ele', a member of at most ZBT_SHORT_MEMBER_MAX
- * bytes. Such a member is always written by zbtPackedWriteInline() after a
- * one byte length, and no other record form starts with a byte that small
- * (see the static_assert above), so the record matches when that byte equals
- * the length and the member bytes compare equal. Two overlapping loads cover
- * the bytes, and nothing is read past either member. */
+/* Return 1 if 'record' holds 'ele', of at most ZBT_SHORT_MEMBER_MAX bytes.
+ * The overlapping loads never read past either member. */
 static inline int zbtShortMemberEqual(const unsigned char *record,
                                       const unsigned char *ele, size_t len)
 {
@@ -1465,12 +1441,10 @@ static inline int zbtShortMemberEqual(const unsigned char *record,
 }
 
 /* Search a leaf for a short member without calls. Return 1 if found, setting
- * *score and *position when not NULL, 0 if the leaf does not hold it, or -1
- * when the member or the leaf does not qualify and the caller has to use
- * zbtScoreLeafFindMemberByTags(). Every load stays inside the tag array: the
- * last step reads the final ZBT_TAG_SCAN_WIDTH tags even if an earlier step
- * saw some of them, and a tag seen twice belongs to a member that was already
- * rejected. */
+ * *score and *position when not NULL, 0 if not found, or -1 if the member or
+ * leaf does not qualify. The last step re-reads the final ZBT_TAG_SCAN_WIDTH
+ * tags, so no load leaves the tag array; a tag seen twice belongs to a member
+ * already rejected. */
 static inline __attribute__((always_inline))
 int zbtScoreLeafFindShort(zbtScoreLeaf *leaf, uint8_t tag,
                           const unsigned char *ele, size_t elelen,
@@ -1480,8 +1454,6 @@ int zbtScoreLeafFindShort(zbtScoreLeaf *leaf, uint8_t tag,
     if (elelen > ZBT_SHORT_MEMBER_MAX || count < ZBT_TAG_SCAN_MIN_COUNT)
         return -1;
 
-    /* Derive the tags from 'offsets', which the loop needs anyway, instead
-     * of recomputing the leaf layout. */
     uint16_t *offsets = zbtScoreLeafOffsets(leaf);
     uint8_t *tags = zbtScoreLeafTagsAfter(offsets, count);
     unsigned int start = 0, last = count - ZBT_TAG_SCAN_WIDTH;
@@ -1506,9 +1478,7 @@ int zbtScoreLeafFindShort(zbtScoreLeaf *leaf, uint8_t tag,
     }
 }
 
-/* Look up a member, inlining the short-member search when eligible and using
- * the generic search otherwise. Index updates use the out-of-line copy in
- * zbtScoreLeafFindMember(). */
+/* Use the short search when eligible, the tag search otherwise. */
 static inline __attribute__((always_inline))
 int zbtScoreLeafFindMemberInline(zbtScoreLeaf *leaf, uint32_t hash,
                                  const unsigned char *ele, size_t elelen,
@@ -1522,9 +1492,7 @@ int zbtScoreLeafFindMemberInline(zbtScoreLeaf *leaf, uint32_t hash,
                                         position);
 }
 
-/* Out of line copy for the index update paths (insert, delete, resize). Only
- * the read-only lookups get the inlined body, to keep the extra code where a
- * lookup is the whole operation. */
+/* Out of line copy for the index update paths. */
 static __attribute__((noinline))
 int zbtScoreLeafFindMember(zbtScoreLeaf *leaf, uint32_t hash,
                            const unsigned char *ele, size_t elelen,
@@ -2039,9 +2007,7 @@ static inline void zbtIndexRecordHomeTag(zbtIndexTable *table, uint32_t hash) {
     *zbtIndexHomeTagsAt(table, home) |= zbtIndexTagBits(zbtIndexTag(hash));
 }
 
-/* Return zero only when the home bucket proves that a hash is absent.
- * Always inlined: most misses end here, and zbtreeLookupStart() calls it
- * once per member. */
+/* Return zero only when the home bucket proves that a hash is absent. */
 static inline __attribute__((always_inline))
 int zbtIndexHomeMayContain(const zbtIndexTable *table, uint32_t hash)
 {
@@ -2152,9 +2118,8 @@ static void zbtIndexTableInsertRaw(zbtIndexTable *table, uint32_t hash,
     serverPanic("B+ tree member index has no free slot");
 }
 
-/* Return the score leaf a member-index slot names, or NULL when its ID is
- * not in use. Only a resize leaves such slots behind: without one, every
- * live slot names a live leaf. */
+/* Return the leaf a member-index slot names, or NULL for an unused ID,
+ * which only a resize leaves behind. */
 static inline zbtScoreLeaf *zbtIndexSlotLeaf(zbtreeSet *zs, uint32_t id) {
     zbtScoreLeaf *leaf = id < zs->next_score_leaf_id ?
         zs->score_leaf_by_id[id] : NULL;
@@ -2214,12 +2179,7 @@ int zbtIndexTableFind(zbtreeSet *zs, zbtIndexTable *table,
                     }
                 }
 #ifdef ZBT_TAG_SIMD
-                /* A read-only lookup (no bucket or insertion slot wanted)
-                 * is one chain of dependent loads from the bucket to the
-                 * member bytes, and a call in its middle forces the probe
-                 * state above to be saved and restored. Inline the short
-                 * search there; updates use the out-of-line copy. Longer
-                 * members go straight to the tag search. */
+                /* Inline the short search only for read-only lookups. */
                 int hit;
                 if (elelen > ZBT_SHORT_MEMBER_MAX)
                     hit = zbtScoreLeafFindMemberByTags(leaf, hash, ele, elelen,
@@ -3499,9 +3459,7 @@ int zbtreeScoreRawWithHash(zbtreeSet *zs, uint32_t hash,
                         NULL, NULL, NULL, NULL);
 }
 
-/* Start loading the index bucket(s) a lookup of 'hash' will read first. The
- * bucket address depends only on the hash, so a caller that knows which set
- * it probes next can overlap that fetch with the lookup it is doing now. */
+/* Prefetch the index bucket(s) a lookup of 'hash' reads first. */
 void zbtreePrefetchMember(zbtreeSet *zs, uint32_t hash) {
     if (zs->member_index.size)
         redis_prefetch_read(zbtIndexBucketAt(&zs->member_index,
@@ -3511,19 +3469,11 @@ void zbtreePrefetchMember(zbtreeSet *zs, uint32_t hash) {
             hash & (zs->member_rehash->table.size - 1)));
 }
 
-/* First step of a two step lookup: read the member's home bucket and keep the
- * leaf of its first live slot with a matching tag, or note that the home
- * bucket proves the member absent. A lookup is a chain of dependent loads
- * (bucket, leaf ID, leaf, tags, record), so a caller that probes one set for
- * a run of members can start the next member's lookup before it finishes the
- * current one, and the two chains overlap.
- *
- * This is the first probe of zbtIndexTableFind() on the home bucket, keep the
- * two in sync. Start never moves entries. A lookup in between may advance a
- * resize, which moves index entries but no leaf; Start saves nothing while a
- * resize is in progress, and zbtreeLookupFinish() then does the full search.
- * Any change to the set in between invalidates 'lookup'; see
- * zbtreeLookupIsCurrent() for what Finish can detect. */
+/* First step of a two step lookup: save and prefetch the leaf of the first
+ * live home-bucket slot with a matching tag, or note that the bucket proves
+ * the member absent. Keep in sync with zbtIndexTableFind(). Lookups in
+ * between may advance a resize, which moves index entries but no leaf, and
+ * Start saves nothing during a resize, so Finish then does the full search. */
 void zbtreeLookupStart(zbtreeSet *zs, uint32_t hash, zbtreeLookup *lookup) {
     zbtIndexTable *table = &zs->member_index;
     lookup->leaf = NULL;
@@ -3556,10 +3506,8 @@ void zbtreeLookupStart(zbtreeSet *zs, uint32_t hash, zbtreeLookup *lookup) {
 
 #if defined(DEBUG_ASSERTIONS) || defined(REDIS_TEST)
 /* Return 0 if 'lookup' is known to be stale: the member index moved entries
- * since zbtreeLookupStart() (its revision changed), or the saved leaf was
- * freed or replaced, which deletions and leaf splits and merges do without
- * moving index entries. The leaf is checked through the leaf ID table, so a
- * freed leaf is not read. Other changes to the set are not detected. */
+ * or the saved leaf was freed or replaced. A freed leaf is never read. Other
+ * changes to the set are not detected. */
 static inline int zbtreeLookupIsCurrent(zbtreeSet *zs,
                                         const zbtreeLookup *lookup)
 {
@@ -3572,9 +3520,8 @@ static inline int zbtreeLookupIsCurrent(zbtreeSet *zs,
 #endif /* DEBUG_ASSERTIONS || REDIS_TEST */
 
 #ifdef ZBT_TAG_SIMD
-/* Store the score at logical position 'pos' of a leaf in *score and return
- * 1. Out of line so a hit that wants no score (ZINTERCARD) skips the score
- * decode. */
+/* Store the score at 'pos' in *score and return 1. Out of line, keeping the
+ * decode off the path of hits that want no score. */
 static __attribute__((noinline))
 int zbtScoreLeafStoreScore(zbtScoreLeaf *leaf, unsigned int pos,
                            double *score)
@@ -3584,8 +3531,7 @@ int zbtScoreLeafStoreScore(zbtScoreLeaf *leaf, unsigned int pos,
 }
 #endif /* ZBT_TAG_SIMD */
 
-/* zbtreeLookupFinish() for the members and leaves the short search does not
- * take: check the saved leaf, then fall back to the full search. */
+/* zbtreeLookupFinish() for what the short search does not take. */
 static __attribute__((noinline))
 int zbtreeLookupFinishGeneric(zbtreeSet *zs, const zbtreeLookup *lookup,
                               const unsigned char *ele, size_t elelen,
@@ -3598,11 +3544,9 @@ int zbtreeLookupFinishGeneric(zbtreeSet *zs, const zbtreeLookup *lookup,
     return zbtreeScoreRawWithHash(zs, lookup->hash, ele, elelen, score);
 }
 
-/* Second step: confirm the member in the leaf saved by zbtreeLookupStart().
- * Everything else (no saved leaf, a member in another leaf of the same tag,
- * a resize) falls back to the full search, so the result is always that of
- * zbtreeScoreRawWithHash(). 'ele' must be the member whose hash was passed to
- * zbtreeLookupStart(). */
+/* Second step: check the leaf saved by zbtreeLookupStart(), else do the full
+ * search, so the result always equals zbtreeScoreRawWithHash(). 'ele' must
+ * be the member whose hash was passed to zbtreeLookupStart(). */
 int zbtreeLookupFinish(zbtreeSet *zs, const zbtreeLookup *lookup,
                        const unsigned char *ele, size_t elelen, double *score)
 {
@@ -3618,8 +3562,7 @@ int zbtreeLookupFinish(zbtreeSet *zs, const zbtreeLookup *lookup,
             if (score == NULL) return 1;
             return zbtScoreLeafStoreScore(leaf, pos, score);
         }
-        /* The member may still be in another leaf whose slot has the same
-         * tag. That is rare, so just repeat the full lookup. */
+        /* Not in the saved leaf: the full search decides. */
         if (found == 0)
             return zbtreeScoreRawWithHash(zs, lookup->hash, ele, elelen,
                                           score);
@@ -3633,12 +3576,7 @@ int zbtreeScore(zbtreeSet *zs, sds ele, double *score) {
     return zbtreeScoreRaw(zs, (unsigned char *)ele, sdslen(ele), score);
 }
 
-/* ZMSCORE looks up independent members, so their chains of dependent loads
- * can overlap. Hash all members and request their index buckets, then read
- * every bucket and request the candidate leaves (zbtreeLookupStart), and only
- * then search the leaves. The set does not change in between, which is what
- * the two step lookup requires. A single member has nothing to overlap with
- * and uses the plain lookup. */
+/* Start every lookup before finishing any, so their loads overlap. */
 unsigned int zbtreeScores(zbtreeSet *zs, const sds *members, unsigned int count,
                           double *scores)
 {
@@ -4502,10 +4440,8 @@ int zbtreeIteratorNext(zbtreeIterator *iter, int reverse,
     return 1;
 }
 
-/* See zbtreeIteratorNext(). Iterating one element per call decodes the leaf
- * layout again for every element, a large part of the cost of walking a set
- * whose members are then only probed elsewhere, as ZINTER does. Here the
- * offset array is located once per call. */
+/* zbtreeIteratorNext() for up to 'max' elements of the current leaf,
+ * locating the offset array once. */
 unsigned int zbtreeIteratorNextBatch(zbtreeIterator *iter, int reverse,
                                      zbtreeIteratorElement *out,
                                      unsigned int max, int withscores)
@@ -5339,11 +5275,9 @@ static void zbtTestRandomMember(unsigned char *buf, size_t len, int tag,
 }
 #endif /* ZBT_TAG_SIMD */
 
-/* Look up 'count' members of 'zs' with zbtreeLookupStart() for all of them
- * first and zbtreeLookupFinish() after, like ZMSCORE and the ZINTER loop, and
- * compare each result with zbtreeScoreRawWithHash(). That reference lookup
- * runs between the two steps, so it also advances a resize in progress, as
- * other lookups in a ZINTER can. Return the number of disagreements. */
+/* Start all 'count' lookups, then finish each and compare it with
+ * zbtreeScoreRawWithHash(), which may advance a resize in between. Return
+ * the number of disagreements. */
 static long zbtTestSplitLookups(zbtreeSet *zs, char probes[][32],
                                 const size_t *lens, int count,
                                 long *saved, long *hits)
@@ -5924,9 +5858,7 @@ int zsetBtreeTest(int argc, char **argv, int flags) {
 
     printf("Testing B+ tree batched iteration matches single steps\n");
     {
-        /* Descending inserts build left-edge leaves with reversed arrays,
-         * ascending ones normal leaves. Mix in members needing the long
-         * inline and the external record forms. */
+        /* Both leaf layouts, and the long inline and external forms. */
         zbtreeSet *zs = zbtreeCreate();
         char buf[400];
         for (int i = 0; i < 600; i++) {
@@ -6741,10 +6673,7 @@ int zsetBtreeTest(int argc, char **argv, int flags) {
 
     printf("Testing B+ tree two step lookups\n");
     {
-        /* Grow a set one member at a time and then shrink it, so that the
-         * member index resizes in both directions, and check batches of
-         * present and absent members along the way. Lengths 0 to 23 cover
-         * the short member search and the general one. */
+        /* Grow then shrink a set, resizing the member index both ways. */
         zbtreeSet *zs = zbtreeCreate();
         char probes[ZBT_SCORE_BATCH_SIZE][32];
         size_t lens[ZBT_SCORE_BATCH_SIZE];
@@ -6752,8 +6681,7 @@ int zsetBtreeTest(int argc, char **argv, int flags) {
         long bad = 0, in_resize = 0, saved = 0, hits = 0, reversed = 0;
         const int n = 6000;
         for (int phase = 0; phase < 3; phase++) {
-            /* Phase 2 builds a new set by prepending, which fills leaves
-             * that store their arrays in reverse physical order. */
+            /* Phase 2 prepends, building reversed leaves. */
             if (phase == 2) {
                 zbtreeFree(zs);
                 zs = zbtreeCreate();
@@ -6787,9 +6715,7 @@ int zsetBtreeTest(int argc, char **argv, int flags) {
         test_cond("Two step lookups ran during resizes and saved state",
                   in_resize > 0 && saved > 0 && hits > 0 && reversed > 0);
 
-        /* A lookup saved before its leaf is replaced must be reported as
-         * stale. Delete members of the saved leaf until the leaf ID names
-         * another leaf; a single deletion may already compact it. */
+        /* A lookup whose leaf was replaced must be reported stale. */
         while (zs->member_rehash) zbtIndexRehashStep(zs, 1);
         char buf[32];
         size_t len = zbtTestMember(buf, n / 2, (n / 2) % 24);
@@ -6817,16 +6743,9 @@ int zsetBtreeTest(int argc, char **argv, int flags) {
 #ifdef ZBT_TAG_SIMD
     printf("Testing B+ tree short member leaf search\n");
     {
-        /* One leaf of 'count' members, compared member by member against the
-         * memchr()/memcmp() search. Mode 0 uses lengths 0 to 17, mode 1 makes
-         * every member share its leaf tag with the previous one, and mode 2
-         * adds a long and an external member that share a tag with a short
-         * member. Mode 3 is mode 0 in a leaf that stores its arrays in
-         * reverse physical order: deleting the first member of the first
-         * leaf reverses it, so a longer member with a lower score is added
-         * first and deleted last. Absent probes differ from a member in its
-         * first or last byte only, or have the length and leaf tag of a
-         * member. */
+        /* Mode 0: lengths 0 to 17. Mode 1: each member shares its tag with
+         * the previous one. Mode 2: long and external members share a tag
+         * with short ones. Mode 3: mode 0 in a reversed leaf. */
         static const unsigned int counts[] = {
             1, 15, 16, 17, 31, 32, 33, 48, ZBT_SCORE_LEAF_MAX
         };

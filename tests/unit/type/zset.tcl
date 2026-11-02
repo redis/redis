@@ -1081,9 +1081,8 @@ start_server {tags {"zset"}} {
         }
 
         test "ZINTER/ZINTERCARD probing a hashtable set - $encoding" {
-            # Short and integer members (kept in a listpack with that
-            # encoding), and members around the size of the stack buffer
-            # of the set lookup and past it (always a B+ tree here).
+            # Short and integer members, and members of 123 to 125 and 300
+            # bytes around the set lookup's stack buffer.
             set short {a 12345 -3 abcdefgh}
             set long {}
             foreach len {123 124 125 300} {
@@ -1122,9 +1121,8 @@ start_server {tags {"zset"}} {
         }
 
         test "ZINTER/ZINTERCARD iterating a large B+ tree input - $encoding" {
-            # More members than fit in one leaf, and than one batch of
-            # members read ahead from it. Members inserted with decreasing
-            # scores make leaves whose arrays are stored in reverse.
+            # More than one leaf and one batch; the first half builds
+            # reversed leaves.
             r del zbig{t} zother{t}
             for {set i 1} {$i <= 400} {incr i} {
                 set k [expr {$i <= 200 ? 201 - $i : $i}]
@@ -1683,10 +1681,8 @@ start_server {tags {"zset"}} {
         # A fixed seed, so that a failure can be reproduced.
         expr {srand(15635)}
 
-        # Member lengths of 0, 36 and around 4, 8 and 16 bytes. Most of them
-        # share a prefix and differ only in their last bytes, and with
-        # thousands of members in leaves of up to 96, many members of one
-        # leaf share a tag.
+        # Lengths 0 to 4, 7 to 9, 15 to 17 and 36, mostly differing in the
+        # last bytes, with many members sharing a leaf tag.
         proc zbt_member {len i} {
             if {$len == 0} {return ""}
             set id [format %x $i]
@@ -1733,9 +1729,7 @@ start_server {tags {"zset"}} {
                 r zadd zbtx-$name-$enc{t} {*}$zbt_args($name)
             }
         }
-        # R holds every member, added one at a time with decreasing scores.
-        # Prepending like this builds leaves that store their members in
-        # reverse physical order.
+        # R prepends every member, building reversed leaves.
         set zbt_args(r) {}
         set score [llength $pool]
         r del zbtx-r-lp{t} zbtx-r-bt{t}

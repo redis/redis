@@ -84,19 +84,16 @@ int zbtreeDefragStep(zbtreeSet *zs, zbtreeDefragState *state,
 int zbtreeScore(zbtreeSet *zs, sds ele, double *score);
 int zbtreeScoreRaw(zbtreeSet *zs, const unsigned char *ele,
                    size_t elelen, double *score);
-/* Compute a member hash once for lookups in multiple sets. Prefetch requests
- * the index bucket used by a later lookup. */
+/* Hash a member once for lookups in several sets. */
 uint32_t zbtreeMemberHash(const unsigned char *ele, size_t elelen);
 int zbtreeScoreRawWithHash(zbtreeSet *zs, uint32_t hash,
                            const unsigned char *ele, size_t elelen,
                            double *score);
 void zbtreePrefetchMember(zbtreeSet *zs, uint32_t hash);
-/* The same lookup in two steps, so that consecutive lookups in one set can
- * overlap: zbtreeLookupStart() only reads the member index, and
+/* A lookup in two steps, so that lookups in one set can overlap.
  * zbtreeLookupFinish() returns what zbtreeScoreRawWithHash() would. The set
- * must not change in between; builds with debug assertions check that the
- * member index did not move entries and the saved leaf is still in place.
- * Callers must not read the fields, which belong to zset_btree.c. */
+ * must not change in between, except for lookups advancing a resize. The
+ * fields are private to zset_btree.c. */
 typedef struct {
     void *leaf;
     uint32_t hash;
@@ -160,10 +157,9 @@ int zbtreeIteratorStart(const zbtreeSet *zs, int reverse,
                         zbtreeIterator *iter);
 int zbtreeIteratorNext(zbtreeIterator *iter, int reverse,
                        const unsigned char **ele, size_t *len, double *score);
-/* Return up to 'max' consecutive elements of the iterator's current leaf,
- * as zbtreeIteratorNext() would one at a time, and advance past them. Fewer
- * are returned at the end of a leaf, and zero at the end of the set. With a
- * zero 'withscores' the scores are not decoded and are left unset. */
+/* Return up to 'max' elements of the current leaf, as zbtreeIteratorNext()
+ * would, and advance past them. Return zero at the end or for a zero 'max'.
+ * Scores are left unset without 'withscores'. */
 unsigned int zbtreeIteratorNextBatch(zbtreeIterator *iter, int reverse,
                                      zbtreeIteratorElement *out,
                                      unsigned int max, int withscores);
