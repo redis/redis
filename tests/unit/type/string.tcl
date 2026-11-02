@@ -1231,11 +1231,7 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
                 }
                 assert_encoding hashtable big
 
-                wait_for_condition 50 10 {
-                    [s lazyfree_pending_objects] == 0
-                } else {
-                    fail "previous lazyfree isn't done"
-                }
+                wait_lazyfree_done r
                 set before [s lazyfreed_objects]
                 r $cmd big
                 wait_lazyfree_done r
