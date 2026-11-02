@@ -182,6 +182,27 @@ start_server {tags {"modules external:skip"}} {
         close_replication_stream $repl
     } {} {needs:repl}
 
+    test {Module reads a sorted set emptied by a pop from its notification} {
+        set long [string repeat x 80]
+        r zset.popreads on
+        foreach encoding {listpack btree} {
+            foreach pop {zpopmin zpopmax} {
+                r del k
+                if {$encoding eq "listpack"} {
+                    r zadd k 1 a
+                } else {
+                    r zadd k 1 $long
+                }
+                assert_encoding $encoding k
+                assert_equal 2 [llength [r $pop k]]
+                # The key is emptied but not yet deleted when notified.
+                assert_equal {0 0 -1 0} [r zset.popreads get]
+                assert_equal 0 [r exists k]
+            }
+        }
+        r zset.popreads off
+    }
+
     test "Unload the module - zset" {
         assert_equal {OK} [r module unload zset]
     }

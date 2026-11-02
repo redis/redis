@@ -5171,8 +5171,10 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
         uniq = 0;
     }
 
-    /* If count is zero, serve it ASAP to avoid special cases later. */
-    if (count == 0) {
+    /* If count is zero, serve it ASAP to avoid special cases later. The set
+     * can also be empty when a module reads it from the notification of a
+     * pop that removed its last member, before the key is deleted. */
+    if (count == 0 || size == 0) {
         addReply(c,shared.emptyarray);
         return;
     }
@@ -5408,6 +5410,12 @@ void zrandmemberCommand(client *c) {
     /* Handle variant without <count> argument. Reply with simple bulk string */
     if ((zset = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]))== NULL ||
         checkType(c,zset,OBJ_ZSET)) {
+        return;
+    }
+
+    /* See zrandmemberWithCountCommand(). */
+    if (zsetLength(zset) == 0) {
+        addReplyNull(c);
         return;
     }
 

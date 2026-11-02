@@ -1,6 +1,7 @@
 #include "redismodule.h"
 #include <math.h>
 #include <errno.h>
+#include <string.h>
 #include <strings.h>
 
 /* ZSET.REM key element
@@ -261,6 +262,63 @@ int zset_delall(RedisModuleCtx *ctx, REDISMODULE_ATTR_UNUSED RedisModuleString *
     return RedisModule_ReplyWithLongLong(ctx, deleted_count);
 }
 
+/* When enabled, a ZPOPMIN/ZPOPMAX notification reads the popped key back
+ * while it may already be empty but not yet deleted. The reply sizes are
+ * kept for ZSET.POPREADS. */
+static int popreads_enabled = 0;
+static long long popreads[4];
+
+static long long zset_popreads_len(RedisModuleCallReply *reply) {
+    if (reply == NULL) return -2;
+    int type = RedisModule_CallReplyType(reply);
+    if (type == REDISMODULE_REPLY_NULL) return -1;
+    if (type == REDISMODULE_REPLY_ARRAY) return RedisModule_CallReplyLength(reply);
+    if (type == REDISMODULE_REPLY_STRING) return 1;
+    return -3;
+}
+
+static int zset_pop_notification(RedisModuleCtx *ctx, int type, const char *event,
+                                 RedisModuleString *key) {
+    REDISMODULE_NOT_USED(type);
+    if (!popreads_enabled) return REDISMODULE_OK;
+    if (strcmp(event, "zpopmin") && strcmp(event, "zpopmax")) return REDISMODULE_OK;
+
+    RedisModuleCallReply *reply;
+    reply = RedisModule_Call(ctx, "SORT_RO", "scc", key, "BY", "nosort");
+    popreads[0] = zset_popreads_len(reply);
+    if (reply) RedisModule_FreeCallReply(reply);
+    reply = RedisModule_Call(ctx, "SORT_RO", "sccc", key, "BY", "nosort", "DESC");
+    popreads[1] = zset_popreads_len(reply);
+    if (reply) RedisModule_FreeCallReply(reply);
+    reply = RedisModule_Call(ctx, "ZRANDMEMBER", "s", key);
+    popreads[2] = zset_popreads_len(reply);
+    if (reply) RedisModule_FreeCallReply(reply);
+    reply = RedisModule_Call(ctx, "ZRANDMEMBER", "sc", key, "-2");
+    popreads[3] = zset_popreads_len(reply);
+    if (reply) RedisModule_FreeCallReply(reply);
+    return REDISMODULE_OK;
+}
+
+/* ZSET.POPREADS on|off|get
+ *
+ * Enables or disables the reads above, or replies with the reply sizes of
+ * the last notification: SORT_RO, SORT_RO DESC, ZRANDMEMBER and
+ * ZRANDMEMBER -2. A null reply is -1. */
+int zset_popreads(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 2) return RedisModule_WrongArity(ctx);
+    size_t len;
+    const char *arg = RedisModule_StringPtrLen(argv[1], &len);
+    if (!strcasecmp(arg, "on") || !strcasecmp(arg, "off")) {
+        popreads_enabled = !strcasecmp(arg, "on");
+        for (int i = 0; i < 4; i++) popreads[i] = -4;
+        return RedisModule_ReplyWithSimpleString(ctx, "OK");
+    }
+    if (strcasecmp(arg, "get")) return RedisModule_ReplyWithError(ctx, "ERR syntax error");
+    RedisModule_ReplyWithArray(ctx, 4);
+    for (int i = 0; i < 4; i++) RedisModule_ReplyWithLongLong(ctx, popreads[i]);
+    return REDISMODULE_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -289,6 +347,14 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx, "zset.delall", zset_delall, "write touches-arbitrary-keys",
                                   0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "zset.popreads", zset_popreads, "",
+                                  0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_ZSET,
+                                              zset_pop_notification) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
