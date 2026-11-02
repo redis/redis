@@ -204,12 +204,15 @@ int iheapValidate(const iheap *h) {
 #define UNUSED(x) (void)(x)
 #define TEST(name) printf("test — %s\n", name);
 
-/* The test item records what the heap told it, so the model can check it
- * against the heap's array. */
+/* The test item is the opaque payload the heap hands back. The heap orders
+ * on the key copy inside each iheapEntry and never reads this struct, so
+ * 'key' here is the test's own record of the key it last gave the heap for
+ * the item, and 'slot' is what the heap reported back. The checks compare
+ * both against the array. */
 typedef struct testItem {
-    uint64_t key;   /* key the model believes the heap holds for the item */
+    uint64_t key;   /* key the test last gave the heap for this item */
     uint32_t slot;  /* last slot reported through setSlot */
-    uint32_t pos;   /* position in testModel.order[] */
+    uint32_t pos;   /* position in testModel.used_indexes[] */
 } testItem;
 
 static uint64_t testSetSlotCalls;
@@ -252,55 +255,79 @@ static uint64_t testCallBound(uint64_t n) {
     return bound;
 }
 
-/* Reference model: a pool of items, of which the first 'nlive' entries of
- * order[] are in the heap. The minimum is found by a linear scan. */
+/* Reference model: a fixed pool of blank items and one permutation of
+ * their indexes. The first 'nused' entries of used_indexes[] are the items
+ * in the heap, the rest are free and are handed out in order by add. The
+ * minimum is found by a linear scan.
+ *
+ * The tests keep the model and the heap in lockstep, and the order of the
+ * two calls matters each time:
+ * - insert: testModelAdd() first, since it supplies the item that is then
+ *   passed to iheapInsert() or iheapAppend() with the same key.
+ * - update: write the new key into the item, then call iheapUpdate() with
+ *   it, so the item records what the heap now holds.
+ * - remove: iheapRemove() first, since it needs the slot the item still
+ *   holds, then testModelDel() on the same item.
+ * The checks further down compare the two sides and are only meaningful
+ * while this discipline is kept. */
 typedef struct testModel {
     testItem *items;
-    uint32_t *order;
+    uint32_t *used_indexes;
     uint32_t nitems;
-    uint32_t nlive;
+    uint32_t nused;
 } testModel;
 
+/* Allocate n blank items. used_indexes[] starts as the identity, so add
+ * hands out items 0, 1, 2, ... until the first delete reshuffles it. */
 static void testModelInit(testModel *m, uint32_t n) {
     m->items = zcalloc(sizeof(testItem) * n);
-    m->order = zmalloc(sizeof(uint32_t) * n);
+    m->used_indexes = zmalloc(sizeof(uint32_t) * n);
     for (uint32_t i = 0; i < n; i++) {
-        m->order[i] = i;
+        m->used_indexes[i] = i;
         m->items[i].pos = i;
     }
     m->nitems = n;
-    m->nlive = 0;
+    m->nused = 0;
 }
 
 static void testModelFree(testModel *m) {
     zfree(m->items);
-    zfree(m->order);
+    zfree(m->used_indexes);
 }
 
+/* Take the next free item and record the key the caller is about to give
+ * the heap for it. */
 static testItem *testModelAdd(testModel *m, uint64_t key) {
-    testItem *it = &m->items[m->order[m->nlive++]];
+    testItem *it = &m->items[m->used_indexes[m->nused++]];
     it->key = key;
     return it;
 }
 
+/* Return an item the caller has already removed from the heap to the free
+ * region: swap its index to the end of the used region and shrink it. */
 static void testModelDel(testModel *m, testItem *it) {
-    uint32_t p = it->pos, q = --m->nlive;
-    uint32_t other = m->order[q];
-    m->order[p] = other;
+    uint32_t p = it->pos, q = --m->nused;
+    uint32_t other = m->used_indexes[q];
+    m->used_indexes[p] = other;
     m->items[other].pos = p;
-    m->order[q] = (uint32_t)(it - m->items);
+    m->used_indexes[q] = (uint32_t)(it - m->items);
     it->pos = q;
+    /* Hand the item back blank, as init left it. */
+    it->key = 0;
+    it->slot = 0;
 }
 
-static testItem *testModelRandomLive(testModel *m) {
-    return &m->items[m->order[testRandBelow(m->nlive)]];
+/* A uniformly random item among those in the heap. */
+static testItem *testModelRandomUsed(testModel *m) {
+    return &m->items[m->used_indexes[testRandBelow(m->nused)]];
 }
 
+/* The smallest key among the items in the heap. Returns 0 when empty. */
 static int testModelMin(testModel *m, uint64_t *key) {
-    if (m->nlive == 0) return 0;
+    if (m->nused == 0) return 0;
     uint64_t min = UINT64_MAX;
-    for (uint32_t i = 0; i < m->nlive; i++) {
-        uint64_t k = m->items[m->order[i]].key;
+    for (uint32_t i = 0; i < m->nused; i++) {
+        uint64_t k = m->items[m->used_indexes[i]].key;
         if (k < min) min = k;
     }
     *key = min;
@@ -319,12 +346,12 @@ static int testCheck(iheap *h, testModel *m) {
     uint64_t key, mkey;
     void *item;
     if (!iheapValidate(h)) return 0;
-    if (iheapCount(h) != m->nlive) return 0;
+    if (iheapCount(h) != m->nused) return 0;
     int has = iheapMin(h, &key, &item);
     if (has != testModelMin(m, &mkey)) return 0;
     if (!has) return 1;
     testItem *it = item;
-    return key == mkey && it->pos < m->nlive && testItemConsistent(h, it);
+    return key == mkey && it->pos < m->nused && testItemConsistent(h, it);
 }
 
 /* Insert keys 0..n-1 in order: ascending inserts never move an entry, so
@@ -353,9 +380,13 @@ static int testFuzz(const char *name, uint64_t seed, uint32_t maxEntries,
         /* update larger 50%, update smaller 10%, insert 20%, remove 15%,
          * set key to UINT64_MAX 5%. */
         uint64_t r = testRandBelow(100);
-        int kind = r < 50 ? 0 : r < 60 ? 1 : r < 80 ? 2 : r < 95 ? 3 : 4;
-        if (m.nlive == 0) kind = 2;
-        else if (m.nlive == m.nitems && kind == 2) kind = 0;
+        int kind = r < 50 ? 0 :
+                   r < 60 ? 1 :
+                   r < 80 ? 2 :
+                   r < 95 ? 3 :
+                   4;
+        if (m.nused == 0) kind = 2;
+        else if (m.nused == m.nitems && kind == 2) kind = 0;
 
         uint32_t n = iheapCount(h);
         uint64_t bound, key;
@@ -365,7 +396,7 @@ static int testFuzz(const char *name, uint64_t seed, uint32_t maxEntries,
         case 0:
         case 1:
         case 4:
-            it = testModelRandomLive(&m);
+            it = testModelRandomUsed(&m);
             key = it->key;
             if (kind == 4) {
                 key = UINT64_MAX;
@@ -387,7 +418,7 @@ static int testFuzz(const char *name, uint64_t seed, uint32_t maxEntries,
             bound = testCallBound(n + 1);
             break;
         default:
-            it = testModelRandomLive(&m);
+            it = testModelRandomUsed(&m);
             iheapRemove(h, it->slot);
             testModelDel(&m, it);
             bound = testCallBound(n);
@@ -405,8 +436,8 @@ static int testFuzz(const char *name, uint64_t seed, uint32_t maxEntries,
 
     /* Drain through remove, in random order, down to the empty heap, with
      * the same check cadence. */
-    for (uint64_t i = 0; !err && m.nlive > 0; i++) {
-        testItem *it = testModelRandomLive(&m);
+    for (uint64_t i = 0; !err && m.nused > 0; i++) {
+        testItem *it = testModelRandomUsed(&m);
         iheapRemove(h, it->slot);
         testModelDel(&m, it);
         if (i % checkEvery == 0 && !testCheck(h, &m))
@@ -518,15 +549,17 @@ int iheapTest(int argc, char *argv[], int flags) {
 
     TEST("insert in ascending, descending and random order") {
         ok = 1;
-        for (uint32_t n = 1; n <= 64 && ok; n++) {
-            for (int order = 0; order < 3 && ok; order++) {
+        /* order: 0 ascending, 1 descending, 2 random. */
+        for (int order = 0; order < 3 && ok; order++) {
+            for (uint32_t n = 1; n <= 64 && ok; n++) {
                 testModel m;
                 testModelInit(&m, n);
                 iheap *h = iheapNew(&testType, 1);
                 testRngState = 1000 + n;
                 for (uint32_t i = 0; i < n && ok; i++) {
                     uint64_t key = order == 0 ? i :
-                                   order == 1 ? n - i : testRandBelow(n);
+                                   order == 1 ? n - i :
+                                   testRandBelow(n);
                     testItem *it = testModelAdd(&m, key);
                     testSetSlotCalls = 0;
                     iheapInsert(&h, key, it);
@@ -628,7 +661,9 @@ int iheapTest(int argc, char *argv[], int flags) {
         testModelInit(&m, 12);
         iheap *h = iheapNew(&testType, 1);
         for (int i = 0; i < 12; i++) {
-            uint64_t key = i < 2 ? 41 : i < 10 ? 42 : 43;
+            uint64_t key = i < 2 ? 41 :
+                           i < 10 ? 42 :
+                           43;
             iheapInsert(&h, key, testModelAdd(&m, key));
         }
         ok = testCheck(h, &m);
