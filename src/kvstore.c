@@ -861,7 +861,9 @@ dictEntry *kvstoreDictFind(kvstore *kvs, int didx, void *key) {
  * After calling kvstoreDictFindLink(), any necessary updates based on returned 
  * link or bucket must be made immediately after, commonly by kvstoreDictSetAtLink() 
  * without any operations in between that might modify the dict. Otherwise, 
- * the link or bucket may become invalid. Example usage:
+ * the link or bucket may become invalid. A lookup in the same dict counts as
+ * such an operation, since it may perform a rehash step (see dictFindLink()).
+ * Example usage:
  *
  *      link = kvstoreDictFindLink(kvs, didx, key, &bucket);
  *      ... Do something, but don't modify kvs->dicts[didx] ...

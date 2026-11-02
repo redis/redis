@@ -582,6 +582,25 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, const kvSpec *spec) {
     return *valref = kv;
 }
 
+/* Keep `*plink` if it still points at `kv`, otherwise look the key up again and
+ * update `*plink`. The key must exist. Use before reusing a link after code that
+ * may look up keys (KSN, module hooks): a lookup may run a rehash step that
+ * moves entries (see dictFindLink()).
+ *
+ * `kv` is compared by address only and may already be freed (e.g. a module
+ * hook replaced the value), so the key is passed separately.
+ *
+ * The check reads through the old link, so it assumes that code didn't free
+ * what the link points into: it must not add or delete keys, and no rehash
+ * may complete in between (completing a rehash frees the old table). */
+void dbRefreshLink(redisDb *db, sds key, dictEntryLink *plink, kvobj *kv) {
+    dictEntryLink link = *plink;
+    if (link && *link && dictGetKV(*link) == kv) return;
+    link = kvstoreDictFindLink(db->keys, getKeySlot(key), key, NULL);
+    serverAssert(link != NULL);
+    *plink = link;
+}
+
 /**
  * Overwrite an existing key's value in db with a new value.
  *
@@ -652,7 +671,9 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
         /* We want to try to unblock any module clients or clients using a blocking XREADGROUP */
         signalDeletedKeyAsReady(db,key,old->type);
         decrRefCount(old);
-        /* Because of RM_StringDMA, old may be changed, so we need get old again */
+        /* The module hooks above may have replaced the value (RM_StringDMA) or
+         * looked up keys, which may move entries. */
+        dbRefreshLink(db, key->ptr, &link, old);
         old = dictGetKV(*link);
     }
     if (server.memory_tracking_enabled)
@@ -779,6 +800,9 @@ void setKey(client *c, redisDb *db, robj *key, robj **valref, int flags) {
  *   provided, it will point to the bucket where the key should be added.
  * - If flag is not set (0) then add or update key, and `link` must be NULL
  * On return, link get updated, by need, to the inserted kvobj.
+ *
+ * This fires keyspace notifications, so check the link with dbRefreshLink()
+ * before using it again.
  */
 void setKeyByLink(client *c, redisDb *db, robj *key, robj **valref, int flags, dictEntryLink *plink) {
     dictEntryLink dummy = NULL, *link = plink ? plink : &dummy;

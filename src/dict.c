@@ -842,7 +842,9 @@ dictEntry *dictFindByHashAndPtr(dict *d, const void *oldptr, const uint64_t hash
  * After calling link = dictFindLink(...), any necessary updates based on returned 
  * link or bucket must be performed immediately after by calling dictSetKeyAtLink() 
  * without any intervening operations on given dict. Otherwise, `dictEntryLink` may 
- * become invalid. Example with kvobj of replacing key with new key:
+ * become invalid. Plain lookups count too: they may run a rehash step that moves
+ * entries (e.g. keyspace notifications running module callbacks).
+ * Example with kvobj of replacing key with new key:
  * 
  *      link = dictFindLink(d, key, &bucket, 0);
  *      ... Do something, but don't modify the dict ...
