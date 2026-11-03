@@ -11397,7 +11397,7 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
     }
 
     if (it != 0) {
-        cleanPrintfln("To resume, rerun your original command with --cursor set to %llu.", it);
+        cleanPrintfln("Use 'redis-cli --keystats --cursor %llu' to restart from the last cursor.", it);
     }
 
     if (memkeys_types) zfree(memkeys_types);

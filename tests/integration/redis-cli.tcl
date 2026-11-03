@@ -1339,7 +1339,7 @@ start_server {tags {"cli external:skip"}} {
                 if {$interrupt} {
                     assert_match "*Scan interrupted: no keys matched the specified pattern in the scanned portion.*" $final
                     assert_equal 1 [regexp -all {interrupted} $final]
-                    assert {[regexp {\x1b\[2K\rTo resume, rerun your original command with --cursor set to ([0-9]+)\.$} $final -> restart_cursor]}
+                    assert {[regexp {\x1b\[2K\rUse 'redis-cli --keystats --cursor ([0-9]+)' to restart from the last cursor\.$} $final -> restart_cursor]}
                     assert {$restart_cursor != 0}
                 } elseif {$resumed} {
                     assert_match "*No keys matched the specified pattern in the scanned portion of the keyspace.*" $final
@@ -1356,11 +1356,11 @@ start_server {tags {"cli external:skip"}} {
     test "keystats reports interrupted no-match scans without terminal escapes" {
         r debug populate 2000
         set result [keystats_output {--pattern missing:* --count 1 -i 0.1} 0 1]
-        assert_match "*Scan interrupted: no keys matched the specified pattern in the scanned portion.\nTo resume,*" $result
+        assert_match "*Scan interrupted: no keys matched the specified pattern in the scanned portion.\nUse 'redis-cli --keystats --cursor *" $result
         assert_equal 1 [regexp -all {interrupted} $result]
         assert_no_match "*Keys size:*" $result
         assert_equal -1 [string first "\x1b" $result]
-        assert {[regexp {To resume, rerun your original command with --cursor set to ([0-9]+)\.$} $result -> cursor]}
+        assert {[regexp {Use 'redis-cli --keystats --cursor ([0-9]+)' to restart from the last cursor\.$} $result -> cursor]}
         assert {$cursor != 0}
         r flushdb
     }
@@ -1371,9 +1371,9 @@ start_server {tags {"cli external:skip"}} {
             set result [keystats_output [list {*}$options --count 1 -i 0.1] 0 1]
             assert {[regexp {Keys sampled: [1-9][0-9]*} $result]}
             assert_match "*Keys size:*" $result
-            assert_match "*Scan interrupted.\nTo resume,*" $result
+            assert_match "*Scan interrupted.\nUse 'redis-cli --keystats --cursor *" $result
             assert_equal 1 [regexp -all {interrupted} $result]
-            assert {[regexp {To resume, rerun your original command with --cursor set to ([0-9]+)\.$} $result -> cursor]}
+            assert {[regexp {Use 'redis-cli --keystats --cursor ([0-9]+)' to restart from the last cursor\.$} $result -> cursor]}
             assert {$cursor != 0}
             assert {![regexp -nocase {no keys matched} $result]}
             assert_equal -1 [string first "\x1b" $result]
