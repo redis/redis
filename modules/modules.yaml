@@ -64,7 +64,7 @@
 modules:
   - name: redisbloom
     repo: https://github.com/redisbloom/redisbloom
-    ref: v8.11.90
+    ref: c6f17ff04aaa4ea5360881ddfa3baba22686c428
     target_module: redisbloom.so
     loadmodule: ./modules/redisbloom/redisbloom.so
   - name: redisearch
