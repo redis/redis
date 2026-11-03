@@ -36,6 +36,13 @@ typedef struct {
     unsigned int pos;
 } zbtreeIterator;
 
+/* An element returned by zbtreeIteratorNextBatch(). */
+typedef struct {
+    const unsigned char *ele;
+    size_t len;
+    double score;
+} zbtreeIteratorElement;
+
 /* This state exists only while active defragmentation is visiting a large
  * sorted set. It is kept by the defragmenter, not in every zset. */
 typedef struct {
@@ -77,6 +84,26 @@ int zbtreeDefragStep(zbtreeSet *zs, zbtreeDefragState *state,
 int zbtreeScore(zbtreeSet *zs, sds ele, double *score);
 int zbtreeScoreRaw(zbtreeSet *zs, const unsigned char *ele,
                    size_t elelen, double *score);
+/* Hash a member once for lookups in several sets. */
+uint32_t zbtreeMemberHash(const unsigned char *ele, size_t elelen);
+int zbtreeScoreRawWithHash(zbtreeSet *zs, uint32_t hash,
+                           const unsigned char *ele, size_t elelen,
+                           double *score);
+void zbtreePrefetchMember(zbtreeSet *zs, uint32_t hash);
+/* A lookup in two steps, so that lookups in one set can overlap.
+ * zbtreeLookupFinish() returns what zbtreeScoreRawWithHash() would. The set
+ * must not change in between, except for lookups advancing a resize. The
+ * fields are private to zset_btree.c. */
+typedef struct {
+    void *leaf;
+    uint32_t hash;
+    uint32_t revision;
+    uint32_t leaf_id;
+    uint8_t absent;
+} zbtreeLookup;
+void zbtreeLookupStart(zbtreeSet *zs, uint32_t hash, zbtreeLookup *lookup);
+int zbtreeLookupFinish(zbtreeSet *zs, const zbtreeLookup *lookup,
+                       const unsigned char *ele, size_t elelen, double *score);
 /* Look up up to 16 scores. Bit i of the result says whether scores[i] exists. */
 #define ZBT_SCORE_BATCH_SIZE 16
 unsigned int zbtreeScores(zbtreeSet *zs, const sds *members, unsigned int count,
@@ -130,6 +157,12 @@ int zbtreeIteratorStart(const zbtreeSet *zs, int reverse,
                         zbtreeIterator *iter);
 int zbtreeIteratorNext(zbtreeIterator *iter, int reverse,
                        const unsigned char **ele, size_t *len, double *score);
+/* Return up to 'max' elements of the current leaf, as zbtreeIteratorNext()
+ * would, and advance past them. Return zero at the end or for a zero 'max'.
+ * Scores are left unset without 'withscores'. */
+unsigned int zbtreeIteratorNextBatch(zbtreeIterator *iter, int reverse,
+                                     zbtreeIteratorElement *out,
+                                     unsigned int max, int withscores);
 unsigned long zbtreeCountByScore(const zbtreeSet *zs, double min, int minex,
                                  double max, int maxex);
 
