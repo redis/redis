@@ -1536,13 +1536,17 @@ dictEntry *dictNext(dictIterator *iter)
 
         /* skip the rehashed buckets in table[0] */
         iter->index = dictIsRehashing(d) ? d->rehashidx : 0;
-        if (d->ht_table[0] == NULL ||
-            iter->index >= (long) DICTHT_SIZE(d->ht_size_exp[0]))
-        {
+        if (d->ht_table[0] == NULL) {
             iter->bucket = NULL;
             return NULL;
         }
-        b = &d->ht_table[0][iter->index];
+        if (iter->index >= (long) DICTHT_SIZE(d->ht_size_exp[0])) {
+            /* Only while rehashing: all the buckets of table[0] are rehashed,
+             * so continue with table[1], like the end-of-table path below. */
+            iter->table = 1;
+            iter->index = 0;
+        }
+        b = &d->ht_table[iter->table][iter->index];
         pos = 0;
         if (iter->prefetch) dictIteratorPrefetchAhead(iter);
     } else {
