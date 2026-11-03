@@ -886,16 +886,16 @@ void msetexCommand(client *c) {
          * Keep everything before the options (MSETEX, numkeys and the key-value
          * pairs), rewrite the option slots as [NX|XX] PXAT <ms>, and drop the
          * remaining tail. This also removes repeated EX/PX (last one wins). */
-        int opts_start = kv_count * 2 + 2;
-        int has_cond = (args.flags & (OBJ_SET_NX|OBJ_SET_XX)) != 0;
+        int pos = kv_count * 2 + 2; /* First option slot. */
+        if (args.flags & (OBJ_SET_NX|OBJ_SET_XX)) {
+            robj *cond_obj = createStringObject((args.flags & OBJ_SET_NX) ? "NX" : "XX", 2);
+            rewriteClientCommandArgument(c, pos++, cond_obj);
+            decrRefCount(cond_obj);
+        }
         robj *milliseconds_obj = createStringObjectFromLongLong(milliseconds);
-        robj *cond_obj = has_cond ? createStringObject((args.flags & OBJ_SET_NX) ? "NX" : "XX", 2) : NULL;
-        int pos = opts_start;
-        if (has_cond) rewriteClientCommandArgument(c, pos++, cond_obj);
         rewriteClientCommandArgument(c, pos++, shared.pxat);
         rewriteClientCommandArgument(c, pos++, milliseconds_obj);
         decrRefCount(milliseconds_obj);
-        if (cond_obj) decrRefCount(cond_obj);
         /* Remove from the tail so no arguments need to be shifted. */
         while (c->argc > pos)
             rewriteClientCommandArgument(c, c->argc - 1, NULL);
