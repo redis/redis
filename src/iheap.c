@@ -198,10 +198,12 @@ int iheapValidate(const iheap *h) {
  * ---------------------------------------------------------------------- */
 #ifdef REDIS_TEST
 #include <stdio.h>
+#include <string.h>
 #include <inttypes.h>
+#include <time.h>
+#include <unistd.h>
 #include "testhelp.h"
 
-#define UNUSED(x) (void)(x)
 #define TEST(name) printf("test — %s\n", name);
 
 /* The test item is the opaque payload the heap hands back. The heap orders
@@ -385,14 +387,12 @@ static int testFuzz(const char *name, uint64_t seed, uint32_t maxEntries,
     uint64_t op;
 
     for (op = 0; op < ops && !err; op++) {
-        /* update larger 50%, update smaller 10%, insert 20%, remove 15%,
-         * set key to UINT64_MAX 5%. */
         uint64_t r = testRandBelow(100);
-        int kind = r < 50 ? 0 :
-                   r < 60 ? 1 :
-                   r < 80 ? 2 :
-                   r < 95 ? 3 :
-                   4;
+        int kind = r < 50 ? 0 : // 0 - update larger with probability 50%
+                   r < 60 ? 1 : // 1 - update smaller with probability 10%
+                   r < 80 ? 2 : // 2 - insert with probability 20%
+                   r < 95 ? 3 : // 3 - remove with probability 15%
+                   4;           // 4 - set key to UINT64_MAX with probability 5%
         if (m.nused == 0) kind = 2;
         else if (m.nused == m.nitems && kind == 2) kind = 0;
 
@@ -454,7 +454,7 @@ static int testFuzz(const char *name, uint64_t seed, uint32_t maxEntries,
     if (!err && !testCheck(h, &m)) err = "empty heap check failed";
     if (err) {
         printf("iheap fuzz '%s' failed at operation %" PRIu64
-               " (seed %" PRIx64 "): %s\n", name, op, seed, err);
+               " (seed 0x%" PRIx64 "): %s\n", name, op, seed, err);
     }
     iheapFree(h);
     testModelFree(&m);
@@ -506,7 +506,7 @@ static int testQueueFuzz(uint64_t seed, uint32_t maxEntries, uint64_t ops) {
         err = "heap did not drain to empty";
     if (err) {
         printf("iheap queue fuzz failed at operation %" PRIu64
-               " (seed %" PRIx64 "): %s\n", op, seed, err);
+               " (seed 0x%" PRIx64 "): %s\n", op, seed, err);
     }
     iheapFree(h);
     zfree(keys);
@@ -514,12 +514,28 @@ static int testQueueFuzz(uint64_t seed, uint32_t maxEntries, uint64_t ops) {
 }
 
 int iheapTest(int argc, char *argv[], int flags) {
-    UNUSED(argc);
-    UNUSED(argv);
     int accurate = flags & REDIS_TEST_ACCURATE;
     /* Valgrind is slow; the fuzz regimes run a tenth of their operations. */
     uint64_t scale = (flags & REDIS_TEST_VALGRIND) ? 10 : 1;
     uint64_t fuzzOps = 200000 / scale;
+    /* The fuzz regimes run on fixed seeds, so every run is reproducible.
+     * "--seed <n>" runs all of them on that seed instead, which replays a
+     * failure from the seed its message printed; "--random-seed" draws one
+     * from the clock and the pid. Either way the seed is printed first. */
+    uint64_t seeds[] = { 0x5EED0001, 0x5EED0002, 0x5EED0003, 0x5EED0004 };
+    for (int j = 1; j < argc; j++) {
+        uint64_t seed;
+        if (!strcmp(argv[j], "--seed") && j + 1 < argc)
+            seed = strtoull(argv[++j], NULL, 0);
+        else if (!strcmp(argv[j], "--random-seed"))
+            seed = ((uint64_t)time(NULL) << 22) ^ (uint64_t)getpid();
+        else
+            continue;
+        if (seed == 0) seed = 1; /* the generator needs a nonzero state */
+        printf("iheap fuzz seed 0x%" PRIx64 "\n", seed);
+        for (size_t k = 0; k < sizeof(seeds) / sizeof(seeds[0]); k++)
+            seeds[k] = seed;
+    }
     int ok;
 
     TEST("empty heap") {
@@ -879,24 +895,27 @@ int iheapTest(int argc, char *argv[], int flags) {
 
     TEST("fuzz: small heaps") {
         test_cond("small heaps agree with the model after every operation",
-                  testFuzz("small", 0x5EED0001, 16, fuzzOps, 1));
+                  testFuzz("small", seeds[0], 16, fuzzOps, 1));
     }
 
     TEST("fuzz: medium heaps") {
         test_cond("medium heaps agree with the model after every operation",
-                  testFuzz("medium", 0x5EED0002, 1000, fuzzOps, 1));
+                  testFuzz("medium", seeds[1], 1000, fuzzOps, 1));
     }
 
     TEST("fuzz: priority queue") {
         test_cond("queue mode agrees with the model",
-                  testQueueFuzz(0x5EED0003, 1000, fuzzOps));
+                  testQueueFuzz(seeds[2], 1000, fuzzOps));
     }
 
     if (accurate) {
+        /* Full checks run every 1024 operations here, so a failure names
+         * the check that saw it, not the operation that caused it. To find
+         * that one, rerun with the full check on every operation. */
         TEST("fuzz: large heaps") {
             test_cond("large heaps hold the call bound at depth",
-                      testFuzz("large", 0x5EED0004, 100000,
-                               10 * fuzzOps, 1024));
+                      testFuzz("large", seeds[3], 100000, 10 * fuzzOps,
+                               1024));
         }
     }
 
