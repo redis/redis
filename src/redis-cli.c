@@ -457,24 +457,7 @@ static helpEntry *helpEntries = NULL;
 static int helpEntriesLen = 0;
 
 #define CLI_LEGACY_COMMAND_ARITY_LIMIT 1024
-#define CLI_LEGACY_HELP_PARAMS_BYTES_LIMIT (1024 * 1024)
-
-/* Validate a legacy COMMAND arity and calculate the generated help params size.
- * 'args' is returned with the command name removed; the first-key argument is
- * removed later when the actual params string is built. */
-static int cliLegacyGetHelpParamsInfo(long long arity, int firstkey, int *args,
-                                      size_t *paramsLenBytes) {
-    /* Validate before taking the absolute value or narrowing to int. */
-    if (arity > CLI_LEGACY_COMMAND_ARITY_LIMIT || arity < -CLI_LEGACY_COMMAND_ARITY_LIMIT)
-        return 0;
-
-    *args = (int)(arity < 0 ? -arity : arity) - 1;
-    *paramsLenBytes = firstkey ? sizeof("key ") - 1 : 0;
-    if (*args > firstkey)
-        *paramsLenBytes += (size_t)(*args - firstkey) * (sizeof("arg ") - 1);
-    if (arity < 0) *paramsLenBytes += sizeof("...options...") - 1;
-    return 1;
-}
+#define CLI_LEGACY_COMMAND_MAX_ENTRIES 4096
 
 /* For backwards compatibility with pre-7.0 servers.
  * cliLegacyInitHelp() sets up the helpEntries array with the command and group
@@ -483,11 +466,6 @@ static int cliLegacyGetHelpParamsInfo(long long arity, int firstkey, int *args,
  * entries with additional entries obtained using the COMMAND command
  * available in recent versions of Redis. */
 static void cliLegacyIntegrateHelp(void) {
-    /* Legacy COMMAND replies don't include argument docs. Bound the generated
-     * placeholders so a server-reported arity can't trigger unbounded work or
-     * allocation while building the help strings. */
-    size_t totalHelpParamsBytes = 0;
-
     if (cliConnect(CC_QUIET) == REDIS_ERR) return;
 
     redisReply *reply = redisCommand(context, "COMMAND");
@@ -499,7 +477,7 @@ static void cliLegacyIntegrateHelp(void) {
 
     /* Scan the array reported by COMMAND and fill only the entries that
      * don't already match what we have. */
-    for (size_t j = 0; j < reply->elements; j++) {
+    for (size_t j = 0; j < reply->elements && j < CLI_LEGACY_COMMAND_MAX_ENTRIES; j++) {
         redisReply *entry = reply->element[j];
         if (entry->type != REDIS_REPLY_ARRAY || entry->elements < 4 ||
             entry->element[0]->type != REDIS_REPLY_STRING ||
@@ -508,10 +486,11 @@ static void cliLegacyIntegrateHelp(void) {
 
         long long arity = entry->element[1]->integer;
         int firstkey = entry->element[3]->integer == 1;
-        int args;
-        size_t paramsLenBytes;
-        if (!cliLegacyGetHelpParamsInfo(arity, firstkey, &args, &paramsLenBytes))
+        /* Bound each generated params string before taking the absolute value
+         * or narrowing the server-reported arity to int. */
+        if (arity > CLI_LEGACY_COMMAND_ARITY_LIMIT || arity < -CLI_LEGACY_COMMAND_ARITY_LIMIT)
             continue;
+        int args = (int)(arity < 0 ? -arity : arity) - 1;
 
         char *cmdname = entry->element[0]->str;
         int i;
@@ -522,12 +501,6 @@ static void cliLegacyIntegrateHelp(void) {
                 break;
         }
         if (i != helpEntriesLen) continue;
-
-        /* Keep aggregate generated help text bounded as well as each arity.
-         * Stop scanning once the budget is exhausted to avoid processing a
-         * reply full of additional entries after the limit has been reached. */
-        if (paramsLenBytes > CLI_LEGACY_HELP_PARAMS_BYTES_LIMIT - totalHelpParamsBytes)
-            break;
 
         helpEntriesLen++;
         helpEntries = zrealloc(helpEntries,sizeof(helpEntry)*helpEntriesLen);
@@ -551,7 +524,6 @@ static void cliLegacyIntegrateHelp(void) {
         while(args-- > 0) new->docs.params = sdscat(new->docs.params,"arg ");
         if (arity < 0)
             new->docs.params = sdscat(new->docs.params,"...options...");
-        totalHelpParamsBytes += paramsLenBytes;
         new->docs.summary = "Help not available";
         new->docs.since = "Not known";
         new->docs.group = "generic";

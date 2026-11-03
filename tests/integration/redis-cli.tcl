@@ -976,7 +976,7 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         assert_equal "PONG" $output
     }
 
-    test "redis-cli rejects hostile arities in legacy help" {
+    test "redis-cli bounds hostile legacy help entries and arities" {
         # A small valid entry confirms the fake INFO and COMMAND replies are
         # parsed and the legacy integration path is actually reached.
         run_legacy_help_test SAFEENTRY [list [legacy_command_entry SAFEENTRY 2]] 1
@@ -987,11 +987,15 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
             [legacy_command_entry EVILMIN -9223372036854775808] \
             [legacy_command_entry SAFEENTRY 2]] 0
 
+        # Arity-1 entries with no key argument generate no params text. They
+        # still exercise the dedupe and allocation work, so verify the scan
+        # limit itself and not only the per-command arity bound.
         set many_entries [list [legacy_command_entry SAFEENTRY 2]]
-        for {set i 0} {$i < 260} {incr i} {
-            lappend many_entries [legacy_command_entry "INJECTED$i" 1024]
+        for {set i 0} {$i < 4096} {incr i} {
+            lappend many_entries [legacy_command_entry "INJECTED$i" 1]
         }
-        run_legacy_help_test INJECTED259 $many_entries 0
+        run_legacy_help_test INJECTED4094 $many_entries 1
+        run_legacy_help_test INJECTED4095 $many_entries 0
     }
 }
 
