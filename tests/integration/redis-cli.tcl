@@ -718,24 +718,30 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         set port [find_available_port $::baseport $::portcount]
         set info [cmddocs_multiline_bulk "# Server\nredis_version:6.0.0\n"]
         set command_reply [cmddocs_array $entries]
-
-        set nodepid [exec $tclsh $script $port \
-            "COMMAND DOCS" "-ERR unknown subcommand" \
+        set traffic [list "COMMAND DOCS" "-ERR unknown subcommand" \
             "INFO SERVER" [string range $info 0 end-1] \
-            "COMMAND" [string range $command_reply 0 end-1] &]
-        wait_for_condition 50 50 {
-            [catch {close [socket "127.0.0.1" $port]}] == 0
-        } else {
-            catch {exec kill $nodepid}
-            fail "Failed to start fake Redis node"
-        }
+            "COMMAND" [string range $command_reply 0 end-1]]
+        set traffic_file [write_tmpfile $traffic]
+        set nodepid ""
+        set test_err [catch {
+            set nodepid [exec $tclsh $script $port --traffic-file $traffic_file &]
+            wait_for_condition 50 50 {
+                [catch {close [socket "127.0.0.1" $port]}] == 0
+            } else {
+                fail "Failed to start fake Redis node"
+            }
 
-        set cmd [rediscli "127.0.0.1" $port [list -2 -n 0 help $target]]
-        set code [catch {exec {*}$cmd 2>@1} output]
-        catch {exec kill $nodepid}
-        assert_equal 0 $code
-        assert {[string length $output] < 4096}
-        assert_equal $expect_present [string match "*$target*" $output]
+            set cmd [rediscli "127.0.0.1" $port [list -2 -n 0 help $target]]
+            set code [catch {exec {*}$cmd 2>@1} output]
+            assert_equal 0 $code
+            assert {[string length $output] < 4096}
+            assert_equal $expect_present [string match "*$target*" $output]
+        } test_msg test_opts]
+        if {$nodepid ne ""} { catch {exec kill $nodepid} }
+        if {[file exists $traffic_file]} { file delete $traffic_file }
+        if {$test_err} {
+            return -options $test_opts $test_msg
+        }
     }
 
     # A valid command spec whose argument hint ("synarg123") cannot come
