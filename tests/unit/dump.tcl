@@ -455,3 +455,121 @@ start_server {tags {"dump"}} {
         }
     } {} {external:skip}
 }
+
+# Listpacks store, after each entry, the length of that entry (backlen), so that
+# they can be traversed backwards. For an entry whose encoded length is exactly
+# 16383, 2097151 or 268435455, Redis 8.8 - 8.10 (#15151) wrote a backlen one
+# byte shorter than any other version. Such listpacks are rewritten in the
+# historical width when loaded from an RDB version these releases wrote.
+set backlen_value [string repeat x 16378]
+
+# Written by 8.6.6 (RDB 13): the historical form, backlen bytes 00 ff ff.
+set backlen_payload_wide "\x12\x01\x02\xC3\x40\xD5\x80\x00\x00\x40\x0F\x0B\x0F\x40\x00\x00\x02\x00\xF0\xFA\x3F\x00\x00\x78\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\x00\x00\x09\x00\xFF\xFF\x84\x74\x61\x69\x6C\x05\xFF\x0D\x00\x2B\x90\xEC\xDA\xAF\x4B\xEE\x5A"
+
+# Written by 8.8.2 (RDB 14): the compact form, backlen bytes 7f ff.
+set backlen_payload_narrow "\x12\x01\x02\xC3\x40\xD4\x80\x00\x00\x40\x0E\x0B\x0E\x40\x00\x00\x02\x00\xF0\xFA\x3F\x00\x00\x78\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\xFF\x00\xE0\x00\x00\x08\x7F\xFF\x84\x74\x61\x69\x6C\x05\xFF\x0E\x00\xE1\x62\xD1\x9A\x6A\x83\x3A\x64"
+
+start_server {tags {"dump"} overrides {list-max-listpack-size -4}} {
+    r restore l 0 $backlen_payload_wide
+    set backlen_dump_wide [r dump l]
+
+    foreach {version payload} [list 8.6.6 $backlen_payload_wide 8.8.2 $backlen_payload_narrow] {
+        foreach sanitize {yes no} {
+            test "RESTORE listpack with boundary backlen written by $version (sanitize-dump-payload $sanitize)" {
+                r config set sanitize-dump-payload $sanitize
+                r del l
+                r restore l 0 $payload
+                assert_encoding listpack l
+                # Forward traversal reads the backlen of the boundary entry to
+                # find the next one, backward traversal to find it.
+                assert_equal [list $backlen_value tail] [r lrange l 0 -1]
+                assert_equal $backlen_value [r lindex l -2]
+
+                # Kept in the historical width, whichever version wrote it.
+                assert_equal $backlen_dump_wide [r dump l]
+
+                # Insert and delete after the boundary entry, then reload.
+                r rpush l more
+                r rpop l
+                r debug reload
+                assert_equal [list $backlen_value tail] [r lrange l 0 -1]
+            } {} {needs:debug}
+        }
+    }
+
+    test "RESTORE rejects the compact boundary backlen from RDB versions that never wrote it" {
+        r config set sanitize-dump-payload yes
+        # Claim RDB version 13 and drop the checksum (all zeroes skips the check).
+        set payload [string range $backlen_payload_narrow 0 end-10]
+        append payload "\x0d\x00" [string repeat "\x00" 8]
+        r del l
+        assert_error {*Bad data format*} {r restore l 0 $payload}
+        assert_equal 0 [r exists l]
+    }
+}
+
+# RDB files saved with the "lp-backlen-fixed" AUX field hold no compact
+# boundary backlen, so their listpacks are loaded without the upgrade above.
+#
+# Write an RDB file of version 'rdbver' holding the list 'l' of the DUMP
+# 'payload', with the "lp-backlen-fixed" AUX field if 'fixed' is set. The
+# checksum is all zeroes, which skips its check.
+proc write_backlen_rdb {path rdbver payload fixed} {
+    set fd [open $path w]
+    fconfigure $fd -translation binary
+    puts -nonewline $fd [format "REDIS%04d" $rdbver]
+    if {$fixed} {
+        # RDB_OPCODE_AUX, the field name and its value 1 (int encoded).
+        puts -nonewline $fd "\xfa\x10lp-backlen-fixed\xc0\x01"
+    }
+    # RDB_OPCODE_SELECTDB 9 (the DB of the test client), then the value type,
+    # the key and the value.
+    puts -nonewline $fd "\xfe\x09"
+    puts -nonewline $fd [string index $payload 0]
+    puts -nonewline $fd "\x01l"
+    puts -nonewline $fd [string range $payload 1 end-10]
+    # RDB_OPCODE_EOF and the checksum.
+    puts -nonewline $fd "\xff[string repeat "\x00" 8]"
+    close $fd
+}
+
+start_server {tags {"dump external:skip"} overrides {list-max-listpack-size -4}} {
+    set rdb_path [file join [lindex [r config get dir] 1] [lindex [r config get dbfilename] 1]]
+
+    foreach rdbver {14} {
+        test "Load RDB $rdbver with the compact boundary backlen and no lp-backlen-fixed AUX field" {
+            r config set sanitize-dump-payload yes
+            write_backlen_rdb $rdb_path $rdbver $backlen_payload_narrow 0
+            r debug reload nosave
+            assert_encoding listpack l
+            assert_equal [list $backlen_value tail] [r lrange l 0 -1]
+            assert_equal $backlen_value [r lindex l -2]
+            assert_equal $backlen_dump_wide [r dump l]
+        } {} {needs:debug}
+    }
+
+    test "SAVE writes the lp-backlen-fixed AUX field" {
+        r save
+        set fd [open $rdb_path r]
+        fconfigure $fd -translation binary
+        set content [read $fd]
+        close $fd
+        assert_morethan_equal [string first "\x10lp-backlen-fixed\xc0\x01" $content] 0
+
+        r debug reload nosave
+        assert_equal [list $backlen_value tail] [r lrange l 0 -1]
+        assert_equal $backlen_dump_wide [r dump l]
+    } {} {needs:debug}
+}
+
+start_server {tags {"dump external:skip"} overrides {list-max-listpack-size -4}} {
+    test "The lp-backlen-fixed AUX field skips the listpack upgrade" {
+        # No version saves this file: the compact backlen is only there to
+        # show that the listpack is loaded as is, and fails the check.
+        set rdb_path [file join [lindex [r config get dir] 1] [lindex [r config get dbfilename] 1]]
+        r config set sanitize-dump-payload yes
+        write_backlen_rdb $rdb_path 14 $backlen_payload_narrow 1
+        assert_error {*Error trying to load the RDB*} {r debug reload nosave}
+        verify_log_message 0 "*Listpack integrity check failed*" 0
+    } {} {needs:debug}
+}

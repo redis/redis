@@ -1674,6 +1674,10 @@ int rdbSaveInfoAuxFields(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
     }
     if (rdbSaveAuxFieldStrInt(rdb, "aof-base", aof_base) == -1) return -1;
 
+    /* All the listpacks use the historical backlen width, so the loader
+     * doesn't need to upgrade them, see rdbUpgradeListpack(). */
+    if (rdbSaveAuxFieldStrInt(rdb, "lp-backlen-fixed", 1) == -1) return -1;
+
     /* Save the active import ASM task if cluster is enabled. */
     if (server.cluster_enabled) {
         sds task_info = asmDumpActiveImportTask();
@@ -2393,6 +2397,18 @@ int lpValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep, int tup
     return ret;
 }
 
+/* RDB version that may hold the compact boundary backlen written by
+ * Redis 8.8 (#15151), see lpUpgradeCompactBacklen(). */
+#define RDB_VERSION_COMPACT_BACKLEN RDB_VERSION
+
+/* Rewrite a listpack just loaded from an RDB of version 'rdbver' in the
+ * backlen width the rest of the code reads. Must run before the integrity
+ * check and before anything else reads the listpack. Updates '*len'. */
+static inline unsigned char *rdbUpgradeListpack(unsigned char *lp, size_t *len, int rdbver) {
+    if (rdbver != RDB_VERSION_COMPACT_BACKLEN) return lp;
+    return lpUpgradeCompactBacklen(lp, len);
+}
+
 /* Load a Redis object of the specified type from the specified file.
  * On success a newly allocated object is returned, otherwise NULL.
  *
@@ -2403,7 +2419,7 @@ int lpValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep, int tup
  *   no fields with expiration or it is not a hash, then it will set be to
  *   EB_EXPIRE_TIME_INVALID.
  */
-robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
+robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbver, int *error)
 {
     robj *o = NULL, *ele, *dec;
     uint64_t len;
@@ -2960,7 +2976,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             }
 
             if (rdbtype == RDB_TYPE_LIST_QUICKLIST_2) {
-                lp = data;
+                lp = rdbUpgradeListpack(data, &encoded_len, rdbver);
                 if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
                 if (!lpValidateIntegrity(lp, encoded_len, deep_integrity_validation, NULL, NULL)) {
                     rdbReportCorruptRDB("Listpack integrity check failed.");
@@ -3026,6 +3042,17 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
         unsigned char *encoded =
             rdbGenericLoadStringObject(rdb,RDB_LOAD_PLAIN,&encoded_len);
         if (encoded == NULL) return NULL;
+
+        /* Listpacks saved by Redis 8.8 may hold the compact boundary
+         * backlen, rewrite them before the integrity check below. */
+        if (rdbtype == RDB_TYPE_SET_LISTPACK ||
+            rdbtype == RDB_TYPE_ZSET_LISTPACK ||
+            rdbtype == RDB_TYPE_HASH_LISTPACK ||
+            rdbtype == RDB_TYPE_HASH_LISTPACK_EX_PRE_GA ||
+            rdbtype == RDB_TYPE_HASH_LISTPACK_EX)
+        {
+            encoded = rdbUpgradeListpack(encoded, &encoded_len, rdbver);
+        }
 
         o = createObject(OBJ_STRING, encoded); /* Obj type fixed below. */
 
@@ -3319,6 +3346,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 decrRefCount(o);
                 return NULL;
             }
+
+            /* Listpacks saved by Redis 8.8 may hold the compact boundary
+             * backlen, rewrite them before the integrity check below. */
+            lp = rdbUpgradeListpack(lp, &lp_size, rdbver);
+
             if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
             if (!streamValidateListpackIntegrity(lp, lp_size, deep_integrity_validation)) {
                 rdbReportCorruptRDB("Stream listpack integrity check failed.");
@@ -4069,6 +4101,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
 int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadingCtx *rdb_loading_ctx) {
     uint64_t dbid = 0;
     int type, rdbver;
+    int lp_backlen_fixed = 0; /* Set by the "lp-backlen-fixed" AUX field. */
     uint64_t db_size = 0, expires_size = 0;
     int should_expand_db = 0;
     redisDb *db = rdb_loading_ctx->dbarray+0;
@@ -4232,6 +4265,8 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
             } else if (!strcasecmp(auxkey->ptr, "aof-base")) {
                 long long isbase = strtoll(auxval->ptr, NULL, 10);
                 if (isbase) serverLog(LL_NOTICE, "RDB is base AOF");
+            } else if (!strcasecmp(auxkey->ptr, "lp-backlen-fixed")) {
+                lp_backlen_fixed = strtoll(auxval->ptr, NULL, 10) != 0;
             } else if (!strcasecmp(auxkey->ptr,"cluster-asm-task")) {
                 asmReplicaHandleMasterTask(auxval->ptr);
             } else if (!strcasecmp(auxkey->ptr,"redis-bits")) {
@@ -4331,8 +4366,10 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
             keyMetaSpecCleanup(&keyMeta);
             goto eoferr;
         }
-        /* Read value */
-        val = rdbLoadObject(type,rdb,key,db->id,&error);
+        /* Read value. The listpacks of an RDB saved with the "lp-backlen-fixed"
+         * AUX field are already in the historical backlen width: pass no RDB
+         * version, so rdbUpgradeListpack() doesn't scan them again. */
+        val = rdbLoadObject(type,rdb,key,db->id,lp_backlen_fixed ? 0 : rdbver,&error);
 
         /* Check if the key already expired. This function is used when loading
          * an RDB file from disk, either at startup, or when an RDB was

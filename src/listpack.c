@@ -337,20 +337,20 @@ static inline unsigned long lpEncodeBacklen(unsigned char *buf, uint64_t l) {
     if (l <= 127) {
         if (buf) buf[0] = l;
         return 1;
-    } else if (l <= 16383) {
+    } else if (l < 16383) {
         if (buf) {
             buf[0] = l>>7;
             buf[1] = (l&127)|128;
         }
         return 2;
-    } else if (l <= 2097151) {
+    } else if (l < 2097151) {
         if (buf) {
             buf[0] = l>>14;
             buf[1] = ((l>>7)&127)|128;
             buf[2] = (l&127)|128;
         }
         return 3;
-    } else if (l <= 268435455) {
+    } else if (l < 268435455) {
         if (buf) {
             buf[0] = l>>21;
             buf[1] = ((l>>14)&127)|128;
@@ -376,11 +376,11 @@ static inline unsigned long lpEncodeBacklen(unsigned char *buf, uint64_t l) {
 static inline unsigned long lpEncodeBacklenBytes(uint64_t l) {
     if (l <= 127) {
         return 1;
-    } else if (l <= 16383) {
+    } else if (l < 16383) {
         return 2;
-    } else if (l <= 2097151) {
+    } else if (l < 2097151) {
         return 3;
-    } else if (l <= 268435455) {
+    } else if (l < 268435455) {
         return 4;
     } else {
         return 5;
@@ -1748,6 +1748,79 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep,
     return 1;
 }
 
+/* Smallest listpack that can hold an entry of encoded length 16383:
+ * header + entry + compact backlen + EOF. */
+#define LP_COMPACT_BACKLEN_MIN_BYTES (LP_HDR_SIZE + 16383 + 2 + 1)
+#define lpIsBacklenBoundary(l) ((l) == 16383 || (l) == 2097151 || (l) == 268435455)
+
+/* Redis 8.8 - 8.10 (#15151) wrote the backlen of entries whose encoded length
+ * is 16383, 2097151 or 268435455 one byte shorter than any other version.
+ * Rewrite those entries in the historical width, the only one the rest of
+ * this file reads. Entries already in the historical width are kept as is.
+ *
+ * Returns the listpack, possibly reallocated, and updates '*size'. A malformed
+ * listpack is returned unchanged, so the caller's integrity check (or a later
+ * traversal assertion) reports it exactly as without this function. */
+unsigned char *lpUpgradeCompactBacklen(unsigned char *lp, size_t *size) {
+    /* The compact backlen of a boundary length is 7f followed by ff bytes. */
+    static const unsigned char compact_form[] = {0x7f, 0xff, 0xff, 0xff};
+    size_t bytes = *size;
+    if (bytes < LP_COMPACT_BACKLEN_MIN_BYTES) return lp;
+    if (lpGetTotalBytes(lp) != bytes || lp[bytes-1] != LP_EOF) return lp;
+
+    /* First pass: count compact entries, bounds-checking every read. */
+    unsigned char *end = lp + bytes - 1; /* EOF byte */
+    unsigned char *p = lp + LP_HDR_SIZE;
+    size_t compact = 0;
+    while (p < end) {
+        size_t avail = end - p;
+        uint32_t lenbytes = lpCurrentEncodedSizeBytes(p[0]);
+        if (!lenbytes || p[0] == LP_EOF || avail <= lenbytes) return lp;
+        uint64_t entrylen = lpCurrentEncodedSizeUnsafe(p);
+        /* A 32 bit string length close to UINT32_MAX wraps the encoded size. */
+        if (entrylen < lenbytes || entrylen >= avail) return lp;
+        unsigned long backlen = lpEncodeBacklenBytes(entrylen);
+        /* 'backlen' is the historical width, the compact one is a byte
+         * shorter: 7f ff, 7f ff ff and 7f ff ff ff instead of 00 ff ff,
+         * 00 ff ff ff and 00 ff ff ff ff. Match the whole compact encoding,
+         * so corruption is never "repaired". */
+        if (lpIsBacklenBoundary(entrylen) && avail - entrylen >= backlen - 1 &&
+            !memcmp(p + entrylen, compact_form, backlen - 1))
+        {
+            backlen--;
+            compact++;
+        }
+        if (entrylen + backlen > avail) return lp;
+        p += entrylen + backlen;
+    }
+    if (p != end || compact == 0 || bytes + compact > UINT32_MAX) return lp;
+
+    /* Second pass: copy, widening the compact backlens. */
+    size_t newbytes = bytes + compact;
+    unsigned char *dst = lp_malloc(newbytes);
+    unsigned char *d = dst + LP_HDR_SIZE;
+    memcpy(dst, lp, LP_HDR_SIZE);
+    for (p = lp + LP_HDR_SIZE; p < end; ) {
+        uint64_t entrylen = lpCurrentEncodedSizeUnsafe(p);
+        unsigned long backlen = lpEncodeBacklenBytes(entrylen);
+        memcpy(d, p, entrylen);
+        d += entrylen;
+        if (lpIsBacklenBoundary(entrylen) && !memcmp(p + entrylen, compact_form, backlen - 1)) {
+            d += lpEncodeBacklen(d, entrylen);
+            backlen--;
+        } else {
+            memcpy(d, p + entrylen, backlen);
+            d += backlen;
+        }
+        p += entrylen + backlen;
+    }
+    *d = LP_EOF;
+    lpSetTotalBytes(dst, newbytes);
+    lp_free(lp);
+    *size = newbytes;
+    return dst;
+}
+
 /* Compare entry pointer to by 'p' with string 's' of length 'slen'.
  * Return 1 if equal. */
 unsigned int lpCompare(unsigned char *p, unsigned char *s, uint32_t slen,
@@ -2644,9 +2717,10 @@ int listpackTest(int argc, char *argv[], int flags) {
     }
 
     TEST("Backlen encode/decode at width boundaries") {
-        /* Body lengths where backlen widens; maxima per width must use the
-         * minimum byte count and round-trip (lpEncodeBacklen vs
-         * lpEncodeBacklenBytes and lpDecodeBacklen). */
+        /* Body lengths where backlen widens. The maxima of each width
+         * (16383, 2097151, 268435455) take one byte more than the minimum,
+         * as every version but 8.8 - 8.10 wrote them, and must round-trip
+         * (lpEncodeBacklen vs lpEncodeBacklenBytes and lpDecodeBacklen). */
         const uint64_t cases[] = {
             128ULL,
             16382ULL,
@@ -2659,13 +2733,59 @@ int listpackTest(int argc, char *argv[], int flags) {
             268435455ULL,
             268435456ULL,
         };
+        const unsigned long widths[] = {2, 2, 3, 3, 3, 4, 4, 4, 5, 5};
         unsigned char enc[LP_MAX_BACKLEN_SIZE];
         for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
             uint64_t enclen = cases[i];
             unsigned long n = lpEncodeBacklen(NULL, enclen);
+            assert(n == widths[i]);
             assert(n == lpEncodeBacklenBytes(enclen));
             assert(lpEncodeBacklen(enc, enclen) == n);
             assert(lpDecodeBacklen(enc + n - 1) == enclen);
+        }
+    }
+
+    TEST("lpUpgradeCompactBacklen: convert the backlen written by 8.8 - 8.10") {
+        /* Entries of encoded length 16383 and 2097151: a 32 bit string has
+         * a 5 byte header. Their backlen is 00 ff ff and 00 ff ff ff, but
+         * 8.8 - 8.10 wrote one byte less: 7f ff and 7f ff ff. */
+        const size_t enclens[] = {16383, 2097151};
+        const char *compact_backlens[] = {"\x7f\xff", "\x7f\xff\xff"};
+        for (int j = 0; j < 2; j++) {
+            size_t len = enclens[j] - 5;
+            unsigned char *val = zmalloc(len);
+            memset(val, 'x', len);
+            lp = lpAppend(lpNew(0), (unsigned char *)"a", 1);
+            lp = lpAppend(lp, val, len);
+            lp = lpAppend(lp, (unsigned char *)"b", 1);
+            size_t bytes = lpBytes(lp);
+
+            /* Already in the historical width: returned as is. */
+            size_t size = bytes;
+            assert(lpUpgradeCompactBacklen(lp, &size) == lp);
+            assert(size == bytes);
+
+            /* Build the listpack 8.8 - 8.10 wrote: the same bytes, with the
+             * compact backlen after the big entry. */
+            size_t backlen = lpSeek(lp, 1) - lp + enclens[j];
+            size_t backlen_size = lpEncodeBacklenBytes(enclens[j]);
+            unsigned char *compact = lp_malloc(bytes - 1);
+            memcpy(compact, lp, backlen);
+            memcpy(compact + backlen, compact_backlens[j], backlen_size - 1);
+            memcpy(compact + backlen + backlen_size - 1, lp + backlen + backlen_size,
+                   bytes - backlen - backlen_size);
+            lpSetTotalBytes(compact, bytes - 1);
+            assert(!lpValidateIntegrity(compact, bytes - 1, 1, NULL, NULL));
+
+            /* Converted into exactly the listpack every other version writes. */
+            size = bytes - 1;
+            compact = lpUpgradeCompactBacklen(compact, &size);
+            assert(size == bytes);
+            assert(memcmp(compact, lp, bytes) == 0);
+
+            lpFree(compact);
+            lpFree(lp);
+            zfree(val);
         }
     }
 

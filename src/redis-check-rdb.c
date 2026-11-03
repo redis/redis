@@ -188,6 +188,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
     uint64_t dbid;
     int selected_dbid = -1;
     int type, rdbver;
+    int lp_backlen_fixed = 0; /* Set by the "lp-backlen-fixed" AUX field. */
     char buf[1024];
     long long expiretime, now = mstime();
     static rio rdb; /* Pointed by global struct riostate. */
@@ -310,6 +311,9 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
 
             rdbCheckInfo("AUX FIELD %s = '%s'",
                 (char*)auxkey->ptr, (char*)auxval->ptr);
+            /* Load the listpacks as the server does, see rdbUpgradeListpack(). */
+            if (!strcasecmp(auxkey->ptr, "lp-backlen-fixed"))
+                lp_backlen_fixed = strtoll(auxval->ptr, NULL, 10) != 0;
             decrRefCount(auxkey);
             decrRefCount(auxval);
             continue; /* Read type again. */
@@ -359,7 +363,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
         rdbstate.keys++;
         /* Read value */
         rdbstate.doing = RDB_CHECK_DOING_READ_OBJECT_VALUE;
-        if ((val = rdbLoadObject(type,&rdb,key->ptr,selected_dbid,NULL)) == NULL)
+        if ((val = rdbLoadObject(type,&rdb,key->ptr,selected_dbid,lp_backlen_fixed ? 0 : rdbver,NULL)) == NULL)
             goto eoferr;
         /* Check if the key already expired. */
         if (expiretime != -1 && expiretime < now)
