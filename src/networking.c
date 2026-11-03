@@ -2141,8 +2141,12 @@ static void clearClientPubSubState(client *c) {
     }
 }
 
-/* Clear the client state to resemble a newly connected client. */
-void clearClientConnectionState(client *c) {
+#define RESET_KEEP_AUTH  (1 << 0)
+#define RESET_KEEP_PROTO (1 << 1)
+
+/* Reset the client connection state, optionally preserving authentication
+ * and RESP protocol version. */
+static void clearClientConnectionStateWithOptions(client *c, int options) {
     listNode *ln;
 
     /* MONITOR clients are also marked with CLIENT_SLAVE, we need to
@@ -2160,11 +2164,14 @@ void clearClientConnectionState(client *c) {
 
     if (c->flags & CLIENT_TRACKING) disableTracking(c);
     selectDb(c,0);
+
+    if (!(options & RESET_KEEP_PROTO)) {
 #ifdef LOG_REQ_RES
-    c->resp = server.client_default_resp;
+        c->resp = server.client_default_resp;
 #else
-    c->resp = 2;
+        c->resp = 2;
 #endif
+    }
 
     /* Clear Pub/Sub state before resetting the ACL identity below. A still-NULL
      * subscription is "owned by the current user", so once clientSetDefaultAuth()
@@ -2174,8 +2181,10 @@ void clearClientConnectionState(client *c) {
      * observes a subscription under the wrong effective owner. */
     clearClientPubSubState(c);
 
-    clientSetDefaultAuth(c);
-    moduleNotifyUserChanged(c);
+    if (!(options & RESET_KEEP_AUTH)) {
+        clientSetDefaultAuth(c);
+        moduleNotifyUserChanged(c);
+    }
     discardTransaction(c);
     himportFieldsetsFree(c);
 
@@ -2186,10 +2195,15 @@ void clearClientConnectionState(client *c) {
 
     /* Note: lib_name and lib_ver are not reset since they still
      * represent the client library behind the connection. */
-    
+
     /* Selectively clear state flags not covered above */
     c->flags &= ~(CLIENT_ASKING|CLIENT_READONLY|CLIENT_REPLY_OFF|
                   CLIENT_REPLY_SKIP_NEXT|CLIENT_NO_TOUCH|CLIENT_NO_EVICT);
+}
+
+/* Clear the client state to resemble a newly connected client. */
+void clearClientConnectionState(client *c) {
+    clearClientConnectionStateWithOptions(c, 0);
 }
 
 void deauthenticateAndCloseClient(client *c) {
@@ -4466,6 +4480,28 @@ void clientSetinfoCommand(client *c) {
     addReply(c,shared.ok);
 }
 
+static int parseResetOptions(client *c, int *options) {
+    *options = 0;
+
+    for (int j = 1; j < c->argc; j++) {
+        int flag;
+
+        if (!strcasecmp(c->argv[j]->ptr, "KEEP-AUTH"))
+            flag = RESET_KEEP_AUTH;
+        else if (!strcasecmp(c->argv[j]->ptr, "KEEP-PROTO"))
+            flag = RESET_KEEP_PROTO;
+        else
+            return C_ERR;
+
+        if (*options & flag)
+            return C_ERR;
+
+        *options |= flag;
+    }
+
+    return C_OK;
+}
+
 /* Reset the client state to resemble a newly connected client.
  */
 void resetCommand(client *c) {
@@ -4480,7 +4516,14 @@ void resetCommand(client *c) {
         return;
     }
 
-    clearClientConnectionState(c);
+    int options;
+
+    if (parseResetOptions(c, &options) == C_ERR) {
+        addReplyError(c, "syntax error");
+        return;
+    }
+
+    clearClientConnectionStateWithOptions(c, options);
     addReplyStatus(c,"RESET");
 }
 
