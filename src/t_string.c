@@ -884,26 +884,16 @@ void msetexCommand(client *c) {
     if (args.expire && !(args.flags & OBJ_PXAT) && !(args.flags & OBJ_EXAT) && args.expire_pos != -1) {
         /* Convert EX/PX (relative) to PXAT (absolute) for consistent replication.
          * Keep everything before the options (MSETEX, numkeys and the key-value
-         * pairs), rewrite the option slots into a single PXAT <ms> (with the
-         * NX/XX condition, if any, kept on the same side of it as the user
-         * wrote it), and drop the remaining tail. This also removes repeated
-         * EX/PX (last one wins). */
+         * pairs), rewrite the option slots as [NX|XX] PXAT <ms>, and drop the
+         * remaining tail. This also removes repeated EX/PX (last one wins). */
         int opts_start = kv_count * 2 + 2;
         int has_cond = (args.flags & (OBJ_SET_NX|OBJ_SET_XX)) != 0;
-        int cond_first = 0;
-        for (int i = opts_start; has_cond && i < args.expire_pos; i++) {
-            if (!strcasecmp(c->argv[i]->ptr, "nx") || !strcasecmp(c->argv[i]->ptr, "xx")) {
-                cond_first = 1;
-                break;
-            }
-        }
         robj *milliseconds_obj = createStringObjectFromLongLong(milliseconds);
         robj *cond_obj = has_cond ? createStringObject((args.flags & OBJ_SET_NX) ? "NX" : "XX", 2) : NULL;
         int pos = opts_start;
-        if (cond_first) rewriteClientCommandArgument(c, pos++, cond_obj);
+        if (has_cond) rewriteClientCommandArgument(c, pos++, cond_obj);
         rewriteClientCommandArgument(c, pos++, shared.pxat);
         rewriteClientCommandArgument(c, pos++, milliseconds_obj);
-        if (has_cond && !cond_first) rewriteClientCommandArgument(c, pos++, cond_obj);
         decrRefCount(milliseconds_obj);
         if (cond_obj) decrRefCount(cond_obj);
         /* Remove from the tail so no arguments need to be shifted. */

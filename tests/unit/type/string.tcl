@@ -396,7 +396,7 @@ start_server {tags {"string"}} {
     }
 
     test {MSETEX - EX/PX are propagated as a single PXAT} {
-        r del repl:key1{t} repl:key2{t} repl:nx{t} repl:nx2{t}
+        r del repl:key1{t} repl:key2{t} repl:nx{t} repl:nx2{t} repl:nx3{t} repl:nx4{t} repl:nx5{t} repl:nx6{t}
         set repl [attach_to_replication_stream]
         r msetex 2 repl:key1{t} v1 repl:key2{t} v2 ex 100
         r msetex 1 repl:key1{t} v3 px 100000 xx
@@ -406,16 +406,37 @@ start_server {tags {"string"}} {
         r msetex 1 repl:key1{t} v7 ex 10 xx ex 100
         r msetex 1 repl:nx2{t} v8 nx px 10000 px 100000
         r msetex 1 repl:key1{t} v9 ex 10 ex 5 xx
-        assert_replication_stream $repl {
+        r msetex 1 repl:nx3{t} v10 nx ex 10 ex 100
+        r msetex 1 repl:nx4{t} v11 ex 10 ex 100 nx
+        r msetex 1 repl:key1{t} v12 xx ex 10 ex 100
+        r msetex 1 repl:nx5{t} v13 px 10000 nx px 100000
+        r msetex 1 repl:nx6{t} v14 px 10000 px 100000 nx
+        r msetex 1 repl:key1{t} v15 xx px 10000 px 100000
+        r msetex 1 repl:key1{t} v16 px 10000 xx px 100000
+        r msetex 1 repl:key1{t} v17 px 10000 px 100000 xx
+        foreach expected {
             {select *}
             {msetex 2 repl:key1{t} v1 repl:key2{t} v2 PXAT *}
-            {msetex 1 repl:key1{t} v3 PXAT * XX}
+            {msetex 1 repl:key1{t} v3 XX PXAT *}
             {msetex 1 repl:key1{t} v4 PXAT *}
             {msetex 1 repl:key1{t} v5 PXAT *}
             {msetex 1 repl:nx{t} v6 NX PXAT *}
             {msetex 1 repl:key1{t} v7 XX PXAT *}
             {msetex 1 repl:nx2{t} v8 NX PXAT *}
-            {msetex 1 repl:key1{t} v9 PXAT * XX}
+            {msetex 1 repl:key1{t} v9 XX PXAT *}
+            {msetex 1 repl:nx3{t} v10 NX PXAT *}
+            {msetex 1 repl:nx4{t} v11 NX PXAT *}
+            {msetex 1 repl:key1{t} v12 XX PXAT *}
+            {msetex 1 repl:nx5{t} v13 NX PXAT *}
+            {msetex 1 repl:nx6{t} v14 NX PXAT *}
+            {msetex 1 repl:key1{t} v15 XX PXAT *}
+            {msetex 1 repl:key1{t} v16 XX PXAT *}
+            {msetex 1 repl:key1{t} v17 XX PXAT *}
+        } {
+            set command [read_from_replication_stream $repl]
+            # The timestamp wildcard must not hide extra expiration options.
+            assert_equal [llength $expected] [llength $command]
+            assert_match $expected $command
         }
         close_replication_stream $repl
     } {} {needs:repl}
@@ -1752,4 +1773,37 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         assert_equal 0 [r delex mykey IFDNE $upper_digest]
         assert_equal 1 [r exists mykey]
     }
+}
+
+start_server {tags {"string" "external:skip"} overrides {appendonly yes auto-aof-rewrite-percentage 0}} {
+    test {MSETEX - repeated EX/PX and NX/XX survive AOF reload} {
+        waitForBgrewriteaof r
+        set expected {}
+        foreach {unit first last} {ex 10 100 px 10000 100000} {
+            foreach condition {nx xx} {
+                foreach position {before between after} {
+                    set key1 "aof:$unit:$condition:$position:1{t}"
+                    set key2 "aof:$unit:$condition:$position:2{t}"
+                    if {$condition eq "xx"} {
+                        r mset $key1 old1 $key2 old2
+                    }
+                    switch $position {
+                        before {set options [list $condition $unit $first $unit $last]}
+                        between {set options [list $unit $first $condition $unit $last]}
+                        after {set options [list $unit $first $unit $last $condition]}
+                    }
+                    assert_equal 1 [r msetex 2 $key1 val1 $key2 val2 {*}$options]
+                    foreach {key value} [list $key1 val1 $key2 val2] {
+                        assert_range [r ttl $key] 98 100
+                        lappend expected $key $value [r pexpiretime $key]
+                    }
+                }
+            }
+        }
+        r debug loadaof
+        foreach {key value expire} $expected {
+            assert_equal $value [r get $key]
+            assert_equal $expire [r pexpiretime $key]
+        }
+    } {} {needs:debug}
 }
