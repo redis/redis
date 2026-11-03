@@ -242,7 +242,7 @@ client *createClient(connection *conn) {
     c->io_last_client_cron = 0;
     c->io_last_repl_cron = 0;
     c->last_memory_usage = 0;
-    c->last_names_mem = 0;
+    c->last_watch_pubsub_mem = 0;
     c->last_memory_type = CLIENT_TYPE_NORMAL;
     c->last_memory_shared = 0;
     c->last_memory_unshared = 0;
@@ -2144,6 +2144,7 @@ static void clearClientPubSubState(client *c) {
         pubsubUnsubscribeAllChannels(c, 0);
         pubsubUnsubscribeShardAllChannels(c, 0);
         pubsubUnsubscribeAllPatterns(c, 0);
+        updateClientWatchPubsubMemoryUsage(c);
         unmarkClientAsPubSub(c);
     }
 }

@@ -1726,7 +1726,7 @@ typedef struct client {
      * client, and in which category the client was, in order to remove it
      * before adding it the new value. */
     size_t last_memory_usage;
-    size_t last_names_mem;
+    size_t last_watch_pubsub_mem; /* WATCH key and Pub/Sub name memory included in last_memory_usage. */
     int last_memory_type;
     size_t last_memory_shared;
     size_t last_memory_unshared;
@@ -3555,7 +3555,7 @@ void flushSlavesOutputBuffersIfNeeded(void);
 void disconnectSlaves(void);
 void evictClients(void);
 size_t subtractClientsSharedNamesMemory(size_t mem);
-void updateClientNamesMemoryUsage(client *c);
+void updateClientWatchPubsubMemoryUsage(client *c);
 int listenToPort(connListener *fds);
 void pauseActions(pause_purpose purpose, mstime_t end, uint32_t actions_bitmask);
 void unpauseActions(pause_purpose purpose);

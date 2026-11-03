@@ -574,7 +574,7 @@ void pubsubShardUnsubscribeAllChannelsInSlot(unsigned int slot) {
         while ((entry = dictNext(&iter)) != NULL) {
             client *c = dictGetKey(entry);
             c->pubsub_names_mem -= name_mem;
-            updateClientNamesMemoryUsage(c);
+            updateClientWatchPubsubMemoryUsage(c);
             int retval = dictDelete(c->pubsubshard_channels, channel);
             serverAssertWithInfo(c,channel,retval == DICT_OK);
             addReplyPubsubUnsubscribed(c, channel, pubSubShardType);

@@ -429,7 +429,7 @@ void touchWatchedKey(redisDb *db, robj *key) {
          * again in case that key (or others) are modified again (or keep the
          * memory overhead till EXEC). */
         unwatchAllKeys(c);
-        updateClientNamesMemoryUsage(c);
+        updateClientWatchPubsubMemoryUsage(c);
 
     skip_client:
         continue;
