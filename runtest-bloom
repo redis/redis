@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+REDIS_SERVER=${REDIS_SERVER:-$ROOT/src/redis-server}
+cd "$ROOT/tests/bloom"
+exec "${PYTHON:-python3}" -u -m RLTest --oss-redis-path "$REDIS_SERVER" \
+    --randomize-ports --enable-debug-command --enable-protected-configs "$@"

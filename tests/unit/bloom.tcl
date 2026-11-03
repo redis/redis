@@ -2,7 +2,7 @@
 # RedisBloom with capacity 2, error 0.01, expansion 2, FORCE64 | NOROUND.
 # Three filters, encoded using the native RDB format and a valid DUMP checksum.
 proc native_bloom_payload {} {
-    return [binary format H* 230a030502027b14ae47e17a743f08e9862fb2350e264040400008008808008800e09f02047b14ae47e17a643f094af7d49edef028404040000855c8c8405527260604087b14ae47e17a543f0aaa677a8b87d32b404080001054128444444c24a005010d08540424020411006c4d19c6a8d7d3a8]
+    return [binary format H* 250a030502027b14ae47e17a743f08e9862fb2350e264040400008008808008800e09f02047b14ae47e17a643f094af7d49edef028404040000855c8c8405527260604087b14ae47e17a543f0aaa677a8b87d32b404080001054128444444c24a005010d08540424020411008bfb631895c24bdd]
 }
 
 start_server {tags {"bloom"}} {
@@ -414,7 +414,7 @@ start_server {tags {"bloom"} overrides {save ""}} {
             }
             assert {[r pttl $key] > 0}
             binary scan [r dump $key] c type
-            assert_equal 35 $type
+            assert_equal 37 $type
             r persist $key
         }
         assert_match {*bits:1102*hashwidth:32*} [lindex [r bf.debug legacy-0] 1]
