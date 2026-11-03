@@ -241,31 +241,80 @@ test "PING announcing a hostname or alias as sender address is accepted" {
     wait_for_cluster_state ok
 }
 
-test "PING with an invalid address in the gossip section is rejected" {
+test "PING with an invalid address in a gossip entry skips only that entry" {
     set CLUSTERMSG_TYPE_PING 0
+    set CLUSTERMSG_TYPE_PONG 1
     set CLUSTER_NODE_MASTER 1
     set CLUSTERMSG_MIN_LEN 2256
     set GOSSIP_ENTRY_LEN 104
+    # Offset of the 16-bit message type in the header, after the signature,
+    # the total length, the version and the port.
+    set CLUSTERMSG_TYPE_OFFSET 12
+    set CLUSTERMSG_TYPE_END [expr {$CLUSTERMSG_TYPE_OFFSET + 2}]
 
     set node_id [R 1 CLUSTER MYID]
     set sender_port [srv -1 port]
     set sender_cport [expr {$sender_port + 10000}]
 
-    # Gossip about a node unknown to node 0, which node 0 would otherwise add
-    # with the gossiped address.
-    set gossiped_id [string repeat abcd1234 5]
-    set totlen [expr {$CLUSTERMSG_MIN_LEN + $GOSSIP_ENTRY_LEN}]
+    # Gossip about two nodes unknown to node 0, one with an address that would
+    # corrupt nodes.conf and one with a valid address. A node that holds such
+    # an address relays it in every PING, so only the bad entry is ignored:
+    # the good one is added and the sender still gets its PONG.
+    set bad_id [string repeat abcd1234 5]
+    set good_id [string repeat 5678efab 5]
+    set totlen [expr {$CLUSTERMSG_MIN_LEN + 2 * $GOSSIP_ENTRY_LEN}]
 
     set loglines [count_log_lines 0]
     set packet [build_cluster_bus_header $node_id $sender_port $sender_cport \
-        $CLUSTERMSG_TYPE_PING $totlen 0 $CLUSTER_NODE_MASTER 0 "" 1]
-    append packet [build_cluster_bus_gossip_entry $gossiped_id \
+        $CLUSTERMSG_TYPE_PING $totlen 0 $CLUSTER_NODE_MASTER 0 "" 2]
+    append packet [build_cluster_bus_gossip_entry $bad_id \
         "127.0.0.1\r\n+PWN" 30000 40000 $CLUSTER_NODE_MASTER]
-    set fd [send_cluster_bus_packet 0 $packet]
-    wait_for_log_messages 0 {"*Received ping packet with invalid address in gossip section*"} $loglines 50 100
-    close $fd
+    append packet [build_cluster_bus_gossip_entry $good_id \
+        "127.0.0.1" 30001 40001 $CLUSTER_NODE_MASTER]
 
-    assert_no_match "*$gossiped_id*" [R 0 CLUSTER NODES]
+    # Freeze node 1 so that it cannot reconnect to node 0 and replace the
+    # forged connection before the PONG is read from it.
+    set node1_pid [srv -1 pid]
+    pause_process $node1_pid
+    set failed [catch {
+        set fd [send_cluster_bus_packet 0 $packet]
+        fconfigure $fd -blocking 0 -translation binary
+        # Collect the reply until the header is in up to the message type.
+        set reply ""
+        wait_for_condition 50 100 {
+            [string length [append reply [read $fd]]] >= $CLUSTERMSG_TYPE_END
+        } else {
+            fail "Node 0 did not answer the PING"
+        }
+        close $fd
+        # Unpack the header: the first 4 bytes are the signature, then skip
+        # to the message type and read it as a big-endian 16-bit integer.
+        binary scan $reply a4@${CLUSTERMSG_TYPE_OFFSET}S sig type
+        # Only a cluster bus message starts with "RCmb", and the answer to a
+        # PING is a PONG.
+        assert_equal "RCmb" $sig
+        assert_equal $CLUSTERMSG_TYPE_PONG $type
+    } msg opts]
+    # Resume node 1 whatever happened above, then re-raise any failure.
+    resume_process $node1_pid
+    if {$failed} { return -options $opts $msg }
+
+    wait_for_log_messages 0 [list "*Ignoring gossip about node $bad_id with an invalid address*"] $loglines 50 100
+    wait_for_condition 50 100 {
+        [string match "*$good_id 127.0.0.1:30001@40001*" [R 0 CLUSTER NODES]]
+    } else {
+        fail "The valid gossip entry was not processed: [R 0 CLUSTER NODES]"
+    }
+    assert_no_match "*$bad_id*" [R 0 CLUSTER NODES]
+
+    # Node 0 cannot reach the gossiped node, so it never relays it to node 1.
+    # Forget it so that later tests see the original two-node cluster.
+    R 0 CLUSTER FORGET $good_id
+    wait_for_condition 50 100 {
+        ![string match "*$good_id*" [R 0 CLUSTER NODES]]
+    } else {
+        fail "The gossiped node was not forgotten"
+    }
     wait_for_cluster_state ok
 }
 
