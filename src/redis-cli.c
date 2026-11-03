@@ -467,6 +467,10 @@ typedef struct {
 static helpEntry *helpEntries = NULL;
 static int helpEntriesLen = 0;
 
+/* Reasonable bounds for COMMAND replies, far above any real values. */
+#define CLI_LEGACY_COMMAND_ARITY_LIMIT 1024
+#define CLI_LEGACY_COMMAND_MAX_ENTRIES 4096
+
 /* For backwards compatibility with pre-7.0 servers.
  * cliLegacyInitHelp() sets up the helpEntries array with the command and group
  * names from the commands.c file. However the Redis instance we are connecting
@@ -485,12 +489,21 @@ static void cliLegacyIntegrateHelp(void) {
 
     /* Scan the array reported by COMMAND and fill only the entries that
      * don't already match what we have. */
-    for (size_t j = 0; j < reply->elements; j++) {
+    for (size_t j = 0; j < reply->elements && j < CLI_LEGACY_COMMAND_MAX_ENTRIES; j++) {
         redisReply *entry = reply->element[j];
         if (entry->type != REDIS_REPLY_ARRAY || entry->elements < 4 ||
             entry->element[0]->type != REDIS_REPLY_STRING ||
             entry->element[1]->type != REDIS_REPLY_INTEGER ||
             entry->element[3]->type != REDIS_REPLY_INTEGER) break;
+
+        long long arity = entry->element[1]->integer;
+        int firstkey = entry->element[3]->integer == 1;
+        /* Bound each generated params string before taking the absolute value
+         * or narrowing the server-reported arity to int. */
+        if (arity > CLI_LEGACY_COMMAND_ARITY_LIMIT || arity < -CLI_LEGACY_COMMAND_ARITY_LIMIT)
+            continue;
+        int args = (int)(arity < 0 ? -arity : arity) - 1;
+
         char *cmdname = entry->element[0]->str;
         int i;
 
@@ -516,14 +529,12 @@ static void cliLegacyIntegrateHelp(void) {
         new->docs.args = NULL;
         new->docs.numargs = 0;
         new->docs.params = sdsempty();
-        int args = llabs(entry->element[1]->integer);
-        args--; /* Remove the command name itself. */
-        if (entry->element[3]->integer == 1) {
+        if (firstkey) {
             new->docs.params = sdscat(new->docs.params,"key ");
             args--;
         }
         while(args-- > 0) new->docs.params = sdscat(new->docs.params,"arg ");
-        if (entry->element[1]->integer < 0)
+        if (arity < 0)
             new->docs.params = sdscat(new->docs.params,"...options...");
         new->docs.summary = "Help not available";
         new->docs.since = "Not known";
