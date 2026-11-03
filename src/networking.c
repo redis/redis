@@ -4480,8 +4480,9 @@ void clientSetinfoCommand(client *c) {
     addReply(c,shared.ok);
 }
 
-static int parseResetOptions(client *c, int *options) {
-    *options = 0;
+/* Return the parsed RESET options, or C_ERR on invalid input. */
+static int parseResetOptions(const client *c) {
+    int options = 0;
 
     for (int j = 1; j < c->argc; j++) {
         int flag;
@@ -4493,13 +4494,13 @@ static int parseResetOptions(client *c, int *options) {
         else
             return C_ERR;
 
-        if (*options & flag)
+        /* Reject duplicate options. */
+        if (options & flag)
             return C_ERR;
 
-        *options |= flag;
+        options |= flag;
     }
-
-    return C_OK;
+    return options;
 }
 
 /* Reset the client state to resemble a newly connected client.
@@ -4516,9 +4517,9 @@ void resetCommand(client *c) {
         return;
     }
 
-    int options;
+    const int options = parseResetOptions(c);
 
-    if (parseResetOptions(c, &options) == C_ERR) {
+    if (options == C_ERR) {
         addReplyError(c, "syntax error");
         return;
     }
