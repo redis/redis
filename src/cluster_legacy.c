@@ -25,6 +25,7 @@
 #include "endianconv.h"
 #include "connection.h"
 
+#include <ctype.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -2800,20 +2801,36 @@ void clusterProcessPingExtensions(clusterMsg *hdr, clusterLink *link, clusterNod
 /* Validates an address field received on the cluster bus, that is hdr->myip
  * or the ip of a gossip entry. These end up in node->ip, from where they are
  * written to nodes.conf, shown by CLUSTER NODES/SLOTS/SHARDS and embedded in
- * -MOVED/-ASK redirections, so they must be checked against what a node can
- * legitimately announce, the same rules as cluster-announce-ip: an IPv4 or
- * IPv6 address, or a hostname. The field must also be NUL-terminated within
- * its NET_IP_STR_LEN bytes. An empty string is valid: in hdr->myip it means
- * the sender did not announce an address and the socket address is used. */
+ * -MOVED/-ASK redirections. The field must be NUL-terminated within its
+ * NET_IP_STR_LEN bytes and must not contain a character that corrupts one of
+ * those consumers: a control character (CR/LF ends a nodes.conf line, a log
+ * line and a RESP error reply), a space or a comma (field delimiters in
+ * nodes.conf and CLUSTER NODES), a quote (nodes.conf is parsed with
+ * sdssplitargs(), which treats quotes specially), or a square bracket (the
+ * field holds an address only, never "[ipv6]:port", so brackets have no
+ * legitimate use and only confuse redis-cli's parsing of CLUSTER NODES).
+ *
+ * This is deliberately looser than the check cluster-announce-ip is held to
+ * on the node that configures it. That config check only exists in recent
+ * versions, so in a mixed-version cluster older peers may still announce
+ * names outside its character set, such as a Docker alias with an
+ * underscore, directly in their PINGs or relayed in gossip. Rejecting them
+ * would break rolling upgrades, and accepting them is safe: the config check
+ * guards only this node's own cluster-announce-ip, while peer addresses are
+ * written to nodes.conf and read back verbatim, so anything that passes the
+ * delimiter checks above survives a restart. An empty string is valid: in
+ * hdr->myip it means the sender did not announce an address and the socket
+ * address is used instead. */
 static int isValidClusterMsgIp(const char *ip) {
     const char *end = memchr(ip, '\0', NET_IP_STR_LEN);
     if (end == NULL) return 0;
-    if (end == ip) return 1;
-
-    unsigned char buf[sizeof(struct in6_addr)];
-    if (inet_pton(AF_INET, ip, buf) == 1 || inet_pton(AF_INET6, ip, buf) == 1)
-        return 1;
-    return isValidHostnameString(ip, end - ip);
+    for (const char *p = ip; p < end; p++) {
+        unsigned char c = *p;
+        if (iscntrl(c) || c == ' ' || c == ',' || c == '"' || c == '\'' ||
+            c == '[' || c == ']')
+            return 0;
+    }
+    return 1;
 }
 
 static clusterNode *getNodeFromLinkAndMsg(clusterLink *link, clusterMsg *hdr) {
@@ -3017,9 +3034,10 @@ int clusterProcessPacket(clusterLink *link) {
     }
 
     /* The announced sender address and the gossip addresses can update the
-     * address we hold for a node, so reject the packet if any of them is not
-     * something a node can announce. Done after the length check, which
-     * guarantees the gossip section holds 'count' entries. */
+     * address we hold for a node, so reject the packet if any of them would
+     * corrupt nodes.conf, CLUSTER NODES or a redirection reply. Done after
+     * the length check, which guarantees the gossip section holds 'count'
+     * entries. */
     if (type == CLUSTERMSG_TYPE_PING || type == CLUSTERMSG_TYPE_PONG ||
         type == CLUSTERMSG_TYPE_MEET)
     {

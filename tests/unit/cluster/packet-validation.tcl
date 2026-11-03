@@ -162,11 +162,15 @@ test "PING with an invalid sender address is rejected" {
     set node1_pid [srv -1 pid]
     pause_process $node1_pid
 
-    # A CRLF that would end up in -MOVED replies and split the nodes.conf
-    # line, characters valid in neither an IP nor a hostname, and a field
-    # without a NUL terminator in its 46 bytes.
-    set bad_ips [list "127.0.0.1\r\n+PWN" "127.0.0.1 x" "host:1" \
-                      [string repeat 1 46]]
+    # Control characters: a CRLF that would end up in -MOVED replies and split
+    # the nodes.conf line, a tab and DEL. Field delimiters in nodes.conf and
+    # CLUSTER NODES: space and comma. Both quote characters, which nodes.conf
+    # parsing treats specially. Each square bracket on its own, since brackets
+    # have no use in an address and confuse redis-cli's parsing of CLUSTER
+    # NODES. And 46 bytes without a NUL terminator.
+    set bad_ips [list "127.0.0.1\r\n+PWN" "host\t1" "host[format %c 127]1" \
+                      "127.0.0.1 x" "host,1" "host\"1" "host'1" \
+                      "\[host" "host\]" "\[::1\]:1" [string repeat 1 46]]
     foreach bad_ip $bad_ips {
         set loglines [count_log_lines 0]
         set packet [build_cluster_bus_header $node_id $sender_port $sender_cport \
@@ -181,7 +185,7 @@ test "PING with an invalid sender address is rejected" {
     wait_for_cluster_state ok
 }
 
-test "PING announcing a hostname as sender address is accepted" {
+test "PING announcing a hostname or alias as sender address is accepted" {
     set CLUSTERMSG_TYPE_PING 0
     set CLUSTER_NODE_MASTER 1
     set CLUSTERMSG_MIN_LEN 2256
@@ -192,27 +196,34 @@ test "PING announcing a hostname as sender address is accepted" {
     set addr_before [cluster_node_address 0 $node_id]
 
     # cluster-announce-ip accepts a hostname, so the bus must keep accepting
-    # one. Freeze node 1 so that the announced address stays observable.
-    set node1_pid [srv -1 pid]
-    pause_process $node1_pid
+    # one. Nodes that predate the cluster-announce-ip validation may announce
+    # names outside its character set, such as a Docker alias with an
+    # underscore, and those must keep working across a rolling upgrade. The
+    # longest possible field, 45 bytes plus the NUL, is accepted too.
+    foreach name [list localhost redis_node_1 [string repeat a 45]] {
+        # Freeze node 1 so that the announced address stays observable.
+        set node1_pid [srv -1 pid]
+        pause_process $node1_pid
 
-    set packet [build_cluster_bus_header $node_id $sender_port $sender_cport \
-        $CLUSTERMSG_TYPE_PING $CLUSTERMSG_MIN_LEN 0 $CLUSTER_NODE_MASTER 0 "localhost"]
-    set fd [send_cluster_bus_packet 0 $packet]
-    wait_for_condition 50 100 {
-        [string match "localhost:*" [cluster_node_address 0 $node_id]]
-    } else {
-        fail "The announced hostname was not accepted: [cluster_node_address 0 $node_id]"
-    }
-    close $fd
+        set packet [build_cluster_bus_header $node_id $sender_port $sender_cport \
+            $CLUSTERMSG_TYPE_PING $CLUSTERMSG_MIN_LEN 0 $CLUSTER_NODE_MASTER 0 $name]
+        set fd [send_cluster_bus_packet 0 $packet]
+        wait_for_condition 50 100 {
+            [string match "$name:*" [cluster_node_address 0 $node_id]]
+        } else {
+            fail "The announced address $name was not accepted: [cluster_node_address 0 $node_id]"
+        }
+        close $fd
 
-    # Node 1's own PINGs announce no address, so node 0 goes back to the
-    # socket address.
-    resume_process $node1_pid
-    wait_for_condition 50 100 {
-        [cluster_node_address 0 $node_id] eq $addr_before
-    } else {
-        fail "Node 1 address was not restored: [cluster_node_address 0 $node_id]"
+        # Node 1's own PINGs announce no address, so node 0 goes back to the
+        # socket address. Allow for a slow resolver: node 0 tries to reconnect
+        # to the announced name in the meantime.
+        resume_process $node1_pid
+        wait_for_condition 100 100 {
+            [cluster_node_address 0 $node_id] eq $addr_before
+        } else {
+            fail "Node 1 address was not restored: [cluster_node_address 0 $node_id]"
+        }
     }
     wait_for_cluster_state ok
 }
@@ -245,4 +256,68 @@ test "PING with an invalid address in the gossip section is rejected" {
     wait_for_cluster_state ok
 }
 
+test "PING gossiping an alias address is accepted, relayed and persisted" {
+    set CLUSTERMSG_TYPE_PING 0
+    set CLUSTER_NODE_MASTER 1
+    set CLUSTERMSG_MIN_LEN 2256
+    set GOSSIP_ENTRY_LEN 104
+
+    set node_id [R 1 CLUSTER MYID]
+    set sender_port [srv -1 port]
+    set sender_cport [expr {$sender_port + 10000}]
+
+    # Gossip about a node unknown to node 0, announced at a Docker-style
+    # alias that the cluster-announce-ip validation would not accept. Older
+    # nodes can announce such names, and a rolling upgrade also depends on
+    # them being accepted when relayed by other nodes.
+    set alias_node_id [string repeat 1234abcd 5]
+    set alias_addr "redis_node_1:30000@40000"
+    set totlen [expr {$CLUSTERMSG_MIN_LEN + $GOSSIP_ENTRY_LEN}]
+    set packet [build_cluster_bus_header $node_id $sender_port $sender_cport \
+        $CLUSTERMSG_TYPE_PING $totlen 0 $CLUSTER_NODE_MASTER 0 "" 1]
+    append packet [build_cluster_bus_gossip_entry $alias_node_id \
+        "redis_node_1" 30000 40000 $CLUSTER_NODE_MASTER]
+    set fd [send_cluster_bus_packet 0 $packet]
+    wait_for_condition 50 100 {
+        [string match "*$alias_node_id $alias_addr*" [R 0 CLUSTER NODES]]
+    } else {
+        fail "The gossiped alias address was not accepted: [R 0 CLUSTER NODES]"
+    }
+    close $fd
+
+    # Node 0 relays the new node to node 1 in its own gossip.
+    wait_for_condition 100 100 {
+        [string match "*$alias_node_id $alias_addr*" [R 1 CLUSTER NODES]]
+    } else {
+        fail "The alias address was not relayed to node 1: [R 1 CLUSTER NODES]"
+    }
+
+    # Keeping nodes.conf loadable is the point of validating these fields:
+    # the alias must be written and read back as is. Freeze node 1 across the
+    # restart so that node 0 can only get the alias back from its own
+    # nodes.conf, not from node 1's gossip.
+    set node1_pid [srv -1 pid]
+    pause_process $node1_pid
+    set failed [catch {
+        R 0 CLUSTER SAVECONFIG
+        restart_server 0 true false
+        assert_match "*$alias_node_id $alias_addr*" [R 0 CLUSTER NODES]
+    } msg opts]
+    # Resume node 1 whatever happened above, then re-raise any failure.
+    resume_process $node1_pid
+    if {$failed} { return -options $opts $msg }
+
+    # Forget the gossiped node everywhere so that later tests see the
+    # original two-node cluster.
+    foreach idx {0 1} {
+        catch {R $idx CLUSTER FORGET $alias_node_id}
+    }
+    wait_for_condition 100 100 {
+        ![string match "*$alias_node_id*" [R 0 CLUSTER NODES]] &&
+        ![string match "*$alias_node_id*" [R 1 CLUSTER NODES]]
+    } else {
+        fail "The gossiped node was not forgotten"
+    }
+    wait_for_cluster_state ok
+}
 }
