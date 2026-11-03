@@ -101,10 +101,17 @@ void bitset_container_add_from_range(bitset_container_t *bitset, uint32_t min,
                                      uint32_t max, uint16_t step) {
     if (step == 0) return;   // refuse to crash
     if ((64 % step) == 0) {  // step divides 64
-        uint64_t mask = 0;   // construct the repeated mask
-        for (uint32_t value = (min % step); value < 64; value += step) {
-            mask |= ((uint64_t)1 << value);
-        }
+        static const uint64_t kRepeatedStepMask[7] = {
+            UINT64_C(0xFFFFFFFFFFFFFFFF), // step = 1
+            UINT64_C(0x5555555555555555), // step = 2
+            UINT64_C(0x1111111111111111), // step = 4
+            UINT64_C(0x0101010101010101), // step = 8
+            UINT64_C(0x0001000100010001), // step = 16
+            UINT64_C(0x0000000100000001), // step = 32
+            UINT64_C(0x0000000000000001), // step = 64
+        };
+        uint64_t mask = kRepeatedStepMask[roaring_trailing_zeroes(step)]
+                        << (min & (step - 1));
         uint32_t firstword = min / 64;
         uint32_t endword = (max - 1) / 64;
         bitset->cardinality = (max - min + step - 1) / step;
