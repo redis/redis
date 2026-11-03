@@ -1449,19 +1449,22 @@ robj *zsetTypeCreate(size_t size_hint, size_t val_len_hint) {
     return createZsetBtreeObject();
 }
 
+/* ZADD presizes a converted zset for at most this many of its pairs. */
+#define ZSET_ZADD_RESERVE_MAX 64
+
 /* Check if the existing zset should be converted to another encoding based off the
  * the size hint.
  *
- * The hint only decides the conversion. It is not used to presize the B+ tree
- * member index: ZADD counts its score-member pairs, which may repeat a member
- * or be skipped by NX/XX/GT/LT, so the index could be far larger than the set
- * and nothing but a deletion would shrink it again. The index grows as the
- * members are added instead, as it does for a key that ZADD creates. */
+ * ZADD's hint counts its score-member pairs, which may repeat a member or be
+ * skipped by NX/XX/GT/LT. Reserving the index for all of them could leave it
+ * far larger than the set until a deletion shrinks it, so reserve for a few
+ * and let the index grow as members are added. */
 void zsetTypeMaybeConvert(robj *zobj, size_t size_hint) {
     if (zobj->encoding == OBJ_ENCODING_LISTPACK &&
         size_hint > server.zset_max_listpack_entries)
     {
-        zsetConvert(zobj, OBJ_ENCODING_BTREE);
+        if (size_hint > ZSET_ZADD_RESERVE_MAX) size_hint = ZSET_ZADD_RESERVE_MAX;
+        zsetConvertAndExpand(zobj, OBJ_ENCODING_BTREE, size_hint);
     }
 }
 
@@ -1552,18 +1555,21 @@ void zsetConvertAndExpand(robj *zobj, int encoding, unsigned long cap) {
 
         if (encoding == OBJ_ENCODING_BTREE) {
             zbtreeSet *bt = zbtreeCreate();
-            /* Never reserve less than the members copied below. */
+            /* ZADD's hint counts its arguments, which can be fewer than the
+             * existing members after a listpack limit is lowered. */
             unsigned long length = zzlLength(zl);
             if (cap < length) cap = length;
             /* Presize the member index to avoid rehashing, mirroring the
              * dictExpand(zs->dict, cap) a few lines below for the
              * LISTPACK->SKIPLIST branch. cap here is always a real element
              * count, never an unvalidated RDB/client length: zsetConvert()'s
-             * callers (SORT/SORT_RO, RDB listpack-promotion loads, and
-             * zsetTypeMaybeConvert() for ZADD) pass zsetLength(zobj), the
-             * listpack's own already-decoded length; ZADD's listpack-overflow
-             * path below passes zsetLength(zobj) + 1. A count derived from
-             * ZADD's arguments must not be passed: it may repeat members.
+             * callers (SORT/SORT_RO, RDB listpack-promotion loads) pass
+             * zsetLength(zobj), the listpack's own already-decoded length;
+             * zsetTypeMaybeConvert()'s ZADD caller passes elements, this
+             * command's own argc-derived count of score-member pairs, capped
+             * at ZSET_ZADD_RESERVE_MAX since the pairs may repeat members;
+             * and ZADD's listpack-overflow path below passes
+             * zsetLength(zobj) + 1.
              * zsetConvertAfterBulkInsert()'s zsetConvert() calls never reach
              * here: it returns immediately on OBJ_ENCODING_LISTPACK, so its
              * BTREE conversion always lands in the SKIPLIST->BTREE branch
@@ -2267,6 +2273,7 @@ void zaddGenericCommand(client *c, int flags) {
     int updated = 0;    /* Number of elements with updated score. */
     int processed = 0;  /* Number of elements processed, may remain zero with
                            options like XX. */
+    int converted = 0;  /* This command converted the zset to a B+ tree. */
 
     /* Parse options. At the end 'scoreidx' is set to the argument position
      * of the score of the first score-element pair. */
@@ -2338,7 +2345,9 @@ void zaddGenericCommand(client *c, int flags) {
     } else {
         if (server.memory_tracking_enabled)
             oldsize = kvobjAllocSize(zobj);
+        converted = zobj->encoding == OBJ_ENCODING_LISTPACK;
         zsetTypeMaybeConvert(zobj, elements);
+        converted = converted && zobj->encoding == OBJ_ENCODING_BTREE;
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db, getKeySlot(key->ptr), zobj, oldsize, kvobjAllocSize(zobj));
     }
@@ -2364,6 +2373,9 @@ void zaddGenericCommand(client *c, int flags) {
         if (!(retflags & ZADD_OUT_NOP)) processed++;
         score = newscore;
     }
+    /* The index grew while the pairs were added. Advance the last resize so
+     * it does not wait for later lookups. */
+    if (converted) zbtreeRehashStep(zobj->ptr, 64);
     server.dirty += (added+updated);
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(key->ptr), zobj, oldsize, kvobjAllocSize(zobj));

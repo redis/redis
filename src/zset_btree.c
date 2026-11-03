@@ -2882,6 +2882,13 @@ int zbtreeTryReserve(zbtreeSet *zs, uint64_t count) {
     return zbtIndexReserve(zs, count, 1);
 }
 
+/* Copy up to 'steps' score leaves of a running member-index resize. A bulk
+ * insertion can call this at its end so the resize it started does not wait
+ * for later lookups, as ZSCAN does not advance one. */
+void zbtreeRehashStep(zbtreeSet *zs, int steps) {
+    zbtIndexRehashStep(zs, steps);
+}
+
 /* Copy a score tree while repairing every pointer between its pages. Leaves
  * are visited in score order, which also rebuilds their linked list and the
  * leaf ID table. Inline records can be copied unchanged. External members
