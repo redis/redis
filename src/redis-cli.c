@@ -456,6 +456,7 @@ typedef struct {
 static helpEntry *helpEntries = NULL;
 static int helpEntriesLen = 0;
 
+/* Reasonable bounds for COMMAND replies, far above any real values. */
 #define CLI_LEGACY_COMMAND_ARITY_LIMIT 1024
 #define CLI_LEGACY_COMMAND_MAX_ENTRIES 4096
 
