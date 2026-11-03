@@ -2339,7 +2339,7 @@ struct redisServer {
     size_t stat_clients_type_memory[CLIENT_TYPE_COUNT];/* Mem usage by type */
     size_t stat_clients_shared_memory;   /* Sum of clients' reply_bytes_shared */
     size_t stat_clients_unshared_memory; /* Sum of clients' reply_bytes_unshared */
-    size_t stat_clients_shared_names_mem; /* Name memory charged to more than one client */
+    size_t stat_clients_watch_pubsub_shared_overcount; /* Extra charges of WATCH key and Pub/Sub names held by more than one client */
     size_t stat_cluster_links_memory; /* Mem usage by cluster links */
     long long stat_unexpected_error_replies; /* Number of unexpected (aof-loading, replica to master, etc.) error replies */
     long long stat_total_error_replies; /* Total number of issued error replies ( command + rejected errors ) */
@@ -3554,7 +3554,7 @@ void flushSlavesOutputBuffers(void);
 void flushSlavesOutputBuffersIfNeeded(void);
 void disconnectSlaves(void);
 void evictClients(void);
-size_t subtractClientsSharedNamesMemory(size_t mem);
+size_t subtractClientsWatchPubsubOvercount(size_t mem);
 void updateClientWatchPubsubMemoryUsage(client *c);
 int listenToPort(connListener *fds);
 void pauseActions(pause_purpose purpose, mstime_t end, uint32_t actions_bitmask);

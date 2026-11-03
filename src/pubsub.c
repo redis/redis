@@ -482,7 +482,7 @@ int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
         if (existing) {
             clients = dictGetVal(existing);
             channel = dictGetKey(existing);
-            server.stat_clients_shared_names_mem += getStringObjectMemory(channel);
+            server.stat_clients_watch_pubsub_shared_overcount += getStringObjectMemory(channel);
         } else {
             clients = dictCreate(&clientDictType);
             kvstoreDictSetVal(*type.serverPubSubChannels, slot, de, clients);
@@ -542,7 +542,7 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype ty
              * Redis PUBSUB creating millions of channels. */
             kvstoreDictDelete(*type.serverPubSubChannels, slot, channel);
         } else {
-            server.stat_clients_shared_names_mem -= name_mem;
+            server.stat_clients_watch_pubsub_shared_overcount -= name_mem;
         }
     }
     /* Notify the client */
@@ -565,7 +565,7 @@ void pubsubShardUnsubscribeAllChannelsInSlot(unsigned int slot) {
         robj *channel = dictGetKey(de);
         dict *clients = dictGetVal(de);
         size_t name_mem = getStringObjectMemory(channel);
-        server.stat_clients_shared_names_mem -= name_mem * (dictSize(clients) - 1);
+        server.stat_clients_watch_pubsub_shared_overcount -= name_mem * (dictSize(clients) - 1);
         /* For each client subscribed to the channel, unsubscribe it. */
         dictIterator iter;
         dictEntry *entry;
@@ -609,7 +609,7 @@ int pubsubSubscribePattern(client *c, robj *pattern) {
             incrRefCount(pattern);
         } else {
             clients = dictGetVal(de);
-            server.stat_clients_shared_names_mem += getStringObjectMemory(pattern);
+            server.stat_clients_watch_pubsub_shared_overcount += getStringObjectMemory(pattern);
         }
         serverAssert(dictAdd(clients, c, NULL) != DICT_ERR);
     }
@@ -642,7 +642,7 @@ int pubsubUnsubscribePattern(client *c, robj *pattern, int notify) {
              * the latest client. */
             dictDelete(server.pubsub_patterns,pattern);
         } else {
-            server.stat_clients_shared_names_mem -= name_mem;
+            server.stat_clients_watch_pubsub_shared_overcount -= name_mem;
         }
     }
     /* Notify the client */

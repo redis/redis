@@ -736,10 +736,13 @@ start_server {} {
             foreach rr $clients { $rr subscribe "$j[string repeat x $name_len]" }
         }
         foreach cname $cnames { assert {[client_exists $cname]} }
-        set mem_clients_normal [s mem_clients_normal]
-        assert_lessthan $mem_clients_normal 1000000
+        wait_for_condition 50 100 {
+            [normal_clients_tot_mem] - [s mem_clients_normal] >= 2 * $names_count * $name_len
+        } else {
+            fail "shared names not removed from mem_clients_normal [s mem_clients_normal], clients tot-mem [normal_clients_tot_mem]"
+        }
+        assert_lessthan [s mem_clients_normal] 1000000
         assert_morethan [normal_clients_tot_mem] 1000000
-        assert_morethan_equal [expr {[normal_clients_tot_mem] - $mem_clients_normal}] [expr {2 * $names_count * $name_len}]
 
         # Once the shared names really use more than the limit, all the subscribers get evicted
         for {set j $names_count} {$j < 4 * $names_count} {incr j} {
@@ -818,7 +821,7 @@ start_server {} {
             fail "shared name not removed from mem_clients_normal [s mem_clients_normal], clients tot-mem [normal_clients_tot_mem]"
         }
         set before [s mem_clients_normal]
-        $writer set $key v
+        $writer eval {redis.call('set', string.rep('x', 1000000), 'v')} 0
         assert_lessthan [s mem_clients_normal] [expr {$before - 500000}]
 
         r config set hz 10
@@ -853,6 +856,11 @@ start_server {} {
 
         $writer set $key v
         assert_lessthan [client_field $watcher_name tot-mem] 100000
+        wait_for_condition 50 100 {
+            [s mem_clients_normal] > 1400000
+        } else {
+            fail "big client not counted in mem_clients_normal [s mem_clients_normal]"
+        }
         r config set maxmemory-clients [expr {[s mem_clients_normal] - 300000}]
         wait_for_condition 50 100 {
             ![client_exists $big_name]

@@ -321,7 +321,7 @@ void watchForKey(client *c, robj *key) {
     if (de) {
         clients = dictGetVal(de);
         key = dictGetKey(de);
-        server.stat_clients_shared_names_mem += getStringObjectMemory(key);
+        server.stat_clients_watch_pubsub_shared_overcount += getStringObjectMemory(key);
     } else {
         clients = listCreate();
         dictAdd(c->db->watched_keys,key,clients);
@@ -360,7 +360,7 @@ void unwatchAllKeys(client *c) {
         if (listLength(clients) == 0)
             dictDelete(wk->db->watched_keys, wk->key);
         else
-            server.stat_clients_shared_names_mem -= getStringObjectMemory(wk->key);
+            server.stat_clients_watch_pubsub_shared_overcount -= getStringObjectMemory(wk->key);
         /* Remove this watched key from the client->watched list */
         listDelNode(c->watched_keys,ln);
         c->watched_keys_mem -= getStringObjectMemory(wk->key);

@@ -5862,8 +5862,8 @@ size_t getClientEvictionLimit(void) {
     return maxmemory_clients_actual;
 }
 
-size_t subtractClientsSharedNamesMemory(size_t mem) {
-    size_t shared = server.stat_clients_shared_names_mem;
+size_t subtractClientsWatchPubsubOvercount(size_t mem) {
+    size_t shared = server.stat_clients_watch_pubsub_shared_overcount;
     return mem > shared ? mem - shared : 0;
 }
 
@@ -5877,8 +5877,8 @@ void evictClients(void) {
     size_t client_eviction_limit = getClientEvictionLimit();
     if (client_eviction_limit == 0)
         return;
-    while (subtractClientsSharedNamesMemory(server.stat_clients_type_memory[CLIENT_TYPE_NORMAL] +
-                                            server.stat_clients_type_memory[CLIENT_TYPE_PUBSUB]) >= client_eviction_limit) {
+    while (subtractClientsWatchPubsubOvercount(server.stat_clients_type_memory[CLIENT_TYPE_NORMAL] +
+                                               server.stat_clients_type_memory[CLIENT_TYPE_PUBSUB]) >= client_eviction_limit) {
         listNode *ln = listNext(&bucket_iter);
         if (ln) {
             client *c = ln->value;
