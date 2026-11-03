@@ -299,6 +299,7 @@ endif
 TESTS_INTEGRATION := $(srcroot)test/integration/aligned_alloc.c \
 	$(srcroot)test/integration/allocated.c \
 	$(srcroot)test/integration/extent.c \
+	$(srcroot)test/integration/libc_malloc_threads.c \
 	$(srcroot)test/integration/malloc.c \
 	$(srcroot)test/integration/mallocx.c \
 	$(srcroot)test/integration/MALLOCX_ARENA.c \
