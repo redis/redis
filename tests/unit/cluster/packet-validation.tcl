@@ -185,6 +185,20 @@ test "PING with an invalid sender address is rejected" {
     wait_for_cluster_state ok
 }
 
+# Addresses announced by the forged packets below. Node 0 stores what a peer
+# announces and resolves it, synchronously, every time it tries to connect to
+# the peer, so a name that needs a DNS lookup must not be used: in CI a lookup
+# of an unknown name has been seen to take 5 to 10 seconds to time out, which
+# stalls node 0 for that long on every attempt.
+#
+# The alias stands for a Docker-style name with an underscore, which the
+# cluster-announce-ip validation does not accept but older nodes can announce.
+# Its leading dot gives it an empty label, which both glibc and musl refuse to
+# look up without sending a query, so the connection attempt fails at once.
+set alias_name ".redis_node_1"
+# The longest address that fits the field: 45 bytes plus the NUL.
+set longest_ipv6 "2001:0db8:0000:0000:0000:ffff:192.168.100.228"
+
 test "PING announcing a hostname or alias as sender address is accepted" {
     set CLUSTERMSG_TYPE_PING 0
     set CLUSTER_NODE_MASTER 1
@@ -199,8 +213,8 @@ test "PING announcing a hostname or alias as sender address is accepted" {
     # one. Nodes that predate the cluster-announce-ip validation may announce
     # names outside its character set, such as a Docker alias with an
     # underscore, and those must keep working across a rolling upgrade. The
-    # longest possible field, 45 bytes plus the NUL, is accepted too.
-    foreach name [list localhost redis_node_1 [string repeat a 45]] {
+    # longest possible field is accepted too.
+    foreach name [list localhost $alias_name $longest_ipv6] {
         # Freeze node 1 so that the announced address stays observable.
         set node1_pid [srv -1 pid]
         pause_process $node1_pid
@@ -216,8 +230,7 @@ test "PING announcing a hostname or alias as sender address is accepted" {
         close $fd
 
         # Node 1's own PINGs announce no address, so node 0 goes back to the
-        # socket address. Allow for a slow resolver: node 0 tries to reconnect
-        # to the announced name in the meantime.
+        # socket address.
         resume_process $node1_pid
         wait_for_condition 100 100 {
             [cluster_node_address 0 $node_id] eq $addr_before
@@ -266,17 +279,17 @@ test "PING gossiping an alias address is accepted, relayed and persisted" {
     set sender_port [srv -1 port]
     set sender_cport [expr {$sender_port + 10000}]
 
-    # Gossip about a node unknown to node 0, announced at a Docker-style
-    # alias that the cluster-announce-ip validation would not accept. Older
-    # nodes can announce such names, and a rolling upgrade also depends on
-    # them being accepted when relayed by other nodes.
+    # Gossip about a node unknown to node 0, announced at the alias that the
+    # cluster-announce-ip validation would not accept. Older nodes can
+    # announce such names, and a rolling upgrade also depends on them being
+    # accepted when relayed by other nodes.
     set alias_node_id [string repeat 1234abcd 5]
-    set alias_addr "redis_node_1:30000@40000"
+    set alias_addr "$alias_name:30000@40000"
     set totlen [expr {$CLUSTERMSG_MIN_LEN + $GOSSIP_ENTRY_LEN}]
     set packet [build_cluster_bus_header $node_id $sender_port $sender_cport \
         $CLUSTERMSG_TYPE_PING $totlen 0 $CLUSTER_NODE_MASTER 0 "" 1]
     append packet [build_cluster_bus_gossip_entry $alias_node_id \
-        "redis_node_1" 30000 40000 $CLUSTER_NODE_MASTER]
+        $alias_name 30000 40000 $CLUSTER_NODE_MASTER]
     set fd [send_cluster_bus_packet 0 $packet]
     wait_for_condition 50 100 {
         [string match "*$alias_node_id $alias_addr*" [R 0 CLUSTER NODES]]
