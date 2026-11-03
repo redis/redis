@@ -1057,9 +1057,10 @@ start_server {tags {external:skip needs:debug} overrides {key-memory-histograms 
         r FLUSHALL
         r DEBUG ALLOCSIZE-SLOTS-ASSERT 1
         set orig [lindex [r CONFIG GET zset-max-listpack-entries] 1]
-        foreach max {128 0} {
+        foreach encoding max {listpack 128 btree 0} {
             r CONFIG SET zset-max-listpack-entries $max
             r ZADD z 1 a 2 b 3 c
+            assert_encoding z $encoding
             assert_equal 0 [r ZRANGESTORE z z 5 10 BYSCORE]
             assert_equal 0 [r EXISTS z]
             r ZADD z 1 a 2 b 3 c
