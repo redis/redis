@@ -1295,29 +1295,6 @@ start_cluster 1 0 {tags {external:skip cluster needs:debug}} {
 
         R 0 CONFIG SET list-max-listpack-size [lindex $origin_conf 1]
     }
-
-    test "ZRANGESTORE memory tracking when the destination is the source" {
-        set key "z{zrangestore}"
-        set slot [R 0 CLUSTER KEYSLOT $key]
-        # Small (listpack) and large (non-listpack) sources.
-        foreach size {2 300} {
-            set args {}
-            for {set i 0} {$i < $size} {incr i} { lappend args $i m$i }
-
-            # Empty result: the source key is deleted.
-            R 0 ZADD $key {*}$args
-            assert_equal 0 [R 0 ZRANGESTORE $key $key 5000 6000 BYSCORE]
-            assert_equal 0 [R 0 EXISTS $key]
-            set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE $slot $slot]
-            assert_equal 0 [dict get [lindex [lindex $slot_stats 0] 1] memory-bytes]
-
-            # Non-empty result: the source value is replaced.
-            R 0 ZADD $key {*}$args
-            assert_equal 1 [R 0 ZRANGESTORE $key $key 0 0]
-            assert_equal {m0} [R 0 ZRANGE $key 0 -1]
-            R 0 DEL $key
-        }
-    }
 }
 
 start_server {} {

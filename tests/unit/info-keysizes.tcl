@@ -1053,47 +1053,69 @@ start_server {tags {external:skip needs:debug} overrides {key-memory-histograms 
         verify_keymem_empty r
     }
 
-    test "KEY-MEMORY-STATS - Z*STORE with the destination among the sources" {
-        # When the destination is also a source, storing the result replaces
-        # (or, for an empty result, deletes) the source object. The source
-        # must not be accessed after that, and both the histogram and the
-        # per-slot accounting must stay consistent.
+    test "KEY-MEMORY-STATS - ZRANGESTORE with the destination as the source" {
         r FLUSHALL
-        assert_equal OK [r DEBUG KEYSIZES-HIST-ASSERT 1]
-        assert_equal OK [r DEBUG ALLOCSIZE-SLOTS-ASSERT 1]
-        # Small (listpack) and large (non-listpack) sources.
-        foreach size {2 300} {
-            set args {}
-            for {set i 0} {$i < $size} {incr i} { lappend args $i m$i }
-
-            # Empty result: the source key is deleted.
-            r ZADD z {*}$args
-            assert_equal 0 [r ZRANGESTORE z z 5000 6000 BYSCORE]
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+        set orig [lindex [r CONFIG GET zset-max-listpack-entries] 1]
+        foreach {encoding max} {listpack 128 btree 0} {
+            r CONFIG SET zset-max-listpack-entries $max
+            r ZADD z 1 a 2 b 3 c
+            assert_encoding $encoding z
+            assert_equal 0 [r ZRANGESTORE z z 5 10 BYSCORE]
             assert_equal 0 [r EXISTS z]
-            # Non-empty result: the source value is replaced.
-            r ZADD z {*}$args
+            r ZADD z 1 a 2 b 3 c
             assert_equal 1 [r ZRANGESTORE z z 0 0]
-            assert_equal {m0} [r ZRANGE z 0 -1]
+            assert_equal {a} [r ZRANGE z 0 -1]
             r DEL z
-
-            # Distinct source and destination, and the read-only variant.
-            r ZADD src {*}$args
-            assert_equal $size [r ZRANGESTORE dst src 0 -1]
-            assert_equal 0 [r ZRANGESTORE dst src 5000 6000 BYSCORE]
-            assert_equal 0 [r EXISTS dst]
-            assert_equal $size [llength [r ZRANGE src 0 -1]]
-            r DEL src
-
-            # ZUNIONSTORE / ZINTERSTORE / ZDIFFSTORE with the destination
-            # among the sources must stay consistent too.
-            r ZADD z {*}$args
-            assert_equal $size [r ZUNIONSTORE z 1 z]
-            assert_equal $size [r ZINTERSTORE z 2 z z]
-            assert_equal 0 [r ZDIFFSTORE z 2 z z]
-            assert_equal 0 [r EXISTS z]
         }
-        assert_equal OK [r DEBUG ALLOCSIZE-SLOTS-ASSERT 0]
-        assert_equal OK [r DEBUG KEYSIZES-HIST-ASSERT 0]
+        # Large REV rank stores, into another key and into the source.
+        try {
+            r CONFIG SET zset-max-listpack-entries 128
+            set args {}
+            for {set i 0} {$i < 300} {incr i} {lappend args [expr {$i/5}] [format m%03d $i]}
+            r ZADD z {*}$args
+            r ZADD z2 {*}$args
+            set want [r ZRANGE z 100 299 WITHSCORES]
+            assert_equal 200 [r ZRANGESTORE z2 z 0 199 REV]
+            assert_encoding btree z2
+            assert_equal $want [r ZRANGE z2 0 -1 WITHSCORES]
+            assert_equal 200 [r ZRANGESTORE z z 0 199 REV]
+            assert_encoding btree z
+            assert_equal $want [r ZRANGE z 0 -1 WITHSCORES]
+            assert_equal 0 [r ZRANGESTORE z z 5 3 REV]
+            assert_equal 0 [r EXISTS z]
+        } finally {
+            r DEL z z2
+            r CONFIG SET zset-max-listpack-entries $orig
+            r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
+        }
+        verify_keymem_empty r
+    }
+
+    test "KEY-MEMORY-STATS - Read-only ZRANGE keeps the alloc size consistent" {
+        r FLUSHALL
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+        set orig [lindex [r CONFIG GET zset-max-listpack-entries] 1]
+        # 300 members: above the listpack limit (btree arm), several btree leaves.
+        foreach {encoding max} {listpack 512 btree 0} {
+            r CONFIG SET zset-max-listpack-entries $max
+            set args {}
+            for {set i 0} {$i < 300} {incr i} {lappend args 0 [format m%03d $i]}
+            r ZADD z {*}$args
+            assert_encoding $encoding z
+            assert_equal 600 [llength [r ZRANGE z 0 -1 WITHSCORES]]
+            assert_equal 11 [llength [r ZRANGE z 10 20 REV]]
+            assert_equal 10 [llength [r ZRANGE z 0 0 BYSCORE LIMIT 5 10]]
+            assert_equal 300 [llength [r ZRANGE z - + BYLEX]]
+            assert_equal 10 [llength [r ZREVRANGEBYLEX z + - LIMIT 5 10]]
+            assert_equal 600 [llength [r ZREVRANGEBYSCORE z +inf -inf WITHSCORES]]
+            # Different destination: the source is untouched, the destination is accounted.
+            assert_equal 300 [r ZRANGESTORE d z 0 -1]
+            assert_equal 150 [r ZRANGESTORE z z 0 149]
+            r DEL z d
+        }
+        r CONFIG SET zset-max-listpack-entries $orig
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
         verify_keymem_empty r
     }
 

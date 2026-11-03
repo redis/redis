@@ -3817,9 +3817,7 @@ static void zrangeResultEmitCBufferForStore(zrange_result_handler *handler,
      * reverse-order emission both keep the original, always-correct path.
      * The batch is created lazily on the first fast-path emit (the
      * destination may start as LISTPACK and convert mid-stream) and flushed
-     * once in zrangeResultFinalizeStore(). A REV rank range whose result
-     * does not fit in a listpack arrives here in forward order too, see
-     * zrangeGenericCommand(). */
+     * once in zrangeResultFinalizeStore(). */
     if (!handler->reverse && handler->dstobj->encoding == OBJ_ENCODING_BTREE) {
         if (!handler->append_batch)
             handler->append_batch = zbtreeAppendBatchCreate(handler->dstobj->ptr);
@@ -3949,6 +3947,21 @@ void genericZrangebyrankCommand(zrange_result_handler *handler,
     if (end >= llen) end = llen-1;
     rangelen = (end-start)+1;
     result_cardinality = rangelen;
+
+    /* A REV range holds the same elements as the mirrored forward range.
+     * ZRANGESTORE walks it forward when the destination will start as a
+     * B+ tree (zrangeResultBeginStore() calls zsetTypeCreate() with this
+     * length and no value length hint), so it is filled through the append
+     * path. A listpack destination has no append path. */
+    if (reverse && handler->dstkey &&
+        (size_t)rangelen > server.zset_max_listpack_entries)
+    {
+        long tmp = start;
+        start = llen-1-end;
+        end = llen-1-tmp;
+        reverse = 0;
+        zrangeResultHandlerDirectionSet(handler, 0);
+    }
 
     handler->beginResultEmission(handler, rangelen);
     if (zobj->encoding == OBJ_ENCODING_LISTPACK) {
@@ -4518,23 +4531,6 @@ void zrevrangebylexCommand(client *c) {
     zrangeGenericCommand(&handler, 1, 0, ZRANGE_LEX, ZRANGE_DIRECTION_REVERSE);
 }
 
-/* Return 1 if the rank range [start,end] of zobj has more elements than a
- * listpack may hold, so a ZRANGESTORE destination for it will be a B+ tree.
- * The indexes are sanitized the same way genericZrangebyrankCommand() does,
- * and the size test must match the one in zsetTypeCreate(). */
-static int zrangeRankRangeExceedsListpack(const kvobj *zobj, long start,
-                                          long end)
-{
-    long llen = zsetLength(zobj);
-
-    if (start < 0) start = llen+start;
-    if (end < 0) end = llen+end;
-    if (start < 0) start = 0;
-    if (end >= llen) end = llen-1;
-    return start <= end &&
-           (unsigned long)(end-start)+1 > server.zset_max_listpack_entries;
-}
-
 /**
  * This function handles ZRANGE and ZRANGESTORE, and also the deprecated
  * Z[REV]RANGE[BYSCORE|BYLEX] commands.
@@ -4554,7 +4550,6 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
     zlexrangespec lexrange;
     int minidx = argc_start + 1;
     int maxidx = argc_start + 2;
-    size_t oldsize = 0;
 
     /* Options common to all */
     long opt_start = 0;
@@ -4650,6 +4645,7 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
     if (opt_withscores || store) {
         zrangeResultHandlerScoreEmissionEnable(handler);
     }
+    zrangeResultHandlerDirectionSet(handler, direction == ZRANGE_DIRECTION_REVERSE);
 
     /* Step 3: Lookup the key and get the range. */
     kvobj *zobj = lookupKeyRead(c->db, key);
@@ -4665,36 +4661,11 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
 
     if (checkType(c,zobj,OBJ_ZSET)) goto cleanup;
 
-    /* ZRANGESTORE of a REV rank range stores the same elements as the
-     * mirrored forward range, and ascending emission lets a B+ tree
-     * destination use the append path. A listpack destination is cheaper to
-     * fill in descending order, so small results stay REV. REV index i is
-     * forward index -1-i; written this way it cannot overflow. */
-    if (store && rangetype == ZRANGE_RANK &&
-        direction == ZRANGE_DIRECTION_REVERSE &&
-        zrangeRankRangeExceedsListpack(zobj, opt_start, opt_end))
-    {
-        long tmp = opt_start;
-        opt_start = -1 - opt_end;
-        opt_end = -1 - tmp;
-        direction = ZRANGE_DIRECTION_FORWARD;
-    }
-    zrangeResultHandlerDirectionSet(handler, direction == ZRANGE_DIRECTION_REVERSE);
-
-    /* Step 4: Pass this to the command-specific handler.
-     *
-     * The range is only read from zobj, the source object, so the
-     * post-range allocation update is a no-op for it. In store mode the
-     * destination is written by zrangeResultFinalizeStore() through
-     * setKey()/dbDelete(), which do their own accounting, and when the
-     * destination is the source key that call replaces or frees zobj, so
-     * zobj must not be touched afterwards. Skip the update in store mode
-     * and leave the read-only variants as they are. This relies on a range
-     * read never changing the source; it needs revisiting if sorted-set
-     * members ever expire lazily during a read. */
-    int track_src = server.memory_tracking_enabled && !store;
-    if (track_src)
-        oldsize = kvobjAllocSize(zobj);
+    /* Step 4: Pass this to the command-specific handler. The listpack and
+     * B+tree range readers never resize zobj (no member index lookup or rehash
+     * step), so there is no alloc size to update; a handler that does must
+     * sample it around the call. Don't use zobj after the switch: in store
+     * mode it may be the destination, which setKey()/dbDelete() replace/free. */
     switch (rangetype) {
     case ZRANGE_AUTO:
     case ZRANGE_RANK:
@@ -4712,8 +4683,6 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
             opt_offset, opt_limit, direction == ZRANGE_DIRECTION_REVERSE);
         break;
     }
-    if (track_src)
-        updateSlotAllocSize(c->db, getKeySlot(key->ptr), zobj, oldsize, kvobjAllocSize(zobj));
 
     /* Instead of returning here, we'll just fall-through the clean-up. */
 
