@@ -4267,23 +4267,30 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
     /* The slave requesting the vote must have a configEpoch for the claimed
      * slots that is >= the one of the masters currently serving the same
      * slots in the current configuration. */
-    for (j = 0; j < CLUSTER_SLOTS; j++) {
-        if (bitmapTestBit(claimed_slots, j) == 0) continue;
-        if (isSlotUnclaimed(j) ||
-            server.cluster->slots[j]->configEpoch <= requestConfigEpoch)
-        {
-            continue;
+    for (int w = 0; w < CLUSTER_SLOTS / 64; w++) {
+        uint64_t word;
+        memcpy(&word, claimed_slots + (w * 8), sizeof(uint64_t));
+        if (word == 0) continue;
+        int base_slot = w * 64;
+        while (word != 0) {
+            j = base_slot + __builtin_ctzll(word);
+            word &= (word - 1);
+            if (isSlotUnclaimed(j) ||
+                server.cluster->slots[j]->configEpoch <= requestConfigEpoch)
+            {
+                continue;
+            }
+            /* If we reached this point we found a slot that in our current slots
+             * is served by a master with a greater configEpoch than the one claimed
+             * by the slave requesting our vote. Refuse to vote for this slave. */
+            serverLog(LL_WARNING,
+                    "Failover auth denied to %.40s (%s): "
+                    "slot %d epoch (%llu) > reqEpoch (%llu)",
+                    node->name, node->human_nodename, j,
+                    (unsigned long long) server.cluster->slots[j]->configEpoch,
+                    (unsigned long long) requestConfigEpoch);
+            return;
         }
-        /* If we reached this point we found a slot that in our current slots
-         * is served by a master with a greater configEpoch than the one claimed
-         * by the slave requesting our vote. Refuse to vote for this slave. */
-        serverLog(LL_WARNING,
-                "Failover auth denied to %.40s (%s): "
-                "slot %d epoch (%llu) > reqEpoch (%llu)",
-                node->name, node->human_nodename, j,
-                (unsigned long long) server.cluster->slots[j]->configEpoch,
-                (unsigned long long) requestConfigEpoch);
-        return;
     }
 
     /* We can vote for this slave. */
