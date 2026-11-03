@@ -1450,12 +1450,18 @@ robj *zsetTypeCreate(size_t size_hint, size_t val_len_hint) {
 }
 
 /* Check if the existing zset should be converted to another encoding based off the
- * the size hint. */
+ * the size hint.
+ *
+ * The hint only decides the conversion. It is not used to presize the B+ tree
+ * member index: ZADD counts its score-member pairs, which may repeat a member
+ * or be skipped by NX/XX/GT/LT, so the index could be far larger than the set
+ * and nothing but a deletion would shrink it again. The index grows as the
+ * members are added instead, as it does for a key that ZADD creates. */
 void zsetTypeMaybeConvert(robj *zobj, size_t size_hint) {
     if (zobj->encoding == OBJ_ENCODING_LISTPACK &&
         size_hint > server.zset_max_listpack_entries)
     {
-        zsetConvertAndExpand(zobj, OBJ_ENCODING_BTREE, size_hint);
+        zsetConvert(zobj, OBJ_ENCODING_BTREE);
     }
 }
 
@@ -1546,20 +1552,18 @@ void zsetConvertAndExpand(robj *zobj, int encoding, unsigned long cap) {
 
         if (encoding == OBJ_ENCODING_BTREE) {
             zbtreeSet *bt = zbtreeCreate();
-            /* ZADD's hint counts its arguments, which can be fewer than the
-             * existing members after a listpack limit is lowered. */
+            /* Never reserve less than the members copied below. */
             unsigned long length = zzlLength(zl);
             if (cap < length) cap = length;
             /* Presize the member index to avoid rehashing, mirroring the
              * dictExpand(zs->dict, cap) a few lines below for the
              * LISTPACK->SKIPLIST branch. cap here is always a real element
              * count, never an unvalidated RDB/client length: zsetConvert()'s
-             * callers (SORT/SORT_RO, RDB listpack-promotion loads) pass
-             * zsetLength(zobj), the listpack's own already-decoded length;
-             * zsetTypeMaybeConvert()'s ZADD caller passes elements, this
-             * command's own argc-derived count of score-member pairs;
-             * and ZADD's listpack-overflow path below passes
-             * zsetLength(zobj) + 1.
+             * callers (SORT/SORT_RO, RDB listpack-promotion loads, and
+             * zsetTypeMaybeConvert() for ZADD) pass zsetLength(zobj), the
+             * listpack's own already-decoded length; ZADD's listpack-overflow
+             * path below passes zsetLength(zobj) + 1. A count derived from
+             * ZADD's arguments must not be passed: it may repeat members.
              * zsetConvertAfterBulkInsert()'s zsetConvert() calls never reach
              * here: it returns immediately on OBJ_ENCODING_LISTPACK, so its
              * BTREE conversion always lands in the SKIPLIST->BTREE branch

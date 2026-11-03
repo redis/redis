@@ -1579,6 +1579,29 @@ start_server {tags {"zset"}} {
         r config set zset-max-listpack-entries $original_max
     }
 
+    test {ZSET btree converted by ZADD is not sized by repeated pairs} {
+        # A B+ tree created directly holds one member in the smallest index.
+        set original_max [lindex [r config get zset-max-listpack-entries] 1]
+        r config set zset-max-listpack-entries 0
+        r del ref sparse
+        r zadd ref 1 a
+        assert_encoding btree ref
+        r config set zset-max-listpack-entries $original_max
+
+        # Converting a listpack for a ZADD that repeats one pair must not
+        # reserve an index for every pair the command carries.
+        r zadd sparse 1 a
+        assert_encoding listpack sparse
+        set args {}
+        for {set j 0} {$j < 65536} {incr j} {
+            lappend args 1 a
+        }
+        assert_equal 0 [r zadd sparse nx {*}$args]
+        assert_encoding btree sparse
+        assert_equal 1 [r zcard sparse]
+        assert_lessthan_equal [r memory usage sparse] [expr {[r memory usage ref] * 2}]
+    }
+
     test "ZPOP/ZMPOP against wrong type" {
         r set foo{t} bar
         assert_error "*WRONGTYPE*" {r zpopmin foo{t}}
