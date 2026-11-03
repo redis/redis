@@ -212,6 +212,7 @@ error:
 
 /* Propagate the empty filter's exact geometry, independently of local defaults. */
 static void bloomPropagateCreation(client *c, SBChain *sb) {
+    if (!shouldPropagate(server.allowed_propagate_targets)) return;
     size_t len;
     char *header = SBChain_GetEncodedHeader(sb, &len);
     robj *argv[] = {createStringObject("BF.LOADCHUNK",12), c->argv[1],
@@ -316,12 +317,9 @@ static void bloomInsert(client *c, int first, int multi, long long capacity,
     size_t oldlen = sb->size;
     size_t oldsize = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
     void *replylen = multi ? addReplyDeferredLen(c) : NULL;
-    /* Only successful inserts may be replayed after a partial allocation failure. */
-    robj **argv = zmalloc(sizeof(*argv) * (c->argc - first + 4));
-    argv[0] = createStringObject("BF.INSERT",9);
-    argv[1] = c->argv[1];
-    argv[2] = createStringObject("NOCREATE",8);
-    argv[3] = createStringObject("ITEMS",5);
+    /* Build replay arguments only when a successful insert needs propagation. */
+    int propagate = shouldPropagate(server.allowed_propagate_targets);
+    robj **argv = NULL;
     int argc = 4, replies = 0;
     for (int i = first; i < c->argc; i++) {
         int rv = SBChain_Add(sb,c->argv[i]->ptr,sdslen(c->argv[i]->ptr));
@@ -333,7 +331,17 @@ static void bloomInsert(client *c, int first, int multi, long long capacity,
             addReplyError(c,"problem inserting into filter");
         } else {
             addReplyBool(c,rv);
-            if (rv) argv[argc++] = c->argv[i];
+            if (rv && propagate) {
+                /* Failed items must not be replayed after a partial failure. */
+                if (!argv) {
+                    argv = zmalloc(sizeof(*argv) * (c->argc - first + 4));
+                    argv[0] = createStringObject("BF.INSERT",9);
+                    argv[1] = c->argv[1];
+                    argv[2] = createStringObject("NOCREATE",8);
+                    argv[3] = createStringObject("ITEMS",5);
+                }
+                argv[argc++] = c->argv[i];
+            }
         }
     }
     if (multi) setDeferredArrayLen(c,replylen,replies);
@@ -344,12 +352,14 @@ static void bloomInsert(client *c, int first, int multi, long long capacity,
         keyModified(c,c->db,c->argv[1],kv,1);
         server.dirty += created + sb->size - oldlen;
     }
-    if (argc > 4) alsoPropagate(c->db->id,argv,argc,PROPAGATE_AOF|PROPAGATE_REPL);
+    if (argv) {
+        alsoPropagate(c->db->id,argv,argc,PROPAGATE_AOF|PROPAGATE_REPL);
+        decrRefCount(argv[0]);
+        decrRefCount(argv[2]);
+        decrRefCount(argv[3]);
+        zfree(argv);
+    }
     preventCommandPropagation(c);
-    decrRefCount(argv[0]);
-    decrRefCount(argv[2]);
-    decrRefCount(argv[3]);
-    zfree(argv);
 }
 
 void bfAddCommand(client *c) {
