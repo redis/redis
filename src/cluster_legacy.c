@@ -2939,7 +2939,7 @@ int clusterProcessPacket(clusterLink *link) {
                         (len < NET_HOST_STR_LEN && isValidHostnameString(str, len)) :
                         isValidAuxString(str, len);
                     if (!valid) {
-                        serverLog(LL_WARNING,
+                        serverLog(LL_VERBOSE,
                             "Received %s packet with invalid characters in extension type %d",
                             clusterGetMessageTypeString(type), exttype);
                         return 1;
@@ -3024,14 +3024,14 @@ int clusterProcessPacket(clusterLink *link) {
         type == CLUSTERMSG_TYPE_MEET)
     {
         if (!isValidClusterMsgIp(hdr->myip)) {
-            serverLog(LL_WARNING, "Received %s packet with invalid sender address",
+            serverLog(LL_VERBOSE, "Received %s packet with invalid sender address",
                 clusterGetMessageTypeString(type));
             return 1;
         }
         uint16_t count = ntohs(hdr->count);
         for (uint16_t j = 0; j < count; j++) {
             if (!isValidClusterMsgIp(hdr->data.ping.gossip[j].ip)) {
-                serverLog(LL_WARNING, "Received %s packet with invalid address in gossip section",
+                serverLog(LL_VERBOSE, "Received %s packet with invalid address in gossip section",
                     clusterGetMessageTypeString(type));
                 return 1;
             }
