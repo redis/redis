@@ -557,5 +557,13 @@ start_server {} {
         $rd close
         r ACL DELUSER reset_test
     }
+
+    test {RESET invalid options abort MULTI transaction} {
+        r MULTI
+        r SET reset_tx_key value
+        assert_error "*syntax error*" {r RESET UNKNOWN}
+        assert_error "*EXECABORT*" {r EXEC}
+        assert_equal 0 [r EXISTS reset_tx_key]
+    }
 }
 

@@ -17,6 +17,20 @@
         "acl_categories": [
             "CONNECTION"
         ],
+        "arguments": [
+            {
+                "name": "keep-auth",
+                "type": "pure-token",
+                "token": "KEEP-AUTH",
+                "optional": true
+            },
+            {
+                "name": "keep-proto",
+                "type": "pure-token",
+                "token": "KEEP-PROTO",
+                "optional": true
+            }
+        ],
         "reply_schema": {
             "const": "RESET"
         }

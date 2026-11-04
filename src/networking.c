@@ -4520,6 +4520,7 @@ void resetCommand(client *c) {
     const int options = parseResetOptions(c);
 
     if (options == C_ERR) {
+        flagTransaction(c);
         addReplyError(c, "syntax error");
         return;
     }
