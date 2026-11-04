@@ -8313,6 +8313,7 @@ int iAmMaster(void) {
 #include "murmurhash.h"
 #include "sb.h"
 #include "t_bloom.h"
+#include "cuckoo.h"
 
 int __failed_tests = 0;
 int __test_num = 0;
@@ -8343,6 +8344,7 @@ struct redisTest {
     {"murmurhash", murmurhashTest},
     {"bloom", bloomTest},
     {"bloom-object", bloomObjectTest},
+    {"cuckoo", cuckooTest},
     {"zmalloc", zmalloc_test},
     {"sds", sdsTest},
     {"mstr", mstrTest},
