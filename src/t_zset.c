@@ -3824,7 +3824,12 @@ static void zrangeResultEmitCBufferForStore(zrange_result_handler *handler,
      * be a restored payload that passed validation without being sorted, so
      * appending its physical order could publish an unordered tree. A
      * listpack feeds a btree destination only when the limits were lowered
-     * after it was built, so checked insertion costs nothing in practice. */
+     * after it was built, so checked insertion costs nothing in practice.
+     *
+     * Checked insertion places every element by (score, member), so order
+     * never depends on the source. Without deep sanitization a restored
+     * listpack may also repeat a member, which no zset can hold. zsetAdd()
+     * would silently merge it, so assert that every element was new. */
     if (!handler->reverse && handler->source_is_btree &&
         handler->dstobj->encoding == OBJ_ENCODING_BTREE) {
         if (!handler->append_batch)
@@ -3837,7 +3842,7 @@ static void zrangeResultEmitCBufferForStore(zrange_result_handler *handler,
     sds ele = sdsnewlen(value, value_length_in_bytes);
     int retval = zsetAdd(handler->dstobj, score, ele, ZADD_IN_NONE, &retflags, &newscore);
     sdsfree(ele);
-    serverAssert(retval);
+    serverAssert(retval && (retflags & ZADD_OUT_ADDED));
 }
 
 static void zrangeResultEmitLongLongForStore(zrange_result_handler *handler,
@@ -3861,7 +3866,7 @@ static void zrangeResultEmitLongLongForStore(zrange_result_handler *handler,
     sds ele = sdsfromlonglong(value);
     int retval = zsetAdd(handler->dstobj, score, ele, ZADD_IN_NONE, &retflags, &newscore);
     sdsfree(ele);
-    serverAssert(retval);
+    serverAssert(retval && (retflags & ZADD_OUT_ADDED));
 }
 
 static void zrangeResultFinalizeStore(zrange_result_handler *handler, size_t result_count)
