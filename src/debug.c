@@ -14,6 +14,7 @@
 
 #include "server.h"
 #include "t_bloom.h"
+#include "t_cuckoo.h"
 #include "bitroar.h"
 #include "util.h"
 #include "sha1.h"   /* SHA1 is used for DEBUG DIGEST */
@@ -444,6 +445,8 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
         mixBitmapObjectDigest(digest, o);
     } else if (o->type == OBJ_BLOOM) {
         bloomMixDigest(digest, o);
+    } else if (o->type == OBJ_CUCKOO) {
+        cuckooMixDigest(digest, o);
     } else {
         serverPanic("Unknown object type");
     }
@@ -1537,6 +1540,10 @@ void serverLogObjectDebugInfo(const robj *o) {
     } else if (o->type == OBJ_BLOOM) {
         serverLog(LL_WARNING,"Bloom size: %zu, filters: %zu",
                   ((SBChain *)o->ptr)->size, ((SBChain *)o->ptr)->nfilters);
+    } else if (o->type == OBJ_CUCKOO) {
+        serverLog(LL_WARNING,"Cuckoo items: %llu, filters: %u",
+                  (unsigned long long)((CuckooFilter *)o->ptr)->numItems,
+                  (unsigned)((CuckooFilter *)o->ptr)->numFilters);
     } else if (o->type == OBJ_BITMAP) {
         serverLog(LL_WARNING,"Bitmap logical byte length: %llu",
                   (unsigned long long)bitroarLen(o));

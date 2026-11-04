@@ -945,7 +945,8 @@ typedef enum {
 #define OBJ_GCRA 9      /* GCRA object. */
 #endif
 #define OBJ_BLOOM 10    /* Scalable Bloom filter; type 9 is reserved for GCRA. */
-#define OBJ_TYPE_MAX 11 /* Maximum number of object types */
+#define OBJ_CUCKOO 11   /* Scalable Cuckoo filter. */
+#define OBJ_TYPE_MAX 12 /* Maximum number of object types */
 
 /* NOTE: adding a new object requires changes in the following places:
  * - rdb.c - save/load (also bump RDB_VERSION if needed)

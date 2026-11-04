@@ -13,6 +13,7 @@
 
 #include "server.h"
 #include "t_bloom.h"
+#include "t_cuckoo.h"
 #include "bitroar.h"
 #include "functions.h"
 #include "intset.h"  /* Compact integer set structure */
@@ -691,6 +692,7 @@ void decrRefCount(robj *o) {
             case OBJ_ARRAY: freeArrayObject(o); break;
             case OBJ_BITMAP: bitroarFree(o); break;
             case OBJ_BLOOM: SBChain_Free(o->ptr); break;
+            case OBJ_CUCKOO: freeCuckooObject(o); break;
             default: serverPanic("Unknown object type"); break;
             }
         }
@@ -907,6 +909,7 @@ void dismissObject(robj *o, size_t size_hint) {
         case OBJ_ARRAY: dismissArrayObject(o, size_hint); break;
         case OBJ_BITMAP: bitroarDismiss(o, size_hint); break;
         case OBJ_BLOOM: bloomDismiss(o); break;
+        case OBJ_CUCKOO: cuckooDismiss(o); break;
         default: break;
     }
 #else
@@ -1042,6 +1045,7 @@ size_t getObjectLength(robj *o) {
         case OBJ_ARRAY: return arCount(o->ptr);
         case OBJ_BITMAP: return bitroarLen(o);
         case OBJ_BLOOM: return ((SBChain *)o->ptr)->size;
+        case OBJ_CUCKOO: return ((CuckooFilter *)o->ptr)->numItems;
         default: return 0;
     }
 }
@@ -1347,6 +1351,7 @@ char *strEncoding(int encoding) {
     case OBJ_ENCODING_BITMAP_ROARING: return "bitmap-roaring";
     case OBJ_ENCODING_BTREE: return "btree";
     case OBJ_ENCODING_BLOOM: return "bloom";
+    case OBJ_ENCODING_CUCKOO: return "cuckoo";
     default: return "unknown";
     }
 }
@@ -1370,6 +1375,7 @@ size_t kvobjComputeSize(robj *key, kvobj *o, size_t sample_size, int dbid) {
 #endif
         o->type == OBJ_BITMAP ||
         o->type == OBJ_BLOOM ||
+        o->type == OBJ_CUCKOO ||
         o->type == OBJ_ARRAY)
     {
         return kvobjAllocSize(o);
@@ -1420,6 +1426,8 @@ size_t kvobjAllocSize(kvobj *o) {
         asize += bitroarAllocSize(o);
     } else if (o->type == OBJ_BLOOM) {
         asize += bloomAllocSize(o);
+    } else if (o->type == OBJ_CUCKOO) {
+        asize += cuckooAllocSize(o);
     } else if (o->type == OBJ_MODULE) {
         /* TODO: Provide moduleGetAllocSize() module API for O(1) allocation size retrieval */
     }

@@ -21,6 +21,7 @@
 #include "server.h"
 #include "zset_btree.h"
 #include "t_bloom.h"
+#include "t_cuckoo.h"
 #include "bitroar.h"
 #include <stddef.h>
 #include <math.h>
@@ -1382,6 +1383,11 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
             defragLater(ctx, ob);
         else
             bloomDefrag(ob, 0, SIZE_MAX, activeDefragAlloc);
+    } else if (ob->type == OBJ_CUCKOO) {
+        if (((CuckooFilter *)ob->ptr)->numFilters > server.active_defrag_max_scan_fields)
+            defragLater(ctx, ob);
+        else
+            cuckooDefrag(ob, 0, SIZE_MAX, activeDefragAlloc);
     } else if (ob->type == OBJ_BITMAP) {
         defragBitmapObject(ctx, ob);
     } else {
@@ -1527,6 +1533,8 @@ int defragLaterItem(defragKeysCtx *ctx, kvobj *ob, monotime endtime) {
             *cursor = bitroarDefragIncremental(ob, *cursor);
         } else if (ob->type == OBJ_BLOOM) {
             *cursor = bloomDefrag(ob, *cursor, 1, activeDefragAlloc);
+        } else if (ob->type == OBJ_CUCKOO) {
+            *cursor = cuckooDefrag(ob, *cursor, 1, activeDefragAlloc);
         } else {
             *cursor = 0; /* object type/encoding may have changed since we schedule it for later */
             zbtreeDefragStateReset(zset_btree_state);

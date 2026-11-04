@@ -9,7 +9,8 @@
 
 /* Ported from RedisBloom tests/unit/test-cuckoo.c. */
 #ifdef REDIS_TEST
-#include "cuckoo.h"
+#include "server.h"
+#include "t_cuckoo.h"
 #include "zmalloc.h"
 #include "testhelp.h"
 #include <stdio.h>
@@ -335,6 +336,102 @@ int cuckooTest(int argc, char **argv, int flags) {
     testMalformedHeaderProtection();
     test_cond("RedisBloom testMalformedHeaderProtection", 1);
     test_cond("Cuckoo tests release all allocations", zmalloc_used_memory() == before_memory);
+    return __failed_tests != before_failed;
+}
+
+size_t lazyfreeGetFreeEffort(robj *key, robj *obj, int dbid);
+size_t kvobjComputeSize(robj *key, kvobj *o, size_t sample_size, int dbid);
+
+/* Force relocation to catch stale pointers even without allocator defrag support. */
+static void *cuckooTestRelocate(void *ptr) {
+    size_t bytes = zmalloc_size(ptr);
+    void *moved = zmalloc(bytes);
+    memcpy(moved, ptr, bytes);
+    zfree(ptr);
+    return moved;
+}
+
+int cuckooObjectTest(int argc, char **argv, int flags) {
+    (void)argc;
+    (void)argv;
+    (void)flags;
+    int before_failed = __failed_tests;
+    size_t before_memory = zmalloc_used_memory();
+    CuckooFilter *cf = zmalloc(sizeof(*cf));
+    assert(CuckooFilter_Init(cf, 8, 2, 20, 2) == 0);
+    robj *o = createCuckooObject(cf);
+    for (uint64_t i = 0; i < 100; i++)
+        assert(CuckooFilter_Insert(cf, CUCKOO_GEN_HASH(&i, sizeof(i))) == CuckooInsert_Inserted);
+    test_cond("Cuckoo object type, encoding, length and free effort",
+              o->type == OBJ_CUCKOO && o->encoding == OBJ_ENCODING_CUCKOO &&
+              !strcmp(strEncoding(o->encoding), "cuckoo") &&
+              getObjectLength(o) == 100 && cf->numFilters > 1 &&
+              lazyfreeGetFreeEffort(NULL, o, 0) == (size_t)cf->numFilters + 2);
+
+    unsigned char original[20] = {0}, copied[20] = {0};
+    cuckooMixDigest(original, o);
+    robj *copy = cuckooDup(o);
+    cuckooMixDigest(copied, copy);
+    test_cond("Cuckoo copy preserves data and metadata", memcmp(original, copied, 20) == 0);
+    CuckooFilter *other = copy->ptr;
+    int independent = other != cf && other->filters != cf->filters;
+    for (size_t i = 0; i < cf->numFilters; i++)
+        independent &= other->filters[i].data != cf->filters[i].data;
+    other->filters[0].data[0] ^= 1;
+    memset(copied, 0, sizeof(copied));
+    cuckooMixDigest(copied, copy);
+    test_cond("Cuckoo copy has independent allocations and digest detects data changes",
+              independent && memcmp(original, copied, 20) != 0);
+    other->filters[0].data[0] ^= 1;
+    other->numDeletes++;
+    memset(copied, 0, sizeof(copied));
+    cuckooMixDigest(copied, copy);
+    test_cond("Cuckoo digest detects metadata changes", memcmp(original, copied, 20) != 0);
+    decrRefCount(copy);
+
+    size_t alloc_size = cuckooAllocSize(o);
+    test_cond("Cuckoo allocation size includes every allocation",
+              alloc_size + zmalloc_size(o) == zmalloc_used_memory() - before_memory);
+    sds key = sdsnew("cuckoo");
+    copy = cuckooDup(o);
+    kvobj *kv = kvobjSet(key, copy, 0);
+    test_cond("Cuckoo database memory accounting includes filter allocations",
+              kvobjAllocSize(kv) >= cuckooAllocSize(kv) + sizeof(kvobj) &&
+              kvobjComputeSize(NULL, kv, 0, 0) == kvobjAllocSize(kv));
+    decrRefCount(kv);
+    sdsfree(key);
+
+    unsigned long cursor = 0;
+    do {
+        cursor = cuckooDefrag(o, cursor, 1, cuckooTestRelocate);
+    } while (cursor);
+    memset(copied, 0, sizeof(copied));
+    cuckooMixDigest(copied, o);
+    test_cond("Incremental Cuckoo defrag preserves contents and allocation size",
+              memcmp(original, copied, 20) == 0 && cuckooAllocSize(o) == alloc_size);
+    cuckooDefrag(o, 0, SIZE_MAX, cuckooTestRelocate);
+    memset(copied, 0, sizeof(copied));
+    cuckooMixDigest(copied, o);
+    test_cond("Full Cuckoo defrag preserves contents", memcmp(original, copied, 20) == 0);
+
+    /* Deletion may compact away subfilters between incremental defrag calls. */
+    cursor = cuckooDefrag(o, 0, 1, cuckooTestRelocate);
+    cf = o->ptr;
+    for (uint64_t i = 0; i < 100; i++)
+        assert(CuckooFilter_Delete(cf, CUCKOO_GEN_HASH(&i, sizeof(i))) == 1);
+    CuckooFilter_Compact(cf, true);
+    memset(original, 0, sizeof(original));
+    cuckooMixDigest(original, o);
+    do {
+        cursor = cuckooDefrag(o, cursor, 1, cuckooTestRelocate);
+    } while (cursor);
+    memset(copied, 0, sizeof(copied));
+    cuckooMixDigest(copied, o);
+    test_cond("Cuckoo defrag handles compaction between steps",
+              getObjectLength(o) == 0 && memcmp(original, copied, 20) == 0);
+    decrRefCount(o);
+    test_cond("Cuckoo object operations release all allocations",
+              zmalloc_used_memory() == before_memory);
     return __failed_tests != before_failed;
 }
 #endif

@@ -14,6 +14,7 @@
 
 #include "server.h"
 #include "t_bloom.h"
+#include "t_cuckoo.h"
 #include "bitroar.h"
 #include "vector.h"
 #include "cluster.h"
@@ -1871,6 +1872,7 @@ char *obj_type_name[OBJ_TYPE_MAX] = {
     "gcra",
 #endif
     [OBJ_BLOOM] = "bloom",
+    [OBJ_CUCKOO] = "cuckoo",
 };
 
 /* Helper function to get type from a string in scan commands */
@@ -2635,6 +2637,7 @@ void copyCommand(client *c) {
         case OBJ_ARRAY: newobj = arrayTypeDup(o); break;
         case OBJ_BITMAP: newobj = bitroarDup(o); break;
         case OBJ_BLOOM: newobj = bloomDup(o); break;
+        case OBJ_CUCKOO: newobj = cuckooDup(o); break;
         default:
             addReplyError(c, "unknown type object");
             return;

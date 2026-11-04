@@ -91,6 +91,7 @@ struct RedisModuleType;
 #define OBJ_ENCODING_TMPL_ARRAY 15 /* Hash with shared template, values in sds array */
 #define OBJ_ENCODING_BITMAP_ROARING 16 /* Bitmap encoded as a Roaring bitmap. */
 #define OBJ_ENCODING_BLOOM 17 /* Scalable Bloom chain. */
+#define OBJ_ENCODING_CUCKOO 18 /* Scalable Cuckoo filter. */
 
 #define LRU_BITS 24
 #define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru */
