@@ -5504,9 +5504,9 @@ int checkClientOutputBufferLimits(client *c) {
      * Such a configuration is ignored (the size of repl-backlog-size will be used).
      * This doesn't have memory consumption implications since the replica client
      * will share the backlog buffers memory. */
-    size_t hard_limit_bytes = server.client_obuf_limits[class].hard_limit_bytes;
+    unsigned long long hard_limit_bytes = server.client_obuf_limits[class].hard_limit_bytes;
     if (class == CLIENT_TYPE_SLAVE && hard_limit_bytes &&
-        (long long)hard_limit_bytes < server.repl_backlog_size)
+        hard_limit_bytes < (unsigned long long)server.repl_backlog_size)
         hard_limit_bytes = server.repl_backlog_size;
     unsigned long long soft_limit_bytes = server.client_obuf_limits[class].soft_limit_bytes;
     if (class == CLIENT_TYPE_SLAVE && soft_limit_bytes &&
