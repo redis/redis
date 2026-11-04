@@ -996,8 +996,12 @@ int setTypeExpireIfNeeded(redisDb *db, kvobj *set) {
     if (minExpire == EB_EXPIRE_TIME_INVALID || (mstime_t)minExpire >= commandTimeSnapshot())
         return 0;
 
-    /* Follow the conditions of when not to lazy-expire a key. */
+    /* Follow the conditions of when not to lazy-expire a key. A command of the
+     * master client is also skipped: this covers the ASM import, whose fake
+     * master client runs on a node that is not a replica, and must not expire
+     * (and propagate the removal of) members the source did not expire. */
     if (server.loading || server.allow_access_expired || server.masterhost ||
+        (server.current_client && (server.current_client->flags & CLIENT_MASTER)) ||
         isPausedActionsWithUpdate(PAUSE_ACTION_EXPIRE))
         return 0;
 
