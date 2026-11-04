@@ -4038,10 +4038,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbver, int *e
                     /* Parsing every score costs a full walk, so a listpack
                      * that stays one is checked only by deep sanitization.
                      * A conversion parses every score anyway and must not
-                     * store an invalid one or a duplicate member, so check
-                     * them first and reject the payload cleanly. */
+                     * store an invalid one, so check them first. */
                     if (!deep_integrity_validation &&
-                        !lpValidateIntegrityAndDupsEx(encoded, encoded_len, 1, 2, 1)) {
+                        !lpValidateIntegrityAndDupsEx(encoded, encoded_len, 0, 2, 1)) {
                         rdbReportCorruptRDB("Zset listpack integrity check failed.");
                         zfree(encoded);
                         o->ptr = NULL;

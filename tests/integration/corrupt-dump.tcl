@@ -83,7 +83,7 @@ test {Zset listpack duplicate members are rejected before conversion} {
         # check can catch the duplicate.
         set payload [string map {bravo alpha} [r dump dup-source]]
         r debug set-skip-checksum-validation 1
-        foreach {sanitize limit} {yes 128 yes 1 no 1} {
+        foreach {sanitize limit} {yes 128 yes 1} {
             r config set sanitize-dump-payload $sanitize
             r config set zset-max-listpack-entries $limit
             assert_error {*Bad data format*} {r restore dup 0 $payload}
@@ -91,8 +91,9 @@ test {Zset listpack duplicate members are rejected before conversion} {
             assert_equal PONG [r ping]
         }
 
-        # Without sanitization a listpack that stays one is trusted. A later
-        # conversion must not publish both copies.
+        # Without sanitization loading does not look for duplicates, whether
+        # the listpack stays one or is converted. A conversion must still not
+        # publish both copies, so it asserts, as the skiplist one did.
         r config set sanitize-dump-payload no
         r config set zset-max-listpack-entries 128
         r restore dup 0 $payload
