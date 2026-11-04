@@ -967,20 +967,23 @@ tags "modules external:skip" {
         r select 0 ;# DEBUG HTSTATS below inspects db 0
 
         # Leave the keyspace dict in the middle of a shrink rehash: grow it, then
-        # delete down to the 1:8 fill ratio so the shrink starts. Active
-        # rehashing is off, so from here on only key lookups advance the rehash.
-        # Keys left: <prefix>:0 up to <prefix>:511, with values value:0 up to
-        # value:511.
+        # delete down to the 1:8 fill ratio so the shrink starts on the last
+        # delete. Active rehashing is off, so from here on only key lookups
+        # advance the rehash. Returns the number of keys left, n: <prefix>:0 up
+        # to <prefix>:n-1, with values value:0 up to value:n-1.
         proc lookup_probes_start_shrink {prefix} {
             r flushall
             r config set activerehashing no
             r debug populate 4096 $prefix
+            regexp {table size: (\d+)} [r debug htstats 0] -> buckets
+            set keep [expr {$buckets * [dict_bucket_slots] / 8}]
             set dels {}
-            for {set i 512} {$i < 4096} {incr i} {
+            for {set i $keep} {$i < 4096} {incr i} {
                 lappend dels $prefix:$i
             }
             r del {*}$dels
             assert_match {*rehashing target*} [r debug htstats 0 full]
+            return $keep
         }
 
         proc lookup_probes_expires {} {
@@ -990,29 +993,29 @@ tags "modules external:skip" {
         # About 25% of the rounds hit the bad case without the fix.
         test {SET EX on existing keys keeps the TTL on the right key while KSN callbacks do lookups} {
             for {set round 0} {$round < 40} {incr round} {
-                lookup_probes_start_shrink r$round
+                set keys [lookup_probes_start_shrink r$round]
                 r keyspace.lookup_probes 1
-                for {set i 0} {$i < 512} {incr i} {
+                for {set i 0} {$i < $keys} {incr i} {
                     r set r$round:$i v2 EX 1000
                     assert_range [r ttl r$round:$i] 1 1000
                 }
                 r keyspace.lookup_probes 0
                 # No key the SETs didn't touch got a TTL.
-                assert_equal 512 [lookup_probes_expires]
+                assert_equal $keys [lookup_probes_expires]
             }
         }
 
         # About 30% of the rounds hit the bad case without the fix.
         test {SET EX on new keys keeps the TTL on the right key while KSN callbacks do lookups} {
             for {set round 0} {$round < 40} {incr round} {
-                lookup_probes_start_shrink r$round
+                set keys [lookup_probes_start_shrink r$round]
                 r keyspace.lookup_probes 1
-                for {set i 0} {$i < 512} {incr i} {
+                for {set i 0} {$i < $keys} {incr i} {
                     r set n$round:$i v EX 1000
                     assert_range [r ttl n$round:$i] 1 1000
                 }
                 r keyspace.lookup_probes 0
-                assert_equal 512 [lookup_probes_expires]
+                assert_equal $keys [lookup_probes_expires]
             }
         }
 
@@ -1021,14 +1024,14 @@ tags "modules external:skip" {
         # the rounds hit the bad case without the fix.
         test {SET IFEQ updates the right key while the keyspace dict is shrinking} {
             for {set round 0} {$round < 40} {incr round} {
-                lookup_probes_start_shrink r$round
-                for {set i 0} {$i < 512} {incr i} {
+                set keys [lookup_probes_start_shrink r$round]
+                for {set i 0} {$i < $keys} {incr i} {
                     assert_equal OK [r set r$round:$i v2 IFEQ value:$i]
                 }
-                for {set i 0} {$i < 512} {incr i} {
+                for {set i 0} {$i < $keys} {incr i} {
                     assert_equal v2 [r get r$round:$i]
                 }
-                assert_equal 512 [r dbsize]
+                assert_equal $keys [r dbsize]
             }
         }
     }
