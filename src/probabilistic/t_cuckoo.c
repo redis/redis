@@ -44,6 +44,24 @@ size_t cuckooAllocSize(const robj *o) {
     return size;
 }
 
+size_t cuckooLength(const robj *o) {
+    return ((const CuckooFilter *)o->ptr)->numItems;
+}
+
+size_t cuckooFreeEffort(const robj *o) {
+    return ((const CuckooFilter *)o->ptr)->numFilters + 2;
+}
+
+int cuckooDefragShouldDefer(const robj *o) {
+    return ((const CuckooFilter *)o->ptr)->numFilters > server.active_defrag_max_scan_fields;
+}
+
+void cuckooLogDebugInfo(const robj *o) {
+    const CuckooFilter *cf = o->ptr;
+    serverLog(LL_WARNING,"Cuckoo items: %llu, filters: %u",
+              (unsigned long long)cf->numItems, (unsigned)cf->numFilters);
+}
+
 void cuckooDismiss(robj *o) {
     CuckooFilter *cf = o->ptr;
     for (size_t i = 0; i < cf->numFilters; i++) {

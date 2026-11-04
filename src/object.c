@@ -1045,7 +1045,7 @@ size_t getObjectLength(robj *o) {
         case OBJ_ARRAY: return arCount(o->ptr);
         case OBJ_BITMAP: return bitroarLen(o);
         case OBJ_BLOOM: return ((SBChain *)o->ptr)->size;
-        case OBJ_CUCKOO: return ((CuckooFilter *)o->ptr)->numItems;
+        case OBJ_CUCKOO: return cuckooLength(o);
         default: return 0;
     }
 }

@@ -1541,9 +1541,7 @@ void serverLogObjectDebugInfo(const robj *o) {
         serverLog(LL_WARNING,"Bloom size: %zu, filters: %zu",
                   ((SBChain *)o->ptr)->size, ((SBChain *)o->ptr)->nfilters);
     } else if (o->type == OBJ_CUCKOO) {
-        serverLog(LL_WARNING,"Cuckoo items: %llu, filters: %u",
-                  (unsigned long long)((CuckooFilter *)o->ptr)->numItems,
-                  (unsigned)((CuckooFilter *)o->ptr)->numFilters);
+        cuckooLogDebugInfo(o);
     } else if (o->type == OBJ_BITMAP) {
         serverLog(LL_WARNING,"Bitmap logical byte length: %llu",
                   (unsigned long long)bitroarLen(o));

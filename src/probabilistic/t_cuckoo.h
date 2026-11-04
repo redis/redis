@@ -12,6 +12,10 @@ robj *createCuckooObject(CuckooFilter *filter);
 void freeCuckooObject(robj *o);
 robj *cuckooDup(const robj *o);
 size_t cuckooAllocSize(const robj *o);
+size_t cuckooLength(const robj *o);
+size_t cuckooFreeEffort(const robj *o);
+int cuckooDefragShouldDefer(const robj *o);
+void cuckooLogDebugInfo(const robj *o);
 void cuckooDismiss(robj *o);
 unsigned long cuckooDefrag(robj *o, unsigned long cursor, size_t steps,
                           void *(*defrag)(void *));

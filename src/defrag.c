@@ -1384,7 +1384,7 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
         else
             bloomDefrag(ob, 0, SIZE_MAX, activeDefragAlloc);
     } else if (ob->type == OBJ_CUCKOO) {
-        if (((CuckooFilter *)ob->ptr)->numFilters > server.active_defrag_max_scan_fields)
+        if (cuckooDefragShouldDefer(ob))
             defragLater(ctx, ob);
         else
             cuckooDefrag(ob, 0, SIZE_MAX, activeDefragAlloc);
