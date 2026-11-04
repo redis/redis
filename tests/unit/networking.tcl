@@ -488,3 +488,74 @@ test {Pending command pool expansion and shrinking} {
         $rd2 close
     }
 }
+
+
+start_server {} {
+    test {RESET KEEP-PROTO preserves RESP3} {
+        set rd [redis [srv 0 host] [srv 0 port] 0 $::tls]
+
+        $rd HELLO 3
+        assert_equal RESET [$rd RESET KEEP-PROTO]
+
+        set hello [$rd HELLO]
+        assert_equal 3 [dict get $hello proto]
+
+        $rd close
+    }
+
+    test {RESET KEEP-AUTH preserves authentication} {
+        r ACL SETUSER reset_test on >testpass ~* +@all
+
+        set rd [redis [srv 0 host] [srv 0 port] 0 $::tls]
+
+        assert_equal OK [$rd AUTH reset_test testpass]
+        assert_equal reset_test [$rd ACL WHOAMI]
+
+        assert_equal RESET [$rd RESET KEEP-AUTH]
+        assert_equal reset_test [$rd ACL WHOAMI]
+
+        $rd close
+        r ACL DELUSER reset_test
+    }
+
+    test {RESET preserves both authentication and protocol} {
+        r ACL SETUSER reset_test on >testpass ~* +@all
+
+        set rd [redis [srv 0 host] [srv 0 port] 0 $::tls]
+
+        assert_equal OK [$rd AUTH reset_test testpass]
+        $rd HELLO 3
+
+        assert_equal RESET [$rd RESET KEEP-AUTH KEEP-PROTO]
+
+        assert_equal reset_test [$rd ACL WHOAMI]
+        assert_equal 3 [dict get [$rd HELLO] proto]
+
+        $rd close
+        r ACL DELUSER reset_test
+    }
+
+    test {RESET rejects invalid and duplicate options} {
+        assert_error "*syntax error*" {r RESET UNKNOWN}
+        assert_error "*syntax error*" {r RESET KEEP-AUTH KEEP-AUTH}
+        assert_error "*syntax error*" {r RESET KEEP-PROTO KEEP-PROTO}
+    }
+
+    test {RESET without options resets authentication and protocol} {
+        r ACL SETUSER reset_test on >testpass ~* +@all
+
+        set rd [redis [srv 0 host] [srv 0 port] 0 $::tls]
+
+        assert_equal OK [$rd AUTH reset_test testpass]
+        $rd HELLO 3
+
+        assert_equal RESET [$rd RESET]
+
+        assert_equal default [$rd ACL WHOAMI]
+        assert_equal 2 [dict get [$rd HELLO] proto]
+
+        $rd close
+        r ACL DELUSER reset_test
+    }
+}
+
