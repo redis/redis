@@ -879,7 +879,7 @@ start_server {tags {external:skip needs:debug} overrides {key-memory-histograms 
         verify_keymem_empty r
     }
 
-    test "KEY-MEMORY-STATS - Read-only ZRANGE keeps the alloc size consistent" {
+    test "KEY-MEMORY-STATS - Read-only ZRANGE leaves the alloc size untouched" {
         r FLUSHALL
         r DEBUG ALLOCSIZE-SLOTS-ASSERT 1
         set orig [lindex [r CONFIG GET zset-max-listpack-entries] 1]
