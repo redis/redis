@@ -229,3 +229,70 @@ int cuckooRewriteAof(rio *r, robj *key, robj *o, int dbid) {
     sdsfree(payload.io.buffer.ptr);
     return ok;
 }
+
+static void cuckooCheck(client *c, int multi, int count) {
+    kvobj *kv = lookupKeyRead(c->db, c->argv[1]);
+    /* Preserve the module's zero reply for missing keys and other types. */
+    CuckooFilter *cf = kv && kv->type == OBJ_CUCKOO ? kv->ptr : NULL;
+    if (multi) addReplyArrayLen(c, c->argc - 2);
+    for (int ii = 2; ii < c->argc; ++ii) {
+        uint64_t rv = 0;
+        if (cf) {
+            CuckooHash hash = CUCKOO_GEN_HASH(c->argv[ii]->ptr, sdslen(c->argv[ii]->ptr));
+            rv = count ? CuckooFilter_Count(cf, hash) : CuckooFilter_Check(cf, hash);
+        }
+        if (count) addReplyLongLong(c, rv);
+        else addReplyBool(c, !!rv);
+    }
+}
+
+void cfExistsCommand(client *c) { cuckooCheck(c, 0, 0); }
+void cfMExistsCommand(client *c) { cuckooCheck(c, 1, 0); }
+void cfCountCommand(client *c) { cuckooCheck(c, 0, 1); }
+
+static CuckooFilter *cuckooLookupRead(client *c) {
+    kvobj *kv = lookupKeyRead(c->db, c->argv[1]);
+    if (!kv) {
+        addReplyError(c, "not found");
+        return NULL;
+    }
+    if (checkType(c, kv, OBJ_CUCKOO)) return NULL;
+    return kv->ptr;
+}
+
+void cfInfoCommand(client *c) {
+    CuckooFilter *cf = cuckooLookupRead(c);
+    if (!cf) return;
+    /* CF.INFO reports logical size, as in the module; MEMORY USAGE reports
+     * allocator size through cuckooAllocSize(). */
+    size_t size = sizeof(*cf) + sizeof(*cf->filters) * cf->numFilters;
+    for (const SubCF *filter = cf->filters; filter < cf->filters + cf->numFilters; ++filter)
+        size += sizeof(*filter->data) * filter->bucketSize * filter->numBuckets;
+    addReplyMapLen(c, 8);
+    addReplyStatus(c, "Size");
+    addReplyLongLong(c, size);
+    addReplyStatus(c, "Number of buckets");
+    addReplyLongLong(c, cf->numBuckets);
+    addReplyStatus(c, "Number of filters");
+    addReplyLongLong(c, cf->numFilters);
+    addReplyStatus(c, "Number of items inserted");
+    addReplyLongLong(c, cf->numItems);
+    addReplyStatus(c, "Number of items deleted");
+    addReplyLongLong(c, cf->numDeletes);
+    addReplyStatus(c, "Bucket size");
+    addReplyLongLong(c, cf->bucketSize);
+    addReplyStatus(c, "Expansion rate");
+    addReplyLongLong(c, cf->expansion);
+    addReplyStatus(c, "Max iterations");
+    addReplyLongLong(c, cf->maxIterations);
+}
+
+void cfDebugCommand(client *c) {
+    CuckooFilter *cf = cuckooLookupRead(c);
+    if (!cf) return;
+    addReplyBulkSds(c, sdscatprintf(sdsempty(),
+        "bktsize:%u buckets:%" PRIu64 " items:%" PRIu64 " deletes:%" PRIu64
+        " filters:%u max_iterations:%u expansion:%u",
+        cf->bucketSize, cf->numBuckets, cf->numItems, cf->numDeletes, cf->numFilters,
+        cf->maxIterations, cf->expansion));
+}

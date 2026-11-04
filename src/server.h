@@ -331,6 +331,8 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define ACL_CATEGORY_BLOOM (1ULL<<22)
 #endif
 
+#define ACL_CATEGORY_CUCKOO (ACL_CATEGORY_BLOOM << 1)
+
 /* Key-spec flags *
  * -------------- */
 /* The following refer what the command actually does with the value or metadata
@@ -3079,6 +3081,7 @@ typedef enum {
     COMMAND_GROUP_ARRAY,
     COMMAND_GROUP_MODULE,
     COMMAND_GROUP_BLOOM,
+    COMMAND_GROUP_CUCKOO,
 #ifdef ENABLE_GCRA
     COMMAND_GROUP_RATE_LIMIT,
 #endif
@@ -5023,6 +5026,12 @@ void geodistCommand(client *c);
 void geosearchCommand(client *c);
 void geosearchstoreCommand(client *c);
 void bfReserveCommand(client *c);
+void cfExistsCommand(client *c);
+void cfMExistsCommand(client *c);
+void cfCountCommand(client *c);
+void cfInfoCommand(client *c);
+void cfDebugCommand(client *c);
+
 void bfAddCommand(client *c);
 void bfMAddCommand(client *c);
 void bfInsertCommand(client *c);

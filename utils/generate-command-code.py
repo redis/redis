@@ -36,6 +36,7 @@ GROUPS = {
     "bitmap": "COMMAND_GROUP_BITMAP",
     "array": "COMMAND_GROUP_ARRAY",
     "bloom": "COMMAND_GROUP_BLOOM",
+    "cuckoo": "COMMAND_GROUP_CUCKOO",
     "rate_limit": "COMMAND_GROUP_RATE_LIMIT",
 }
 
@@ -608,6 +609,7 @@ const char *COMMAND_GROUP_STR[] = {
     "array",
     "module",
     "bloom",
+    "cuckoo",
 #ifdef ENABLE_GCRA
     "rate_limit"
 #endif

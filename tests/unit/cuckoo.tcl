@@ -14,6 +14,64 @@ start_server {tags {"cuckoo"} overrides {save ""}} {
         }
     }
 
+    test {Cuckoo read commands preserve membership and counts after module import} {
+        for {set i 1} {$i < 30} {incr i} {
+            set item [binary format ccc $i 0 -1]
+            assert_equal 1 [r cf.exists cf $item]
+            assert {[r cf.count cf $item] >= 1}
+        }
+        set a [binary format ccc 1 0 -1]
+        set b [binary format ccc 2 0 -1]
+        assert_equal {1 1} [r cf.mexists cf $a $b]
+        set info [r cf.info cf]
+        assert_equal 29 [dict get $info {Number of items inserted}]
+        assert_equal 1 [dict get $info {Number of items deleted}]
+        assert_equal 4 [dict get $info {Number of filters}]
+        assert_equal 2 [dict get $info {Bucket size}]
+        assert_equal 2 [dict get $info {Expansion rate}]
+        assert_equal 20 [dict get $info {Max iterations}]
+        assert {[dict get $info Size] > 0}
+        assert_equal {bktsize:2 buckets:2 items:29 deletes:1 filters:4 max_iterations:20 expansion:2} [r cf.debug cf]
+        set before [r dump cf]
+        r hello 3
+        assert_equal 1 [r cf.exists cf $a]
+        assert_equal {1 1} [r cf.mexists cf $a $b]
+        assert {[r cf.count cf $a] >= 1}
+        assert_equal $info [r cf.info cf]
+        r hello 2
+        assert_equal $before [r dump cf]
+    }
+
+    test {Cuckoo read commands preserve module missing-key and wrong-type behavior} {
+        r set wrongtype x
+        foreach key {missing wrongtype} {
+            assert_equal 0 [r cf.exists $key x]
+            assert_equal 0 [r cf.count $key x]
+            assert_equal {0 0} [r cf.mexists $key x y]
+        }
+        foreach cmd {cf.info cf.debug} {
+            assert_error {*not found*} {r $cmd missing}
+            assert_error WRONGTYPE* {r $cmd wrongtype}
+        }
+        foreach cmd {cf.exists cf.count cf.mexists} {
+            assert_error {*wrong number of arguments*} {r $cmd cf}
+        }
+        foreach cmd {cf.info cf.debug} {
+            assert_error {*wrong number of arguments*} {r $cmd cf extra}
+        }
+        r del wrongtype
+    }
+
+    test {Cuckoo read commands have dedicated ACL category and key specifications} {
+        assert_equal {cf.count cf.debug cf.exists cf.info cf.mexists} [lsort [r acl cat cuckoo]]
+        foreach cmd {cf.exists cf.count cf.mexists} {
+            assert_equal cf [r command getkeys $cmd cf item]
+        }
+        foreach cmd {cf.info cf.debug} {
+            assert_equal cf [r command getkeys $cmd cf]
+        }
+    }
+
     test {Native Cuckoo supports COPY memory accounting and SCAN TYPE} {
         assert {[r memory usage cf] > 100}
         assert_equal 1 [r copy cf copied]

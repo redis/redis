@@ -72,6 +72,9 @@
                                     "const": "bloom"
                                 },
                                 {
+                                    "const": "cuckoo"
+                                },
+                                {
                                     "const": "pubsub"
                                 },
                                 {
