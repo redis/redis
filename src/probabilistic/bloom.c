@@ -82,8 +82,10 @@ static uint32_t bloomMurmurHash32(const void *key, size_t len, uint32_t seed) {
     switch (len) {
     case 3:
         h ^= data[2] << 16;
+        /* fall through */
     case 2:
         h ^= data[1] << 8;
+        /* fall through */
     case 1:
         h ^= data[0];
         h *= m;
@@ -124,7 +126,7 @@ bloom_hashval bloom_calc_hash64(const void *buffer, size_t len) {
 #define CHECK_ADD_FUNC(T, modExp)                                                                  \
     T i;                                                                                           \
     int found_unset = 0;                                                                           \
-    const register T mod = modExp;                                                                 \
+    register const T mod = modExp;                                                                 \
     for (i = 0; i < bloom->hashes; i++) {                                                          \
         T x = ((hashval.a + i * hashval.b)) % mod;                                                 \
         if (!test_bit_set_bit(bloom->bf, x, mode)) {                                               \
