@@ -4421,9 +4421,8 @@ uint64_t zbtreeScan(zbtreeSet *zs, uint64_t cursor,
     /* Finish a whole step before returning the cursor. COUNT is a hint, as
      * it is for a normal dictionary scan. Like scanGenericCommand() does for
      * dictionaries, also bound the steps, so a sparse table cannot be walked
-     * to its end in one call. A table reserved for a ZADD with many repeated
-     * members can hold one member in millions of buckets. Stopping early
-     * returns a valid cursor, so coverage is unchanged. */
+     * to its end in one call if a reservation ever outgrows the set. Stopping
+     * early returns a valid cursor, so coverage is unchanged. */
     unsigned long emitted = 0;
     unsigned long maxsteps = count > ULONG_MAX / 10 ? ULONG_MAX : count * 10;
     if (maxsteps == 0) maxsteps = 1;
@@ -5052,6 +5051,32 @@ int zsetBtreeTest(int argc, char **argv, int flags) {
         test_cond("Cursor-driven scan visits every live member at least once",
             missed == 0);
         zfree(seen);
+        zbtreeFree(zs);
+    }
+
+    printf("Testing B+ tree ZSCAN step bound on a sparse index\n");
+
+    /* One member in an index reserved for a million. A small COUNT must
+     * stop after COUNT * 10 steps instead of walking every empty bucket in
+     * one call, and the cursor it returns must still reach the member. */
+    {
+        zbtreeSet *zs = zbtreeCreate();
+        zbtreeReserve(zs, 1000000);
+        zbtTestPopulate(zs, 1);
+
+        int seen = 0;
+        zbtScanTestPrivdata pd = {&seen, 1};
+        uint64_t cursor = zbtreeScan(zs, 0, 10, zbtScanTestMarkSeen, &pd);
+        test_cond("Scan with a small COUNT stops early on a sparse index",
+            cursor != 0);
+        unsigned long calls = 1;
+        while (cursor != 0) {
+            cursor = zbtreeScan(zs, cursor, 10, zbtScanTestMarkSeen, &pd);
+            calls++;
+            serverAssert(calls < 1000000);
+        }
+        test_cond("Bounded scan of a sparse index still visits its member",
+            seen >= 1);
         zbtreeFree(zs);
     }
 
