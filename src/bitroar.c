@@ -196,6 +196,19 @@ static void bitroarAppendRawBitsetContainer(roaring64_bitmap_t *roaring,
     bitroarAppendContainer(roaring, high48, (container_t *)bitset, BITSET_CONTAINER_TYPE);
 }
 
+/* Append one aligned 2^16-bit chunk of raw bitmap bytes. */
+static void bitroarAppendRawChunk(roaring64_bitmap_t *roaring, const unsigned char *buf,
+                                   size_t len, uint64_t high48)
+{
+    int cardinality;
+    if (bitroarRawChunkFitsArray(buf, len, &cardinality)) {
+        if (cardinality == 0) return;
+        bitroarAppendRawArrayContainer(roaring, buf, len, cardinality, high48);
+    } else {
+        bitroarAppendRawBitsetContainer(roaring, buf, len, high48);
+    }
+}
+
 /* Build a Roaring bitmap from raw bitmap string bytes by constructing one
  * container per 2^16-bit chunk. This conversion runs on every
  * bitmap-default-roaring write that converts a string and on every string
@@ -212,15 +225,7 @@ static roaring64_bitmap_t *bitroarFromRaw(const unsigned char *buf, size_t len, 
         if (chunk_len > container_bytes)
             chunk_len = container_bytes;
 
-        uint64_t high48 = offset / container_bytes;
-        int cardinality;
-        if (bitroarRawChunkFitsArray(buf + offset, chunk_len, &cardinality)) {
-            if (cardinality == 0) continue;
-            bitroarAppendRawArrayContainer(roaring, buf + offset,
-                                           chunk_len, cardinality, high48);
-        } else {
-            bitroarAppendRawBitsetContainer(roaring, buf + offset, chunk_len, high48);
-        }
+        bitroarAppendRawChunk(roaring, buf + offset, chunk_len, offset / container_bytes);
     }
 
     if (optimize) {
@@ -1437,6 +1442,66 @@ static int bitroarUseMixedRawOp(robj **objects, size_t numkeys, uint64_t maxlen)
     return 1;
 }
 
+/* Strings already provide raw bytes, so OR them a container at a time and
+ * import only the result. Return NULL if a Roaring operand needs the existing
+ * algebra paths: its logical length can dwarf its resident data. */
+static roaring64_bitmap_t *bitroarApplyStringOr(robj **objects, size_t numkeys, size_t maxlen) {
+    size_t count = 0;
+    robj *previous = NULL;
+    for (size_t i = 0; i < numkeys; i++) {
+        robj *o = objects[i];
+        if (o == NULL) continue;
+        if (o->type != OBJ_STRING) return NULL;
+        if (sdslen(o->ptr) == 0 || o == previous) continue;
+        previous = o;
+        count++;
+    }
+    if (count == 0) return roaring64_bitmap_create();
+    if (count == 1)
+        return bitroarFromRaw((unsigned char *)previous->ptr, sdslen(previous->ptr), 0);
+
+    /* OR is idempotent. Filter missing, empty and consecutive repeated sources
+     * once, without changing the caller's per-argument reference ownership. */
+    robj **active = zmalloc(count * sizeof(*active));
+    size_t used = 0;
+    previous = NULL;
+    for (size_t i = 0; i < numkeys; i++) {
+        robj *o = objects[i];
+        if (o == NULL || sdslen(o->ptr) == 0 || o == previous) continue;
+        previous = o;
+        active[used++] = o;
+    }
+    serverAssert(used == count);
+
+    roaring64_bitmap_t *result = roaring64_bitmap_create();
+    const size_t container_bytes = BITSET_CONTAINER_SIZE_IN_WORDS * sizeof(uint64_t);
+    unsigned char chunk[BITSET_CONTAINER_SIZE_IN_WORDS * sizeof(uint64_t)];
+
+    for (size_t offset = 0; offset < maxlen; offset += container_bytes) {
+        size_t chunk_len = maxlen - offset;
+        if (chunk_len > container_bytes) chunk_len = container_bytes;
+        memset(chunk, 0, chunk_len);
+
+        for (size_t i = 0; i < count;) {
+            robj *o = active[i];
+            size_t len = sdslen(o->ptr);
+            if (len <= offset) {
+                /* OR is commutative, so retire exhausted sources by swapping. */
+                active[i] = active[--count];
+                continue;
+            }
+            len -= offset;
+            if (len > chunk_len) len = chunk_len;
+            const unsigned char *raw = (unsigned char *)o->ptr + offset;
+            for (size_t j = 0; j < len; j++) chunk[j] |= raw[j];
+            i++;
+        }
+        bitroarAppendRawChunk(result, chunk, chunk_len, offset / container_bytes);
+    }
+    zfree(active);
+    return result;
+}
+
 static uint64_t bitroarRawOpLoadWord(const bitroarRawOpSource *source, size_t offset) {
     uint64_t word = 0;
     if (offset >= source->len) return 0;
@@ -1841,10 +1906,10 @@ static roaring64_bitmap_t *bitroarExactlyOneOpSources(bitroarOpSources *sources)
 /* Compute a BITOP over string and Roaring bitmap sources and return the result
  * as a new Roaring bitmap object whose logical length is 'maxlen', matching the
  * string semantics where the destination length equals the longest source.
- * Sparse, large and Roaring-only operations stay entirely in Roaring space;
- * bounded dense mixed operands use the raw-word path above. With 'try_alloc'
- * set, failing to allocate that path's raw temporaries returns NULL instead
- * of aborting; otherwise this never returns NULL. */
+ * All-string OR imports only the combined chunks; operations with Roaring
+ * sources retain Roaring algebra or the bounded dense mixed path. With
+ * 'try_alloc' set, failing to allocate that path's raw temporaries returns NULL
+ * instead of aborting; otherwise this never returns NULL. */
 robj *bitroarApplyOp(bitroarOp op, robj **objects, size_t numkeys, uint64_t maxlen,
                      int try_alloc)
 {
@@ -1858,6 +1923,11 @@ robj *bitroarApplyOp(bitroarOp op, robj **objects, size_t numkeys, uint64_t maxl
     /* Constructors and RDB loading reject longer logical lengths before an
      * object can reach a command path. */
     serverAssert(maxlen <= BITROAR_MAX_BYTES);
+
+    if (op == BITOP_OR && numkeys > 1) {
+        result = bitroarApplyStringOr(objects, numkeys, (size_t)maxlen);
+        if (result != NULL) goto bitop_result;
+    }
 
     if (bitroarUseMixedRawOp(objects, numkeys, maxlen)) {
         result = bitroarApplyMixedRawOp(op, objects, numkeys, (size_t)maxlen, try_alloc);
