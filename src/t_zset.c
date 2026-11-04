@@ -3936,6 +3936,7 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
     zlexrangespec lexrange;
     int minidx = argc_start + 1;
     int maxidx = argc_start + 2;
+    size_t oldsize = 0;
 
     /* Options common to all */
     long opt_start = 0;
@@ -4046,11 +4047,9 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
 
     if (checkType(c,zobj,OBJ_ZSET)) goto cleanup;
 
-    /* Step 4: Pass this to the command-specific handler. The range readers
-     * never resize zobj (no member index lookup or rehash step), so there is
-     * no alloc size to update; a handler that does must sample it around the
-     * call. Don't use zobj after the switch: in store mode it may be the
-     * destination, which setKey()/dbDelete() replace/free. */
+    /* Step 4: Pass this to the command-specific handler. */
+    if (server.memory_tracking_enabled)
+        oldsize = kvobjAllocSize(zobj);
     switch (rangetype) {
     case ZRANGE_AUTO:
     case ZRANGE_RANK:
@@ -4068,6 +4067,11 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
             opt_offset, opt_limit, direction == ZRANGE_DIRECTION_REVERSE);
         break;
     }
+    /* Skip when ZRANGESTORE overwrites its own source: setKey()/dbDelete()
+     * already accounted for the destination and may have freed zobj. */
+    if (server.memory_tracking_enabled &&
+        !(store && equalStringObjects(key, handler->dstkey)))
+        updateSlotAllocSize(c->db, getKeySlot(key->ptr), zobj, oldsize, kvobjAllocSize(zobj));
 
     /* Instead of returning here, we'll just fall-through the clean-up. */
 
