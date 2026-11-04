@@ -19,6 +19,158 @@
  * Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
  */
 
+/* Representation of a dict as implemented in this file. The numbers are for
+ * 64-bit builds: on 32-bit builds a bucket has 12 slots of 4 bytes instead of
+ * 7 slots of 8 bytes. In the diagrams a bucket is written as [k0 k1 -- ...],
+ * where "--" is an empty slot and "*" is the pointer to a child bucket.
+ *
+ * DICT STRUCTURE
+ * --------------
+ * A dict has two hash tables. Normally only ht_table[0] is used; ht_table[1]
+ * exists only while the dict is resized (see INCREMENTAL REHASHING). A table
+ * is an array of 2^ht_size_exp buckets of 64 bytes, one cache line each, and
+ * a bucket holds up to 7 entries. The low bits of a key's hash pick its
+ * bucket (hash & mask). When that bucket is full, its last slot becomes a
+ * pointer to a child bucket, so every top-level bucket is the head of a
+ * chain of zero or more child buckets:
+ *
+ *   struct dict             ht_table[0]: 2^ht_size_exp[0] buckets
+ *   +------------------+
+ *   | type             |    +----------+----------+----------+----------+
+ *   | ht_table[0] -----+--->| bucket 0 | bucket 1 | bucket 2 | bucket 3 |
+ *   | ht_table[1]      |    +----------+----------+-----+----+----------+
+ *   | ht_used[2]       |                                |
+ *   | child_buckets[2] |                                v
+ *   | rehashidx        |                          +----------+
+ *   | pauserehash      |                          |  child   |
+ *   | ht_size_exp[2]   |                          +-----+----+
+ *   | pauseAutoResize  |                                |
+ *   | metadata[]       |                                v
+ *   +------------------+                          +----------+
+ *                                                 |  child   |  last bucket
+ *                                                 +----------+
+ *
+ * A key is either in its top-level bucket or in one of that bucket's child
+ * buckets, in no particular order. ht_used[] counts the entries of each table
+ * and child_buckets[] its child buckets. The capacity used by the resize
+ * rules is the number of slots of the top-level buckets; child buckets don't
+ * count.
+ *
+ * BUCKET LAYOUT
+ * -------------
+ * A bucket keeps in a single cache line everything needed to find a key in
+ * it, except the keys themselves:
+ *
+ *    byte 0   bytes 1..7             bytes 8..63
+ *   +-------+----------------------+--------+--------+-----+--------+
+ *   | c   p | h0 h1 h2 h3 h4 h5 h6 | slot 0 | slot 1 | ... | slot 6 |
+ *   +-------+----------------------+--------+--------+-----+--------+
+ *
+ *   c       chained bit: slot 6 holds the pointer to a child bucket instead
+ *           of an entry, so a chained bucket holds at most 6 entries.
+ *   p       presence bits, one per slot: bit i is set if slot i holds an
+ *           entry. A delete clears only the bit, so an empty slot and its
+ *           tag may keep stale bytes.
+ *   h0..h6  the tag of the entry in each slot: the top byte of its hash.
+ *   slot i  an entry (see ENTRIES), or the child pointer in slot 6.
+ *
+ * ENTRIES
+ * -------
+ * A no_value dict (e.g. a set, or the keyspace whose kvobj holds both the key
+ * and the value) stores the key pointer itself in the slot and allocates
+ * nothing per entry. Any other dict stores a pointer to a 16-byte dictEntry
+ * holding the key and the value. The low 3 bits of the slot tell the two
+ * apart (see the pointer tagging notes in dict.h):
+ *
+ *   no_value dict:                      dict with values:
+ *
+ *   slot             key object         slot             dictEntry
+ *   +---------+      +---------+        +---------+      +---------+
+ *   | key|tag |----->| key     |        | entry   |----->| key     |
+ *   +---------+      +---------+        +---------+      | v       |
+ *                                                        +---------+
+ *
+ * A dictEntryLink is the address of a slot (&bucket->slots[pos]). Inserts,
+ * deletes and rehashing move entries between slots; see dictFindLink() for
+ * how long a link stays valid.
+ *
+ * LOOKUP
+ * ------
+ * The low bits of the hash give the bucket and the top byte gives the tag. A
+ * lookup compares only the keys whose tag matches, so most buckets are
+ * searched without touching any key:
+ *
+ *   hash(K) = 0x3A00000000000005, table of 8 buckets
+ *               ^^             ^
+ *               tag 3A         bucket 5 (hash & 7)
+ *
+ *   bucket 5:  [k0 k1 k2 k3 k4 k5 * ]   tags 11 22 33 44 55 66
+ *                                 |     no tag 3A: no key is compared
+ *                                 v
+ *   child:     [k6 k7 k8 -- -- -- --]   tags 3A 77 3A
+ *                                       compare K with k6: no, k8: found
+ *
+ * While rehashing, a lookup searches ht_table[0] (unless the key's bucket
+ * was already moved) and then ht_table[1].
+ *
+ * INSERT AND CHAINING
+ * -------------------
+ * An insert takes the first free slot of the first bucket of the chain that
+ * is not full. When all the buckets are full, the last one is chained: its
+ * last entry moves to a new child bucket, and the slot takes the child
+ * pointer:
+ *
+ *   insert k7:
+ *
+ *   [k0 k1 k2 k3 k4 k5 k6]   ==>   [k0 k1 k2 k3 k4 k5 * ]
+ *                                                     |
+ *                                                     v
+ *                                  [k6 k7 -- -- -- -- --]
+ *
+ * DELETE AND COMPACTION
+ * ---------------------
+ * A delete clears the presence bit, which leaves a hole. Then the chain is
+ * compacted: the hole is filled with an entry from the last bucket, and a
+ * last bucket left with one entry or none is freed, its entry taking the
+ * place of the child pointer. So every bucket of a chain but the last one
+ * stays full:
+ *
+ *   delete k2:
+ *
+ *   [k0 k1 k2 k3 k4 k5 * ]   ==>   [k0 k1 k6 k3 k4 k5 k7]
+ *                      |
+ *                      v           k6 fills the hole, then k7, the only
+ *   [k6 k7 -- -- -- -- --]         entry left in the child, takes the place
+ *                                  of the child pointer, and the child is
+ *                                  freed.
+ *
+ * Compaction is paused together with rehashing (pauserehash > 0), so that
+ * entries don't move under scans, safe iterators and two-phase unlink.
+ * Deletes made meanwhile leave holes and maybe empty child buckets. Scans
+ * and safe iterators compact each chain they are done with
+ * (compactBucketChain()), and rehashing frees the child buckets of every
+ * chain it moves.
+ *
+ * INCREMENTAL REHASHING
+ * ---------------------
+ * A resize moves every entry, which would take too long for a big dict, so
+ * it is done one chain at a time. ht_table[1] is the new table and rehashidx
+ * is the next bucket of ht_table[0] to move. Each lookup, insert and delete
+ * moves one chain, dictRehashMicroseconds() moves many, and inserts go to
+ * ht_table[1]:
+ *
+ *   rehashidx = 2   (expanding from 4 to 8 buckets)
+ *
+ *   ht_table[0]:  [ moved ][ moved ][ chain ][ chain ]
+ *                                     ^ rehashidx
+ *   ht_table[1]:  [ ][ ][ ][ ][ ][ ][ ][ ]   moved entries and new inserts
+ *
+ * Once ht_table[0] has no entries and no child buckets left, it is freed and
+ * ht_table[1] becomes ht_table[0]. A table expands when its entries reach the
+ * number of slots and shrinks when they drop to 1/8 of it (4 times and 1/32
+ * when dict_can_resize is DICT_RESIZE_AVOID).
+ */
+
 #include "fmacros.h"
 
 #include <stdio.h>
