@@ -83,3 +83,134 @@ void cuckooMixDigest(unsigned char *digest, const robj *o) {
         mixDigest(digest, filter->data, (size_t)filter->numBuckets * filter->bucketSize);
     }
 }
+
+#define CUCKOO_LEGACY_RDB_TYPE_NAME "MBbloomCF"
+#define CUCKOO_LEGACY_RDB_VERSION_MASK UINT64_C(0x3FF)
+#define CUCKOO_LEGACY_RDB_VERSION_EXPANSION 4
+#define CUCKOO_RDB_NATIVE_VERSION (-1)
+#define CUCKOO_LEGACY_DEFAULT_BUCKET_SIZE 2
+#define CUCKOO_LEGACY_DEFAULT_MAX_ITERATIONS 20
+#define CUCKOO_LEGACY_DEFAULT_EXPANSION 1
+
+int cuckooIsLegacyRdbType(uint64_t moduleid) {
+    char name[sizeof(CUCKOO_LEGACY_RDB_TYPE_NAME)];
+    moduleTypeNameByID(name, moduleid);
+    return !strcmp(name, CUCKOO_LEGACY_RDB_TYPE_NAME);
+}
+
+/* Keep the module field order, using native RDB integers and strings. */
+ssize_t rdbSaveCuckooObject(rio *rdb, const robj *o) {
+    const CuckooFilter *cf = o->ptr;
+    ssize_t n, total = 0;
+#define SAVE_CUCKOO(expr) do { if ((n = (expr)) == -1) return -1; total += n; } while (0)
+    SAVE_CUCKOO(rdbSaveLen(rdb, cf->numFilters));
+    SAVE_CUCKOO(rdbSaveLen(rdb, cf->numBuckets));
+    SAVE_CUCKOO(rdbSaveLen(rdb, cf->numItems));
+    SAVE_CUCKOO(rdbSaveLen(rdb, cf->numDeletes));
+    SAVE_CUCKOO(rdbSaveLen(rdb, cf->bucketSize));
+    SAVE_CUCKOO(rdbSaveLen(rdb, cf->maxIterations));
+    SAVE_CUCKOO(rdbSaveLen(rdb, cf->expansion));
+    for (size_t i = 0; i < cf->numFilters; i++) {
+        const SubCF *filter = &cf->filters[i];
+        SAVE_CUCKOO(rdbSaveLen(rdb, filter->numBuckets));
+        SAVE_CUCKOO(rdbSaveRawString(rdb, filter->data,
+                                    (size_t)filter->numBuckets * filter->bucketSize));
+    }
+#undef SAVE_CUCKOO
+    return total;
+}
+
+robj *rdbLoadCuckooObject(rio *rdb, uint64_t moduleid, int *is_corrupt) {
+    int encver = moduleid == CUCKOO_RDB_NATIVE_ID ? CUCKOO_RDB_NATIVE_VERSION :
+                 (int)(moduleid & CUCKOO_LEGACY_RDB_VERSION_MASK);
+    int legacy = encver != CUCKOO_RDB_NATIVE_VERSION;
+    int encoded;
+    uint64_t numFilters, numBuckets, numItems, numDeletes = 0;
+    uint64_t bucketSize = CUCKOO_LEGACY_DEFAULT_BUCKET_SIZE;
+    uint64_t maxIterations = CUCKOO_LEGACY_DEFAULT_MAX_ITERATIONS;
+    uint64_t expansion = CUCKOO_LEGACY_DEFAULT_EXPANSION;
+    CuckooFilter *cf = NULL;
+    *is_corrupt = 0;
+#define LOAD_CUCKOO_RAW_LEN(dest) do { \
+    if (rdbLoadLenByRef(rdb, &encoded, &(dest)) == -1) goto error; \
+    if (encoded) goto corrupt; \
+} while (0)
+#define LOAD_CUCKOO_OPCODE(expected) do { \
+    if (legacy) { \
+        uint64_t opcode; \
+        LOAD_CUCKOO_RAW_LEN(opcode); \
+        if (opcode != (expected)) goto corrupt; \
+    } \
+} while (0)
+#define LOAD_CUCKOO_LEN(dest) do { \
+    LOAD_CUCKOO_OPCODE(RDB_MODULE_OPCODE_UINT); \
+    LOAD_CUCKOO_RAW_LEN(dest); \
+} while (0)
+    if (encver > CUCKOO_LEGACY_RDB_VERSION_EXPANSION) goto corrupt;
+    LOAD_CUCKOO_LEN(numFilters);
+    LOAD_CUCKOO_LEN(numBuckets);
+    LOAD_CUCKOO_LEN(numItems);
+    if (!legacy || encver >= CUCKOO_LEGACY_RDB_VERSION_EXPANSION) {
+        LOAD_CUCKOO_LEN(numDeletes);
+        LOAD_CUCKOO_LEN(bucketSize);
+        LOAD_CUCKOO_LEN(maxIterations);
+        LOAD_CUCKOO_LEN(expansion);
+    }
+    if (numFilters == 0 || numFilters > UINT16_MAX ||
+        numBuckets == 0 || numBuckets > CF_MAX_NUM_BUCKETS ||
+        bucketSize > UINT16_MAX || maxIterations > UINT16_MAX || expansion > UINT16_MAX)
+        goto corrupt;
+    cf = ztrycalloc(sizeof(*cf));
+    if (!cf) goto error;
+    cf->numBuckets = numBuckets;
+    cf->numItems = numItems;
+    cf->numDeletes = numDeletes;
+    cf->bucketSize = bucketSize;
+    cf->maxIterations = maxIterations;
+    cf->expansion = expansion;
+    cf->numFilters = numFilters;
+    if (CuckooFilter_ValidateIntegrity(cf)) goto corrupt;
+    cf->filters = ztrycalloc(numFilters * sizeof(*cf->filters));
+    if (!cf->filters) goto error;
+    for (size_t i = 0; i < numFilters; i++) {
+        uint64_t buckets = numBuckets;
+        size_t bytes;
+        SubCF *filter = &cf->filters[i];
+        if (!legacy || encver >= CUCKOO_LEGACY_RDB_VERSION_EXPANSION)
+            LOAD_CUCKOO_LEN(buckets);
+        if (buckets == 0 || buckets > CF_MAX_NUM_BUCKETS ||
+            (buckets & (buckets - 1)) || buckets > SIZE_MAX / bucketSize) goto corrupt;
+        filter->numBuckets = buckets;
+        filter->bucketSize = bucketSize;
+        LOAD_CUCKOO_OPCODE(RDB_MODULE_OPCODE_STRING);
+        filter->data = rdbGenericLoadStringObject(rdb, RDB_LOAD_PLAIN, &bytes);
+        if (!filter->data) goto error;
+        if (bytes != (size_t)buckets * bucketSize) goto corrupt;
+    }
+    LOAD_CUCKOO_OPCODE(RDB_MODULE_OPCODE_EOF);
+#undef LOAD_CUCKOO_LEN
+#undef LOAD_CUCKOO_OPCODE
+#undef LOAD_CUCKOO_RAW_LEN
+    return createCuckooObject(cf);
+
+corrupt:
+    *is_corrupt = 1;
+error:
+    CuckooFilter_Free(cf);
+    zfree(cf);
+    return NULL;
+}
+
+int cuckooRewriteAof(rio *r, robj *key, robj *o, int dbid) {
+    rio payload;
+    /* Key metadata is emitted separately by the AOF callbacks. */
+    createDumpPayload(&payload, o, key, dbid, DUMP_PAYLOAD_SKIP_KEY_META, 0);
+    int ok = rioWriteBulkCount(r, '*', 5) &&
+             rioWriteBulkString(r, "RESTORE", 7) &&
+             rioWriteBulkObject(r, key) &&
+             rioWriteBulkString(r, "0", 1) &&
+             rioWriteBulkString(r, payload.io.buffer.ptr, sdslen(payload.io.buffer.ptr)) &&
+             rioWriteBulkString(r, "REPLACE", 7);
+    sdsfree(payload.io.buffer.ptr);
+    return ok;
+}

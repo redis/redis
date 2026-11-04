@@ -9,6 +9,7 @@
 
 #include "server.h"
 #include "t_bloom.h"
+#include "t_cuckoo.h"
 #include "bio.h"
 #include "rio.h"
 #include "functions.h"
@@ -3083,6 +3084,8 @@ int rewriteObject(rio *r, robj *key, robj *o, int dbid, long long expiretime) {
         if (rewriteBitmapObject(r,key,o,dbid) == 0) return C_ERR;
     } else if (o->type == OBJ_BLOOM) {
         if (bloomRewriteAof(r,key,o,dbid) == 0) return C_ERR;
+    } else if (o->type == OBJ_CUCKOO) {
+        if (cuckooRewriteAof(r,key,o,dbid) == 0) return C_ERR;
     } else if (o->type == OBJ_MODULE) {
         if (rewriteModuleObject(r,key,o,dbid) == 0) return C_ERR;
     } else {

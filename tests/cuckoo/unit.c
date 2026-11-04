@@ -351,12 +351,74 @@ static void *cuckooTestRelocate(void *ptr) {
     return moved;
 }
 
+uint64_t moduleTypeEncodeId(const char *name, int encver);
+
+/* Synthetic historical module payloads: versions before 4 omitted geometry
+ * options and stored equal-sized subfilters. */
+static void testCuckooLegacyRdb(void) {
+    CuckooFilter cf;
+    assert(CuckooFilter_Init(&cf, 64, 2, 20, 1) == 0);
+    for (uint64_t i = 0; i < 10; i++)
+        assert(CuckooFilter_Insert(&cf, CUCKOO_GEN_HASH(&i, sizeof(i))) == CuckooInsert_Inserted);
+    for (int version = 0; version <= 4; version++) {
+        rio out, in;
+        rioInitWithBuffer(&out, sdsempty());
+        uint64_t id = moduleTypeEncodeId("MBbloomCF", version);
+        assert(cuckooIsLegacyRdbType(id));
+        rdbSaveType(&out, RDB_TYPE_MODULE_2);
+        rdbSaveLen(&out, id);
+        uint64_t fields[] = {cf.numFilters, cf.numBuckets, cf.numItems, cf.numDeletes,
+                             cf.bucketSize, cf.maxIterations, cf.expansion};
+        size_t count = version < 4 ? 3 : 7;
+        for (size_t i = 0; i < count; i++) {
+            rdbSaveLen(&out, RDB_MODULE_OPCODE_UINT);
+            rdbSaveLen(&out, fields[i]);
+        }
+        for (size_t i = 0; i < cf.numFilters; i++) {
+            if (version >= 4) {
+                rdbSaveLen(&out, RDB_MODULE_OPCODE_UINT);
+                rdbSaveLen(&out, cf.filters[i].numBuckets);
+            }
+            rdbSaveLen(&out, RDB_MODULE_OPCODE_STRING);
+            rdbSaveRawString(&out, cf.filters[i].data,
+                            cf.filters[i].numBuckets * cf.bucketSize);
+        }
+        rdbSaveLen(&out, RDB_MODULE_OPCODE_EOF);
+        rioInitWithBuffer(&in, out.io.buffer.ptr);
+        int type = rdbLoadObjectType(&in), err;
+        robj *o = rdbLoadObject(type, &in, NULL, 0, RDB_VERSION, &err);
+        int matches = o && o->type == OBJ_CUCKOO && getObjectLength(o) == cf.numItems;
+        if (o) {
+            for (uint64_t i = 0; i < 10; i++)
+                matches &= CuckooFilter_Check(o->ptr, CUCKOO_GEN_HASH(&i, sizeof(i)));
+            decrRefCount(o);
+        }
+        test_cond("Historical Cuckoo module RDB loads as a native filter", matches);
+        /* Exercise the loader itself without a DUMP trailer or checksum. */
+        int truncated_ok = 1;
+        for (size_t cut = 10; cut < sdslen(out.io.buffer.ptr); cut++) {
+            sds partial = sdsnewlen(out.io.buffer.ptr, cut);
+            rioInitWithBuffer(&in, partial);
+            rdbLoadObjectType(&in);
+            uint64_t partial_id = rdbLoadLen(&in, NULL);
+            int corrupt;
+            o = rdbLoadCuckooObject(&in, partial_id, &corrupt);
+            if (o) { truncated_ok = 0; decrRefCount(o); }
+            sdsfree(partial);
+        }
+        test_cond("Truncated historical Cuckoo fields are rejected", truncated_ok);
+        sdsfree(out.io.buffer.ptr);
+    }
+    CuckooFilter_Free(&cf);
+}
+
 int cuckooObjectTest(int argc, char **argv, int flags) {
     (void)argc;
     (void)argv;
     (void)flags;
     int before_failed = __failed_tests;
     size_t before_memory = zmalloc_used_memory();
+    testCuckooLegacyRdb();
     CuckooFilter *cf = zmalloc(sizeof(*cf));
     assert(CuckooFilter_Init(cf, 8, 2, 20, 2) == 0);
     robj *o = createCuckooObject(cf);
@@ -388,6 +450,41 @@ int cuckooObjectTest(int argc, char **argv, int flags) {
     cuckooMixDigest(copied, copy);
     test_cond("Cuckoo digest detects metadata changes", memcmp(original, copied, 20) != 0);
     decrRefCount(copy);
+
+    for (int compression = 0; compression <= 1; compression++) {
+        int old_compression = server.rdb_compression;
+        server.rdb_compression = compression;
+        rio out, in;
+        rioInitWithBuffer(&out, sdsempty());
+        test_cond("Save native Cuckoo RDB type and value",
+                  rdbSaveObjectType(&out, o) > 0 && rdbSaveObject(&out, o, NULL, 0) > 0);
+        rioInitWithBuffer(&in, out.io.buffer.ptr);
+        int type = rdbLoadObjectType(&in), err;
+        copy = rdbLoadObject(type, &in, NULL, 0, RDB_VERSION, &err);
+        test_cond("Load native Cuckoo RDB value", type == RDB_TYPE_CUCKOO && copy != NULL);
+        if (copy) {
+            memset(copied, 0, sizeof(copied));
+            cuckooMixDigest(copied, copy);
+            int matches = memcmp(original, copied, 20) == 0;
+            for (uint64_t i = 0; i < 100; i++)
+                matches &= CuckooFilter_Check(copy->ptr, CUCKOO_GEN_HASH(&i, sizeof(i)));
+            test_cond("Cuckoo RDB round trip preserves membership and metadata", matches);
+            decrRefCount(copy);
+        }
+        int truncated_ok = 1;
+        for (size_t cut = 1; cut < sdslen(out.io.buffer.ptr); cut++) {
+            sds partial = sdsnewlen(out.io.buffer.ptr, cut);
+            rioInitWithBuffer(&in, partial);
+            rdbLoadObjectType(&in);
+            int corrupt;
+            copy = rdbLoadCuckooObject(&in, CUCKOO_RDB_NATIVE_ID, &corrupt);
+            if (copy) { truncated_ok = 0; decrRefCount(copy); }
+            sdsfree(partial);
+        }
+        test_cond("Truncated native Cuckoo fields are rejected", truncated_ok);
+        sdsfree(out.io.buffer.ptr);
+        server.rdb_compression = old_compression;
+    }
 
     size_t alloc_size = cuckooAllocSize(o);
     test_cond("Cuckoo allocation size includes every allocation",

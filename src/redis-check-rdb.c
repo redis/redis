@@ -102,6 +102,7 @@ char *rdb_type_string[] = {
     "unused",
 #endif
     "bloom",
+    "cuckoo",
 };
 
 /* Show a few stats collected into 'rdbstate' */

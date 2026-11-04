@@ -3,6 +3,9 @@
 
 #include "object.h"
 #include "cuckoo.h"
+#include "rio.h"
+
+#define CUCKOO_RDB_NATIVE_ID UINT64_C(0)
 
 /* Takes ownership of an initialized filter. */
 robj *createCuckooObject(CuckooFilter *filter);
@@ -13,6 +16,11 @@ void cuckooDismiss(robj *o);
 unsigned long cuckooDefrag(robj *o, unsigned long cursor, size_t steps,
                           void *(*defrag)(void *));
 void cuckooMixDigest(unsigned char *digest, const robj *o);
+
+int cuckooIsLegacyRdbType(uint64_t moduleid);
+ssize_t rdbSaveCuckooObject(rio *rdb, const robj *o);
+robj *rdbLoadCuckooObject(rio *rdb, uint64_t moduleid, int *is_corrupt);
+int cuckooRewriteAof(rio *r, robj *key, robj *o, int dbid);
 
 #ifdef REDIS_TEST
 int cuckooObjectTest(int argc, char **argv, int flags);

@@ -14,6 +14,7 @@
 
 #include "server.h"
 #include "t_bloom.h"
+#include "t_cuckoo.h"
 #include "bitroar.h"
 #include "lzf.h"    /* LZF compression library */
 #include "zipmap.h"
@@ -766,6 +767,8 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
         return rdbSaveType(rdb,RDB_TYPE_BITMAP);
     case OBJ_BLOOM:
         return rdbSaveType(rdb,RDB_TYPE_BLOOM);
+    case OBJ_CUCKOO:
+        return rdbSaveType(rdb,RDB_TYPE_CUCKOO);
     default:
         serverPanic("Unknown object type");
     }
@@ -1820,6 +1823,9 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
         }
     } else if (o->type == OBJ_BLOOM) {
         if ((n = rdbSaveBloomObject(rdb, o)) == -1) return -1;
+        nwritten += n;
+    } else if (o->type == OBJ_CUCKOO) {
+        if ((n = rdbSaveCuckooObject(rdb, o)) == -1) return -1;
         nwritten += n;
     } else if (o->type == OBJ_BITMAP) {
         if ((n = rdbSaveBitmapObject(rdb, o)) == -1) return -1;
@@ -4632,6 +4638,13 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbver, int *e
             if (o && error) *error = 0;
             return o;
         }
+        if (cuckooIsLegacyRdbType(moduleid)) {
+            int is_corrupt;
+            o = rdbLoadCuckooObject(rdb,moduleid,&is_corrupt);
+            if (is_corrupt) rdbReportCorruptRDB("Invalid Cuckoo RDB payload");
+            if (o && error) *error = 0;
+            return o;
+        }
         moduleType *mt = moduleTypeLookupModuleByID(moduleid);
 
         if (rdbCheckMode) {
@@ -4791,6 +4804,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbver, int *e
 
             arSet(ar, idx, v);
         }
+    } else if (rdbtype == RDB_TYPE_CUCKOO) {
+        int is_corrupt;
+        o = rdbLoadCuckooObject(rdb,CUCKOO_RDB_NATIVE_ID,&is_corrupt);
+        if (is_corrupt) rdbReportCorruptRDB("Invalid Cuckoo RDB payload");
+        if (o == NULL) return NULL;
     } else if (rdbtype == RDB_TYPE_BLOOM) {
         int is_corrupt;
         o = rdbLoadBloomObject(rdb,BLOOM_RDB_NATIVE_ID,&is_corrupt);
