@@ -2882,13 +2882,6 @@ int zbtreeTryReserve(zbtreeSet *zs, uint64_t count) {
     return zbtIndexReserve(zs, count, 1);
 }
 
-/* Copy up to 'steps' score leaves of a running member-index resize. A bulk
- * insertion can call this at its end so the resize it started does not wait
- * for later lookups, as ZSCAN does not advance one. */
-void zbtreeRehashStep(zbtreeSet *zs, int steps) {
-    zbtIndexRehashStep(zs, steps);
-}
-
 /* Copy a score tree while repairing every pointer between its pages. Leaves
  * are visited in score order, which also rebuilds their linked list and the
  * leaf ID table. Inline records can be copied unchanged. External members
@@ -4425,7 +4418,6 @@ uint64_t zbtreeScan(zbtreeSet *zs, uint64_t cursor,
      * early returns a valid cursor, so coverage is unchanged. */
     unsigned long emitted = 0;
     unsigned long maxsteps = count > ULONG_MAX / 10 ? ULONG_MAX : count * 10;
-    if (maxsteps == 0) maxsteps = 1;
     do {
         emitted += zbtIndexScanGroup(zs, small, cursor & m0, fn, privdata);
         if (large == NULL) {
@@ -4436,7 +4428,7 @@ uint64_t zbtreeScan(zbtreeSet *zs, uint64_t cursor,
             emitted += zbtIndexScanGroup(zs, large, cursor & m1, fn, privdata);
             cursor = zbtScanNext(cursor, m1);
         } while (cursor & (m0 ^ m1));
-    } while (cursor != 0 && emitted < count && --maxsteps);
+    } while (cursor != 0 && emitted < count && maxsteps--);
     return cursor;
 }
 
@@ -5057,8 +5049,9 @@ int zsetBtreeTest(int argc, char **argv, int flags) {
     printf("Testing B+ tree ZSCAN step bound on a sparse index\n");
 
     /* One member in an index reserved for a million. A small COUNT must
-     * stop after COUNT * 10 steps instead of walking every empty bucket in
-     * one call, and the cursor it returns must still reach the member. */
+     * stop after about COUNT * 10 steps instead of walking every empty
+     * bucket in one call, and the cursor it returns must still reach the
+     * member. */
     {
         zbtreeSet *zs = zbtreeCreate();
         zbtreeReserve(zs, 1000000);
