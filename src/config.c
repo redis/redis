@@ -4431,6 +4431,9 @@ standardConfig static_configs[] = {
     createSpecialConfig("bf-error-rate", NULL, MODIFIABLE_CONFIG, setConfigBloomErrorRateOption, getConfigBloomErrorRateOption, rewriteConfigBloomErrorRateOption, NULL),
     createLongLongConfig("bf-initial-size", NULL, MODIFIABLE_CONFIG, 1, 1LL<<30, server.bf_initial_size, 100, INTEGER_CONFIG, NULL, NULL),
     createLongLongConfig("bf-expansion-factor", NULL, MODIFIABLE_CONFIG, 0, 32768, server.bf_expansion_factor, 2, INTEGER_CONFIG, NULL, NULL),
+    createLongLongConfig("cf-bucket-size", NULL, MODIFIABLE_CONFIG, 1, 255, server.cf_bucket_size, 2, INTEGER_CONFIG, NULL, NULL),
+    createLongLongConfig("cf-max-iterations", NULL, MODIFIABLE_CONFIG, 1, 65535, server.cf_max_iterations, 20, INTEGER_CONFIG, NULL, NULL),
+    createLongLongConfig("cf-expansion-factor", NULL, MODIFIABLE_CONFIG, 0, 32768, server.cf_expansion_factor, 1, INTEGER_CONFIG, NULL, NULL),
     createSizeTConfig("hll-sparse-max-bytes", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hll_sparse_max_bytes, 3000, MEMORY_CONFIG, NULL, NULL),
     createSizeTConfig("tracking-table-max-keys", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.tracking_table_max_keys, 1000000, INTEGER_CONFIG, NULL, NULL), /* Default: 1 million keys max. */
     createSizeTConfig("client-query-buffer-limit", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, 1024*1024, LONG_MAX, server.client_max_querybuf_len, 1024*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Default: 1GB max query buffer. */

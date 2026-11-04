@@ -88,9 +88,6 @@ void cuckooMixDigest(unsigned char *digest, const robj *o) {
 #define CUCKOO_LEGACY_RDB_VERSION_MASK UINT64_C(0x3FF)
 #define CUCKOO_LEGACY_RDB_VERSION_EXPANSION 4
 #define CUCKOO_RDB_NATIVE_VERSION (-1)
-#define CUCKOO_LEGACY_DEFAULT_BUCKET_SIZE 2
-#define CUCKOO_LEGACY_DEFAULT_MAX_ITERATIONS 20
-#define CUCKOO_LEGACY_DEFAULT_EXPANSION 1
 
 int cuckooIsLegacyRdbType(uint64_t moduleid) {
     char name[sizeof(CUCKOO_LEGACY_RDB_TYPE_NAME)];
@@ -126,9 +123,9 @@ robj *rdbLoadCuckooObject(rio *rdb, uint64_t moduleid, int *is_corrupt) {
     int legacy = encver != CUCKOO_RDB_NATIVE_VERSION;
     int encoded;
     uint64_t numFilters, numBuckets, numItems, numDeletes = 0;
-    uint64_t bucketSize = CUCKOO_LEGACY_DEFAULT_BUCKET_SIZE;
-    uint64_t maxIterations = CUCKOO_LEGACY_DEFAULT_MAX_ITERATIONS;
-    uint64_t expansion = CUCKOO_LEGACY_DEFAULT_EXPANSION;
+    uint64_t bucketSize = server.cf_bucket_size;
+    uint64_t maxIterations = server.cf_max_iterations;
+    uint64_t expansion = server.cf_expansion_factor;
     CuckooFilter *cf = NULL;
     *is_corrupt = 0;
 #define LOAD_CUCKOO_RAW_LEN(dest) do { \

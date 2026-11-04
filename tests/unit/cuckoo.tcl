@@ -94,3 +94,29 @@ start_server {tags {"cuckoo"} overrides {save ""}} {
         } {OK} {needs:debug}
     }
 }
+
+start_server {tags {"cuckoo external:skip"} overrides {save ""}} {
+    test {Cuckoo persistence defaults support CONFIG SET and bounds} {
+        foreach {name default minimum maximum} {
+            cf-bucket-size 2 1 255
+            cf-max-iterations 20 1 65535
+            cf-expansion-factor 1 0 32768
+        } {
+            assert_equal $default [lindex [r config get $name] 1]
+            assert_equal OK [r config set $name $minimum]
+            assert_equal OK [r config set $name $maximum]
+            assert_error {*} {r config set $name [expr {$minimum-1}]}
+            assert_error {*} {r config set $name [expr {$maximum+1}]}
+            assert_equal $maximum [lindex [r config get $name] 1]
+            r config set $name $default
+        }
+    }
+    test {Cuckoo persistence defaults survive CONFIG REWRITE and restart} {
+        r config set cf-bucket-size 4 cf-max-iterations 31 cf-expansion-factor 2
+        r config rewrite
+        restart_server 0 true false
+        assert_equal 4 [lindex [r config get cf-bucket-size] 1]
+        assert_equal 31 [lindex [r config get cf-max-iterations] 1]
+        assert_equal 2 [lindex [r config get cf-expansion-factor] 1]
+    }
+}

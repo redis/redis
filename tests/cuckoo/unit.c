@@ -357,7 +357,7 @@ uint64_t moduleTypeEncodeId(const char *name, int encver);
  * options and stored equal-sized subfilters. */
 static void testCuckooLegacyRdb(void) {
     CuckooFilter cf;
-    assert(CuckooFilter_Init(&cf, 64, 2, 20, 1) == 0);
+    assert(CuckooFilter_Init(&cf, 64, server.cf_bucket_size, server.cf_max_iterations, server.cf_expansion_factor) == 0);
     for (uint64_t i = 0; i < 10; i++)
         assert(CuckooFilter_Insert(&cf, CUCKOO_GEN_HASH(&i, sizeof(i))) == CuckooInsert_Inserted);
     for (int version = 0; version <= 4; version++) {
@@ -389,6 +389,12 @@ static void testCuckooLegacyRdb(void) {
         robj *o = rdbLoadObject(type, &in, NULL, 0, RDB_VERSION, &err);
         int matches = o && o->type == OBJ_CUCKOO && getObjectLength(o) == cf.numItems;
         if (o) {
+            CuckooFilter *loaded = o->ptr;
+            matches &= loaded->bucketSize == cf.bucketSize &&
+                       loaded->maxIterations == cf.maxIterations &&
+                       loaded->expansion == cf.expansion;
+        }
+        if (o) {
             for (uint64_t i = 0; i < 10; i++)
                 matches &= CuckooFilter_Check(o->ptr, CUCKOO_GEN_HASH(&i, sizeof(i)));
             decrRefCount(o);
@@ -418,7 +424,20 @@ int cuckooObjectTest(int argc, char **argv, int flags) {
     (void)flags;
     int before_failed = __failed_tests;
     size_t before_memory = zmalloc_used_memory();
+    long long old_bucket = server.cf_bucket_size;
+    long long old_iterations = server.cf_max_iterations;
+    long long old_expansion = server.cf_expansion_factor;
+    server.cf_bucket_size = 2;
+    server.cf_max_iterations = 20;
+    server.cf_expansion_factor = 1;
     testCuckooLegacyRdb();
+    server.cf_bucket_size = 4;
+    server.cf_max_iterations = 31;
+    server.cf_expansion_factor = 2;
+    testCuckooLegacyRdb();
+    server.cf_bucket_size = old_bucket;
+    server.cf_max_iterations = old_iterations;
+    server.cf_expansion_factor = old_expansion;
     CuckooFilter *cf = zmalloc(sizeof(*cf));
     assert(CuckooFilter_Init(cf, 8, 2, 20, 2) == 0);
     robj *o = createCuckooObject(cf);
