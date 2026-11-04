@@ -446,8 +446,7 @@ uint64_t dictCStrCaseHash(const void *key) {
  * sequential integers and the dict takes the hash tag of an entry from the
  * top byte of the hash. */
 uint64_t dictClientHash(const void *key) {
-    uint64_t id = ((client *)key)->id;
-    return dictGenHashFunction(&id, sizeof(id));
+    return dictIdHash(((client *)key)->id);
 }
 
 /* Dict compare function for client */

@@ -144,6 +144,13 @@ uint64_t dictGenCaseHashFunction(const unsigned char *buf, size_t len) {
     return siphash_nocase(buf,len,dict_hash_function_seed);
 }
 
+/* Hash for small sequential integer ids (client ids, template ids). A multiply
+ * by an odd constant gives even bucket fill and mixes all bits into the top
+ * byte (the hash tag). Not for keys a client controls, or aligned pointers. */
+uint64_t dictIdHash(uint64_t id) {
+    return id * 0x9E3779B97F4A7C15ULL;
+}
+
 /* --------------------- dictEntry pointer bit tricks ----------------------  */
 
 /* The 3 least significant bits in a pointer to a dictEntry determines what the

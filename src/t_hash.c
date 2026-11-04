@@ -331,8 +331,7 @@ static redisAtomic uintptr_t bio_pending_drops = 0;
 /* The id is mixed, as ids are small integers and the dict takes the hash tag
  * of an entry from the top byte of the hash. */
 static uint64_t pendingDropHash(const void *key) {
-    uint64_t id = (uint64_t)(uintptr_t)key;
-    return dictGenHashFunction(&id, sizeof(id));
+    return dictIdHash((uint64_t)(uintptr_t)key);
 }
 static dictType pendingDropDictType = { pendingDropHash, NULL, NULL, NULL, NULL, NULL, NULL };
 
