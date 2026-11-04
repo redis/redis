@@ -210,21 +210,6 @@ error:
     return NULL;
 }
 
-/* Propagate the empty filter's exact geometry, independently of local defaults. */
-static void bloomPropagateCreation(client *c, SBChain *sb) {
-    if (!shouldPropagate(server.allowed_propagate_targets)) return;
-    size_t len;
-    char *header = SBChain_GetEncodedHeader(sb, &len);
-    robj *argv[] = {createStringObject("BF.LOADCHUNK",12), c->argv[1],
-                    createStringObjectFromLongLong(SB_CHUNKITER_INIT),
-                    createStringObject(header,len)};
-    alsoPropagate(c->db->id,argv,4,PROPAGATE_AOF|PROPAGATE_REPL);
-    decrRefCount(argv[0]);
-    decrRefCount(argv[2]);
-    decrRefCount(argv[3]);
-    SB_FreeEncodedHeader(header);
-}
-
 static SBChain *bloomCreateChain(client *c, long long capacity, double error,
                                 long long expansion, int nonscaling) {
     int err;
@@ -291,8 +276,6 @@ void bfReserveCommand(client *c) {
     kv = dbAddByLink(c->db,c->argv[1],&o,&link);
     keyModified(c,c->db,c->argv[1],kv,1);
     server.dirty++;
-    bloomPropagateCreation(c,sb);
-    preventCommandPropagation(c);
     addReply(c,shared.ok);
 }
 
@@ -311,19 +294,23 @@ static void bloomInsert(client *c, int first, int multi, long long capacity,
         if (!sb) return;
         robj *o = createBloomObject(sb);
         kv = dbAddByLink(c->db,c->argv[1],&o,&link);
-        bloomPropagateCreation(c,sb);
     }
     SBChain *sb = kv->ptr;
     size_t oldlen = sb->size;
     size_t oldsize = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
     void *replylen = multi ? addReplyDeferredLen(c) : NULL;
-    /* Build replay arguments only when a successful insert needs propagation. */
+    /* Normally propagate the original command. Filter failed items only when needed. */
     int propagate = shouldPropagate(server.allowed_propagate_targets);
     robj **argv = NULL;
-    int argc = 4, replies = 0;
+    int argc = 0, replies = 0;
     for (int i = first; i < c->argc; i++) {
         int rv = SBChain_Add(sb,c->argv[i]->ptr,sdslen(c->argv[i]->ptr));
         replies++;
+        if (rv < 0 && propagate && !argv) {
+            argv = zmalloc(sizeof(*argv) * c->argc);
+            argc = i;
+            memcpy(argv,c->argv,sizeof(*argv) * argc);
+        }
         if (rv == SB_FULL) {
             addReplyError(c,"non scaling filter is full");
             break;
@@ -331,17 +318,7 @@ static void bloomInsert(client *c, int first, int multi, long long capacity,
             addReplyError(c,"problem inserting into filter");
         } else {
             addReplyBool(c,rv);
-            if (rv && propagate) {
-                /* Failed items must not be replayed after a partial failure. */
-                if (!argv) {
-                    argv = zmalloc(sizeof(*argv) * (c->argc - first + 4));
-                    argv[0] = createStringObject("BF.INSERT",9);
-                    argv[1] = c->argv[1];
-                    argv[2] = createStringObject("NOCREATE",8);
-                    argv[3] = createStringObject("ITEMS",5);
-                }
-                argv[argc++] = c->argv[i];
-            }
+            if (argv) argv[argc++] = c->argv[i];
         }
     }
     if (multi) setDeferredArrayLen(c,replylen,replies);
@@ -353,13 +330,14 @@ static void bloomInsert(client *c, int first, int multi, long long capacity,
         server.dirty += created + sb->size - oldlen;
     }
     if (argv) {
-        alsoPropagate(c->db->id,argv,argc,PROPAGATE_AOF|PROPAGATE_REPL);
-        decrRefCount(argv[0]);
-        decrRefCount(argv[2]);
-        decrRefCount(argv[3]);
-        zfree(argv);
+        if (argc > first) {
+            for (int i = 0; i < argc; i++) incrRefCount(argv[i]);
+            replaceClientCommandVector(c,argc,argv);
+        } else {
+            zfree(argv);
+            preventCommandPropagation(c);
+        }
     }
-    preventCommandPropagation(c);
 }
 
 void bfAddCommand(client *c) {

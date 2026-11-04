@@ -329,7 +329,31 @@ start_server {tags {"bloom"} overrides {save "" key-memory-histograms yes}} {
         assert_equal {OK 1} [r exec]
     }
 
-    test {Bloom command writes survive incremental AOF with changed defaults} {
+    test {Bloom propagates original commands and omits failed items} {
+        set repl [attach_to_replication_stream]
+        r bf.reserve replay-fixed 0.000001 2 nonscaling
+        r bf.add replay-added a
+        r bf.insert replay-inserted capacity 2 error 0.000001 expansion 1 items a b
+        assert_error {*non scaling filter is full*} {r bf.madd replay-fixed a b c}
+        assert_error {*non scaling filter is full*} {r bf.add replay-fixed c}
+        assert_error {*non scaling filter is full*} {r bf.insert replay-partial capacity 1 error 0.000001 nonscaling items a b}
+        # A failed item in the middle must not discard later successful replies.
+        r bf.reserve replay-tiny 1e-323 1
+        assert_error {*problem inserting into filter*} {r bf.madd replay-tiny a b a}
+        assert_replication_stream $repl {
+            {select *}
+            {bf.reserve replay-fixed 0.000001 2 nonscaling}
+            {bf.add replay-added a}
+            {bf.insert replay-inserted capacity 2 error 0.000001 expansion 1 items a b}
+            {bf.madd replay-fixed a b}
+            {bf.insert replay-partial capacity 1 error 0.000001 nonscaling items a}
+            {bf.reserve replay-tiny 1e-323 1}
+            {bf.madd replay-tiny a a}
+        }
+        close_replication_stream $repl
+    } {} {needs:repl external:skip}
+
+    test {Bloom command writes survive incremental AOF with matching defaults} {
         r config set appendonly yes
         waitForBgrewriteaof r
         r config set bf-initial-size 2 bf-error-rate 0.001 bf-expansion-factor 1
@@ -340,16 +364,20 @@ start_server {tags {"bloom"} overrides {save "" key-memory-histograms yes}} {
         r bf.reserve aof-tiny 1e-323 1
         assert_error {*problem inserting into filter*} {r bf.madd aof-tiny a b a}
         set payloads [list [r dump aof-bf] [r dump aof-empty] [r dump aof-full] [r dump aof-tiny]]
-        r config set bf-initial-size 100 bf-error-rate 0.01 bf-expansion-factor 2
+        r config set propagation-error-behavior panic
         r debug loadaof
         assert_equal $payloads [list [r dump aof-bf] [r dump aof-empty] [r dump aof-full] [r dump aof-tiny]]
+        r config set bf-initial-size 100 bf-error-rate 0.01 bf-expansion-factor 2
+        r config set propagation-error-behavior ignore
         assert_equal OK [r config set appendonly no]
     } {} {needs:debug}
 
     start_server {tags {"bloom needs:repl external:skip"} overrides {save ""}} {
         set master [srv -1 client]
         set replica [srv 0 client]
-        test {Bloom replication preserves geometry and partial writes with different defaults} {
+        test {Bloom replication preserves geometry and partial writes with matching defaults} {
+            $replica config set bf-initial-size 2 bf-error-rate 0.001 bf-expansion-factor 1
+            $replica config set propagation-error-behavior panic
             $replica replicaof [srv -1 host] [srv -1 port]
             wait_for_sync $replica
             $master config set bf-initial-size 2 bf-error-rate 0.001 bf-expansion-factor 1
@@ -357,6 +385,7 @@ start_server {tags {"bloom"} overrides {save "" key-memory-histograms yes}} {
             $master bf.reserve replicated-empty 0.001 10 nonscaling
             $master bf.reserve replicated-full 0.000001 1 nonscaling
             assert_error {*non scaling filter is full*} {$master bf.madd replicated-full a b c}
+            assert_error {*non scaling filter is full*} {$master bf.insert replicated-partial capacity 1 error 0.000001 nonscaling items a b}
             $master bf.reserve replicated-tiny 1e-323 1
             assert_error {*problem inserting into filter*} {$master bf.madd replicated-tiny a b a}
             $master eval {return redis.call('BF.MADD',KEYS[1],'x','y')} 1 replicated-lua
@@ -365,7 +394,7 @@ start_server {tags {"bloom"} overrides {save "" key-memory-histograms yes}} {
             $master bf.add replicated-multi a
             $master exec
             wait_for_ofs_sync $master $replica
-            foreach key {grown chunks replicated replicated-empty replicated-full replicated-tiny replicated-lua replicated-multi} {
+            foreach key {grown chunks replicated replicated-empty replicated-full replicated-partial replicated-tiny replicated-lua replicated-multi} {
                 assert_equal [$master dump $key] [$replica dump $key]
             }
             $master config set bf-initial-size 100 bf-error-rate 0.01 bf-expansion-factor 2
