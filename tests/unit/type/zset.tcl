@@ -1589,7 +1589,7 @@ start_server {tags {"zset"}} {
         r config set zset-max-listpack-entries $original_max
 
         # Converting a listpack for a ZADD that repeats one pair must not
-        # reserve an index for every pair the command carries.
+        # keep the index reserved for every pair the command carries.
         r zadd sparse{t} 1 a
         assert_encoding listpack sparse{t}
         set args {}
