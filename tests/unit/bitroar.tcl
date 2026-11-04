@@ -5000,10 +5000,6 @@ start_server {tags {"bitmap" "bitmap-roaring"}} {
             foreach {unit max} {byte 14000 bit 110000} {
                 set start [randomSignedInt $max]
                 set end [randomSignedInt $max]
-                # Force the original CI exception for a deterministic reproducer.
-                if {$i == 18} {
-                    set start "-0"
-                }
                 set expected [r bitrangeintarray bitmap:str{t} $start $end $unit]
                 foreach key {bitmap:native{t} bitmap:strnot{t} bitmap:nativenot{t}} option {{} zeros zeros} {
                     assert_equal $expected [r bitrangeintarray $key $start $end $unit {*}$option] \
