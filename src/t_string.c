@@ -116,8 +116,8 @@ void setGenericCommand(client *c, int flags, robj *key, robj **valref, robj *exp
     /* Handle conditional set operations - only set if key is found and condition
      * is met - otherwise return nil. */
     if (found && (flags & (OBJ_SET_IFEQ | OBJ_SET_IFNE | OBJ_SET_IFDEQ | OBJ_SET_IFDNE))) {
-        /* Reuse the kvobj of the lookup above: another lookup in the same dict
-         * may do a rehash step, which would invalidate `link`. */
+        /* Reuse the kvobj found above: another lookup could run a rehash step
+         * and invalidate `link`. */
         if (checkType(c, current, OBJ_STRING)) {
             return;
         }
@@ -182,8 +182,12 @@ void setGenericCommand(client *c, int flags, robj *key, robj **valref, robj *exp
 
     setKeyByLink(c, c->db, key, valref, setkey_flags, &link);
     /* If there's an expiration, setExpireByLink may reallocate the object.
-     * We must update valref to reflect the new object if that happens. */
-    if (expire) *valref = setExpireByLink(c, c->db, key->ptr, milliseconds, link);
+     * We must update valref to reflect the new object if that happens.
+     * setKeyByLink() fired KSN, so check the link first. */
+    if (expire) {
+        dbRefreshLink(c->db, key->ptr, &link, *valref);
+        *valref = setExpireByLink(c, c->db, key->ptr, milliseconds, link);
+    }
     /* The client still holds a reference to the original object via c->argv[i],
      * and will call decrRefCount() at the end of call(). We increment the refcount
      * from 1 to 2 to ensure both DB and client have valid references. */

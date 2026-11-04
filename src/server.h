@@ -4517,6 +4517,7 @@ void blessedIndexReconcileMoved(redisDb *db, kvstore *moved);
 
 void setKey(client *c, redisDb *db, robj *key, robj **ioval, int flags);
 void setKeyByLink(client *c, redisDb *db, robj *key, robj **valref, int flags, dictEntryLink *link);
+void dbRefreshLink(redisDb *db, sds key, dictEntryLink *plink, kvobj *kv);
 robj *dbRandomKey(redisDb *db);
 int dbGenericDelete(redisDb *db, robj *key, int async, int flags);
 int dbSyncDelete(redisDb *db, robj *key);
