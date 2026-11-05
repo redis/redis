@@ -144,7 +144,6 @@ foreach command {SORT SORT_RO} {
         assert_encoding $enc zset
     }
 
-    set origin_zset_max_listpack_entries [lindex [r config get zset-max-listpack-entries] 1]
 foreach enc {listpack btree} {
     test "SORT sorted set ($enc)" {
         create_sort_zset $enc
@@ -182,10 +181,10 @@ foreach enc {listpack btree} {
         assert_encoding $enc zset
     }
 }
-    r config set zset-max-listpack-entries $origin_zset_max_listpack_entries
 
     foreach command {SORT SORT_RO} {
         test "$command sorted set preserves listpack encoding" {
+            r config set zset-max-listpack-entries 128
             r del zset
             r zadd zset 1 a
             r zadd zset 5 b
@@ -203,6 +202,7 @@ foreach enc {listpack btree} {
 
     foreach command {SORT SORT_RO} {
         test "$command sorted set BY <pattern> preserves listpack encoding" {
+            r config set zset-max-listpack-entries 128
             r del zset
             r zadd zset 1 a
             r zadd zset 2 b
@@ -220,6 +220,7 @@ foreach enc {listpack btree} {
     }
 
     test "SORT sorted set STORE preserves listpack encoding" {
+        r config set zset-max-listpack-entries 128
         r del zset sort-res
         r zadd zset 1 a
         r zadd zset 5 b
@@ -260,7 +261,6 @@ foreach enc {listpack btree} {
         assert_equal {b e} [r lrange sort-res 0 -1]
         assert_encoding btree zset
     } {} {cluster:skip}
-    r config set zset-max-listpack-entries $origin_zset_max_listpack_entries
 
     test "SORT sorted set: +inf and -inf handling" {
         r del zset
