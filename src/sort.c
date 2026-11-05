@@ -462,7 +462,7 @@ void sortCommandGeneric(client *c, int readonly) {
                 serverAssertWithInfo(c,sortval,sptr != NULL);
             }
 
-            while(rangelen--) {
+            while (rangelen--) {
                 serverAssertWithInfo(c,sortval,eptr != NULL);
                 sdsele = lpGetObject(eptr);
                 vector[j].obj = createObject(OBJ_STRING,sdsele);
@@ -481,7 +481,7 @@ void sortCommandGeneric(client *c, int readonly) {
             /* Load every element of a listpack encoded sorted set, the actual
              * sorting is performed later on the vector. */
             eptr = lpSeek(lp,0);
-            while(eptr) {
+            while (eptr) {
                 sptr = lpNext(lp,eptr);
                 serverAssertWithInfo(c,sortval,sptr != NULL);
                 sdsele = lpGetObject(eptr);
