@@ -5031,6 +5031,8 @@ void cfMExistsCommand(client *c);
 void cfCountCommand(client *c);
 void cfInfoCommand(client *c);
 void cfDebugCommand(client *c);
+void cfDelCommand(client *c);
+void cfCompactCommand(client *c);
 
 void bfAddCommand(client *c);
 void bfMAddCommand(client *c);

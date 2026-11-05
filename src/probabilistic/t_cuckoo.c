@@ -296,3 +296,40 @@ void cfDebugCommand(client *c) {
         cf->bucketSize, cf->numBuckets, cf->numItems, cf->numDeletes, cf->numFilters,
         cf->maxIterations, cf->expansion));
 }
+
+void cfDelCommand(client *c) {
+    kvobj *kv = lookupKeyWrite(c->db, c->argv[1]);
+    if (!kv || kv->type != OBJ_CUCKOO) {
+        addReplyError(c, "Not found");
+        return;
+    }
+    CuckooFilter *cf = kv->ptr;
+    uint64_t oldlen = cf->numItems;
+    size_t oldsize = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
+    CuckooHash hash = CUCKOO_GEN_HASH(c->argv[2]->ptr, sdslen(c->argv[2]->ptr));
+    int rv = CuckooFilter_Delete(cf, hash);
+    if (rv) {
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), kv, oldsize, kvobjAllocSize(kv));
+        updateKeysizesHist(c->db, OBJ_CUCKOO, oldlen, cf->numItems);
+        keyModified(c, c->db, c->argv[1], kv, 1);
+        server.dirty++;
+    }
+    addReplyBool(c, !!rv);
+}
+
+void cfCompactCommand(client *c) {
+    kvobj *kv = lookupKeyWrite(c->db, c->argv[1]);
+    if (!kv || kv->type != OBJ_CUCKOO) {
+        addReplyError(c, "Cuckoo filter was not found");
+        return;
+    }
+    size_t oldsize = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
+    CuckooFilter_Compact(kv->ptr, true);
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), kv, oldsize, kvobjAllocSize(kv));
+    /* Compaction can relocate fingerprints even without removing a subfilter. */
+    keyModified(c, c->db, c->argv[1], kv, 1);
+    server.dirty++;
+    addReply(c, shared.ok);
+}

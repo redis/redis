@@ -63,7 +63,7 @@ start_server {tags {"cuckoo"} overrides {save ""}} {
     }
 
     test {Cuckoo read commands have dedicated ACL category and key specifications} {
-        assert_equal {cf.count cf.debug cf.exists cf.info cf.mexists} [lsort [r acl cat cuckoo]]
+        assert_equal {cf.compact cf.count cf.debug cf.del cf.exists cf.info cf.mexists} [lsort [r acl cat cuckoo]]
         foreach cmd {cf.exists cf.count cf.mexists} {
             assert_equal cf [r command getkeys $cmd cf item]
         }
@@ -176,5 +176,65 @@ start_server {tags {"cuckoo external:skip"} overrides {save ""}} {
         assert_equal 4 [lindex [r config get cf-bucket-size] 1]
         assert_equal 31 [lindex [r config get cf-max-iterations] 1]
         assert_equal 2 [lindex [r config get cf-expansion-factor] 1]
+    }
+}
+
+start_server {tags {"cuckoo"} overrides {save "" key-memory-histograms yes}} {
+    test {Cuckoo deletion and compaction preserve membership and module errors} {
+        r restore cf 0 [legacy_cuckoo_payload]
+        foreach protocol {2 3} {
+            r hello $protocol
+            set item [binary format ccc $protocol 0 -1]
+            assert_equal 1 [r cf.del cf $item]
+            assert_equal 0 [r cf.del cf $item]
+            assert_equal OK [r cf.compact cf]
+        }
+        r hello 2
+        assert_equal 27 [dict get [r cf.info cf] {Number of items inserted}]
+        for {set i 4} {$i < 30} {incr i} {
+            assert_equal 1 [r cf.exists cf [binary format ccc $i 0 -1]]
+        }
+        r set wrong x
+        foreach key {wrong missing} {
+            assert_error {*Not found*} {r cf.del $key x}
+            assert_error {*Cuckoo filter was not found*} {r cf.compact $key}
+        }
+        assert_error {*wrong number of arguments*} {r cf.del cf}
+        assert_error {*wrong number of arguments*} {r cf.compact cf extra}
+    }
+    test {Cuckoo mutations invalidate WATCH} {
+        r watch cf
+        r cf.compact cf
+        r multi
+        r ping
+        assert_equal {} [r exec]
+        r watch cf
+        r cf.del cf [binary format ccc 4 0 -1]
+        r multi
+        r ping
+        assert_equal {} [r exec]
+    }
+    test {Cuckoo mutation commands survive incremental AOF replay} {
+        r config set appendonly yes
+        waitForBgrewriteaof r
+        r cf.del cf [binary format ccc 5 0 -1]
+        r cf.compact cf
+        set payload [r dump cf]
+        r debug loadaof
+        assert_equal $payload [r dump cf]
+        r config set appendonly no
+    } {OK} {needs:debug}
+    start_server {tags {"cuckoo needs:repl external:skip"} overrides {save ""}} {
+        test {Cuckoo deletion and compaction replicate the same filter} {
+            set master [srv -1 client]
+            set replica [srv 0 client]
+            $replica replicaof [srv -1 host] [srv -1 port]
+            wait_for_sync $replica
+            assert_error {*READONLY*} {$replica cf.compact cf}
+            $master cf.del cf [binary format ccc 6 0 -1]
+            $master cf.compact cf
+            wait_for_ofs_sync $master $replica
+            assert_equal [$master dump cf] [$replica dump cf]
+        }
     }
 }
