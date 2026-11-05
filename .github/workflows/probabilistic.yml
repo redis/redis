@@ -1,14 +1,26 @@
-name: Bloom
+name: Probabilistic
 
 on:
   push:
     paths:
-      - 'src/probabilistic/bloom/**'
-      - 'src/probabilistic/utils/**'
+      - 'src/probabilistic/**'
+      - 'tests/bloom/**'
+      - 'tests/cuckoo/**'
+      - 'tests/unit/bloom.tcl'
+      - 'tests/unit/cuckoo.tcl'
+      - 'runtest-bloom'
+      - 'runtest-cuckoo'
+      - '.github/workflows/probabilistic.yml'
   pull_request:
     paths:
-      - 'src/probabilistic/bloom/**'
-      - 'src/probabilistic/utils/**'
+      - 'src/probabilistic/**'
+      - 'tests/bloom/**'
+      - 'tests/cuckoo/**'
+      - 'tests/unit/bloom.tcl'
+      - 'tests/unit/cuckoo.tcl'
+      - 'runtest-bloom'
+      - 'runtest-cuckoo'
+      - '.github/workflows/probabilistic.yml'
 
 permissions:
   contents: read
@@ -18,7 +30,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test-bloom:
+  test-probabilistic:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -37,7 +49,11 @@ jobs:
           src/redis-server test murmurhash --accurate
           src/redis-server test bloom --accurate
           src/redis-server test bloom-object --accurate
+          src/redis-server test cuckoo --accurate
+          src/redis-server test cuckoo-object --accurate
       - name: Core integration tests
-        run: ./runtest --single unit/bloom --single unit/hyperloglog --verbose --dump-logs
+        run: ./runtest --single unit/bloom --single unit/cuckoo --single unit/hyperloglog --verbose --dump-logs
       - name: Bloom Python tests
         run: ./runtest-bloom
+      - name: Cuckoo Python tests
+        run: ./runtest-cuckoo
