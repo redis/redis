@@ -6231,8 +6231,7 @@ static void idmpInsertEntry(stream *s, idmpProducer *producer, idmpEntry *entry,
             return;
         }
 
-        /* Drop the stale mapping from the list only: the dict entry that
-         * points at it is reused for the new mapping below. */
+        /* Remove the stale mapping from the list and reuse its dict entry */
         idmpListRemoveEntry(s, producer, stale);
         dictSetKey(producer->idmp_dict, existing, entry);
     }
