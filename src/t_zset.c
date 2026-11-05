@@ -1450,7 +1450,7 @@ robj *zsetTypeCreate(size_t size_hint, size_t val_len_hint) {
 }
 
 /* Check if the existing zset should be converted to another encoding based off the
- * the size hint, and return 1 if it was converted.
+ * size hint, and return 1 if it was converted.
  *
  * ZADD's hint counts its score-member pairs, and the B+ tree member index is
  * presized for them. The pairs may repeat a member or be skipped by
