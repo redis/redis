@@ -344,6 +344,17 @@ int evalExtractShebangFlags(sds body, uint64_t *out_flags, ssize_t *out_shebang_
             sdsfreesplitres(parts, numparts);
             return C_ERR;
         }
+        /* sdssplitargs decodes escapes in quoted arguments. Reject CR/LF in
+         * every token before any of them can be included in an error reply. */
+        for (j = 0; j < numparts; j++) {
+            if (memchr(parts[j], '\r', sdslen(parts[j])) ||
+                memchr(parts[j], '\n', sdslen(parts[j]))) {
+                if (err)
+                    *err = sdsnew("Invalid symbols in script shebang");
+                sdsfreesplitres(parts, numparts);
+                return C_ERR;
+            }
+        }
         /* Verify lua interpreter was specified */
         if (strcmp(parts[0], "#!lua")) {
             if (err)

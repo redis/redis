@@ -2007,6 +2007,12 @@ if test "x$have_issetugid" = "x1" ; then
   AC_DEFINE([JEMALLOC_HAVE_ISSETUGID], [ ], [ ])
 fi
 
+dnl The BSD-specific hooks below are a private contract between the threading
+dnl library and the libc malloc, and jemalloc defines them unprefixed.  Only
+dnl take them over when jemalloc is the malloc (no prefix).  A prefixed jemalloc
+dnl lives alongside the libc malloc, and defining these hooks would interpose
+dnl the libc malloc's own, so that e.g. it never cleans up exited threads.
+if test "x${JEMALLOC_PREFIX}" = "x" ; then
 dnl Check whether the BSD-specific _malloc_thread_cleanup() exists.  If so, use
 dnl it rather than pthreads TSD cleanup functions to support cleanup during
 dnl thread exit, in order to avoid pthreads library recursion during
@@ -2031,6 +2037,7 @@ AC_CHECK_FUNC([_pthread_mutex_init_calloc_cb],
 if test "x$have__pthread_mutex_init_calloc_cb" = "x1" ; then
   AC_DEFINE([JEMALLOC_MUTEX_INIT_CB], [ ], [ ])
   wrap_syms="${wrap_syms} _malloc_prefork _malloc_postfork"
+fi
 fi
 
 AC_CHECK_FUNC([memcntl],

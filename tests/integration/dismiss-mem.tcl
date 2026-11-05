@@ -32,10 +32,16 @@ start_server {tags {"dismiss external:skip needs:debug"}} {
         }
 
         # zset
-        r zadd bigzset1 1.0 $bigstr         ; # skiplist encoding
+        r zadd bigzset1 1.0 $bigstr         ; # B+ tree, external member
+        assert_encoding btree bigzset1
         for {set i 0} {$i < 128} {incr i} {
-            r zadd bigzset2 1.0 $64bytes    ; # ziplist encoding
+            r zadd bigzset2 1.0 [format "%064d" $i]
         }
+        assert_encoding listpack bigzset2
+        for {set i 0} {$i < 512} {incr i} {
+            r zadd bigzset3 $i "${64bytes}:$i"
+        }
+        assert_encoding btree bigzset3
 
         # hash
         r hset bighash1 field1 $bigstr      ; # hash encoding
@@ -55,6 +61,22 @@ start_server {tags {"dismiss external:skip needs:debug"}} {
             r arset sparse_array [expr {$i * 5000}] $bigstr
         }
 
+        # bitmap: cover all three roaring container types. Six 64K-bit chunks
+        # hold alternating bits (bitset containers), the next chunk is all
+        # ones and collapses into a run container when the conversion
+        # run-optimizes, and the distant bit lands alone in a later chunk
+        # (sparse array container). Multiple bitsets keep the compact portable
+        # payload's average above the per-container page threshold.
+        r set bigbitmap [binary format H* \
+            "[string repeat aa 49152][string repeat ff 8192]"]
+        r config set bitmap-default-roaring yes
+        r setbit bigbitmap 600000 1 ;# converts the dense string to roaring
+        r config set bitmap-default-roaring no
+        assert_equal bitmap [r type bigbitmap]
+
+        # Disable LZF so the size hint tracks the portable container payload.
+        set old_rdbcompression [config_get_set rdbcompression no]
+
         set digest [debug_digest]
         # Test both RDB (yes) and AOF (no) rewrite paths.
         foreach preamble {yes no} {
@@ -65,6 +87,7 @@ start_server {tags {"dismiss external:skip needs:debug"}} {
             set newdigest [debug_digest]
             assert {$digest eq $newdigest}
         }
+        r config set rdbcompression $old_rdbcompression
     }
 
     test {dismiss client output buffer} {

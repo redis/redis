@@ -371,8 +371,8 @@ void hotkeysCommand(client *c) {
             } else if (moreargs && !strcasecmp(c->argv[j]->ptr, "DURATION")) {
                 /* Arbitrary 1 million seconds limit, so we don't overflow the
                  * duration member which is kept in milliseconds */
-                if (getRangeLongFromObjectOrReply(c, c->argv[j+1], 1, 1000000,
-                        &duration, "DURATION must be between 1 and 1000000") != C_OK)
+                if (getRangeLongFromObjectOrReply(c, c->argv[j+1], 0, 1000000,
+                        &duration, "DURATION must be between 0 and 1000000") != C_OK)
                 {
                     slotRangeArrayFree(slots);
                     return;

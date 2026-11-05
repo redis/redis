@@ -226,13 +226,19 @@ Either works — the release tarball already bundles the module sources; a git c
 
 ```sh
 # A) Release tarball (recommended for building/running a release).
-#    Replace <version>, e.g. 8.10.0 — extracts into redis-<version>/:
-wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
-tar xvf redis-<version>.tar.gz && cd redis-<version>
+#    Replace <version> with the release tag — extracts into redis-<version>/:
+wget https://github.com/redis/redis/releases/download/<version>/redis-full-<version>.tar.gz
+tar xvf redis-full-<version>.tar.gz && cd redis-<version>
 
 # B) git checkout — clone the bundled modules once:
 git clone https://github.com/redis/redis.git && cd redis
 make modules-update
+```
+
+Check the release page's Assets for the bundle filename. Older releases, including 8.10.0 and 8.10.2, provide `redis-full.tar.gz` instead of the versioned filename. For those releases, replace the `wget` command above with the following; the extraction command stays the same:
+
+```sh
+wget -O redis-full-<version>.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
 ```
 
 #### 2. Install the build dependencies
@@ -302,6 +308,36 @@ make -j "$(nproc)"
 ```
 
 `make` (same as `make build` / `make all`) builds whatever is cloned under `modules/*/src` alongside Redis core. To build just the core data structures — even with modules cloned — use `make build redis`.
+
+> **`redis-server` won't start: "Error loading the extension" / can't open a
+> `.so`.** The config still lists modules that weren't built successfully — a
+> release tarball's `redis.conf` carries `loadmodule` lines for every bundled
+> module, and a module whose build failed leaves no `.so` behind. Either build
+> them (`make bootstrap && make`, or `make build <name>` for the one that failed), or
+> comment out everything that isn't Redis core in the config you pass: the
+> `loadmodule <path>` lines *and* that module's own settings below them (e.g.
+> `search-*`, `ts-*`, `bf-*`, `json-*`). Core-only alternative: `./src/redis-server`
+> with no config file, or `make build redis && ./src/redis-server redis.conf`
+> from a git checkout, where `redis.conf` has no module block at all.
+
+#### 4. Install
+
+```sh
+make install PREFIX=/usr/local          # core binaries + every built module
+sudo make install                       # same, into the default /usr/local
+make uninstall PREFIX=/usr/local        # removes exactly what install placed
+```
+
+`install` is an alias for `deploy`: it builds first (nothing already up to date
+is recompiled), copies `redis-server`, `redis-cli` and `redis-benchmark` plus
+the three `redis-server` symlinks to `$PREFIX/bin`, each module's `.so` to
+`$PREFIX/lib/redis/modules`, and rewrites the `loadmodule` paths in the
+generated config to point there. `DESTDIR=<path>` stages the files for
+packaging without changing the paths written to the config, and
+`PROG_SUFFIX=<suffix>` installs suffixed program names (`redis-server-alt`, …).
+
+> To install without building at all, use `SKIP_BUILD=1`:
+> `sudo make install SKIP_BUILD=1`
 
 ### Building Redis - flags and general notes
 

@@ -166,7 +166,7 @@ start_server {tags {"aofrw external:skip debug_defrag:skip"} overrides {aof-use-
     }
 
     foreach d {string int} {
-        foreach e {listpack skiplist} {
+        foreach e {listpack btree} {
             test "AOF rewrite of zset with $e encoding, $d data" {
                 r flushall
                 if {$e eq {listpack}} {set len 10} else {set len 1000}
@@ -189,6 +189,28 @@ start_server {tags {"aofrw external:skip debug_defrag:skip"} overrides {aof-use-
                 }
             }
         }
+    }
+
+    test {AOF rewrite of zset with external members} {
+        r flushall
+        set members {}
+        for {set j 0} {$j < 600} {incr j} {
+            set len [lindex {319 320 321 4096} [expr {$j % 4}]]
+            set prefix [format "%04d:" $j]
+            set member "$prefix[string repeat x [expr {$len-[string length $prefix]}]]"
+            lappend members $member
+            r zadd key $j $member
+        }
+        assert_encoding btree key
+        set expected [r zrange key 0 -1 withscores]
+
+        r bgrewriteaof
+        waitForBgrewriteaof r
+        r debug loadaof
+
+        assert_encoding btree key
+        assert_equal $expected [r zrange key 0 -1 withscores]
+        assert_equal 599 [r zscore key [lindex $members 599]]
     }
 
     test "AOF rewrite functions" {
@@ -277,9 +299,37 @@ start_server {tags {"aofrw external:skip debug_defrag:skip"} overrides {aof-use-
         assert_equal [s aof_rewrite_scheduled] 1
         r config set rdb-key-save-delay 0
         catch {exec kill -9 [get_child_pid 0]}
-        while {[s aof_rewrite_scheduled] eq 1} {
+        while {[s aof_rewrite_scheduled] eq 1 || [s aof_rewrite_in_progress] eq 1} {
             after 100
         }
+    }
+
+    test {Turning off AOF before postponed initial rewrite does not close an unopened fd} {
+        # Keep a BGSAVE child running so enabling AOF postpones its initial
+        # rewrite before an AOF file descriptor has been opened.
+        r config set appendonly no
+        r set k v
+        r config set rdb-key-save-delay 10000000
+        r bgsave
+        assert_equal 1 [s rdb_bgsave_in_progress]
+
+        r config set appendonly yes
+        assert_equal 1 [s aof_rewrite_scheduled]
+        assert_equal 0 [s aof_rewrite_in_progress]
+
+        # This calls stopAppendOnly() while aof_fd is still -1.
+        r config set appendonly no
+        assert_equal 0 [s aof_enabled]
+        assert_equal PONG [r ping]
+
+        # Restore the delay and clean up the BGSAVE child created by this test.
+        r config set rdb-key-save-delay 0
+        catch {exec kill -9 [get_child_pid 0]}
+
+        # Restore the AOF state expected by the following tests and wait for
+        # its initial rewrite to finish before starting another child process.
+        r config set appendonly yes
+        waitForBgrewriteaof r
     }
 
     test {BGREWRITEAOF is refused if already in progress} {

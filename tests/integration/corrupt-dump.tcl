@@ -18,6 +18,63 @@ set run_oom_tests [expr {($arch_name == "x86_64" || $arch_name == "aarch64") && 
 
 set corrupt_payload_7445 "\x0E\x01\x1D\x1D\x00\x00\x00\x16\x00\x00\x00\x03\x00\x00\x04\x43\x43\x43\x43\x06\x04\x42\x42\x42\x42\x06\x3F\x41\x41\x41\x41\xFF\x09\x00\x88\xA5\xCA\xA8\xC5\x41\xF4\x35"
 
+test {corrupt payload: zset reservation rejects oversized counts} {
+    start_server {overrides {loglevel verbose}} {
+        r debug set-skip-checksum-validation 1
+        r set target preserved
+        # Both legacy ZSET and ZSET_2 use the same 64-bit count. These values
+        # exercise sizing overflow and allocator rejection without attempting
+        # a large allocation. The footer has RDB version 9 and a dummy CRC.
+        foreach type {03 05} {
+            foreach count {fffffffffffffffe 1fffffffffffffff 1000000000000000} {
+                set payload [binary format H* "${type}81${count}09000000000000000000"]
+                assert_error {*Bad data format*} {r restore target 0 $payload replace}
+                assert_equal preserved [r get target]
+                assert_equal PONG [r ping]
+            }
+        }
+        verify_log_message 0 "*Unable to reserve zset index*" 0
+    }
+}
+
+test {Zset listpack scores are validated before loading or conversion} {
+    start_server {} {
+        r zadd score-source 1.5 a 2.5 b
+        assert_encoding listpack score-source
+        set payload [r dump score-source]
+        # Mutate only the score text; bypass the now-stale DUMP checksum so
+        # the test exercises semantic validation of a well-formed listpack.
+        r debug set-skip-checksum-validation 1
+        # Without sanitization a listpack that stays one is trusted, as for
+        # other types. A conversion still checks every score first.
+        foreach {sanitize limit} {yes 128 yes 1 no 1} {
+            r config set sanitize-dump-payload $sanitize
+            r config set zset-max-listpack-entries $limit
+            foreach score {nan NaN abc 1.x} {
+                set invalid [string map [list 1.5 $score] $payload]
+                assert_error {*Bad data format*} {r restore invalid-score 0 $invalid}
+                assert_equal 0 [r exists invalid-score]
+                assert_equal PONG [r ping]
+            }
+            # Both infinities are legal and must remain reloadable.
+            foreach score {inf -inf} {
+                # -inf needs four bytes, so use ZADD's genuine payload.
+                r del score-valid
+                r zadd score-valid $score a 2.5 b
+                set valid [r dump score-valid]
+                r restore score-roundtrip 0 $valid replace
+                assert_equal $score [r zscore score-roundtrip a]
+            }
+        }
+        r debug set-skip-checksum-validation 0
+        r config set sanitize-dump-payload yes
+        r config set zset-max-listpack-entries 128
+        r debug reload
+        assert_equal PONG [r ping]
+        assert_equal 0 [r exists invalid-score]
+    }
+}
+
 test {corrupt payload: #7445 - with sanitize} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload yes
@@ -1195,5 +1252,22 @@ test {corrupt payload: stream consumer group with overflowing entries_read} {
     }
 }
 
-} ;# tags
+# Stream DUMP (RDB_TYPE_STREAM_LISTPACKS) with 6 entries (IDs 1-0..6-0,
+# field f). The first entry's flags element is stored as a 64-bit integer
+# (LP_ENCODING_64BIT_INT) instead of the minimal 7-bit encoding. CRC is stale;
+# tests skip checksum validation.
+set ::stream_nonminimal_flags "\x0f\x01\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x40\x62\x62\x00\x00\x00\x23\x00\x06\x01\x00\x01\x01\x01\x81\x66\x02\x00\x01\xf4\x02\x00\x00\x00\x00\x00\x00\x00\x09\x00\x01\x00\x01\x82\x76\x30\x03\x04\x01\x02\x01\x01\x01\x00\x01\x82\x76\x31\x03\x04\x01\x02\x01\x02\x01\x00\x01\x82\x76\x32\x03\x04\x01\x02\x01\x03\x01\x00\x01\x82\x76\x33\x03\x04\x01\x02\x01\x04\x01\x00\x01\x82\x76\x34\x03\x04\x01\x02\x01\x05\x01\x00\x01\x82\x76\x35\x03\x04\x01\xff\x06\x06\x00\x00\x09\x00\x00\x00\x00\x00\x00\x00\x00\x00"
 
+test {corrupt payload: stream XTRIM with non-minimally encoded flags} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload yes
+        r debug set-skip-checksum-validation 1
+        assert_equal {OK} [r restore key 0 $::stream_nonminimal_flags]
+        assert_equal 6 [r xlen key]
+        r xtrim key maxlen 1
+        assert_equal 1 [r xlen key]
+        r ping
+    }
+}
+
+} ;# tags

@@ -165,6 +165,18 @@ start_multiple_servers 3 [list overrides $base_conf] {
 
 } ;# stop servers
 
+start_cluster 3 0 {tags {cluster ipv6}} {
+    test {redis-cli --cluster check accepts bracketed IPv6 address} {
+        # Add an IPv6 listener at runtime; skip if IPv6 loopback is unavailable.
+        if {[catch {R 0 config set bind "127.0.0.1 ::1"}]} {
+            if {$::verbose} { puts "Skipping: IPv6 loopback is unavailable." }
+        } else {
+            set result [exec src/redis-cli --cluster check "\[::1\]:[srv 0 port]"]
+            assert_match {*All 16384 slots covered*} $result
+        }
+    }
+}
+
 # Test redis-cli -- cluster create, add-node, call.
 # Test that functions are propagated on add-node
 start_multiple_servers 5 [list overrides $base_conf] {

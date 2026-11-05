@@ -307,14 +307,14 @@ foreach {type large} [array get largevalue] {
         assert_equal $digest [debug_digest_value newzset1{t}]
     }
 
-     test {COPY basic usage for skiplist sorted set} {
+     test {COPY basic usage for btree sorted set} {
         r del zset2{t} newzset2{t}
         set original_max [lindex [r config get zset-max-ziplist-entries] 1]
         r config set zset-max-ziplist-entries 0
         for {set j 0} {$j < 130} {incr j} {
             r zadd zset2{t} [randomInt 50] ele-[randomInt 10]
         }
-        assert_encoding skiplist zset2{t}
+        assert_encoding btree zset2{t}
         r copy zset2{t} newzset2{t}
         set digest [debug_digest_value zset2{t}]
         assert_equal $digest [debug_digest_value newzset2{t}]
@@ -323,6 +323,35 @@ foreach {type large} [array get largevalue] {
         r del zset2{t}
         assert_equal $digest [debug_digest_value newzset2{t}]
         r config set zset-max-ziplist-entries $original_max
+    }
+
+    test {COPY duplicates all btree pages while its member table grows} {
+        r del zset-copy-source{t} zset-copy-dest{t}
+        set original_max [lindex [r config get zset-max-listpack-entries] 1]
+        r config set zset-max-listpack-entries 0
+
+        # The last insertion starts a member-table resize and leaves many
+        # score pages still to copy into the new table.
+        for {set j 0} {$j < 3969} {incr j} {
+            r zadd zset-copy-source{t} [expr {$j * 17 % 5003}] \
+                [format "member:%05d:abcdefghijklmnop" $j]
+        }
+        assert_encoding btree zset-copy-source{t}
+        r copy zset-copy-source{t} zset-copy-dest{t}
+        set digest [debug_digest_value zset-copy-source{t}]
+        assert_equal $digest [debug_digest_value zset-copy-dest{t}]
+
+        # Free the source before exercising every copied lookup and rank.
+        r del zset-copy-source{t}
+        assert_equal $digest [debug_digest_value zset-copy-dest{t}]
+        for {set j 0} {$j < 3969} {incr j 31} {
+            set member [format "member:%05d:abcdefghijklmnop" $j]
+            assert {[r zscore zset-copy-dest{t} $member] ne {}}
+            assert {[r zrank zset-copy-dest{t} $member] ne {}}
+            r zincrby zset-copy-dest{t} 0.5 $member
+        }
+        assert_equal 3969 [r zcard zset-copy-dest{t}]
+        r config set zset-max-listpack-entries $original_max
     }
 
     test {COPY basic usage for listpack hash} {

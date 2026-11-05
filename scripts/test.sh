@@ -15,6 +15,7 @@ set -eu
 SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)" || exit 1
 . "$SCRIPT_DIR/lib/manifest.sh"
 cd "$REPO_ROOT"
+PROG_SUFFIX="${PROG_SUFFIX:-}"
 
 MAKE_BIN="${MAKE:-make}"
 test_var="${TEST:-}"
@@ -54,7 +55,7 @@ case "$target" in
       echo
       echo "==> [test] $name (modules/$name/src)"
       if ! "$MAKE_BIN" -C "modules/$name/src" test \
-          REDIS_SERVER="$REPO_ROOT/src/redis-server"; then
+          REDIS_SERVER="$REPO_ROOT/src/redis-server$PROG_SUFFIX"; then
         failed="$failed $name"
       fi
     done
@@ -92,11 +93,11 @@ case "$target" in
     if [ -z "$tname" ]; then
       echo "==> Running all tests for module '$target'"
       exec "$MAKE_BIN" -C "modules/$target/src" test \
-          REDIS_SERVER="$REPO_ROOT/src/redis-server"
+          REDIS_SERVER="$REPO_ROOT/src/redis-server$PROG_SUFFIX"
     else
       echo "==> Running test '$tname' for module '$target' (TEST=$tname)"
       exec "$MAKE_BIN" -C "modules/$target/src" test TEST="$tname" \
-          REDIS_SERVER="$REPO_ROOT/src/redis-server"
+          REDIS_SERVER="$REPO_ROOT/src/redis-server$PROG_SUFFIX"
     fi
     ;;
 esac

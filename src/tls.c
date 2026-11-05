@@ -43,21 +43,26 @@
 #define REDIS_TLS_PROTO_DEFAULT     (REDIS_TLS_PROTO_TLSv1_2)
 #endif
 
-/* Peer certificate name verification (tls-expected-peer-name) relies on the
- * X509_VERIFY_PARAM host API, available since OpenSSL 1.0.2. Defining
- * TLS_NO_PEER_NAME_VERIFICATION compiles the feature out on any OpenSSL version;
- * it is also the required opt-out for building against an older OpenSSL, since
- * building there without it is a hard error (so a build cannot accidentally lack
- * the check). When compiled out and the option is set, each affected connection
- * warns and proceeds (CA validation still applies). */
-#if defined(TLS_NO_PEER_NAME_VERIFICATION)
-#define CONN_TLS_SUPPORTS_VERIFY_NAME 0
-#elif OPENSSL_VERSION_NUMBER >= 0x10002000L
-#define CONN_TLS_SUPPORTS_VERIFY_NAME 1
+/* CONN_TLS_SUPPORTS_VERIFY_NAME: whether peer certificate identity verification
+ * (tls-expected-peer-name) is available in this build; see tlshelpers.h. When it
+ * is compiled out and the option is set, each affected connection warns and
+ * proceeds (CA validation still applies). */
+#include "tlshelpers.h"
+
+/* TLS groups rely on SSL_CTX_set1_groups_list(), or on the
+ * older SSL_CTX_set1_curves_list() name. Build failure is intentional when the
+ * OpenSSL headers expose neither API, so Redis does not silently ignore this
+ * TLS policy option. Define TLS_NO_GROUPS to compile the feature out. */
+#if defined(TLS_NO_GROUPS)
+#define CONN_TLS_SUPPORTS_GROUPS 0
+#elif defined(SSL_CTX_set1_groups_list)
+#define CONN_TLS_SUPPORTS_GROUPS 1
+#define redisTlsCtxSetGroupsList(ctx, list) SSL_CTX_set1_groups_list((ctx), (list))
+#elif defined(SSL_CTX_set1_curves_list)
+#define CONN_TLS_SUPPORTS_GROUPS 1
+#define redisTlsCtxSetGroupsList(ctx, list) SSL_CTX_set1_curves_list((ctx), (list))
 #else
-#error "tls-expected-peer-name requires OpenSSL 1.0.2 or newer. Build against a \
-newer OpenSSL, or define TLS_NO_PEER_NAME_VERIFICATION to build without peer \
-certificate name verification."
+#error "tls-groups requires OpenSSL with SSL_CTX_set1_groups_list or SSL_CTX_set1_curves_list. Define TLS_NO_GROUPS to build without TLS groups."
 #endif
 
 SSL_CTX *redis_tls_ctx = NULL;
@@ -268,6 +273,18 @@ static SSL_CTX *createSSLContext(redisTLSContextConfig *ctx_config, int protocol
         goto error;
     }
 #endif
+
+    if (ctx_config->groups) {
+#if CONN_TLS_SUPPORTS_GROUPS
+        if (!redisTlsCtxSetGroupsList(ctx, ctx_config->groups)) {
+            serverLog(LL_WARNING, "Failed to configure TLS groups: %s", ctx_config->groups);
+            goto error;
+        }
+#else
+        serverLog(LL_WARNING, "Failed to configure TLS groups: not supported by this build");
+        goto error;
+#endif
+    }
 
     return ctx;
 
@@ -540,6 +557,15 @@ static int handleSSLReturnCode(tls_connection *conn, int ret_value, WantIOType *
                 if (conn->ssl_error) zfree(conn->ssl_error);
                 conn->ssl_error = errno ? zstrdup(strerror(errno)) : NULL;
                 break;
+            case SSL_ERROR_ZERO_RETURN:
+                /* The peer sent a close_notify alert: a graceful TLS shutdown,
+                 * the equivalent of a zero-length read on a plain socket. This
+                 * is not an error and the OpenSSL error queue is empty here, so
+                 * it must not be formatted (that yields the meaningless
+                 * "error:00000000:lib(0)::reason(0)"). Leave ssl_error untouched
+                 * and let the caller report a clean EOF. */
+                conn->c.last_errno = 0;
+                break;
             default:
                 /* Error! */
                 updateTLSError(conn);
@@ -652,8 +678,10 @@ static void tlsPendingRemove(tls_connection *conn) {
     }
 }
 
-static int getCertFieldByName(X509 *cert, const char *field, char *out, size_t outlen) {
-    if (!cert || !field || !out) return 0;
+/* Returns the requested certificate subject field as a newly allocated,
+ * binary-safe sds, or NULL on failure. */
+static sds getCertFieldByName(X509 *cert, const char *field) {
+    if (!cert || !field) return NULL;
 
     int nid = -1;
 
@@ -663,12 +691,34 @@ static int getCertFieldByName(X509 *cert, const char *field, char *out, size_t o
         nid = NID_organizationName;
     /* Add more mappings here as needed */
 
-    if (nid == -1) return 0;
+    if (nid == -1) return NULL;
 
-    X509_NAME *subject = X509_get_subject_name(cert);
-    if (!subject) return 0;
+    /* The subject (e.g. "CN=alice, O=redis"), its entries and their values
+     * are all owned by the cert, don't free them. They are deliberately not
+     * held in typed locals: the const-ness of these accessors differs between
+     * OpenSSL 1.0.2, 3.x and 4.0, and chaining the calls keeps every version
+     * warning-free. */
+    if (!X509_get_subject_name(cert)) return NULL;
 
-    return X509_NAME_get_text_by_NID(subject, nid, out, outlen) > 0;
+    /* Find the first entry of type nid (e.g. CN), searching from the start
+     * (-1). Returns its index, or -1 if not found. */
+    int index = X509_NAME_get_index_by_NID(X509_get_subject_name(cert), nid, -1);
+    if (index < 0) return NULL;
+
+    /* Decode the entry's ASN.1 string (UTF8String, BMPString, ...) into UTF-8.
+     * The name may contain embedded NULs, so use the returned length, not
+     * strlen, to build the proper binary-safe string. */
+    unsigned char *utf8 = NULL;
+    int len = ASN1_STRING_to_UTF8(&utf8,
+        X509_NAME_ENTRY_get_data(X509_NAME_get_entry(X509_get_subject_name(cert), index)));
+    if (len <= 0) {
+        OPENSSL_free(utf8);
+        return NULL;
+    }
+
+    sds result = sdstrynewlen(utf8, len);
+    OPENSSL_free(utf8);
+    return result;
 }
 
 sds tlsGetPeerUsername(connection *conn_) {
@@ -690,14 +740,9 @@ sds tlsGetPeerUsername(connection *conn_) {
     X509 *cert = SSL_get_peer_certificate(conn->ssl);
     if (!cert) return NULL;
 
-    char field_value[256];
-    sds result = NULL;
-
-    if (getCertFieldByName(cert, field, field_value, sizeof(field_value))) {
-        result = sdsnew(field_value);
-    } else {
+    sds result = getCertFieldByName(cert, field);
+    if (!result)
         serverLog(LL_NOTICE, "TLS: Failed to extract field '%s' from certificate", field);
-    }
 
     X509_free(cert);
     return result;
@@ -943,32 +988,28 @@ static int connTLSAccept(connection *_conn, ConnectionCallbackFunc accept_handle
  * Returns C_OK on success, C_ERR if a name could not be applied or the value
  * contained no usable name. On a TLS_NO_PEER_NAME_VERIFICATION build (OpenSSL
  * < 1.0.2) it cannot enforce the name; it logs a warning and returns C_OK so the
- * connection still proceeds (CA validation still applies). */
-static int tlsSetVerifyName(SSL *ssl, const char *names) {
+ * connection still proceeds (CA validation still applies).
+ *
+ * Not static: Sentinel applies tls-expected-peer-name to its hiredis-based
+ * links through it. Sentinel's TLS code is compiled only for linked-in TLS
+ * builds (USE_OPENSSL == 1), where this file is part of the server binary, so a
+ * module build leaves no undefined reference. */
+int tlsSetVerifyName(SSL *ssl, const char *names) {
 #if CONN_TLS_SUPPORTS_VERIFY_NAME
-    /* Use the X509_VERIFY_PARAM_* host API (available since OpenSSL 1.0.2) rather
-     * than the SSL_set1_host()/SSL_add1_host()/SSL_set_hostflags() convenience
-     * wrappers (introduced only in OpenSSL 1.1.0). This keeps certificate name
-     * verification available on every OpenSSL version that actually provides the
-     * hostname-checking machinery, matching the older versions the rest of this
-     * file still supports. */
     X509_VERIFY_PARAM *param = SSL_get0_param(ssl);
-
-    /* Reject partial-label wildcards (e.g. "f*.example.com"); a full-label
-     * "*.example.com" still matches. */
-    X509_VERIFY_PARAM_set_hostflags(param, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
 
     int count = 0;
     sds *tokens = sdssplitlen(names, strlen(names), " ", 1, &count);
     if (!tokens) return C_ERR;
 
+    /* The first name replaces the expected host list, each subsequent one is
+     * appended, so a match against any listed name succeeds. The config
+     * validator admits DNS names only, so the shared helper's IP branch is never
+     * taken here. */
     int first = 1, ok = 1;
     for (int i = 0; i < count; i++) {
         if (sdslen(tokens[i]) == 0) continue; /* skip empty tokens from runs of spaces */
-        /* First name via set1_host (replaces), each subsequent via add1_host
-         * (appends); a match against any listed name succeeds. */
-        int r = first ? X509_VERIFY_PARAM_set1_host(param, tokens[i], 0)
-                      : X509_VERIFY_PARAM_add1_host(param, tokens[i], 0);
+        int r = tlsVerifyParamAddIdentity(param, tokens[i], sdslen(tokens[i]), first);
         first = 0;
         if (r != 1) { ok = 0; break; }
     }
@@ -988,6 +1029,29 @@ static int tlsSetVerifyName(SSL *ssl, const char *names) {
         "tls-expected-peer-name is set but peer certificate name verification is "
         "disabled in this build (TLS_NO_PEER_NAME_VERIFICATION); the name is not "
         "enforced on this connection.");
+    return C_OK;
+#endif
+}
+
+/* Bind the SSL object to a single expected peer identity, the way a TLS client
+ * verifies the host it dials: an IP address literal is matched against the
+ * certificate's IP SAN entries (no fallback), anything else against its DNS SAN
+ * entries (with the CN as a fallback per OpenSSL rules). Used by Sentinel for
+ * the address of each instance it connects to. Returns C_OK on success, C_ERR
+ * if the name is empty or could not be applied. On a
+ * TLS_NO_PEER_NAME_VERIFICATION build it cannot enforce the identity; it logs a
+ * warning and returns C_OK so the connection proceeds with CA validation only,
+ * matching tlsSetVerifyName(). Not static, for the same reason as that one. */
+int tlsSetVerifyIdentity(SSL *ssl, const char *name) {
+    if (!name || !name[0]) return C_ERR;
+#if CONN_TLS_SUPPORTS_VERIFY_NAME
+    X509_VERIFY_PARAM *param = SSL_get0_param(ssl);
+    return tlsVerifyParamAddIdentity(param, name, strlen(name), 1) == 1 ? C_OK : C_ERR;
+#else
+    UNUSED(ssl);
+    serverLog(LL_WARNING,
+        "Peer certificate identity verification is disabled in this build "
+        "(TLS_NO_PEER_NAME_VERIFICATION); the identity of %s is not verified.", name);
     return C_OK;
 #endif
 }
@@ -1129,7 +1193,13 @@ static int connTLSRead(connection *conn_, void *buf, size_t buf_len) {
     if (conn->c.state != CONN_STATE_CONNECTED) return -1;
     ERR_clear_error();
     ret = SSL_read(conn->ssl, buf, buf_len);
-    return updateStateAfterSSLIO(conn, ret, 1);
+    ret = updateStateAfterSSLIO(conn, ret, 1);
+    /* A graceful TLS shutdown (peer close_notify) leaves the connection in the
+     * CLOSED state and returns -1. Report it as a zero-length read so callers
+     * treat it as a clean EOF -- matching a plain socket read() returning 0 --
+     * rather than as an error disconnect. */
+    if (ret == -1 && conn->c.state == CONN_STATE_CLOSED) return 0;
+    return ret;
 }
 
 static const char *connTLSGetLastError(connection *conn_) {
@@ -1270,15 +1340,14 @@ static int tlsHasPendingData(struct aeEventLoop *el) {
 }
 
 static int tlsProcessPendingData(struct aeEventLoop *el) {
-    listIter li;
-    listNode *ln;
-
     list *pending_list = el->privdata[1];
     if (!pending_list) return 0;
     int processed = listLength(pending_list);
-    listRewind(pending_list,&li);
-    while((ln = listNext(&li))) {
+    for (int i = 0; i < processed; i++) {
+        listNode *ln = listFirst(pending_list);
+        if (!ln) break;
         tls_connection *conn = listNodeValue(ln);
+        tlsPendingRemove(conn);
         tlsHandleEvent(conn, AE_READABLE);
     }
     return processed;

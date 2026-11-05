@@ -71,8 +71,9 @@ void updateClientDataFromIOThread(client *c) {
         c->read_reploff = c->io_read_reploff;
     }
 
-    /* Update replication buffer referenced node if IO thread has sent some data. */
-    if (c->flags & CLIENT_SLAVE && c->ref_repl_buf_node != NULL &&
+    /* A normal client can become a replica while its command is processed in
+     * main. Its IO replication state exists only after the first replica handoff. */
+    if (c->flags & CLIENT_SLAVE && c->ref_repl_buf_node != NULL && c->io_curr_repl_node != NULL &&
         (c->io_curr_repl_node != c->ref_repl_buf_node ||
          c->io_curr_block_pos != c->ref_block_pos))
     {
@@ -290,6 +291,20 @@ void fetchClientFromIOThread(client *c) {
  *   that may overlap with CLIENT_MASTER/SLAVE - CLOSE_ASAP, MONITOR,
  *   (UN)BLOCKED, TRACKING. */
 int isClientMustHandledByMainThread(client *c) {
+    /* Select replication connections by their role and negotiated compression,
+     * then apply the safety and replication-state checks below. */
+    if (server.io_threads_client_types != IO_THREADS_CLIENT_TYPE_ALL) {
+        int type = IO_THREADS_CLIENT_TYPE_NORMAL;
+        if (c->flags & CLIENT_SLAVE) {
+            type = IO_THREADS_CLIENT_TYPE_REPLICA;
+            if (c->compression_level > 0) type |= IO_THREADS_CLIENT_TYPE_REPLICA_COMPRESSED;
+        } else if (c->flags & CLIENT_MASTER) {
+            type = IO_THREADS_CLIENT_TYPE_MASTER;
+            if (server.repl_master_compression_level > 0) type |= IO_THREADS_CLIENT_TYPE_MASTER_COMPRESSED;
+        }
+        if (!(server.io_threads_client_types & type)) return 1;
+    }
+
     if (c->flags & (CLIENT_CLOSE_ASAP |
                     CLIENT_PUBSUB | CLIENT_MONITOR | CLIENT_BLOCKED |
                     CLIENT_UNBLOCKED | CLIENT_TRACKING | CLIENT_LUA_DEBUG |
@@ -408,7 +423,9 @@ static int PausedIOThreads[IO_THREADS_MAX_NUM] = {0};
 void pauseIOThreadsRange(int start, int end) {
     if (!server.io_threads_active) return;
     serverAssert(start >= 1 && end < server.io_threads_num && start <= end);
-    serverAssert(pthread_equal(pthread_self(), server.main_thread_id));
+    /* A module thread holding the GIL excludes the main thread, so it can
+     * pause IO threads as well. */
+    serverAssert(pthread_equal(pthread_self(), server.main_thread_id) || moduleThreadHoldsGIL());
 
     /* Try to make all io threads paused in parallel */
     for (int i = start; i <= end; i++) {
@@ -440,7 +457,7 @@ void pauseIOThreadsRange(int start, int end) {
 void resumeIOThreadsRange(int start, int end) {
     if (!server.io_threads_active) return;
     serverAssert(start >= 1 && end < server.io_threads_num && start <= end);
-    serverAssert(pthread_equal(pthread_self(), server.main_thread_id));
+    serverAssert(pthread_equal(pthread_self(), server.main_thread_id) || moduleThreadHoldsGIL());
 
     for (int i = start; i <= end; i++) {
         serverAssert(PausedIOThreads[i] > 0);
@@ -476,6 +493,12 @@ void handlePauseAndResume(IOThread *t) {
         }
         atomicSetWithSync(t->paused, IO_THREAD_UNPAUSED);
     }
+}
+
+/* Return true if the specific io thread is paused by the main thread, or by a
+ * module thread holding the GIL. */
+int isIOThreadPaused(int id) {
+    return PausedIOThreads[id] > 0;
 }
 
 /* Pause the specific io thread, and wait for it to be paused. */

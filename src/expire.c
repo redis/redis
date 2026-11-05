@@ -99,7 +99,7 @@ int activeExpireCycleTryExpire(redisDb *db, kvobj *kv, long long now) {
 #define ACTIVE_EXPIRE_CYCLE_ACCEPTABLE_STALE 10 /* % of stale keys after which
                                                    we do extra efforts. */
 
-#define HFE_DB_BASE_ACTIVE_EXPIRE_FIELDS_PER_SEC 10000
+#define SUBEXPIRES_BASE_ACTIVE_EXPIRE_ELEMENTS_PER_SEC 10000
 
 /* Data used by the expire dict scan callback. */
 typedef struct {
@@ -146,7 +146,7 @@ static inline int expirySamplingShouldSkipDict(dict *d, int didx) {
 
 /* SubexpireCtx passed to activeSubexpiresCb() */
 typedef struct SubexpireCtx {
-    uint32_t fieldsToExpireQuota;
+    uint32_t elementsToExpireQuota;
     redisDb *db;
     int slot;
 } SubexpireCtx;
@@ -155,60 +155,68 @@ typedef struct SubexpireCtx {
  * Active sub-expiration callback
  *
  * Called by activeSubexpires() for each key registered in the subexpires DB
- * with an expiration-time on its "elements"  that are less than or equal current
+ * with an expiration-time on its "elements" that is strictly less than current
  * time.
  *
- * This callback performs the following actions for each hash:
- * - Delete expired fields as by calling ebExpire(hash)
- * - If afterward there are future fields to expire, it will update the hash in
- *   HFE DB with the next hash-field minimum expiration time by returning
+ * This callback performs the following actions for each key:
+ * - Delete expired elements (fields/members) as by calling ebExpire()
+ * - If afterward there are future elements to expire, it will update the key in
+ *   subexpires DB with the next element minimum expiration time by returning
  *   ACT_UPDATE_EXP_ITEM.
- * - If the hash has no more fields to expire, it is removed from the HFE DB
+ * - If the key has no more elements to expire, it is removed from the subexpires DB
  *   by returning ACT_REMOVE_EXP_ITEM.
- * - If hash has no more fields afterward, it will remove the hash from keyspace.
+ * - If key has no more elements afterward, it will remove the key from keyspace.
  */
 static ExpireAction activeSubexpiresCb(eItem item, void *ctx) {
     SubexpireCtx *subexCtx = ctx;
 
     /* If no more quota left for this callback, stop */
-    if (subexCtx->fieldsToExpireQuota == 0)
+    if (subexCtx->elementsToExpireQuota == 0)
         return ACT_STOP_ACTIVE_EXP;
 
     kvobj *kv = (kvobj *) item;
 
-    /* currently we only support hash type sub-expire */
-    assert(kv->type == OBJ_HASH);
-    uint64_t nextExpTime = hashTypeExpire(subexCtx->db, kv, &subexCtx->fieldsToExpireQuota, 0, 1);
+    uint64_t nextExpTime;
+    switch (kv->type) {
+    case OBJ_HASH:
+        nextExpTime = hashTypeExpire(subexCtx->db, kv, &subexCtx->elementsToExpireQuota, 0, 1);
+        break;
+    case OBJ_SET:
+        nextExpTime = setTypeExpire(subexCtx->db, kv, &subexCtx->elementsToExpireQuota, 0, 1);
+        break;
+    default:
+        serverPanic("Unexpected type in subexpires: %d", kv->type);
+    }
 
-    /* If hash has no more fields to expire or got deleted, indicate
-     * to remove it from HFE DB to the caller ebExpire() */
+    /* If the key has no more sub-keys to expire or got deleted, indicate
+     * to remove it from subexpires DB to the caller ebExpire() */
     if (nextExpTime == EB_EXPIRE_TIME_INVALID || nextExpTime == 0) {
         return ACT_REMOVE_EXP_ITEM;
     } else {
-        /* Hash has more fields to expire. Update next expiration time of the hash
-         * and indicate to add it back to global HFE DS */
-        ebSetMetaExpTime(hashGetExpireMeta(item), nextExpTime);
+        /* The key has more sub-keys to expire. Update next expiration time
+         * and indicate to add it back to global subexpires DS */
+        ebSetMetaExpTime(subexpiresBucketsType.getExpireMeta(item), nextExpTime);
         return ACT_UPDATE_EXP_ITEM;
     }
 }
 
-/* DB active expire and update hashes with time-expiration on fields.
+/* DB active expire and update keys with time-expiration on fields/members (hashes and sets).
  *
- * The callback function activeSubexpiresCb() is invoked for each hash registered
- * in the subexpires DB with an expiration-time less than or equal to the
- * current time. This callback performs the following actions for each hash:
- * - If the hash has one or more fields to expire, it will delete those fields.
- * - If there are more fields to expire, it will update the hash with the next
+ * The callback function activeSubexpiresCb() is invoked for each key registered
+ * in the subexpires DB with an expiration-time strictly less than the
+ * current time. This callback performs the following actions for each key:
+ * - If the key has one or more elements to expire, it will delete those elements.
+ * - If there are more elements to expire, it will update the key with the next
  *   expiration time in subexpires DB.
- * - If the hash has no more fields to expire, it is removed from the subexpires DB.
- * - If the hash has no more fields, it is removed from the main DB.
+ * - If the key has no more elements to expire, it is removed from the subexpires DB.
+ * - If the key has no more elements, it is removed from the main DB.
  *
- * Returns number of fields active-expired.
+ * Returns number of elements active-expired.
  */
-uint64_t activeSubexpires(redisDb *db, int slot, uint32_t maxFieldsToExpire) {
-    SubexpireCtx ctx = { .db = db, .fieldsToExpireQuota = maxFieldsToExpire, .slot = slot };
+uint64_t activeSubexpires(redisDb *db, int slot, uint32_t maxElementssToExpire) {
+    SubexpireCtx ctx = { .db = db, .elementsToExpireQuota = maxElementssToExpire, .slot = slot };
     ExpireInfo info = {
-            .maxToExpire = UINT64_MAX, /* Only maxFieldsToExpire play a role */
+            .maxToExpire = UINT64_MAX, /* Only maxElementsToExpire play a role */
             .onExpireItem = activeSubexpiresCb,
             .ctx = &ctx,
             .now = commandTimeSnapshot(),
@@ -216,27 +224,35 @@ uint64_t activeSubexpires(redisDb *db, int slot, uint32_t maxFieldsToExpire) {
 
     estoreActiveExpire(db->subexpires, slot, &info);
 
-    /* Return number of fields active-expired */
-    return maxFieldsToExpire - ctx.fieldsToExpireQuota;
+    /* Drain module post-notification jobs queued by the "hexpired"/"sexpired"/"del" events.
+     * The per-element propagation in propagateHashFieldDeletion() / propagateSetMemberDeletion()
+     * runs before those notifications fire, so its own drain cannot pick them up and they would
+     * otherwise linger until the tail of the next command's call(). No execution
+     * unit is wrapped around the walk: that would suppress the per-element drains
+     * and batch the HDELs /SREMs into a single MULTI/EXEC. */
+    postExecutionUnitOperations();
+
+    /* Return number of elements active-expired */
+    return maxElementssToExpire - ctx.elementsToExpireQuota;
 }
 
-/* Active expiration Cycle for hash-fields.
+/* Active expiration Cycle for elements of a key.
  *
- * Note that releasing fields is expected to be more predictable and rewarding
+ * Note that releasing elements is expected to be more predictable and rewarding
  * than releasing keys because it is stored in `ebuckets` DS which optimized for
- * active expiration and in addition the deletion of fields is simple to handle. */
+ * active expiration and in addition the deletion of elements is simple to handle. */
 static inline void activeSubexpiresCycle(int type) {
     /* Remember current db across calls */
     static unsigned int currentDb = 0;
     static int currentSlot = -1;
 
-    /* Tracks the count of fields actively expired for the current database.
+    /* Tracks the count of elements actively expired for the current database.
      * This count continues as long as it fails to actively expire all expired
-     * fields of currentDb, indicating a possible need to adjust the value of
+     * elements of currentDb, indicating a possible need to adjust the value of
      * maxToExpire. */
     static uint64_t activeExpirySequence = 0;
     /* Threshold for adjusting maxToExpire */
-    const uint32_t EXPIRED_FIELDS_TH = 1000000;
+    const uint32_t EXPIRED_ELEMENTS_TH = 1000000;
 
     redisDb *db = server.db + currentDb;
 
@@ -259,15 +275,15 @@ static inline void activeSubexpiresCycle(int type) {
         return;
     }
 
-    /* Maximum number of fields to actively expire on a single call */
-    uint32_t maxToExpire = HFE_DB_BASE_ACTIVE_EXPIRE_FIELDS_PER_SEC / server.hz;
+    /* Maximum number of elements to actively expire on a single call */
+    uint32_t maxToExpire = SUBEXPIRES_BASE_ACTIVE_EXPIRE_ELEMENTS_PER_SEC / server.hz;
 
-    /* If running for a while and didn't manage to active-expire all expired fields of
+    /* If running for a while and didn't manage to active-expire all expired elements of
      * currentDb (i.e. activeExpirySequence becomes significant) then adjust maxToExpire */
-    if ((activeExpirySequence > EXPIRED_FIELDS_TH) && (type == ACTIVE_EXPIRE_CYCLE_SLOW)) {
+    if ((activeExpirySequence > EXPIRED_ELEMENTS_TH) && (type == ACTIVE_EXPIRE_CYCLE_SLOW)) {
         /* maxToExpire is multiplied by a factor between 1 and 32, proportional to
-         * the number of times activeExpirySequence exceeded EXPIRED_FIELDS_TH */
-        uint64_t factor = activeExpirySequence / EXPIRED_FIELDS_TH;
+         * the number of times activeExpirySequence exceeded EXPIRED_ELEMENTS_TH */
+        uint64_t factor = activeExpirySequence / EXPIRED_ELEMENTS_TH;
         maxToExpire *= (factor<32) ? factor : 32;
     }
 
@@ -275,7 +291,7 @@ static inline void activeSubexpiresCycle(int type) {
         /* active-expire reached maxToExpire limit */
         activeExpirySequence += maxToExpire;
     } else {
-        /* Managed to active-expire all expired fields of currentDb */
+        /* Managed to active-expire all expired elements of currentDb */
         activeExpirySequence = 0;
         /* Move to next non-empty subexpires slot */
         currentSlot = estoreGetNextNonEmptyBucket(db->subexpires, currentSlot);
@@ -535,7 +551,7 @@ void activeExpireCycle(int type) {
  * the feature is used the first time, that is, when rememberSlaveKeyWithExpire()
  * is called.
  *
- * The dictionary has an SDS string representing the key as the hash table
+ * The dictionary has an SDS string representing the key as the hash table / set member
  * key, while the value is a 64 bit unsigned integer with the bits corresponding
  * to the DB where the keys may exist set to 1. Currently the keys created
  * with a DB id > 63 are not expired, but a trivial fix is to set the bitmap
@@ -931,4 +947,38 @@ void touchCommand(client *c) {
     for (int j = 1; j < c->argc; j++)
         if (lookupKeyRead(c->db,c->argv[j]) != NULL) touched++;
     addReplyLongLong(c,touched);
+}
+
+/* Parse the expire time of a hash field or set member from a command argument
+ * and do boundary checks. Shared by the hash field and set member expiration
+ * commands, so the numeric rules are identical. */
+int parseSubkeyExpireTime(client *c, robj *o, int unit, long long basetime,
+                           long long *expire)
+{
+    long long val;
+
+    /* Read the expiry time from command */
+    if (getLongLongFromObjectOrReply(c, o, &val, NULL) != C_OK)
+        return C_ERR;
+
+    if (val < 0) {
+        addReplyError(c,"invalid expire time, must be >= 0");
+        return C_ERR;
+    }
+
+    if (unit == UNIT_SECONDS) {
+        if (val > (long long) SUBEXPIRE_MAX_ABS_TIME_MSEC / 1000) {
+            addReplyErrorExpireTime(c);
+            return C_ERR;
+        }
+        val *= 1000;
+    }
+
+    if (val > (long long) SUBEXPIRE_MAX_ABS_TIME_MSEC - basetime) {
+        addReplyErrorExpireTime(c);
+        return C_ERR;
+    }
+    val += basetime;
+    *expire = val;
+    return C_OK;
 }

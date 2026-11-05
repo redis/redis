@@ -204,6 +204,30 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
         }
     }
 
+    test {Preload a legacy AOF installs it without moving the source} {
+        set local_dir [file normalize [tmpdir preload.legacy-aof]]
+        set preload_aof [file join $local_dir appendonly.aof]
+        set fp [open $preload_aof w]
+        puts -nonewline $fp [formatCommand select 9]
+        puts -nonewline $fp [formatCommand set legacy-aof-key value]
+        close $fp
+
+        start_server [list overrides [list dir $local_dir appendonly yes appendfsync always preload-file "aof:$preload_aof"] keep_persistence true] {
+            assert_equal value [r get legacy-aof-key]
+            # Setup must install the local BASE while preserving the preload source.
+            assert {[file exists $preload_aof]}
+            assert {[file exists [file join $local_dir appendonlydir appendonly.aof]]}
+            assert_equal OK [r set after-legacy-preload value]
+        }
+
+        # Restart without preload-file: the local BASE and new INCR must restore
+        # both the preloaded data and writes made after setup.
+        start_server [list overrides [list dir $local_dir appendonly yes]] {
+            assert_equal value [r get legacy-aof-key]
+            assert_equal value [r get after-legacy-preload]
+        }
+    }
+
     test {Preload current local manifest does not rewrite AOF} {
         # Build a local MP-AOF and use its exact absolute manifest path as the
         # preload source, matching the manifest Redis would normally load.

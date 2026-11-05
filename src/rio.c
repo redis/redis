@@ -190,6 +190,94 @@ void rioInitWithFile(rio *r, FILE *fp) {
     r->io.file.reclaim_cache = 0;
 }
 
+/* Buffered read used by rioInitWithFileLoad(): reads directly from the
+ * underlying fd in RIO_FILE_LOAD_BUFLEN-sized chunks (bypassing stdio) and
+ * checksums each freshly read chunk in one crc64() call, rather than once
+ * per (often just a few bytes) caller request. This lets small RDB fields
+ * still feed the checksum buffers large enough to engage SIMD-accelerated
+ * crc64 implementations.
+ *
+ * The trailing 8-byte RDB checksum footer must never itself be folded into
+ * the running checksum, but a single physical read routinely spans both the
+ * last content bytes and the footer. content_end (filesize - 8) is used to
+ * clip the checksum to the content portion of each chunk. */
+#define RIO_FILE_LOAD_BUFLEN (4*1024)
+
+/* Fold up to 'n' freshly read bytes at 'buf' into the running checksum,
+ * clipped to the content/footer boundary, and advance read_offset. Shared
+ * by both the buffered-refill and direct-to-destination read paths below,
+ * since the clip is based on absolute file offsets and doesn't care where
+ * in memory the bytes landed. */
+static void rioFileLoadChecksumChunk(rio *r, const void *buf, ssize_t n) {
+    if (r->flags & RIO_FLAG_CKSUM_AT_SOURCE) {
+        off_t cksum_len = r->io.file.content_end - r->io.file.read_offset;
+        if (cksum_len > n) cksum_len = n;
+        if (cksum_len > 0) r->cksum = crc64(r->cksum, buf, (size_t)cksum_len);
+    }
+    r->io.file.read_offset += n;
+}
+
+static size_t rioFileLoadRead(rio *r, void *dst, size_t len) {
+    unsigned char *out = dst;
+    while (len) {
+        size_t avail = r->io.file.read_buf_valid - r->io.file.read_buf_pos;
+        if (avail) {
+            size_t take = avail < len ? avail : len;
+            memcpy(out, r->io.file.read_buf + r->io.file.read_buf_pos, take);
+            r->io.file.read_buf_pos += take;
+            out += take;
+            len -= take;
+            continue;
+        }
+        /* read_buf is empty. A request at least as large as one buffer's
+         * worth can be read straight into the destination for its
+         * RIO_FILE_LOAD_BUFLEN-aligned bulk, skipping the extra copy
+         * through read_buf entirely - the same optimization glibc's
+         * fread() applies for large reads. Only the unaligned remainder
+         * (always < RIO_FILE_LOAD_BUFLEN) goes through the buffer. */
+        if (len >= RIO_FILE_LOAD_BUFLEN) {
+            size_t direct_len = len - (len % RIO_FILE_LOAD_BUFLEN);
+            ssize_t n = read(fileno(r->io.file.fp), out, direct_len);
+            if (n <= 0) return 0;
+            rioFileLoadChecksumChunk(r, out, n);
+            out += n;
+            len -= n;
+            continue;
+        }
+
+        /* read_buf is empty and the remaining request fits one buffer:
+         * refill read_buf, then serve len on the next iteration. */        
+        ssize_t n = read(fileno(r->io.file.fp), r->io.file.read_buf, RIO_FILE_LOAD_BUFLEN);
+        if (n <= 0) return 0;
+        rioFileLoadChecksumChunk(r, r->io.file.read_buf, n);
+        r->io.file.read_buf_pos = 0;
+        r->io.file.read_buf_valid = (size_t)n;
+    }
+    return 1;
+}
+
+/* Create an RIO for sequentially loading an existing file of known size
+ * (an RDB, possibly an AOF's RDB preamble). Checksum computation happens
+ * inside the read() method itself (see rioFileLoadRead), at the granularity
+ * of physical reads rather than the caller's request size; callers that
+ * otherwise checksum every rioRead() unconditionally must check the
+ * RIO_FLAG_CKSUM_AT_SOURCE flag and skip their own checksum step. */
+void rioInitWithFileLoad(rio *r, FILE *fp, off_t filesize, int compute_checksum) {
+    rioInitWithFile(r, fp);
+    r->read = rioFileLoadRead;
+    if (compute_checksum) r->flags |= RIO_FLAG_CKSUM_AT_SOURCE;
+    r->io.file.read_buf = zmalloc(RIO_FILE_LOAD_BUFLEN);
+    r->io.file.read_buf_pos = 0;
+    r->io.file.read_buf_valid = 0;
+    r->io.file.read_offset = 0;
+    r->io.file.content_end = filesize > 8 ? filesize - 8 : 0;
+}
+
+void rioFreeFileLoad(rio *r) {
+    zfree(r->io.file.read_buf);
+    r->io.file.read_buf = NULL;
+}
+
 /* ------------------- Connection implementation -------------------
  * We use this RIO implementation when reading an RDB file directly from
  * the connection to the memory via rdbLoadRio(), thus this implementation
