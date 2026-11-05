@@ -1089,6 +1089,7 @@ void updateClientMemoryUsage(client *c) {
 }
 
 void updateClientWatchPubsubMemoryUsage(client *c) {
+    if (!c->conn) return;
     size_t watch_pubsub_mem = c->watched_keys_mem + c->pubsub_names_mem;
     if (watch_pubsub_mem == c->last_watch_pubsub_mem) return;
     size_t mem = c->last_memory_usage - c->last_watch_pubsub_mem + watch_pubsub_mem;

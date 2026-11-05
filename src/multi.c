@@ -368,6 +368,7 @@ void unwatchAllKeys(client *c) {
         zfree(wk);
     }
     server.watching_clients--;
+    updateClientWatchPubsubMemoryUsage(c);
 }
 
 /* Iterates over the watched_keys list and looks for an expired key. Keys which
@@ -429,7 +430,6 @@ void touchWatchedKey(redisDb *db, robj *key) {
          * again in case that key (or others) are modified again (or keep the
          * memory overhead till EXEC). */
         unwatchAllKeys(c);
-        updateClientWatchPubsubMemoryUsage(c);
 
     skip_client:
         continue;
