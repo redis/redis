@@ -333,3 +333,92 @@ void cfCompactCommand(client *c) {
     server.dirty++;
     addReply(c, shared.ok);
 }
+
+int cuckooValidateBucketSize(long long value, const char **err) {
+    if (value > server.cf_initial_size / 2) {
+        *err = "cf-bucket-size must not exceed half of cf-initial-size";
+        return 0;
+    }
+    return 1;
+}
+
+int cuckooValidateInitialSize(long long value, const char **err) {
+    if (value < server.cf_bucket_size * 2) {
+        *err = "cf-initial-size must be at least twice cf-bucket-size";
+        return 0;
+    }
+    return 1;
+}
+
+/* Preserve the module's first-match option lookup, including duplicate options. */
+static int cuckooArgIndex(client *c, const char *arg) {
+    size_t len = strlen(arg);
+    for (int ii = 0; ii < c->argc; ++ii) {
+        sds value = c->argv[ii]->ptr;
+        if (sdslen(value) == len && !strncasecmp(value, arg, len)) return ii;
+    }
+    return -1;
+}
+
+void cfReserveCommand(client *c) {
+    if ((c->argc % 2) == 0) {
+        addReplyErrorArity(c);
+        return;
+    }
+    long long capacity;
+    if (getLongLongFromObjectOrReply(c, c->argv[2], &capacity, "Bad capacity") != C_OK) return;
+    long long maxIterations = server.cf_max_iterations;
+    int mi_loc = cuckooArgIndex(c, "MAXITERATIONS");
+    if (mi_loc != -1) {
+        if (mi_loc + 1 == c->argc) { addReplyErrorArity(c); return; }
+        if (getLongLongFromObjectOrReply(c, c->argv[mi_loc + 1], &maxIterations,
+                                       "Couldn't parse MAXITERATIONS") != C_OK) return;
+        if (maxIterations < 1 || maxIterations > UINT16_MAX) {
+            addReplyError(c, "MAXITERATIONS: value must be in the range [1, 65535]");
+            return;
+        }
+    }
+    long long bucketSize = server.cf_bucket_size;
+    long long maxBucketSize = min(CF_MAX_BUCKET_SIZE, server.cf_initial_size / 2);
+    int bs_loc = cuckooArgIndex(c, "BUCKETSIZE");
+    if (bs_loc != -1) {
+        if (bs_loc + 1 == c->argc) { addReplyErrorArity(c); return; }
+        if (getLongLongFromObjectOrReply(c, c->argv[bs_loc + 1], &bucketSize,
+                                       "Couldn't parse BUCKETSIZE") != C_OK) return;
+        if (bucketSize < 1 || bucketSize > maxBucketSize) {
+            addReplyErrorFormat(c, "BUCKETSIZE: value must be in the range [1, %lld]", maxBucketSize);
+            return;
+        }
+    }
+    long long expansion = server.cf_expansion_factor;
+    int ex_loc = cuckooArgIndex(c, "EXPANSION");
+    if (ex_loc != -1) {
+        if (ex_loc + 1 == c->argc) { addReplyErrorArity(c); return; }
+        if (getLongLongFromObjectOrReply(c, c->argv[ex_loc + 1], &expansion,
+                                       "Couldn't parse EXPANSION") != C_OK) return;
+        if (expansion < 0 || expansion > CF_MAX_EXPANSION) {
+            addReplyError(c, "EXPANSION: value must be in the range [0, 32768]");
+            return;
+        }
+    }
+    if (bucketSize * 2 > capacity || capacity > (1LL << 30)) {
+        addReplyError(c, "Capacity must be in the range [2 * BUCKETSIZE, 1073741824]");
+        return;
+    }
+    dictEntryLink link;
+    kvobj *kv = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
+    if (checkType(c, kv, OBJ_CUCKOO)) return;
+    if (kv) { addReplyError(c, "item exists"); return; }
+    CuckooFilter *cf = ztrycalloc(sizeof(*cf));
+    if (!cf || CuckooFilter_Init(cf, capacity, bucketSize, maxIterations, expansion) != 0) {
+        CuckooFilter_Free(cf);
+        zfree(cf);
+        addReplyError(c, "Insufficient memory to create filter");
+        return;
+    }
+    robj *o = createCuckooObject(cf);
+    kv = dbAddByLink(c->db, c->argv[1], &o, &link);
+    keyModified(c, c->db, c->argv[1], kv, 1);
+    server.dirty++;
+    addReply(c, shared.ok);
+}

@@ -1,0 +1,70 @@
+{
+    "CF.RESERVE": {
+        "summary": "Creates a Cuckoo filter",
+        "complexity": "O(n), where n is the allocated filter size.",
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "capacity",
+                "type": "integer"
+            },
+            {
+                "name": "bucketsize",
+                "token": "BUCKETSIZE",
+                "type": "integer",
+                "optional": true
+            },
+            {
+                "name": "maxiterations",
+                "token": "MAXITERATIONS",
+                "type": "integer",
+                "optional": true
+            },
+            {
+                "name": "expansion",
+                "token": "EXPANSION",
+                "type": "integer",
+                "optional": true
+            }
+        ],
+        "since": "8.12.0",
+        "group": "cuckoo",
+        "arity": -3,
+        "function": "cfReserveCommand",
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "CUCKOO",
+            "FAST"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "INSERT"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
+    }
+}

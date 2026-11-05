@@ -63,7 +63,7 @@ start_server {tags {"cuckoo"} overrides {save ""}} {
     }
 
     test {Cuckoo read commands have dedicated ACL category and key specifications} {
-        assert_equal {cf.compact cf.count cf.debug cf.del cf.exists cf.info cf.mexists} [lsort [r acl cat cuckoo]]
+        assert_equal {cf.compact cf.count cf.debug cf.del cf.exists cf.info cf.mexists cf.reserve} [lsort [r acl cat cuckoo]]
         foreach cmd {cf.exists cf.count cf.mexists} {
             assert_equal cf [r command getkeys $cmd cf item]
         }
@@ -235,6 +235,57 @@ start_server {tags {"cuckoo"} overrides {save "" key-memory-histograms yes}} {
             $master cf.compact cf
             wait_for_ofs_sync $master $replica
             assert_equal [$master dump cf] [$replica dump cf]
+        }
+    }
+}
+
+start_server {tags {"cuckoo"} overrides {save ""}} {
+    test {Cuckoo reserve creates a filter with explicit options} {
+        r cf.reserve reserved 10 bucketsize 4 maxiterations 31 expansion 3
+        set info [r cf.info reserved]
+        assert_equal 4 [dict get $info {Bucket size}]
+        assert_equal 31 [dict get $info {Max iterations}]
+        assert_equal 4 [dict get $info {Expansion rate}]
+        assert_equal 0 [dict get $info {Number of items inserted}]
+        assert_error {*item exists*} {r cf.reserve reserved 10}
+        r set wrong x
+        assert_error WRONGTYPE* {r cf.reserve wrong 10}
+        foreach args {{bad} {1} {1073741825} {10 BUCKETSIZE 0} {10 MAXITERATIONS 0} {10 EXPANSION -1} {10 BUCKETSIZE}} {
+            assert_error {*} {r cf.reserve invalid {*}$args}
+            assert_equal 0 [r exists invalid]
+        }
+    }
+    test {Cuckoo creation settings enforce dependent bounds} {
+        r config set cf-initial-size 8
+        assert_error {*} {r config set cf-bucket-size 5}
+        r config set cf-bucket-size 4
+        assert_error {*} {r config set cf-initial-size 7}
+        assert_error {*} {r cf.reserve bad-bucket 100 bucketsize 5}
+        r config set cf-max-iterations 33 cf-expansion-factor 0 cf-max-expansions 16
+        r cf.reserve defaults 8
+        assert_equal 4 [dict get [r cf.info defaults] {Bucket size}]
+        assert_equal 33 [dict get [r cf.info defaults] {Max iterations}]
+        assert_equal 0 [dict get [r cf.info defaults] {Expansion rate}]
+        r config set cf-initial-size 1024 cf-bucket-size 2 cf-max-iterations 20 cf-expansion-factor 1
+    }
+    test {Cuckoo reserve survives incremental AOF replay} {
+        r config set appendonly yes
+        waitForBgrewriteaof r
+        r cf.reserve aof-reserved 16 bucketsize 2 maxiterations 30 expansion 2
+        set payload [r dump aof-reserved]
+        r debug loadaof
+        assert_equal $payload [r dump aof-reserved]
+        r config set appendonly no
+    } {OK} {needs:debug}
+    start_server {tags {"cuckoo needs:repl external:skip"} overrides {save ""}} {
+        test {Cuckoo reserve replicates native creation} {
+            set master [srv -1 client]
+            set replica [srv 0 client]
+            $replica replicaof [srv -1 host] [srv -1 port]
+            wait_for_sync $replica
+            $master cf.reserve replicated-reserve 16 bucketsize 4 maxiterations 30 expansion 2
+            wait_for_ofs_sync $master $replica
+            assert_equal [$master dump replicated-reserve] [$replica dump replicated-reserve]
         }
     }
 }

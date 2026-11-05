@@ -2979,6 +2979,34 @@ struct COMMAND_ARG CF_MEXISTS_Args[] = {
 {MAKE_ARG("item",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 };
 
+/********** CF_RESERVE ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* CF_RESERVE history */
+#define CF_RESERVE_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* CF_RESERVE tips */
+#define CF_RESERVE_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* CF_RESERVE key specs */
+keySpec CF_RESERVE_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* CF_RESERVE argument table */
+struct COMMAND_ARG CF_RESERVE_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("capacity",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("bucketsize",ARG_TYPE_INTEGER,-1,"BUCKETSIZE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("maxiterations",ARG_TYPE_INTEGER,-1,"MAXITERATIONS",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("expansion",ARG_TYPE_INTEGER,-1,"EXPANSION",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+};
+
 /********** BLESS CLEAR ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -13922,6 +13950,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("cf.exists","Checks whether an item exists in a Cuckoo filter","O(b * f), where b is the bucket size and f is the number of subfilters.","8.12.0",CMD_DOC_NONE,NULL,NULL,"cuckoo",COMMAND_GROUP_CUCKOO,CF_EXISTS_History,0,CF_EXISTS_Tips,0,cfExistsCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_CUCKOO,CF_EXISTS_Keyspecs,1,NULL,2),.args=CF_EXISTS_Args},
 {MAKE_CMD("cf.info","Returns information about a Cuckoo filter","O(f), where f is the number of subfilters.","8.12.0",CMD_DOC_NONE,NULL,NULL,"cuckoo",COMMAND_GROUP_CUCKOO,CF_INFO_History,0,CF_INFO_Tips,0,cfInfoCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_CUCKOO,CF_INFO_Keyspecs,1,NULL,1),.args=CF_INFO_Args},
 {MAKE_CMD("cf.mexists","Checks whether items exist in a Cuckoo filter","O(n * b * f), where n is the number of items, b is the bucket size, and f is the number of subfilters.","8.12.0",CMD_DOC_NONE,NULL,NULL,"cuckoo",COMMAND_GROUP_CUCKOO,CF_MEXISTS_History,0,CF_MEXISTS_Tips,0,cfMExistsCommand,-3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_CUCKOO,CF_MEXISTS_Keyspecs,1,NULL,2),.args=CF_MEXISTS_Args},
+{MAKE_CMD("cf.reserve","Creates a Cuckoo filter","O(n), where n is the allocated filter size.","8.12.0",CMD_DOC_NONE,NULL,NULL,"cuckoo",COMMAND_GROUP_CUCKOO,CF_RESERVE_History,0,CF_RESERVE_Tips,0,cfReserveCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_CUCKOO|ACL_CATEGORY_FAST,CF_RESERVE_Keyspecs,1,NULL,5),.args=CF_RESERVE_Args},
 /* generic */
 {MAKE_CMD("bless","A container for key-blessing commands.","Depends on subcommand.","8.12.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,BLESS_History,0,BLESS_Tips,0,NULL,-2,0,0,BLESS_Keyspecs,0,NULL,0),.subcommands=BLESS_Subcommands},
 {MAKE_CMD("copy","Copies the value of a key to a new key.","O(N) worst case for collections, where N is the number of nested items. O(1) for string values.","6.2.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,COPY_History,0,COPY_Tips,0,copyCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_KEYSPACE,COPY_Keyspecs,2,NULL,4),.args=COPY_Args},

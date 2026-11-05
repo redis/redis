@@ -14,6 +14,7 @@
  */
 
 #include "server.h"
+#include "t_cuckoo.h"
 #include "cluster.h"
 #include "connection.h"
 #include "bio.h"
@@ -4431,7 +4432,9 @@ standardConfig static_configs[] = {
     createSpecialConfig("bf-error-rate", NULL, MODIFIABLE_CONFIG, setConfigBloomErrorRateOption, getConfigBloomErrorRateOption, rewriteConfigBloomErrorRateOption, NULL),
     createLongLongConfig("bf-initial-size", NULL, MODIFIABLE_CONFIG, 1, 1LL<<30, server.bf_initial_size, 100, INTEGER_CONFIG, NULL, NULL),
     createLongLongConfig("bf-expansion-factor", NULL, MODIFIABLE_CONFIG, 0, 32768, server.bf_expansion_factor, 2, INTEGER_CONFIG, NULL, NULL),
-    createLongLongConfig("cf-bucket-size", NULL, MODIFIABLE_CONFIG, 1, 255, server.cf_bucket_size, 2, INTEGER_CONFIG, NULL, NULL),
+    createLongLongConfig("cf-bucket-size", NULL, MODIFIABLE_CONFIG, 1, 255, server.cf_bucket_size, 2, INTEGER_CONFIG, cuckooValidateBucketSize, NULL),
+    createLongLongConfig("cf-initial-size", NULL, MODIFIABLE_CONFIG, 2, 1LL<<30, server.cf_initial_size, 1024, INTEGER_CONFIG, cuckooValidateInitialSize, NULL),
+    createLongLongConfig("cf-max-expansions", NULL, MODIFIABLE_CONFIG, 1, 65536, server.cf_max_expansions, 32, INTEGER_CONFIG, NULL, NULL),
     createLongLongConfig("cf-max-iterations", NULL, MODIFIABLE_CONFIG, 1, 65535, server.cf_max_iterations, 20, INTEGER_CONFIG, NULL, NULL),
     createLongLongConfig("cf-expansion-factor", NULL, MODIFIABLE_CONFIG, 0, 32768, server.cf_expansion_factor, 1, INTEGER_CONFIG, NULL, NULL),
     createSizeTConfig("hll-sparse-max-bytes", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hll_sparse_max_bytes, 3000, MEMORY_CONFIG, NULL, NULL),

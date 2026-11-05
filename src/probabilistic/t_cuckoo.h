@@ -21,6 +21,9 @@ unsigned long cuckooDefrag(robj *o, unsigned long cursor, size_t steps,
                           void *(*defrag)(void *));
 void cuckooMixDigest(unsigned char *digest, const robj *o);
 
+int cuckooValidateBucketSize(long long value, const char **err);
+int cuckooValidateInitialSize(long long value, const char **err);
+
 int cuckooIsLegacyRdbType(uint64_t moduleid);
 ssize_t rdbSaveCuckooObject(rio *rdb, const robj *o);
 robj *rdbLoadCuckooObject(rio *rdb, uint64_t moduleid, int *is_corrupt);

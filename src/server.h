@@ -2699,6 +2699,8 @@ struct redisServer {
     double bf_error_rate;
     long long bf_initial_size;
     long long bf_expansion_factor;
+    long long cf_initial_size;
+    long long cf_max_expansions;
     long long cf_bucket_size;
     long long cf_max_iterations;
     long long cf_expansion_factor;
@@ -5031,6 +5033,7 @@ void cfMExistsCommand(client *c);
 void cfCountCommand(client *c);
 void cfInfoCommand(client *c);
 void cfDebugCommand(client *c);
+void cfReserveCommand(client *c);
 void cfDelCommand(client *c);
 void cfCompactCommand(client *c);
 
