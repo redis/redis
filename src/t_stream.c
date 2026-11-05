@@ -2604,8 +2604,7 @@ void xaddCommand(client *c) {
          * the * was replaced with the ID of an entry the upstream node did
          * append, so it must be applied even if the IID is still tracked here.
          * Duplicates are propagated with *, so they are still filtered here. */
-        if (!parsed_args.id_given && idmpLookupAndReply(s, producer, entry, c))
-        {
+        if (!parsed_args.id_given && idmpLookupAndReply(s, producer, entry, c)) {
             /* IID already exists, free the entry and return */
             idmpEntryFree(entry, &s->alloc_size);
             keyModified(c,c->db,c->argv[1],kv,0);
@@ -3909,7 +3908,6 @@ void xidmprecordCommand(client *c) {
 
     /* From a master or the AOF a different stream ID replaces the stale
      * mapping: the upstream node already expired it. */
-
     idmpInsertEntry(s, producer, entry, &id);
     trackStreamIdmpEntries(c, c->argv[1]);
     addReply(c, shared.ok);

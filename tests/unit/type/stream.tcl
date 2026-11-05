@@ -4174,9 +4174,9 @@ start_server {tags {"stream external:skip"} overrides {appendonly yes appendfsyn
         set id2 [r XADD mystream IDMP p1 "req-1" * field "v2"]
         assert {$id1 ne $id2}
 
-        # On restart the stale mapping is restored with a fresh window: the
-        # replayed append must not be deduplicated away. All three entries
-        # must be present after the restart.
+        # The rewritten AOF restores the expired mapping and nothing expires
+        # while it loads: the replayed append must not be deduplicated away.
+        # All three entries must be present after the restart.
         restart_server 0 true false
 
         assert_equal 3 [r XLEN mystream]
@@ -4220,7 +4220,8 @@ proc assert_idmp_retries {client expected} {
 # combination from a regular client, so the incremental file is written by
 # hand and loaded with DEBUG LOADAOF. The IDs are far in the future, so
 # nothing expires while the file is replayed and the replacement runs on the
-# middle of the list, on the tail, and through the walk fallback.
+# middle of the list, on the tail, with a longer next IID that still fits,
+# and through the walk fallback.
 start_server {tags {"stream needs:debug external:skip"} overrides {appendonly yes aof-use-rdb-preamble no appendfsync always auto-aof-rewrite-percentage 0}} {
     set server_path [lindex [r config get dir] 1]
     set aof_dirpath [file join $server_path appendonlydir]
@@ -4235,6 +4236,8 @@ start_server {tags {"stream needs:debug external:skip"} overrides {appendonly ye
         s-tail     b                     9000000000003-0
         s-fallback a                     9000000000003-0
         s-fallback ppppppppppppppppppp   9000000000002-0
+        s-slack    req-9                 9000000000003-0
+        s-slack    req-10                9000000000002-0
     }
 
     test {XADD IDMP replaces a tracked mapping applied from the AOF} {
@@ -4254,11 +4257,17 @@ start_server {tags {"stream needs:debug external:skip"} overrides {appendonly ye
             append_to_aof [formatCommand XADD s-tail IDMP p b 9000000000002-0 f v2]
             append_to_aof [formatCommand XADD s-tail IDMP p b 9000000000003-0 f v3]
 
-            # The node after 'a' has a longer IID, so its slot cannot be
-            # reused for the shorter 'a' and the list has to be walked.
+            # The IID after 'a' does not fit in the allocation of 'a', so the
+            # list has to be walked.
             append_to_aof [formatCommand XADD s-fallback IDMP p a 9000000000001-0 f v1]
             append_to_aof [formatCommand XADD s-fallback IDMP p ppppppppppppppppppp 9000000000002-0 f v2]
             append_to_aof [formatCommand XADD s-fallback IDMP p a 9000000000003-0 f v3]
+
+            # 'req-10' is longer than 'req-9' but fits in the allocation of
+            # 'req-9', so it is copied into it.
+            append_to_aof [formatCommand XADD s-slack IDMP p req-9 9000000000001-0 f v1]
+            append_to_aof [formatCommand XADD s-slack IDMP p req-10 9000000000002-0 f v2]
+            append_to_aof [formatCommand XADD s-slack IDMP p req-9 9000000000003-0 f v3]
         }
         create_aof_manifest $aof_dirpath $aof_manifest_file {
             append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
@@ -4272,9 +4281,11 @@ start_server {tags {"stream needs:debug external:skip"} overrides {appendonly ye
         assert_equal 4 [r XLEN s-mid]
         assert_equal 3 [r XLEN s-tail]
         assert_equal 3 [r XLEN s-fallback]
+        assert_equal 3 [r XLEN s-slack]
         assert_equal 3 [dict get [r XINFO STREAM s-mid] iids-tracked]
         assert_equal 2 [dict get [r XINFO STREAM s-tail] iids-tracked]
         assert_equal 2 [dict get [r XINFO STREAM s-fallback] iids-tracked]
+        assert_equal 2 [dict get [r XINFO STREAM s-slack] iids-tracked]
         assert_idmp_retries r $expected
 
         # The same mappings must survive a round trip through RDB.
@@ -4296,6 +4307,7 @@ start_server {tags {"stream needs:debug external:skip"} overrides {appendonly ye
         assert_equal 4 [r XLEN s-mid]
         assert_equal 3 [r XLEN s-tail]
         assert_equal 3 [r XLEN s-fallback]
+        assert_equal 3 [r XLEN s-slack]
         assert_idmp_retries r $expected
     }
 }
