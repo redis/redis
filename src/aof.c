@@ -1824,7 +1824,7 @@ int loadSingleAppendOnlyFile(char *filename) {
     int old_aof_state = server.aof_state;
     long loops = 0;
     long long start = ustime();
-    off_t valid_up_to = 0; /* Offset of latest well-formed command loaded. */
+    off_t valid_up_to = 0; /* Offset of latest well-formed command or RDB preamble loaded. */
     off_t valid_before_multi = 0; /* Offset before MULTI command loaded. */
     off_t last_progress_report_size = 0;
     int ret = AOF_OK;
@@ -1900,6 +1900,7 @@ int loadSingleAppendOnlyFile(char *filename) {
         } else {
             loadingAbsProgress(ftello(fp));
             last_progress_report_size = ftello(fp);
+            valid_up_to = last_progress_report_size;
             if (old_style) serverLog(LL_NOTICE, "Reading the remaining AOF tail...");
         }
     }
@@ -2039,7 +2040,6 @@ int loadSingleAppendOnlyFile(char *filename) {
     if (fakeClient->flags & CLIENT_MULTI) {
         serverLog(LL_WARNING,
             "Revert incomplete MULTI/EXEC transaction in AOF file %s", filename);
-        valid_up_to = valid_before_multi;
         goto uxeof;
     }
 
@@ -2058,6 +2058,7 @@ readerr: /* Read error. If feof(fp) is true, fall through to unexpected EOF. */
     }
 
 uxeof: /* Unexpected AOF end of file. */
+    if (fakeClient->flags & CLIENT_MULTI) valid_up_to = valid_before_multi;
     if (server.aof_load_truncated) {
         serverLog(LL_WARNING,"!!! Warning: short read while loading the AOF file %s!!!", filename);
         serverLog(LL_WARNING,"!!! Truncating the AOF %s at offset %llu !!!",
@@ -2078,6 +2079,8 @@ fmterr: /* Format error. */
     /* fmterr may be caused by accidentally machine shutdown, so if the broken tail
      * is less than a specified size, try to recover it automatically */
     if (server.aof_load_corrupt_tail_max_size && sb.st_size - valid_up_to < server.aof_load_corrupt_tail_max_size) {
+        /* Discard the whole unfinished transaction, not just the corrupt command. */
+        if (fakeClient->flags & CLIENT_MULTI) valid_up_to = valid_before_multi;
         serverLog(LL_WARNING,"!!! Warning: corrupt AOF file tail!!!");
         serverLog(LL_WARNING,"!!! Truncating the AOF %s at offset %llu (remaining %llu) !!!",
             aof_filepath, (unsigned long long) valid_up_to, (unsigned long long) sb.st_size - valid_up_to);
