@@ -42,12 +42,14 @@ extern dictType idmpDictType;
  * so that streamCG stays one cache line. */
 typedef struct {
     uint32_t epoch;   /* Generation the bits refer to. */
-    uint8_t counted;  /* Bit per metric with a sample in its row. The bit of
-                         STREAM_DISTRIB_STREAMS_MAX_LAG means "member of the
-                         stream's max-lag heap". */
+    uint8_t counted;  /* Bit per metric with a sample in its row. A group has
+                         no sample in the per-stream rows, so the bit of
+                         STREAM_DISTRIB_STREAMS_MAX_LAG says instead whether the
+                         group is in its stream's max-lag heap (defined as
+                         STREAM_CG_IN_LAG_HEAP in t_stream.c). */
     uint8_t slot[3];  /* The group's index in its stream's max-lag heap
                          (streamLagState.heap), as a 24-bit little-endian
-                         number; meaningful only while the member bit above
+                         number; meaningful only while the in-heap bit above
                          is set. */
 } streamDistribStamp;
 
