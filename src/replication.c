@@ -4270,7 +4270,11 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
         zfree(n);
 
         size_t processed = 0;
-        while (processed < o->used) {
+        /* Copying all compressed bytes into the decompressor does not mean
+         * their commands have been applied. Drain its pending output before
+         * leaving the streaming state, even if this block is exhausted. */
+        while (processed < o->used ||
+               (compressed_stream && clientHasPendingCompressedData(c))) {
             /* Consumed bytes from the current block in the current iteration. */
             size_t consumed = 0;
             /* Bytes passed to the command parser, after decompression (if decompression is needed). */
