@@ -2094,9 +2094,30 @@ void *VectorSetRdbLoad(RedisModuleIO *rdb, int encver) {
             goto ioerr;
         }
 
-        // Load node parameters back.
-        uint32_t params_count = RedisModule_LoadUnsigned(rdb);
+        // Load node parameters back. Read as 64 bit (RedisModule_LoadUnsigned
+        // returns uint64_t): truncating into a uint32_t here would let a
+        // crafted count just above UINT32_MAX wrap to a small, valid-looking
+        // value and bypass the bound check below.
+        uint64_t params_count = RedisModule_LoadUnsigned(rdb);
         if (RedisModule_IsIOError(rdb)) {
+            RedisModule_FreeString(NULL,ele);
+            if (attrib) RedisModule_FreeString(NULL,attrib);
+            RedisModule_Free(vector);
+            goto ioerr;
+        }
+
+        /* Reject an implausible params_count from a corrupted or tampered
+         * RDB before allocating: besides being invalid, params_count *
+         * sizeof(uint64_t) would overflow size_t on 32 bit systems (leading
+         * to an under-allocation and a heap overflow in the loop below) and
+         * force a multi-gigabyte allocation on 64 bit systems. The bound is
+         * the maximum a single node can legitimately encode; anything larger
+         * is rejected by hnsw_insert_serialized() anyway. */
+        if (params_count > HNSW_MAX_SERIALIZED_NODE_PARAMS) {
+            RedisModule_LogIOError(rdb,"warning",
+                "Invalid serialized node params count in RDB: %llu (max %llu)",
+                (unsigned long long)params_count,
+                (unsigned long long)HNSW_MAX_SERIALIZED_NODE_PARAMS);
             RedisModule_FreeString(NULL,ele);
             if (attrib) RedisModule_FreeString(NULL,attrib);
             RedisModule_Free(vector);
@@ -2119,7 +2140,9 @@ void *VectorSetRdbLoad(RedisModuleIO *rdb, int encver) {
         struct vsetNodeVal *nv = RedisModule_Alloc(sizeof(*nv));
         nv->item = ele;
         nv->attrib = attrib;
-        hnswNode *node = hnsw_insert_serialized(vset->hnsw, vector, params, params_count, nv);
+        /* params_count is bounded by HNSW_MAX_SERIALIZED_NODE_PARAMS above, so
+         * the cast to the uint32_t params_len argument is safe. */
+        hnswNode *node = hnsw_insert_serialized(vset->hnsw, vector, params, (uint32_t)params_count, nv);
         if (node == NULL) {
             RedisModule_LogIOError(rdb,"warning",
                                        "Vector set node index loading error");

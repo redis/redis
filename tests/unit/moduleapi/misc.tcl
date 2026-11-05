@@ -20,6 +20,29 @@ start_server {overrides {save {900 1}} tags {"modules external:skip"}} {
         assert { [string match "*cmdstat_module*" $info] }
     }
 
+    test {RM_Call: outer command keeps the off-CPU time of a slow inner command} {
+        r config set slowlog-log-slower-than 10000
+        r slowlog reset
+        r test.call_generic debug sleep 0.05
+        # Newest first: the outer command, logged after the inner DEBUG SLEEP.
+        set e [lindex [r slowlog get 1] 0]
+        assert_match {test.call_generic *} [lindex $e 3]
+        assert {[lindex $e 7] < [lindex $e 2] / 2}
+    } {} {needs:debug}
+
+    test {RM_Call: a middle-level command keeps the off-CPU time of its child} {
+        r config set slowlog-log-slower-than 10000
+        r slowlog reset
+        r test.call_generic test.call_generic debug sleep 0.05
+        # Newest first: outer, middle, then the DEBUG SLEEP.
+        set log [r slowlog get 3]
+        foreach i {0 1} {
+            set e [lindex $log $i]
+            assert_match {test.call_generic *} [lindex $e 3]
+            assert {[lindex $e 7] < [lindex $e 2] / 2}
+        }
+    } {} {needs:debug}
+
     test {test redis version} {
         set version [s redis_version]
         assert_equal $version [r test.redisversion]
@@ -531,6 +554,37 @@ start_server {overrides {save {900 1}} tags {"modules external:skip"}} {
     test "Cluster keyslot" {
         assert_equal 12182 [r test.keyslot foo]
     }
+
+    test "GetUsedMemoryRatioEstimate is 0 without maxmemory" {
+        r config set maxmemory 0
+        assert_equal 0 [r test.used_memory_ratio_estimate]
+        assert_equal 0 [r test.used_memory_ratio_estimate_bg]
+        assert_equal 0 [r test.used_memory_ratio]
+    }
+
+    test "GetUsedMemoryRatioEstimate tracks used_memory and maxmemory" {
+        set maxmemory [expr {[s used_memory] * 4}]
+        r config set maxmemory $maxmemory
+        set ratio [r test.used_memory_ratio_estimate]
+        set expected [expr {double([s used_memory]) / $maxmemory}]
+        assert_range $ratio [expr {$expected * 0.95}] [expr {$expected * 1.05}]
+
+        # Never smaller than RM_GetUsedMemoryRatio(), which subtracts the
+        # replication and AOF buffers. Allow for noise between the two calls.
+        set ratio_main [r test.used_memory_ratio]
+        assert_morethan_equal $ratio [expr {$ratio_main * 0.99}]
+
+        # A new maxmemory is reflected on the very next call.
+        r config set maxmemory [expr {$maxmemory * 2}]
+        set ratio_halved [r test.used_memory_ratio_estimate]
+        assert_range $ratio_halved [expr {$ratio / 2 * 0.95}] [expr {$ratio / 2 * 1.05}]
+
+        # Same value from a thread that does not hold the GIL.
+        set ratio_bg [r test.used_memory_ratio_estimate_bg]
+        assert_range $ratio_bg [expr {$ratio_halved * 0.95}] [expr {$ratio_halved * 1.05}]
+
+        r config set maxmemory 0
+    }
 }
 
 start_server {tags {"modules external:skip"}} {
@@ -613,5 +667,27 @@ start_server {tags {"modules external:skip"}} {
         # 2 non cross slot keys, should not increment the counter
         r test.incompatible_cluster_cmd foo bar bar{foo} bar
         assert_equal [expr $incompatible_ops+3] [s cluster_incompatible_ops]
+    }
+}
+
+# The bitmap tags must sit on the server block: tag-filtered runs (e.g.
+# --tags bitmap) decide reachability from start_server tags before any
+# per-test tags are consulted.
+start_server {tags {"modules bitmap bitmap-roaring needs:debug external:skip cluster:skip"}} {
+    r module load $testmodule
+
+    test {module key API exposes bitmap without string access} {
+        set raw [binary format H* 80400100080000]
+
+        r set bitmap:module-boundary $raw
+        r set bitmap:module-string $raw
+        convert_string_bitmap_to_roaring r bitmap:module-boundary
+        assert_equal {bitmap 7 0 0} [r test.keyinfo bitmap:module-boundary]
+        assert_equal {string 7 1 1} [r test.keyinfo bitmap:module-string]
+        assert_equal bitmap [r type bitmap:module-boundary]
+        assert_equal $raw [r debug bitmap-raw bitmap:module-boundary]
+        assert_equal string [r type bitmap:module-string]
+        assert_equal $raw [r get bitmap:module-string]
+        assert_equal 2 [r del bitmap:module-boundary bitmap:module-string]
     }
 }

@@ -1248,6 +1248,32 @@ start_server {tags {"scripting"}} {
         set _ $e
     } {ERR Invalid metadata value given: foo=bar}
 
+    foreach {field shebang} {
+        engine {#!"lua%s" name=metadata_test}
+        name {#!lua name="metadata_test%s"}
+        option {#!lua name=metadata_test "bad=%s"}
+    } {
+        test "FUNCTION - Reject CR and LF in library metadata - $field" {
+            # Quoted metadata decodes escapes, including hex and NUL bytes.
+            foreach symbols [list {\r} {\n} {\r\n+INJECTED\r\n} \
+                                  {\x0d} {\x0a} {\x0d\x0a+INJECTED\x0d\x0a} \
+                                  {\x00\r} {\x00\n} "\r"] {
+                set code "[format $shebang $symbols]\nredis.register_function('metadata_test', function() return 1 end)"
+                assert_error {ERR Invalid symbols in library metadata} {
+                    r function load $code
+                }
+                # An injected reply must not be left on the connection.
+                assert_equal PONG [r ping]
+            }
+        }
+    }
+
+    test {FUNCTION - Quoted library metadata with CRLF line endings} {
+        assert_equal metadata_test [r function load "#!\"lua\" name=\"metadata_test\"\r\nredis.register_function('metadata_test', function() return 1 end)"]
+        assert_equal 1 [r fcall metadata_test 0]
+        r function delete metadata_test
+    } {OK}
+
     test {FUNCTION - function test no name} {
          catch {r function load replace {#!lua
             redis.register_function('foo', function() return 1 end)

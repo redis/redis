@@ -43,22 +43,11 @@
 #define REDIS_TLS_PROTO_DEFAULT     (REDIS_TLS_PROTO_TLSv1_2)
 #endif
 
-/* Peer certificate name verification (tls-expected-peer-name) relies on the
- * X509_VERIFY_PARAM host API, available since OpenSSL 1.0.2. Defining
- * TLS_NO_PEER_NAME_VERIFICATION compiles the feature out on any OpenSSL version;
- * it is also the required opt-out for building against an older OpenSSL, since
- * building there without it is a hard error (so a build cannot accidentally lack
- * the check). When compiled out and the option is set, each affected connection
- * warns and proceeds (CA validation still applies). */
-#if defined(TLS_NO_PEER_NAME_VERIFICATION)
-#define CONN_TLS_SUPPORTS_VERIFY_NAME 0
-#elif OPENSSL_VERSION_NUMBER >= 0x10002000L
-#define CONN_TLS_SUPPORTS_VERIFY_NAME 1
-#else
-#error "tls-expected-peer-name requires OpenSSL 1.0.2 or newer. Build against a \
-newer OpenSSL, or define TLS_NO_PEER_NAME_VERIFICATION to build without peer \
-certificate name verification."
-#endif
+/* CONN_TLS_SUPPORTS_VERIFY_NAME: whether peer certificate identity verification
+ * (tls-expected-peer-name) is available in this build; see tlshelpers.h. When it
+ * is compiled out and the option is set, each affected connection warns and
+ * proceeds (CA validation still applies). */
+#include "tlshelpers.h"
 
 /* TLS groups rely on SSL_CTX_set1_groups_list(), or on the
  * older SSL_CTX_set1_curves_list() name. Build failure is intentional when the
@@ -999,32 +988,28 @@ static int connTLSAccept(connection *_conn, ConnectionCallbackFunc accept_handle
  * Returns C_OK on success, C_ERR if a name could not be applied or the value
  * contained no usable name. On a TLS_NO_PEER_NAME_VERIFICATION build (OpenSSL
  * < 1.0.2) it cannot enforce the name; it logs a warning and returns C_OK so the
- * connection still proceeds (CA validation still applies). */
-static int tlsSetVerifyName(SSL *ssl, const char *names) {
+ * connection still proceeds (CA validation still applies).
+ *
+ * Not static: Sentinel applies tls-expected-peer-name to its hiredis-based
+ * links through it. Sentinel's TLS code is compiled only for linked-in TLS
+ * builds (USE_OPENSSL == 1), where this file is part of the server binary, so a
+ * module build leaves no undefined reference. */
+int tlsSetVerifyName(SSL *ssl, const char *names) {
 #if CONN_TLS_SUPPORTS_VERIFY_NAME
-    /* Use the X509_VERIFY_PARAM_* host API (available since OpenSSL 1.0.2) rather
-     * than the SSL_set1_host()/SSL_add1_host()/SSL_set_hostflags() convenience
-     * wrappers (introduced only in OpenSSL 1.1.0). This keeps certificate name
-     * verification available on every OpenSSL version that actually provides the
-     * hostname-checking machinery, matching the older versions the rest of this
-     * file still supports. */
     X509_VERIFY_PARAM *param = SSL_get0_param(ssl);
-
-    /* Reject partial-label wildcards (e.g. "f*.example.com"); a full-label
-     * "*.example.com" still matches. */
-    X509_VERIFY_PARAM_set_hostflags(param, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
 
     int count = 0;
     sds *tokens = sdssplitlen(names, strlen(names), " ", 1, &count);
     if (!tokens) return C_ERR;
 
+    /* The first name replaces the expected host list, each subsequent one is
+     * appended, so a match against any listed name succeeds. The config
+     * validator admits DNS names only, so the shared helper's IP branch is never
+     * taken here. */
     int first = 1, ok = 1;
     for (int i = 0; i < count; i++) {
         if (sdslen(tokens[i]) == 0) continue; /* skip empty tokens from runs of spaces */
-        /* First name via set1_host (replaces), each subsequent via add1_host
-         * (appends); a match against any listed name succeeds. */
-        int r = first ? X509_VERIFY_PARAM_set1_host(param, tokens[i], 0)
-                      : X509_VERIFY_PARAM_add1_host(param, tokens[i], 0);
+        int r = tlsVerifyParamAddIdentity(param, tokens[i], sdslen(tokens[i]), first);
         first = 0;
         if (r != 1) { ok = 0; break; }
     }
@@ -1044,6 +1029,29 @@ static int tlsSetVerifyName(SSL *ssl, const char *names) {
         "tls-expected-peer-name is set but peer certificate name verification is "
         "disabled in this build (TLS_NO_PEER_NAME_VERIFICATION); the name is not "
         "enforced on this connection.");
+    return C_OK;
+#endif
+}
+
+/* Bind the SSL object to a single expected peer identity, the way a TLS client
+ * verifies the host it dials: an IP address literal is matched against the
+ * certificate's IP SAN entries (no fallback), anything else against its DNS SAN
+ * entries (with the CN as a fallback per OpenSSL rules). Used by Sentinel for
+ * the address of each instance it connects to. Returns C_OK on success, C_ERR
+ * if the name is empty or could not be applied. On a
+ * TLS_NO_PEER_NAME_VERIFICATION build it cannot enforce the identity; it logs a
+ * warning and returns C_OK so the connection proceeds with CA validation only,
+ * matching tlsSetVerifyName(). Not static, for the same reason as that one. */
+int tlsSetVerifyIdentity(SSL *ssl, const char *name) {
+    if (!name || !name[0]) return C_ERR;
+#if CONN_TLS_SUPPORTS_VERIFY_NAME
+    X509_VERIFY_PARAM *param = SSL_get0_param(ssl);
+    return tlsVerifyParamAddIdentity(param, name, strlen(name), 1) == 1 ? C_OK : C_ERR;
+#else
+    UNUSED(ssl);
+    serverLog(LL_WARNING,
+        "Peer certificate identity verification is disabled in this build "
+        "(TLS_NO_PEER_NAME_VERIFICATION); the identity of %s is not verified.", name);
     return C_OK;
 #endif
 }

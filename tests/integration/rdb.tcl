@@ -1,5 +1,29 @@
 tags {"rdb external:skip"} {
 
+start_server {overrides {save ""}} {
+    test {DEBUG RELOAD rejects an active background save without losing writes} {
+        r set reload-key before
+        r save
+        r config set rdb-key-save-delay 1000000
+        r bgsave
+        assert_equal 1 [s rdb_bgsave_in_progress]
+        r set reload-key after
+        foreach options {{} {NOFLUSH} {NOFLUSH MERGE}} {
+            assert_error {*Background save already in progress*} {r debug reload {*}$options}
+            assert_equal after [r get reload-key]
+        }
+        # NOSAVE deliberately loads the on-disk snapshot; it does not promise
+        # to preserve the current dataset and must remain usable during BGSAVE.
+        assert_equal OK [r debug reload NOSAVE]
+        assert_equal before [r get reload-key]
+        r set reload-key after
+        waitForBgsave r
+        r config set rdb-key-save-delay 0
+        assert_equal OK [r debug reload]
+        assert_equal after [r get reload-key]
+    }
+}
+
 set server_path [tmpdir "server.rdb-encoding-test"]
 
 # Copy RDB with different encodings in server path

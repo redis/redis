@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <limits.h>
+#include <pthread.h>
 
 #define UNUSED(x) (void)(x)
 
@@ -176,6 +177,41 @@ int test_keyexists(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModuleString *key = argv[1];
     int exists = RedisModule_KeyExists(ctx, key);
     return RedisModule_ReplyWithBool(ctx, exists);
+}
+
+const char *test_keytype_name(int type) {
+    switch (type) {
+    case REDISMODULE_KEYTYPE_EMPTY: return "empty";
+    case REDISMODULE_KEYTYPE_STRING: return "string";
+    case REDISMODULE_KEYTYPE_LIST: return "list";
+    case REDISMODULE_KEYTYPE_HASH: return "hash";
+    case REDISMODULE_KEYTYPE_SET: return "set";
+    case REDISMODULE_KEYTYPE_ZSET: return "zset";
+    case REDISMODULE_KEYTYPE_MODULE: return "module";
+    case REDISMODULE_KEYTYPE_STREAM: return "stream";
+    case REDISMODULE_KEYTYPE_ARRAY: return "array";
+    case REDISMODULE_KEYTYPE_BITMAP: return "bitmap";
+    default: return "unknown";
+    }
+}
+
+int test_keyinfo(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 2) return RedisModule_WrongArity(ctx);
+
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ | REDISMODULE_WRITE);
+    int type = RedisModule_KeyType(key);
+    size_t len = RedisModule_ValueLength(key);
+    size_t dma_len = 0;
+    char *dma = RedisModule_StringDMA(key, &dma_len, REDISMODULE_READ);
+    int truncate = RedisModule_StringTruncate(key, len);
+
+    RedisModule_ReplyWithArray(ctx, 4);
+    RedisModule_ReplyWithCString(ctx, test_keytype_name(type));
+    RedisModule_ReplyWithLongLong(ctx, (long long)len);
+    RedisModule_ReplyWithLongLong(ctx, dma != NULL);
+    RedisModule_ReplyWithLongLong(ctx, truncate == REDISMODULE_OK);
+    RedisModule_CloseKey(key);
+    return REDISMODULE_OK;
 }
 
 RedisModuleKey *open_key_or_reply(RedisModuleCtx *ctx, RedisModuleString *keyname, int mode) {
@@ -561,6 +597,36 @@ int test_signalmodifiedkey(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     return REDISMODULE_OK;
 }
 
+int test_used_memory_ratio(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    UNUSED(argv);
+    if (argc != 1) return RedisModule_WrongArity(ctx);
+    return RedisModule_ReplyWithDouble(ctx, RedisModule_GetUsedMemoryRatio());
+}
+
+int test_used_memory_ratio_estimate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    UNUSED(argv);
+    if (argc != 1) return RedisModule_WrongArity(ctx);
+    return RedisModule_ReplyWithDouble(ctx, RedisModule_GetUsedMemoryRatioEstimate());
+}
+
+static void *used_memory_ratio_thread_main(void *arg) {
+    *(float *)arg = RedisModule_GetUsedMemoryRatioEstimate();
+    return NULL;
+}
+
+/* Calls RedisModule_GetUsedMemoryRatioEstimate() from a thread that does not
+ * hold the GIL. */
+int test_used_memory_ratio_estimate_bg(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    UNUSED(argv);
+    if (argc != 1) return RedisModule_WrongArity(ctx);
+    pthread_t tid;
+    float ratio = -1;
+    if (pthread_create(&tid, NULL, used_memory_ratio_thread_main, &ratio) != 0)
+        return RedisModule_ReplyWithError(ctx, "-ERR Can't start thread");
+    pthread_join(tid, NULL);
+    return RedisModule_ReplyWithDouble(ctx, ratio);
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -586,6 +652,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx,"test.randomkey", test_randomkey,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"test.keyexists", test_keyexists,"",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"test.keyinfo", test_keyinfo,"write",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"test.setlru", test_setlru,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
@@ -636,6 +704,12 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateSubcommand(parent, "set", only_reply_ok, "no-cluster", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx, "test.signalmodifiedkey", test_signalmodifiedkey, "write", 1, 1, 1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "test.used_memory_ratio", test_used_memory_ratio, "", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "test.used_memory_ratio_estimate", test_used_memory_ratio_estimate, "", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "test.used_memory_ratio_estimate_bg", test_used_memory_ratio_estimate_bg, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

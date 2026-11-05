@@ -25,6 +25,7 @@
 #ifdef USE_OPENSSL
 #include <openssl/ssl.h>
 #include <openssl/err.h>
+#include <openssl/x509.h>
 #include <hiredis_ssl.h>
 #endif
 
@@ -33,8 +34,100 @@
 char *redisGitSHA1(void);
 char *redisGitDirty(void);
 
+/* Validate a space-separated list of expected TLS peer names as given to
+ * --tls-expected-peer-name, before any connection is attempted. Mirrors the
+ * server's isValidTlsExpectedPeerName(): spaces are the only separators, so any
+ * other whitespace would be handed to OpenSSL as part of a name and silently
+ * never match a real SAN. An IP address must be the sole name: OpenSSL keeps a
+ * single expected IP, and combining it with DNS names requires BOTH to match
+ * (X509_VERIFY_PARAM ANDs the two kinds), which is never what a
+ * match-any-of-these list means. A name beginning with a dot is legitimate
+ * OpenSSL syntax for a parent domain (it matches any subdomain at any depth);
+ * like the server, we accept it but report how many such entries there are so
+ * the caller can warn about the wider scope. */
+const char *cliValidateExpectedPeerNames(const char *names, int *parent_domain_entries) {
+    if (parent_domain_entries) *parent_domain_entries = 0;
+
+    for (const char *p = names; *p; p++) {
+        if (*p != ' ' && isspace((unsigned char)*p))
+            return "expected peer names must not contain whitespace other than "
+                   "spaces separating names";
+    }
+
+    int count = 0, nnames = 0, nips = 0, ndots = 0;
+    sds *tokens = sdssplitlen(names, strlen(names), " ", 1, &count);
+    if (tokens == NULL)
+        return "out of memory while parsing expected peer names";
+
+    for (int i = 0; i < count; i++) {
+        if (sdslen(tokens[i]) == 0) continue; /* runs of spaces */
+        nnames++;
+        if (tlsIsIPAddressLiteral(tokens[i])) nips++;
+        else if (tokens[i][0] == '.') ndots++;
+    }
+    sdsfreesplitres(tokens, count);
+
+    if (nnames == 0)
+        return "expected peer names contain no usable name";
+    if (nips > 0 && nnames > 1)
+        return "an IP address must be the only expected peer name";
+
+    if (parent_domain_entries) *parent_domain_entries = ndots;
+    return NULL;
+}
+
+#if defined(USE_OPENSSL) && CLI_TLS_SUPPORTS_VERIFY_NAME
+/* Bind the SSL object to the expected peer identity(-ies): the server
+ * certificate must carry one of the space-separated `names` (DNS names, or a
+ * single IP address literal; see tlsVerifyParamAddIdentity() for how each kind
+ * is matched) in addition to chaining to the trusted CA. Applied per SSL object
+ * rather than on the shared SSL_CTX: the context is a process-wide static, while
+ * the identity is a per-connection property (e.g. each node the cluster manager
+ * dials). The names have been validated by cliValidateExpectedPeerNames().
+ * Returns REDIS_OK, or REDIS_ERR with *err set. */
+static int cliSSLSetVerifyNames(SSL *ssl, const char *names, const char **err) {
+    X509_VERIFY_PARAM *param = SSL_get0_param(ssl);
+
+    int count = 0;
+    sds *tokens = sdssplitlen(names, strlen(names), " ", 1, &count);
+    if (tokens == NULL) {
+        *err = "Out of memory while parsing expected peer names";
+        return REDIS_ERR;
+    }
+
+    /* The first name replaces the expected host list, each subsequent one is
+     * appended, so a match against any listed name succeeds. */
+    int applied = 0, first = 1, ok = 1;
+    for (int i = 0; i < count; i++) {
+        if (sdslen(tokens[i]) == 0) continue; /* runs of spaces */
+        int r = tlsVerifyParamAddIdentity(param, tokens[i], sdslen(tokens[i]), first);
+        first = 0;
+        if (r != 1) {
+            ok = 0;
+            break;
+        }
+        applied++;
+    }
+    sdsfreesplitres(tokens, count);
+
+    if (!ok || applied == 0) {
+        *err = "Failed to set the expected peer certificate name(s)";
+        return REDIS_ERR;
+    }
+    return REDIS_OK;
+}
+#endif
+
 /* Wrapper around redisSecureConnection to avoid hiredis_ssl dependencies if
  * not building with TLS support.
+ *
+ * Besides the CA chain, the server certificate's identity is verified by
+ * default (the equivalent of libpq's "verify-full"): it must carry the name
+ * given to --sni, or else the host that was dialed (an IP or a DNS name), or
+ * the explicit --tls-expected-peer-name. --no-verify-hostname drops back to
+ * chain-only validation ("verify-ca"), --insecure to none. A unix socket has no
+ * name to verify against, so only --sni or --tls-expected-peer-name can bind
+ * such a connection to an identity.
  */
 int cliSecureConnection(redisContext *c, cliSSLconfig config, const char **err) {
 #ifdef USE_OPENSSL
@@ -96,13 +189,83 @@ int cliSecureConnection(redisContext *c, cliSSLconfig config, const char **err) 
         return REDIS_ERR;
     }
 
-    if (config.sni && !SSL_set_tlsext_host_name(ssl, config.sni)) {
+    /* SNI: the explicit --sni value, else the dialed host when it is a DNS name
+     * (SNI cannot carry an IP literal). Redis itself serves a single certificate
+     * and ignores SNI; announcing the name is for a TLS proxy or load balancer
+     * in front of it, which may route by SNI or present the certificate issued
+     * for that name -- the identity verified below. c->tcp.host is NULL for
+     * unix-socket connections. */
+    const char *sni = config.sni;
+    if (sni == NULL && c->tcp.host && !tlsIsIPAddressLiteral(c->tcp.host))
+        sni = c->tcp.host;
+    if (sni && !SSL_set_tlsext_host_name(ssl, sni)) {
         *err = "Failed to configure SNI";
         SSL_free(ssl);
         return REDIS_ERR;
     }
 
-    return redisInitiateSSL(c, ssl);
+    /* Identity verification. Most explicit source wins: the configured
+     * expected name(s), then the declared server name, then the dialed host.
+     * Skipped entirely under --insecure (nothing is verified at all, so a name
+     * check could not run) or --no-verify-hostname. */
+    const char *identity = NULL;
+    if (!config.skip_cert_verify && !config.skip_hostname_verify) {
+        identity = config.expected_peer_name;
+        if (identity == NULL) identity = config.sni;
+        if (identity == NULL) identity = c->tcp.host;
+        if (identity && identity[0] == '\0') identity = NULL;
+    }
+    if (identity) {
+#if CLI_TLS_SUPPORTS_VERIFY_NAME
+        if (cliSSLSetVerifyNames(ssl, identity, err) != REDIS_OK) {
+            SSL_free(ssl);
+            return REDIS_ERR;
+        }
+#else
+        /* Compiled out (TLS_NO_PEER_NAME_VERIFICATION). An explicit request
+         * that cannot be honored must fail, not silently degrade; the implicit
+         * default degrades to chain-only validation, but says so once, like the
+         * server does for tls-expected-peer-name. */
+        if (config.expected_peer_name) {
+            *err = "Peer certificate name verification is disabled in this build "
+                   "(TLS_NO_PEER_NAME_VERIFICATION), so --tls-expected-peer-name "
+                   "cannot be honored";
+            SSL_free(ssl);
+            return REDIS_ERR;
+        }
+        static int warned = 0;
+        if (!warned) {
+            warned = 1;
+            fprintf(stderr, "Warning: this build cannot verify the server "
+                "certificate's identity (TLS_NO_PEER_NAME_VERIFICATION); only "
+                "the CA chain is verified.\n");
+        }
+        identity = NULL;
+#endif
+    }
+
+    if (redisInitiateSSL(c, ssl) == REDIS_OK) return REDIS_OK;
+
+    /* Handshake failed. hiredis does not take ownership of the SSL object in
+     * that case, so it is ours to free; before that, turn an identity mismatch
+     * into an actionable message instead of OpenSSL's bare "certificate verify
+     * failed". (Static buffer: connections are established from one thread,
+     * as the static ssl_ctx above already assumes.) */
+#if CLI_TLS_SUPPORTS_VERIFY_NAME
+    long vres = SSL_get_verify_result(ssl);
+    if (identity && (vres == X509_V_ERR_HOSTNAME_MISMATCH || vres == X509_V_ERR_IP_ADDRESS_MISMATCH)) {
+        static char errbuf[512];
+        snprintf(errbuf, sizeof(errbuf),
+            "%s: the server certificate does not carry the expected identity '%s'. "
+            "Reissue it with that name in its Subject Alternative Name, verify a "
+            "different name with --tls-expected-peer-name, or verify only the CA "
+            "chain with --no-verify-hostname",
+            X509_verify_cert_error_string(vres), identity);
+        *err = errbuf;
+    }
+#endif
+    SSL_free(ssl);
+    return REDIS_ERR;
 
 error:
     SSL_CTX_free(ssl_ctx);
