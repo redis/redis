@@ -548,3 +548,195 @@ static void cuckooInsert(client *c, int nx) {
 }
 void cfInsertCommand(client *c) { cuckooInsert(c, 0); }
 void cfInsertNxCommand(client *c) { cuckooInsert(c, 1); }
+
+#define CUCKOO_MAX_SCANDUMP_SIZE (16 * 1024 * 1024)
+
+typedef struct __attribute__((packed)) {
+    uint64_t numItems;
+    uint64_t numBuckets;
+    uint64_t numDeletes;
+    uint64_t numFilters;
+    uint16_t bucketSize;
+    uint16_t maxIterations;
+    uint16_t expansion;
+} CFHeader;
+
+
+static const char *CF_GetEncodedChunk(const CuckooFilter *cf, long long *pos, size_t *buflen,
+                               size_t bytelimit) {
+    // First find filter
+    long long offset = *pos - 1;
+    long long currentSize = 0;
+    int filterIx = 0;
+    SubCF *filter;
+    for (; filterIx < cf->numFilters; ++filterIx) {
+        filter = cf->filters + filterIx;
+        currentSize = filter->bucketSize * filter->numBuckets;
+        if (offset < currentSize) {
+            break;
+        }
+        offset -= currentSize;
+    }
+
+    // all filters already returned
+    if (filterIx == cf->numFilters) {
+        return NULL;
+    }
+
+    if (currentSize <= bytelimit) {
+        // filter size is smaller than the limit. Add it all
+        *buflen = currentSize;
+        *pos += currentSize;
+        return (const char *)filter->data;
+    } else {
+        size_t remaining = currentSize - offset;
+        if (remaining > bytelimit) {
+            // return another piece from the filter
+            *buflen = bytelimit;
+            *pos += bytelimit;
+        } else {
+            // return the rest of the filter
+            *buflen = remaining;
+            *pos += remaining;
+        }
+        return (const char *)filter->data + offset;
+    }
+}
+
+static int CF_LoadEncodedChunk(const CuckooFilter *cf, long long pos, const char *data, size_t datalen) {
+    if (datalen == 0 || pos <= 0 || (size_t)(pos - 1) < datalen) {
+        return C_ERR;
+    }
+
+    // calculate offset
+    long long offset = pos - datalen - 1;
+    long long currentSize;
+    int filterIx = 0;
+    SubCF *filter = NULL;
+    for (; filterIx < cf->numFilters; ++filterIx) {
+        filter = cf->filters + filterIx;
+        currentSize = filter->bucketSize * filter->numBuckets;
+        if (offset < currentSize) {
+            break;
+        }
+        offset -= currentSize;
+    }
+
+    // Boundary check before memcpy()
+    if (filterIx == cf->numFilters || !filter || ((size_t)offset > SIZE_MAX - datalen) ||
+        filter->bucketSize * filter->numBuckets < offset + datalen) {
+        return C_ERR;
+    }
+
+    // copy data to filter
+    memcpy(filter->data + offset, data, datalen);
+    return C_OK;
+}
+
+static CuckooFilter *CFHeader_Load(const CFHeader *header) {
+    /* Validate wide header fields before narrowing or allocating. */
+    if (header->numFilters == 0 || header->numFilters > UINT16_MAX) return NULL;
+    CuckooFilter *filter = ztrycalloc(sizeof(*filter));
+    if (!filter) return NULL;
+    filter->numBuckets = header->numBuckets;
+    filter->numFilters = header->numFilters;
+    filter->numItems = header->numItems;
+    filter->numDeletes = header->numDeletes;
+    filter->bucketSize = header->bucketSize;
+    filter->maxIterations = header->maxIterations;
+    filter->expansion = header->expansion;
+    if (CuckooFilter_ValidateIntegrity(filter) != 0) goto error;
+    filter->filters = ztrycalloc(filter->numFilters * sizeof(*filter->filters));
+    if (!filter->filters) goto error;
+    uint64_t buckets = filter->numBuckets;
+    uint64_t total = 0;
+    for (size_t ii = 0; ii < filter->numFilters; ++ii) {
+        SubCF *cur = filter->filters + ii;
+        if (ii) {
+            if (!filter->expansion || buckets > CF_MAX_NUM_BUCKETS / filter->expansion) goto error;
+            buckets *= filter->expansion;
+        }
+        if (buckets > CF_MAX_NUM_BUCKETS || buckets > SIZE_MAX / filter->bucketSize) goto error;
+        size_t bytes = (size_t)buckets * filter->bucketSize;
+        if (bytes > (uint64_t)LLONG_MAX - 1 - total) goto error;
+        total += bytes;
+        cur->bucketSize = filter->bucketSize;
+        cur->numBuckets = buckets;
+        cur->data = ztrycalloc(bytes);
+        if (!cur->data) goto error;
+    }
+    return filter;
+error:
+    CuckooFilter_Free(filter);
+    zfree(filter);
+    return NULL;
+}
+
+static CFHeader fillCFHeader(const CuckooFilter *cf) {
+    return (CFHeader){
+        .numItems = cf->numItems,
+        .numBuckets = cf->numBuckets,
+        .numDeletes = cf->numDeletes,
+        .numFilters = cf->numFilters,
+        .bucketSize = cf->bucketSize,
+        .maxIterations = cf->maxIterations,
+        .expansion = cf->expansion,
+    };
+}
+
+void cfScanDumpCommand(client *c) {
+    long long pos;
+    if (getLongLongFromObject(c->argv[2], &pos) != C_OK || pos < 0) {
+        addReplyError(c, "Invalid position");
+        return;
+    }
+    CuckooFilter *cf = cuckooLookupRead(c);
+    if (!cf) return;
+    addReplyArrayLen(c, 2);
+    if (!cf->numItems) {
+        addReplyLongLong(c, 0);
+        addReplyNull(c);
+    } else if (pos == 0) {
+        CFHeader header = fillCFHeader(cf);
+        addReplyLongLong(c, 1);
+        addReplyBulkCBuffer(c, &header, sizeof(header));
+    } else {
+        size_t chunkLen = 0;
+        const char *chunk = CF_GetEncodedChunk(cf, &pos, &chunkLen, CUCKOO_MAX_SCANDUMP_SIZE);
+        addReplyLongLong(c, chunk ? pos : 0);
+        if (chunk) addReplyBulkCBuffer(c, chunk, chunkLen);
+        else addReplyNull(c);
+    }
+}
+
+void cfLoadChunkCommand(client *c) {
+    dictEntryLink link;
+    kvobj *kv = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
+    long long pos;
+    if (getLongLongFromObject(c->argv[2], &pos) != C_OK || pos == 0) {
+        addReplyError(c, "Invalid position");
+        return;
+    }
+    sds blob = c->argv[3]->ptr;
+    if (pos == 1) {
+        if (checkType(c, kv, OBJ_CUCKOO)) return;
+        if (kv) { addReplyError(c, "item exists"); return; }
+        if (sdslen(blob) != sizeof(CFHeader)) { addReplyError(c, "Invalid header"); return; }
+        CFHeader header;
+        memcpy(&header, blob, sizeof(header));
+        CuckooFilter *cf = CFHeader_Load(&header);
+        if (!cf) { addReplyError(c, "Couldn't create filter!"); return; }
+        robj *o = createCuckooObject(cf);
+        kv = dbAddByLink(c->db, c->argv[1], &o, &link);
+    } else {
+        if (!kv) { addReplyError(c, "not found"); return; }
+        if (checkType(c, kv, OBJ_CUCKOO)) return;
+        if (CF_LoadEncodedChunk(kv->ptr, pos, blob, sdslen(blob)) != C_OK) {
+            addReplyError(c, "Couldn't load chunk!");
+            return;
+        }
+    }
+    keyModified(c, c->db, c->argv[1], kv, 1);
+    server.dirty++;
+    addReply(c, shared.ok);
+}

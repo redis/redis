@@ -63,7 +63,7 @@ start_server {tags {"cuckoo"} overrides {save ""}} {
     }
 
     test {Cuckoo read commands have dedicated ACL category and key specifications} {
-        assert_equal {cf.add cf.addnx cf.compact cf.count cf.debug cf.del cf.exists cf.info cf.insert cf.insertnx cf.mexists cf.reserve} [lsort [r acl cat cuckoo]]
+        assert_equal {cf.add cf.addnx cf.compact cf.count cf.debug cf.del cf.exists cf.info cf.insert cf.insertnx cf.loadchunk cf.mexists cf.reserve cf.scandump} [lsort [r acl cat cuckoo]]
         foreach cmd {cf.exists cf.count cf.mexists} {
             assert_equal cf [r command getkeys $cmd cf item]
         }
@@ -345,6 +345,69 @@ start_server {tags {"cuckoo"} overrides {save ""}} {
             foreach key {replicated partial guarded-repl} {
                 assert_equal [$master dump $key] [$replica dump $key]
             }
+        }
+    }
+}
+
+start_server {tags {"cuckoo"} overrides {save ""}} {
+    test {Cuckoo chunks preserve membership metadata and DUMP} {
+        r cf.insert source capacity 4 items a b c d e f g h i j
+        set pos 0
+        set chunks {}
+        while 1 {
+            lassign [r cf.scandump source $pos] pos data
+            if {$pos == 0} break
+            lappend chunks [list $pos $data]
+            assert_equal OK [r cf.loadchunk restored $pos $data]
+        }
+        assert_equal [r dump source] [r dump restored]
+        assert_equal [r cf.info source] [r cf.info restored]
+        assert_equal {1 1 1} [r cf.mexists restored a e j]
+        r cf.reserve empty 4
+        assert_equal {0 {}} [r cf.scandump empty 0]
+    }
+    test {Cuckoo chunk loading rejects invalid headers and bounds} {
+        set before [r dump restored]
+        assert_error {*Invalid position*} {r cf.scandump source -1}
+        assert_error {*Invalid position*} {r cf.loadchunk invalid 0 x}
+        assert_error {*Invalid header*} {r cf.loadchunk invalid 1 x}
+        set header [lindex [lindex $chunks 0] 1]
+        foreach {offset bytes} {24 0000000000000000 24 0000010000000000 8 0000000000000000 32 0000 36 0000} {
+            set replacement [binary format H* $bytes]
+            set bad [string replace $header $offset [expr {$offset+[string length $replacement]-1}] $replacement]
+            assert_error {*Couldn't create filter!*} {r cf.loadchunk invalid 1 $bad}
+            assert_equal 0 [r exists invalid]
+        }
+        foreach pos {-1 2 9223372036854775807} {
+            assert_error {*Couldn't load chunk!*} {r cf.loadchunk restored $pos abcdef}
+        }
+        assert_error {*Couldn't load chunk!*} {r cf.loadchunk restored 2 {}}
+        assert_equal $before [r dump restored]
+    }
+    test {Cuckoo chunks survive incremental AOF replay} {
+        r config set appendonly yes
+        waitForBgrewriteaof r
+        foreach chunk $chunks {
+            lassign $chunk pos data
+            r cf.loadchunk aof-chunks $pos $data
+        }
+        set payload [r dump aof-chunks]
+        r debug loadaof
+        assert_equal $payload [r dump aof-chunks]
+        r config set appendonly no
+    } {OK} {needs:debug}
+    start_server {tags {"cuckoo needs:repl external:skip"} overrides {save ""}} {
+        test {Cuckoo chunks replicate native filters} {
+            set master [srv -1 client]
+            set replica [srv 0 client]
+            $replica replicaof [srv -1 host] [srv -1 port]
+            wait_for_sync $replica
+            foreach chunk $chunks {
+                lassign $chunk pos data
+                $master cf.loadchunk replicated-chunks $pos $data
+            }
+            wait_for_ofs_sync $master $replica
+            assert_equal [$master dump replicated-chunks] [$replica dump replicated-chunks]
         }
     }
 }
