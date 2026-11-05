@@ -463,6 +463,7 @@ void sortCommandGeneric(client *c, int readonly) {
         }
 
         while(rangelen--) {
+            serverAssertWithInfo(c,sortval,eptr != NULL);
             sdsele = lpGetObject(eptr);
             vector[j].obj = createObject(OBJ_STRING,sdsele);
             vector[j].u.score = 0;
