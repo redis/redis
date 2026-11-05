@@ -496,8 +496,8 @@ int decompressInto(compressionState *state, char *buf, size_t buflen) {
 
 /* Read data from input_buf and decompress it immediately. The result is written
  * into output_buf.
- * Return number of bytes decompressed. *consumed stores number of bytes consumed
- * from input_buf.
+ * Return the number of bytes decompressed, or -1 on decompression failure.
+ * *consumed stores the number of bytes consumed from input_buf.
  * Consuming input_buf may only copy bytes into the decompressor's internal
  * buffer. Call again with available output space while input remains or
  * clientHasPendingCompressedData() is true, using input_len 0 to drain pending
@@ -527,12 +527,13 @@ int clientReadBufAndDecompress(client *c, char *input_buf, size_t input_len,
 
         int decompressed = decompressInto(state, output_buf + tot_decompressed,
                                           output_len - tot_decompressed);
-        if (decompressed <= 0) {
-            /* Compression library failure, we should close the connection */
-            if (decompressed < 0)
-                c->conn->state = CONN_STATE_CLOSED;
-            break;
+        if (decompressed < 0) {
+            /* The decoder cannot continue after an error, even if this call
+             * produced some output before reaching the invalid data. */
+            c->conn->state = CONN_STATE_CLOSED;
+            return -1;
         }
+        if (decompressed == 0) break;
         tot_decompressed += decompressed;
     }
 
