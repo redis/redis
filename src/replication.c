@@ -4285,7 +4285,10 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
                                                               c->querybuf + qblen,
                                                               avail,
                                                               &consumed);
-                serverAssert(decompressed >= 0);
+                if (decompressed < 0) {
+                    ret = C_ERR;
+                    break;
+                }
                 sdsIncrLen(c->querybuf, decompressed);
                 c->read_reploff += (long long) decompressed;
                 c->io_read_reploff += (long long int) decompressed;
@@ -4433,7 +4436,7 @@ out:
             close_asap = 1;
         }
     } else {
-        serverLog(LL_WARNING, "Master client was freed while streaming accumulated replication data to db.");
+        serverLog(LL_WARNING, "Failed to stream accumulated replication data to db.");
         close_asap = 1;
     }
 

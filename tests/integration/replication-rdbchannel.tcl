@@ -711,7 +711,7 @@ start_server {tags {"repl external:skip tsan:skip"}} {
             $replica read
             $replica deferred 0
 
-            wait_for_log_messages -1 {"*Master client was freed while streaming*"} 0 500 10
+            wait_for_log_messages -1 {"*Failed to stream accumulated replication data*"} 0 500 10
 
             # Quick check for stats test coverage
             assert_morethan_equal [s -1 replica_full_sync_buffer_peak] [s -1 replica_full_sync_buffer_size]
@@ -953,7 +953,7 @@ start_server {tags {"repl external:skip tsan:skip"}} {
                 $replica read
                 $replica deferred 0
 
-                wait_for_log_messages -1 {"*Master client was freed while streaming*"} 0 500 10
+                wait_for_log_messages -1 {"*Failed to stream accumulated replication data*"} 0 500 10
 
                 # Wait until replica recovers and verify db's are identical
                 wait_replica_online $master2 0 1000 10
