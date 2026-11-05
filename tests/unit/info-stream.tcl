@@ -8,6 +8,12 @@
 #     count. A stream is a sample from birth: with no groups it counts in bin 0.
 #   - stream_distrib_cgroups_pel: the group's pending-entry-list (PEL) size.
 #   - stream_distrib_cgroups_consumers: the group's consumer count.
+#   - stream_distrib_streams_max_lag: one sample per STREAM that has a group
+#     whose position is known: the worst group lag, entries_added minus the
+#     group's entries_read, capped at the stream length. A group created
+#     without ENTRIESREAD, at 0, $ or an explicit id, has an unknown position
+#     and no lag until a read pins its counter down (reading the first entry
+#     of a tombstone-free stream, or reaching its last entry).
 # Collection is gated on the stream-stats directive and reconstructed exactly
 # from RDB / replication.
 ################################################################################
@@ -137,6 +143,14 @@ proc verify_consumers {cmd exp {waitCond 0}} {
 # cross-checked against the 'groups' field of XINFO STREAM.
 proc verify_streams_cgroups {cmd exp {waitCond 0}} {
     uplevel 1 [list verify_stream_metric $cmd $exp stream_distrib_streams_cgroups SC groups $waitCond]
+}
+
+# stream_distrib_streams_max_lag: placeholder "LAG"; one sample per stream, the
+# worst lag over its groups of known position. No XINFO cross-check: XINFO
+# GROUPS estimates a lag for a group whose position is unknown, this row does
+# not count such a group at all.
+proc verify_streams_max_lag {cmd exp {waitCond 0}} {
+    uplevel 1 [list verify_stream_metric $cmd $exp stream_distrib_streams_max_lag LAG lag $waitCond]
 }
 
 # Sum of all bin counts on one INFO histogram line ("" -> 0).
@@ -433,6 +447,75 @@ proc test_all_stream_stats { {replMode 0} } {
         verify_consumers {} {db0_CONS:1=2 db5_CONS:1=1}
         verify_streams_cgroups {} {db0_SC:1=2 db5_SC:1=1}
         $server select 0
+    }
+
+    test "STREAM-STATS - streams_max_lag: XADD grows the worst lag across bins 1,2,4,8 $suffix" {
+        verify_streams_max_lag {$server FLUSHALL} {}
+        seed_stream $server st 1
+        # A group created at 0 has an unknown position: no sample yet...
+        verify_streams_max_lag {$server xgroup create st g 0} {}
+        # ...its first read pins the position (entries_read 1), lag 0.
+        verify_streams_max_lag {$server xreadgroup group g c count 1 streams st >} {db0_LAG:0=1}
+        # Every XADD now adds one to the lag; the sample moves at 1, 2, 4, 8.
+        for {set i 2} {$i <= 9} {incr i} {
+            verify_streams_max_lag {$server xadd st $i-1 f v} "db0_LAG:[hist_label [expr {$i - 1}]]=1"
+        }
+    }
+
+    test "STREAM-STATS - streams_max_lag: the laggiest group sets the sample, reads lower it $suffix" {
+        verify_streams_max_lag {$server FLUSHALL} {}
+        seed_stream $server st 8
+        $server xgroup create st g1 0
+        $server xgroup create st g2 0
+        # g1 catches up: lag 0. g2 is still unknown, so it does not count.
+        verify_streams_max_lag {$server xreadgroup group g1 c count 8 streams st >} {db0_LAG:0=1}
+        # g2 reads 2 of 8: its lag of 6 is now the stream's worst.
+        verify_streams_max_lag {$server xreadgroup group g2 c count 2 streams st >} {db0_LAG:4=1}
+        verify_streams_max_lag {$server xreadgroup group g2 c count 4 streams st >} {db0_LAG:2=1}
+        verify_streams_max_lag {$server xreadgroup group g2 c count 2 streams st >} {db0_LAG:0=1}
+    }
+
+    test "STREAM-STATS - streams_max_lag: XGROUP DESTROY of the laggiest group re-elects $suffix" {
+        verify_streams_max_lag {$server FLUSHALL} {}
+        seed_stream $server st 8
+        $server xgroup create st g1 0
+        $server xgroup create st g2 0
+        $server xgroup create st g3 0
+        $server xreadgroup group g1 c count 8 streams st >   ;# lag 0
+        $server xreadgroup group g2 c count 1 streams st >   ;# lag 7
+        verify_streams_max_lag {$server xreadgroup group g3 c count 6 streams st >} {db0_LAG:4=1}   ;# lag 2
+        verify_streams_max_lag {$server xgroup destroy st g2} {db0_LAG:2=1}
+        verify_streams_max_lag {$server xgroup destroy st g3} {db0_LAG:0=1}
+        # Without groups a stream has no lag to report: no sample, not bin 0.
+        verify_streams_max_lag {$server xgroup destroy st g1} {}
+    }
+
+    test "STREAM-STATS - streams_max_lag: trims and deletes cap the lag at the length $suffix" {
+        verify_streams_max_lag {$server FLUSHALL} {}
+        seed_stream $server st 8
+        $server xgroup create st g 0
+        verify_streams_max_lag {$server xreadgroup group g c count 1 streams st >} {db0_LAG:4=1}   ;# lag 7
+        # The group is 7 behind, but only 2 entries are left to deliver.
+        verify_streams_max_lag {$server xtrim st maxlen 2} {db0_LAG:2=1}
+        verify_streams_max_lag {$server xdel st 7-1 8-1} {db0_LAG:0=1}
+        verify_streams_max_lag {$server xadd st 9-1 f v} {db0_LAG:1=1}
+    }
+
+    test "STREAM-STATS - streams_max_lag: an unknown position is not a lag $suffix" {
+        verify_streams_max_lag {$server FLUSHALL} {}
+        seed_stream $server st 8
+        # Created at an explicit id without ENTRIESREAD: unknown, no sample.
+        verify_streams_max_lag {$server xgroup create st g 4-1} {}
+        # A read that stops short of the last entry cannot pin the counter...
+        verify_streams_max_lag {$server xreadgroup group g c count 1 streams st >} {}
+        # ...reaching the last entry does: entries_read 8, lag 0.
+        verify_streams_max_lag {$server xreadgroup group g c count 3 streams st >} {db0_LAG:0=1}
+        # A group created at $ is unknown too, so it does not count...
+        verify_streams_max_lag {$server xgroup create st g2 $} {db0_LAG:0=1}
+        verify_streams_max_lag {$server xadd st 9-1 f v} {db0_LAG:1=1}
+        # ...until it reads to the tip; then g, one behind, is the worst.
+        verify_streams_max_lag {$server xreadgroup group g2 c count 1 streams st >} {db0_LAG:1=1}
+        verify_streams_max_lag {$server xreadgroup group g c count 1 streams st >} {db0_LAG:0=1}
     }
 
     test "STREAM-STATS - randomized sequence matches keyspace cross-check $suffix" {
