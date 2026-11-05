@@ -184,40 +184,40 @@ foreach enc {listpack btree} {
 }
     r config set zset-max-listpack-entries $origin_zset_max_listpack_entries
 
-foreach command {SORT SORT_RO} {
-    test "$command sorted set preserves listpack encoding" {
-        r del zset
-        r zadd zset 1 a
-        r zadd zset 5 b
-        r zadd zset 2 c
-        r zadd zset 10 d
-        r zadd zset 3 e
-        assert_encoding listpack zset
-        assert_equal {e d c b a} [r $command zset alpha desc]
-        assert_equal {a c e b d} [r $command zset by nosort asc]
-        assert_equal {d b e c a} [r $command zset by nosort desc]
-        assert_equal {b e} [r $command zset by nosort desc limit 1 2]
-        assert_encoding listpack zset
-    }
-}
-
-foreach command {SORT SORT_RO} {
-    test "$command sorted set BY <pattern> preserves listpack encoding" {
-        r del zset
-        r zadd zset 1 a
-        r zadd zset 2 b
-        r zadd zset 3 c
-        foreach {ele weight} {a 3 b 1 c 2} {
-            r set weight_$ele $weight
-            r hset wobj_$ele weight $weight
+    foreach command {SORT SORT_RO} {
+        test "$command sorted set preserves listpack encoding" {
+            r del zset
+            r zadd zset 1 a
+            r zadd zset 5 b
+            r zadd zset 2 c
+            r zadd zset 10 d
+            r zadd zset 3 e
+            assert_encoding listpack zset
+            assert_equal {e d c b a} [r $command zset alpha desc]
+            assert_equal {a c e b d} [r $command zset by nosort asc]
+            assert_equal {d b e c a} [r $command zset by nosort desc]
+            assert_equal {b e} [r $command zset by nosort desc limit 1 2]
+            assert_encoding listpack zset
         }
-        assert_encoding listpack zset
-        assert_equal {b c a} [r $command zset by weight_*]
-        assert_equal {b 1 c 2 a 3} [r $command zset by weight_* get # get weight_*]
-        assert_equal {b c a} [r $command zset by wobj_*->weight]
-        assert_encoding listpack zset
-    } {} {cluster:skip}
-}
+    }
+
+    foreach command {SORT SORT_RO} {
+        test "$command sorted set BY <pattern> preserves listpack encoding" {
+            r del zset
+            r zadd zset 1 a
+            r zadd zset 2 b
+            r zadd zset 3 c
+            foreach {ele weight} {a 3 b 1 c 2} {
+                r set weight_$ele $weight
+                r hset wobj_$ele weight $weight
+            }
+            assert_encoding listpack zset
+            assert_equal {b c a} [r $command zset by weight_*]
+            assert_equal {b 1 c 2 a 3} [r $command zset by weight_* get # get weight_*]
+            assert_equal {b c a} [r $command zset by wobj_*->weight]
+            assert_encoding listpack zset
+        } {} {cluster:skip}
+    }
 
     test "SORT sorted set STORE preserves listpack encoding" {
         r del zset sort-res
@@ -234,22 +234,22 @@ foreach command {SORT SORT_RO} {
         assert_encoding listpack zset
     } {} {cluster:skip}
 
-# The listpack encoding of these paths is covered by the tests above.
-foreach command {SORT SORT_RO} {
-    test "$command sorted set BY <pattern> (btree encoding)" {
-        create_sort_zset btree
-        foreach {ele weight} {a 3 b 5 c 1 d 4 e 2} {
-            r set weight_$ele $weight
-            r hset wobj_$ele weight $weight
-        }
-        assert_equal {c e a d b} [r $command zset by weight_*]
-        assert_equal {b d a e c} [r $command zset by weight_* desc]
-        assert_equal {e a} [r $command zset by weight_* limit 1 2]
-        assert_equal {c 1 e 2 a 3} [r $command zset by weight_* limit 0 3 get # get weight_*]
-        assert_equal {c e a d b} [r $command zset by wobj_*->weight]
-        assert_encoding btree zset
-    } {} {cluster:skip}
-}
+    # The listpack encoding of these paths is covered by the tests above.
+    foreach command {SORT SORT_RO} {
+        test "$command sorted set BY <pattern> (btree encoding)" {
+            create_sort_zset btree
+            foreach {ele weight} {a 3 b 5 c 1 d 4 e 2} {
+                r set weight_$ele $weight
+                r hset wobj_$ele weight $weight
+            }
+            assert_equal {c e a d b} [r $command zset by weight_*]
+            assert_equal {b d a e c} [r $command zset by weight_* desc]
+            assert_equal {e a} [r $command zset by weight_* limit 1 2]
+            assert_equal {c 1 e 2 a 3} [r $command zset by weight_* limit 0 3 get # get weight_*]
+            assert_equal {c e a d b} [r $command zset by wobj_*->weight]
+            assert_encoding btree zset
+        } {} {cluster:skip}
+    }
 
     test "SORT sorted set STORE (btree encoding)" {
         create_sort_zset btree
