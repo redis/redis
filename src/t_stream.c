@@ -6172,13 +6172,10 @@ static int idmpLookup(idmpProducer *producer, idmpEntry *entry, streamID *id) {
     return streamCompareID(&existing->id, id) == 0 ? 1 : -1;
 }
 
-/* Remove 'target' from the producer's linked list.
- *
- * The list is singly linked, so finding the previous node costs a walk. When
- * the target is followed by another entry, move that entry into the target's
- * slot instead: overwrite the target with the following node and make the
- * following node's dict entry point at the target. The IIDs of the two nodes
- * differ, so the target's allocation is only reused when it is large enough. */
+/* Remove 'target' from the producer's linked list. The list is singly linked,
+ * so to avoid a walk the next node is copied into 'target', its dict entry is
+ * pointed at 'target', and the next node is freed. The list is walked only
+ * when the next node's IID does not fit in 'target'. */
 static void idmpListRemoveEntry(stream *s, idmpProducer *producer, idmpEntry *target) {
     idmpEntry *following = target->next;
 
