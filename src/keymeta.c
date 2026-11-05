@@ -447,6 +447,7 @@ int rdbLoadKeyMetadata(rio *rdb, int dbid, int numClasses, kvSpec *spec) {
         return -1;
     }
 
+    uint32_t seen = 0; /* Classes whose rdb_load was already called */
     for (int i = 0; i < numClasses; i++) {
         /* Read 32-bit encoded class spec */
         uint32_t encClassSpec;
@@ -480,6 +481,16 @@ int rdbLoadKeyMetadata(rio *rdb, int dbid, int numClasses, kvSpec *spec) {
             if (rc == -1) goto error;
             continue;
         }
+
+        /* Reject a class that appears more than once, whatever its rdb_load
+         * returned for the earlier record. Otherwise numMeta could exceed the
+         * number of bits in metabits, and the metadata copied into the kvobj
+         * would overflow its metadata prefix. */
+        if (seen & (1 << classId)) {
+            serverLog(LL_WARNING, "Duplicate key metadata class '%s'", name);
+            goto error;
+        }
+        seen |= 1 << classId;
 
         RedisModuleIO io;
         /* We don't have the key yet, so pass NULL for now */

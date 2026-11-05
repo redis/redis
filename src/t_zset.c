@@ -1450,13 +1450,20 @@ robj *zsetTypeCreate(size_t size_hint, size_t val_len_hint) {
 }
 
 /* Check if the existing zset should be converted to another encoding based off the
- * the size hint. */
-void zsetTypeMaybeConvert(robj *zobj, size_t size_hint) {
+ * size hint, and return 1 if it was converted.
+ *
+ * ZADD's hint counts its score-member pairs, and the B+ tree member index is
+ * presized for them. The pairs may repeat a member or be skipped by
+ * NX/XX/GT/LT, so the caller must call zbtreeShrinkToFit() once they are
+ * added. */
+int zsetTypeMaybeConvert(robj *zobj, size_t size_hint) {
     if (zobj->encoding == OBJ_ENCODING_LISTPACK &&
         size_hint > server.zset_max_listpack_entries)
     {
         zsetConvertAndExpand(zobj, OBJ_ENCODING_BTREE, size_hint);
+        return 1;
     }
+    return 0;
 }
 
 /* Convert the zset to specified encoding. The zset dict (when converting
@@ -2263,6 +2270,7 @@ void zaddGenericCommand(client *c, int flags) {
     int updated = 0;    /* Number of elements with updated score. */
     int processed = 0;  /* Number of elements processed, may remain zero with
                            options like XX. */
+    int converted = 0;  /* This command converted the zset to a B+ tree. */
 
     /* Parse options. At the end 'scoreidx' is set to the argument position
      * of the score of the first score-element pair. */
@@ -2334,7 +2342,7 @@ void zaddGenericCommand(client *c, int flags) {
     } else {
         if (server.memory_tracking_enabled)
             oldsize = kvobjAllocSize(zobj);
-        zsetTypeMaybeConvert(zobj, elements);
+        converted = zsetTypeMaybeConvert(zobj, elements);
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db, getKeySlot(key->ptr), zobj, oldsize, kvobjAllocSize(zobj));
     }
@@ -2360,6 +2368,9 @@ void zaddGenericCommand(client *c, int flags) {
         if (!(retflags & ZADD_OUT_NOP)) processed++;
         score = newscore;
     }
+    /* The index was presized for every pair. Release what repeated or
+     * skipped pairs left unused. */
+    if (converted) zbtreeShrinkToFit(zobj->ptr);
     server.dirty += (added+updated);
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(key->ptr), zobj, oldsize, kvobjAllocSize(zobj));
@@ -4535,7 +4546,6 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
     zlexrangespec lexrange;
     int minidx = argc_start + 1;
     int maxidx = argc_start + 2;
-    size_t oldsize = 0;
 
     /* Options common to all */
     long opt_start = 0;
@@ -4647,9 +4657,11 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
 
     if (checkType(c,zobj,OBJ_ZSET)) goto cleanup;
 
-    /* Step 4: Pass this to the command-specific handler. */
-    if (server.memory_tracking_enabled)
-        oldsize = kvobjAllocSize(zobj);
+    /* Step 4: Pass this to the command-specific handler. The listpack and
+     * B+tree range readers never resize zobj (no member index lookup or rehash
+     * step), so there is no alloc size to update; a handler that does must
+     * sample it around the call. Don't use zobj after the switch: in store
+     * mode it may be the destination, which setKey()/dbDelete() replace/free. */
     switch (rangetype) {
     case ZRANGE_AUTO:
     case ZRANGE_RANK:
@@ -4667,8 +4679,6 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
             opt_offset, opt_limit, direction == ZRANGE_DIRECTION_REVERSE);
         break;
     }
-    if (server.memory_tracking_enabled)
-        updateSlotAllocSize(c->db, getKeySlot(key->ptr), zobj, oldsize, kvobjAllocSize(zobj));
 
     /* Instead of returning here, we'll just fall-through the clean-up. */
 

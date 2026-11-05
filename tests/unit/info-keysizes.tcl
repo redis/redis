@@ -1053,6 +1053,53 @@ start_server {tags {external:skip needs:debug} overrides {key-memory-histograms 
         verify_keymem_empty r
     }
 
+    test "KEY-MEMORY-STATS - ZRANGESTORE with the destination as the source" {
+        r FLUSHALL
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+        set orig [lindex [r CONFIG GET zset-max-listpack-entries] 1]
+        foreach {encoding max} {listpack 128 btree 0} {
+            r CONFIG SET zset-max-listpack-entries $max
+            r ZADD z 1 a 2 b 3 c
+            assert_encoding $encoding z
+            assert_equal 0 [r ZRANGESTORE z z 5 10 BYSCORE]
+            assert_equal 0 [r EXISTS z]
+            r ZADD z 1 a 2 b 3 c
+            assert_equal 1 [r ZRANGESTORE z z 0 0]
+            assert_equal {a} [r ZRANGE z 0 -1]
+            r DEL z
+        }
+        r CONFIG SET zset-max-listpack-entries $orig
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
+        verify_keymem_empty r
+    }
+
+    test "KEY-MEMORY-STATS - Read-only ZRANGE keeps the alloc size consistent" {
+        r FLUSHALL
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+        set orig [lindex [r CONFIG GET zset-max-listpack-entries] 1]
+        # 300 members: above the listpack limit (btree arm), several btree leaves.
+        foreach {encoding max} {listpack 512 btree 0} {
+            r CONFIG SET zset-max-listpack-entries $max
+            set args {}
+            for {set i 0} {$i < 300} {incr i} {lappend args 0 [format m%03d $i]}
+            r ZADD z {*}$args
+            assert_encoding $encoding z
+            assert_equal 600 [llength [r ZRANGE z 0 -1 WITHSCORES]]
+            assert_equal 11 [llength [r ZRANGE z 10 20 REV]]
+            assert_equal 10 [llength [r ZRANGE z 0 0 BYSCORE LIMIT 5 10]]
+            assert_equal 300 [llength [r ZRANGE z - + BYLEX]]
+            assert_equal 10 [llength [r ZREVRANGEBYLEX z + - LIMIT 5 10]]
+            assert_equal 600 [llength [r ZREVRANGEBYSCORE z +inf -inf WITHSCORES]]
+            # Different destination: the source is untouched, the destination is accounted.
+            assert_equal 300 [r ZRANGESTORE d z 0 -1]
+            assert_equal 150 [r ZRANGESTORE z z 0 149]
+            r DEL z d
+        }
+        r CONFIG SET zset-max-listpack-entries $orig
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
+        verify_keymem_empty r
+    }
+
     test "KEY-MEMORY-STATS - Histogram bins should use power-of-2 labels" {
         r FLUSHALL
         r HSET "hash" f1 v1
