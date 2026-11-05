@@ -10,6 +10,7 @@
 #include "server.h"
 #include "t_cuckoo.h"
 #include "endianconv.h"
+#include <ctype.h>
 
 robj *createCuckooObject(CuckooFilter *filter) {
     robj *o = createObject(OBJ_CUCKOO, filter);
@@ -422,3 +423,128 @@ void cfReserveCommand(client *c) {
     server.dirty++;
     addReply(c, shared.ok);
 }
+
+typedef struct {
+    int is_nx;
+    int autocreate;
+    int is_multi;
+    long long capacity;
+} CFInsertOptions;
+
+static void cfInsertCommon(client *c, int first, const CFInsertOptions *options) {
+    dictEntryLink link;
+    kvobj *kv = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
+    if (checkType(c, kv, OBJ_CUCKOO)) return;
+    int autocreated = kv == NULL;
+    if (autocreated) {
+        if (!options->autocreate) { addReplyError(c, "not found"); return; }
+        if (options->capacity < server.cf_bucket_size * 2) {
+            addReplyError(c, "Could not create filter");
+            return;
+        }
+        CuckooFilter *cf = ztrycalloc(sizeof(*cf));
+        if (!cf || CuckooFilter_Init(cf, options->capacity, server.cf_bucket_size,
+                                    server.cf_max_iterations, server.cf_expansion_factor) != 0) {
+            CuckooFilter_Free(cf);
+            zfree(cf);
+            addReplyError(c, "Insufficient memory to create filter");
+            return;
+        }
+        robj *o = createCuckooObject(cf);
+        kv = dbAddByLink(c->db, c->argv[1], &o, &link);
+        keyModified(c, c->db, c->argv[1], kv, 1);
+        server.dirty++;
+    }
+    CuckooFilter *cf = kv->ptr;
+    if (cf->numFilters >= server.cf_max_expansions) {
+        if (autocreated) {
+            /* Preserve the empty key without replaying a command that errors. */
+            robj *args[] = {createStringObject("CF.RESERVE",10), c->argv[1],
+                createStringObjectFromLongLong(options->capacity),
+                createStringObject("BUCKETSIZE",10), createStringObjectFromLongLong(cf->bucketSize),
+                createStringObject("MAXITERATIONS",13), createStringObjectFromLongLong(cf->maxIterations),
+                createStringObject("EXPANSION",9), createStringObjectFromLongLong(cf->expansion)};
+            rewriteClientCommandVector(c,9,args[0],args[1],args[2],args[3],args[4],args[5],args[6],args[7],args[8]);
+            for (int i = 0; i < 9; i++) if (i != 1) decrRefCount(args[i]);
+        }
+        addReplyError(c, "Maximum expansions reached");
+        return;
+    }
+    uint64_t oldlen = cf->numItems;
+    size_t oldsize = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
+    int propagate = shouldPropagate(server.allowed_propagate_targets);
+    robj **argv = NULL;
+    int argc = 0;
+    if (options->is_multi) addReplyArrayLen(c, c->argc - first);
+    for (int ii = first; ii < c->argc; ++ii) {
+        CuckooHash hash = CUCKOO_GEN_HASH(c->argv[ii]->ptr, sdslen(c->argv[ii]->ptr));
+        CuckooInsertStatus insStatus = options->is_nx ? CuckooFilter_InsertUnique(cf, hash) :
+                                                       CuckooFilter_Insert(cf, hash);
+        if (insStatus < 0 && propagate && !argv) {
+            argv = zmalloc(sizeof(*argv) * c->argc);
+            argc = ii;
+            memcpy(argv, c->argv, sizeof(*argv) * argc);
+        }
+        if (insStatus >= 0) {
+            if (argv) argv[argc++] = c->argv[ii];
+            if (options->is_nx && options->is_multi) addReplyLongLong(c, insStatus);
+            else addReplyBool(c, insStatus == CuckooInsert_Inserted);
+        } else if (!options->is_multi) {
+            addReplyError(c, insStatus == CuckooInsert_NoSpace ? "Filter is full" : "Insufficient memory");
+        } else if (c->resp == 3 && !options->is_nx) {
+            addReplyBool(c, 0);
+        } else {
+            addReplyLongLong(c, -1);
+        }
+    }
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), kv, oldsize, kvobjAllocSize(kv));
+    if (cf->numItems != oldlen) {
+        updateKeysizesHist(c->db, OBJ_CUCKOO, oldlen, cf->numItems);
+        keyModified(c, c->db, c->argv[1], kv, 1);
+        server.dirty += cf->numItems - oldlen;
+    }
+    if (argv) {
+        if (argc > first) {
+            for (int i = 0; i < argc; i++) incrRefCount(argv[i]);
+            replaceClientCommandVector(c, argc, argv);
+        } else {
+            zfree(argv);
+            preventCommandPropagation(c);
+        }
+    }
+}
+
+static void cuckooAdd(client *c, int nx) {
+    CFInsertOptions options = {.autocreate = 1, .capacity = server.cf_initial_size, .is_nx = nx};
+    cfInsertCommon(c, 2, &options);
+}
+void cfAddCommand(client *c) { cuckooAdd(c, 0); }
+void cfAddNxCommand(client *c) { cuckooAdd(c, 1); }
+
+static void cuckooInsert(client *c, int nx) {
+    CFInsertOptions options = {.autocreate = 1, .capacity = server.cf_initial_size,
+                               .is_multi = 1, .is_nx = nx};
+    int cur_pos = 2, items_pos = -1;
+    while (cur_pos < c->argc && items_pos < 0) {
+        const char *argstr = c->argv[cur_pos]->ptr;
+        /* Preserve the module's first-character option matching. */
+        switch (tolower((unsigned char)*argstr)) {
+        case 'c':
+            if (++cur_pos == c->argc) { addReplyErrorArity(c); return; }
+            if (getLongLongFromObjectOrReply(c, c->argv[cur_pos++], &options.capacity, "Bad capacity") != C_OK) return;
+            if (options.capacity < server.cf_bucket_size * 2 || options.capacity > (1LL << 30)) {
+                addReplyError(c, "Capacity must be in the range [cf-bucket-size * 2, 1073741824]");
+                return;
+            }
+            break;
+        case 'i': items_pos = ++cur_pos; break;
+        case 'n': options.autocreate = 0; cur_pos++; break;
+        default: addReplyError(c, "Unknown argument received"); return;
+        }
+    }
+    if (items_pos < 0 || items_pos == c->argc) { addReplyErrorArity(c); return; }
+    cfInsertCommon(c, items_pos, &options);
+}
+void cfInsertCommand(client *c) { cuckooInsert(c, 0); }
+void cfInsertNxCommand(client *c) { cuckooInsert(c, 1); }

@@ -63,7 +63,7 @@ start_server {tags {"cuckoo"} overrides {save ""}} {
     }
 
     test {Cuckoo read commands have dedicated ACL category and key specifications} {
-        assert_equal {cf.compact cf.count cf.debug cf.del cf.exists cf.info cf.mexists cf.reserve} [lsort [r acl cat cuckoo]]
+        assert_equal {cf.add cf.addnx cf.compact cf.count cf.debug cf.del cf.exists cf.info cf.insert cf.insertnx cf.mexists cf.reserve} [lsort [r acl cat cuckoo]]
         foreach cmd {cf.exists cf.count cf.mexists} {
             assert_equal cf [r command getkeys $cmd cf item]
         }
@@ -286,6 +286,65 @@ start_server {tags {"cuckoo"} overrides {save ""}} {
             $master cf.reserve replicated-reserve 16 bucketsize 4 maxiterations 30 expansion 2
             wait_for_ofs_sync $master $replica
             assert_equal [$master dump replicated-reserve] [$replica dump replicated-reserve]
+        }
+    }
+}
+
+start_server {tags {"cuckoo"} overrides {save ""}} {
+    test {Cuckoo add and insert preserve duplicate and NX semantics} {
+        assert_equal 1 [r cf.add adds a]
+        assert_equal 1 [r cf.add adds a]
+        assert_equal 0 [r cf.addnx adds a]
+        assert_equal 2 [r cf.count adds a]
+        assert_equal {1 1} [r cf.insert inserts capacity 8 items a b]
+        assert_equal {0 1} [r cf.insertnx inserts items a c]
+        assert_error {*not found*} {r cf.insert missing nocreate items a}
+        assert_equal 0 [r exists missing]
+        r set wrong x
+        assert_error WRONGTYPE* {r cf.add wrong a}
+        assert_error {*Bad capacity*} {r cf.insert invalid capacity bad items a}
+        assert_error {*wrong number*} {r cf.insert invalid items}
+    }
+    test {Cuckoo partial insertions and max expansion creation survive AOF} {
+        r config set appendonly yes
+        waitForBgrewriteaof r
+        r cf.reserve full 4 expansion 0
+        assert_equal {1 1 -1 -1 -1} [r cf.insert full items a a a a a]
+        assert_error {*Filter is full*} {r cf.add full a}
+        r hello 3
+        assert_equal {0 0} [r cf.insert full items a a]
+        assert_equal {0 0} [r cf.insertnx full items a a]
+        r hello 2
+        r config set cf-max-expansions 1
+        assert_error {*Maximum expansions reached*} {r cf.add guarded a}
+        assert_equal cuckoo [r type guarded]
+        assert_equal 0 [dict get [r cf.info guarded] {Number of items inserted}]
+        r config set cf-max-expansions 32
+        set payloads [list [r dump full] [r dump guarded]]
+        r config set propagation-error-behavior panic
+        r debug loadaof
+        assert_equal $payloads [list [r dump full] [r dump guarded]]
+        r config set propagation-error-behavior ignore
+        r config set appendonly no
+    } {OK} {needs:debug}
+    start_server {tags {"cuckoo needs:repl external:skip"} overrides {save ""}} {
+        test {Cuckoo insertions replicate partial success and guarded creation} {
+            set master [srv -1 client]
+            set replica [srv 0 client]
+            $replica config set propagation-error-behavior panic
+            $replica replicaof [srv -1 host] [srv -1 port]
+            wait_for_sync $replica
+            $master cf.insert replicated capacity 8 items a a b
+            $master cf.insertnx replicated items a c
+            $master cf.reserve partial 4 expansion 0
+            $master cf.insert partial items a a a a a
+            $master config set cf-max-expansions 1
+            assert_error {*Maximum expansions reached*} {$master cf.add guarded-repl a}
+            $master config set cf-max-expansions 32
+            wait_for_ofs_sync $master $replica
+            foreach key {replicated partial guarded-repl} {
+                assert_equal [$master dump $key] [$replica dump $key]
+            }
         }
     }
 }

@@ -5034,6 +5034,11 @@ void cfCountCommand(client *c);
 void cfInfoCommand(client *c);
 void cfDebugCommand(client *c);
 void cfReserveCommand(client *c);
+void cfAddCommand(client *c);
+void cfAddNxCommand(client *c);
+void cfInsertCommand(client *c);
+void cfInsertNxCommand(client *c);
+
 void cfDelCommand(client *c);
 void cfCompactCommand(client *c);
 

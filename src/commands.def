@@ -2807,6 +2807,56 @@ struct COMMAND_ARG SELECT_Args[] = {
 {MAKE_ARG("index",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
+/********** CF_ADD ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* CF_ADD history */
+#define CF_ADD_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* CF_ADD tips */
+#define CF_ADD_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* CF_ADD key specs */
+keySpec CF_ADD_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* CF_ADD argument table */
+struct COMMAND_ARG CF_ADD_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("item",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/********** CF_ADDNX ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* CF_ADDNX history */
+#define CF_ADDNX_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* CF_ADDNX tips */
+#define CF_ADDNX_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* CF_ADDNX key specs */
+keySpec CF_ADDNX_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* CF_ADDNX argument table */
+struct COMMAND_ARG CF_ADDNX_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("item",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
 /********** CF_COMPACT ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -2952,6 +3002,60 @@ keySpec CF_INFO_Keyspecs[1] = {
 /* CF_INFO argument table */
 struct COMMAND_ARG CF_INFO_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/********** CF_INSERT ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* CF_INSERT history */
+#define CF_INSERT_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* CF_INSERT tips */
+#define CF_INSERT_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* CF_INSERT key specs */
+keySpec CF_INSERT_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* CF_INSERT argument table */
+struct COMMAND_ARG CF_INSERT_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("capacity",ARG_TYPE_INTEGER,-1,"CAPACITY",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("nocreate",ARG_TYPE_PURE_TOKEN,-1,"NOCREATE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("item",ARG_TYPE_STRING,-1,"ITEMS",NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/********** CF_INSERTNX ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* CF_INSERTNX history */
+#define CF_INSERTNX_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* CF_INSERTNX tips */
+#define CF_INSERTNX_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* CF_INSERTNX key specs */
+keySpec CF_INSERTNX_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* CF_INSERTNX argument table */
+struct COMMAND_ARG CF_INSERTNX_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("capacity",ARG_TYPE_INTEGER,-1,"CAPACITY",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("nocreate",ARG_TYPE_PURE_TOKEN,-1,"NOCREATE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("item",ARG_TYPE_STRING,-1,"ITEMS",NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 };
 
 /********** CF_MEXISTS ********************/
@@ -13943,12 +14047,16 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("reset","Resets the connection.","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,RESET_History,0,RESET_Tips,0,resetCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_NO_AUTH|CMD_ALLOW_BUSY,ACL_CATEGORY_CONNECTION,RESET_Keyspecs,0,NULL,0)},
 {MAKE_CMD("select","Changes the selected database.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,SELECT_History,0,SELECT_Tips,0,selectCommand,2,CMD_LOADING|CMD_STALE|CMD_FAST,ACL_CATEGORY_CONNECTION,SELECT_Keyspecs,0,NULL,1),.args=SELECT_Args},
 /* cuckoo */
+{MAKE_CMD("cf.add","Adds an item to a Cuckoo filter","O(n * b * i * f), where n is the number of buckets, b is the bucket size, i is the relocation limit, and f is the number of subfilters.","8.12.0",CMD_DOC_NONE,NULL,NULL,"cuckoo",COMMAND_GROUP_CUCKOO,CF_ADD_History,0,CF_ADD_Tips,0,cfAddCommand,3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_CUCKOO,CF_ADD_Keyspecs,1,NULL,2),.args=CF_ADD_Args},
+{MAKE_CMD("cf.addnx","Adds an item to a Cuckoo filter if absent","O(n * b * i * f), where n is the number of buckets, b is the bucket size, i is the relocation limit, and f is the number of subfilters.","8.12.0",CMD_DOC_NONE,NULL,NULL,"cuckoo",COMMAND_GROUP_CUCKOO,CF_ADDNX_History,0,CF_ADDNX_Tips,0,cfAddNxCommand,3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_CUCKOO,CF_ADDNX_Keyspecs,1,NULL,2),.args=CF_ADDNX_Args},
 {MAKE_CMD("cf.compact","Compacts a Cuckoo filter","O(n * b * i * f), where n is the number of buckets, b is the bucket size, i is the relocation limit, and f is the number of subfilters.","8.12.0",CMD_DOC_NONE,NULL,NULL,"cuckoo",COMMAND_GROUP_CUCKOO,CF_COMPACT_History,0,CF_COMPACT_Tips,0,cfCompactCommand,2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_CUCKOO,CF_COMPACT_Keyspecs,1,NULL,1),.args=CF_COMPACT_Args},
 {MAKE_CMD("cf.count","Counts occurrences of an item in a Cuckoo filter","O(b * f), where b is the bucket size and f is the number of subfilters.","8.12.0",CMD_DOC_NONE,NULL,NULL,"cuckoo",COMMAND_GROUP_CUCKOO,CF_COUNT_History,0,CF_COUNT_Tips,0,cfCountCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_CUCKOO,CF_COUNT_Keyspecs,1,NULL,2),.args=CF_COUNT_Args},
 {MAKE_CMD("cf.debug","Returns internal Cuckoo filter information","O(1)","8.12.0",CMD_DOC_NONE,NULL,NULL,"cuckoo",COMMAND_GROUP_CUCKOO,CF_DEBUG_History,0,CF_DEBUG_Tips,0,cfDebugCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_CUCKOO,CF_DEBUG_Keyspecs,1,NULL,1),.args=CF_DEBUG_Args},
 {MAKE_CMD("cf.del","Deletes an item from a Cuckoo filter","O(n * b * i * f), where n is the number of buckets, b is the bucket size, i is the relocation limit, and f is the number of subfilters.","8.12.0",CMD_DOC_NONE,NULL,NULL,"cuckoo",COMMAND_GROUP_CUCKOO,CF_DEL_History,0,CF_DEL_Tips,0,cfDelCommand,3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_CUCKOO,CF_DEL_Keyspecs,1,NULL,2),.args=CF_DEL_Args},
 {MAKE_CMD("cf.exists","Checks whether an item exists in a Cuckoo filter","O(b * f), where b is the bucket size and f is the number of subfilters.","8.12.0",CMD_DOC_NONE,NULL,NULL,"cuckoo",COMMAND_GROUP_CUCKOO,CF_EXISTS_History,0,CF_EXISTS_Tips,0,cfExistsCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_CUCKOO,CF_EXISTS_Keyspecs,1,NULL,2),.args=CF_EXISTS_Args},
 {MAKE_CMD("cf.info","Returns information about a Cuckoo filter","O(f), where f is the number of subfilters.","8.12.0",CMD_DOC_NONE,NULL,NULL,"cuckoo",COMMAND_GROUP_CUCKOO,CF_INFO_History,0,CF_INFO_Tips,0,cfInfoCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_CUCKOO,CF_INFO_Keyspecs,1,NULL,1),.args=CF_INFO_Args},
+{MAKE_CMD("cf.insert","Adds items to a Cuckoo filter","O(n * b * i * f), where n is the number of buckets, b is the bucket size, i is the relocation limit, and f is the number of subfilters.","8.12.0",CMD_DOC_NONE,NULL,NULL,"cuckoo",COMMAND_GROUP_CUCKOO,CF_INSERT_History,0,CF_INSERT_Tips,0,cfInsertCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_CUCKOO,CF_INSERT_Keyspecs,1,NULL,4),.args=CF_INSERT_Args},
+{MAKE_CMD("cf.insertnx","Adds items to a Cuckoo filter if absent","O(n * b * i * f), where n is the number of buckets, b is the bucket size, i is the relocation limit, and f is the number of subfilters.","8.12.0",CMD_DOC_NONE,NULL,NULL,"cuckoo",COMMAND_GROUP_CUCKOO,CF_INSERTNX_History,0,CF_INSERTNX_Tips,0,cfInsertNxCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_CUCKOO,CF_INSERTNX_Keyspecs,1,NULL,4),.args=CF_INSERTNX_Args},
 {MAKE_CMD("cf.mexists","Checks whether items exist in a Cuckoo filter","O(n * b * f), where n is the number of items, b is the bucket size, and f is the number of subfilters.","8.12.0",CMD_DOC_NONE,NULL,NULL,"cuckoo",COMMAND_GROUP_CUCKOO,CF_MEXISTS_History,0,CF_MEXISTS_Tips,0,cfMExistsCommand,-3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_CUCKOO,CF_MEXISTS_Keyspecs,1,NULL,2),.args=CF_MEXISTS_Args},
 {MAKE_CMD("cf.reserve","Creates a Cuckoo filter","O(n), where n is the allocated filter size.","8.12.0",CMD_DOC_NONE,NULL,NULL,"cuckoo",COMMAND_GROUP_CUCKOO,CF_RESERVE_History,0,CF_RESERVE_Tips,0,cfReserveCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_CUCKOO|ACL_CATEGORY_FAST,CF_RESERVE_Keyspecs,1,NULL,5),.args=CF_RESERVE_Args},
 /* generic */
