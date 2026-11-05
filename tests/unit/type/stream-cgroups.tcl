@@ -1394,6 +1394,29 @@ start_server {
             assert_equal $n_consumers 3
             $rd close
         }
+
+        test {XCLAIM and XAUTOCLAIM that claim no entry create the consumer in AOF} {
+            r del mystream
+            r XADD mystream 1-0 f v
+            r XADD mystream 2-0 f v
+            r XGROUP CREATE mystream mygroup 0
+            r XREADGROUP GROUP mygroup Alice STREAMS mystream ">"
+
+            # No entry is idle for that long, so nothing is claimed.
+            assert_equal {} [r XCLAIM mystream mygroup Bob 3600000 1-0]
+            assert_equal {0-0 {} {}} [r XAUTOCLAIM mystream mygroup Charlie 3600000 0]
+
+            # The entries were deleted, so they are only dropped from the PEL.
+            r XDEL mystream 1-0 2-0
+            assert_equal {} [r XCLAIM mystream mygroup Dave 0 1-0]
+            assert_equal {0-0 {} 2-0} [r XAUTOCLAIM mystream mygroup Eve 0 0]
+            set grpinfo [r xinfo groups mystream]
+
+            r debug loadaof
+            assert_equal $grpinfo [r xinfo groups mystream]
+            set names [lmap c [r xinfo consumers mystream mygroup] {dict get $c name}]
+            assert_equal {Alice Bob Charlie Dave Eve} [lsort $names]
+        }
     }
 
     test {Consumer group read counter and lag in empty streams} {

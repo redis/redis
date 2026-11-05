@@ -5078,8 +5078,9 @@ void xclaimCommand(client *c) {
     }
     /* Propagate consumer creation only when no entry was claimed, since
      * the XCLAIM generated for a claimed entry implicitly creates the
-     * consumer on the replica. The XCLAIM generated for a deleted entry
-     * names its previous owner, so it does not. */
+     * consumer on the replica. Dropping a deleted entry is propagated as
+     * an XCLAIM naming its previous owner, or as an XACK if it has none,
+     * so it does not create the consumer either. */
     if (consumer_created && arraylen == 0)
         streamPropagateConsumerCreation(c,c->argv[1],c->argv[2],consumer->name);
     setDeferredArrayLen(c,arraylenptr,arraylen);
