@@ -498,9 +498,10 @@ int decompressInto(compressionState *state, char *buf, size_t buflen) {
  * into output_buf.
  * Return number of bytes decompressed. *consumed stores number of bytes consumed
  * from input_buf.
- * Note, that we may have enough compressed data inside input buf so that decompressing
- * it will exceed output_len. The function must be ran in a loop until input_buf
- * is fully consumed - so make sure to have free space in output_buf on each call. */
+ * Consuming input_buf may only copy bytes into the decompressor's internal
+ * buffer. Call again with available output space while input remains or
+ * clientHasPendingCompressedData() is true, using input_len 0 to drain pending
+ * data after input_buf is fully consumed. */
 int clientReadBufAndDecompress(client *c, char *input_buf, size_t input_len,
                              char *output_buf, size_t output_len, size_t *consumed)
 {

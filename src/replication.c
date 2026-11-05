@@ -4265,7 +4265,11 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
         zfree(n);
 
         size_t processed = 0;
-        while (processed < o->used) {
+        /* Copying all compressed bytes into the decompressor does not mean
+         * their commands have been applied. Drain its pending output before
+         * leaving the streaming state, even if this block is exhausted. */
+        while (processed < o->used ||
+               (compressed_stream && clientHasPendingCompressedData(c))) {
             /* Consumed bytes from the current block in the current iteration. */
             size_t consumed = 0;
             /* Bytes passed to the command parser, after decompression (if decompression is needed). */
@@ -5408,9 +5412,9 @@ void abortFailover(const char *err) {
 
     if (server.target_replica_host) {
         serverLog(LL_NOTICE,"FAILOVER to %s:%d aborted: %s",
-            server.target_replica_host,server.target_replica_port,err);  
+            server.target_replica_host,server.target_replica_port,err);
     } else {
-        serverLog(LL_NOTICE,"FAILOVER to any replica aborted: %s",err);  
+        serverLog(LL_NOTICE,"FAILOVER to any replica aborted: %s",err);
     }
     if (server.failover_state == FAILOVER_IN_PROGRESS) {
         replicationUnsetMaster();
