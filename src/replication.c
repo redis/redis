@@ -4258,6 +4258,11 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
     if (compressed_stream)
         serverAssert(server.master->compression_state);
 
+    /* Bytes consumed from all blocks so far, used to pace yielding to the
+     * event loop. Unlike ctx->applied_offset it counts input (possibly
+     * compressed) bytes, and unlike `processed` it isn't reset per block. */
+    size_t total_consumed = 0;
+
     blockingOperationStarts();
     while ((n = listFirst(buf->blocks))) {
         replDataBufBlock *o = listNodeValue(n);
@@ -4268,6 +4273,8 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
         while (processed < o->used) {
             /* Consumed bytes from the current block in the current iteration. */
             size_t consumed = 0;
+            /* Bytes passed to the command parser, after decompression (if decompression is needed). */
+            size_t applied = 0;
 
             if (compressed_stream) {
                 c->querybuf = sdsMakeRoomFor(c->querybuf, PROTO_IOBUF_LEN);
@@ -4283,6 +4290,7 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
                 sdsIncrLen(c->querybuf, decompressed);
                 c->read_reploff += (long long) decompressed;
                 c->io_read_reploff += (long long int) decompressed;
+                applied = decompressed;
 
                 atomicIncr(server.stat_net_repl_input_decompressed_bytes, decompressed);
             } else {
@@ -4291,6 +4299,7 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
                 c->read_reploff += (long long int) bytes;
                 c->io_read_reploff += (long long int) bytes;
                 consumed = bytes;
+                applied = bytes;
             }
             c->lastinteraction = server.unixtime;
 
@@ -4320,13 +4329,14 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
 
             /* Check if we should yield back to the event loop */
             if (server.loading_process_events_interval_bytes &&
-                ((ctx->applied_offset + consumed) / server.loading_process_events_interval_bytes >
-                  ctx->applied_offset / server.loading_process_events_interval_bytes))
+                ((total_consumed + consumed) / server.loading_process_events_interval_bytes >
+                  total_consumed / server.loading_process_events_interval_bytes))
             {
                 ctx->yield_callback(ctx);
                 processEventsWhileBlocked();
             }
-            ctx->applied_offset += consumed;
+            total_consumed += consumed;
+            ctx->applied_offset += applied;
 
             /* Check if we should continue processing */
             if (!ctx->should_continue(ctx)) {
