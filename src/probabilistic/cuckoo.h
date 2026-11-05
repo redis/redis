@@ -78,6 +78,22 @@ void CuckooFilter_Compact(CuckooFilter *filter, bool cont);
 void CuckooFilter_GetInfo(const CuckooFilter *cf, CuckooHash hash, CuckooKey *out);
 int CuckooFilter_ValidateIntegrity(const CuckooFilter *cf);
 
+typedef struct __attribute__((packed)) {
+    uint64_t numItems;
+    uint64_t numBuckets;
+    uint64_t numDeletes;
+    uint64_t numFilters;
+    uint16_t bucketSize;
+    uint16_t maxIterations;
+    uint16_t expansion;
+} CFHeader;
+
+const char *CF_GetEncodedChunk(const CuckooFilter *cf, long long *pos, size_t *buflen,
+                               size_t bytelimit);
+int CF_LoadEncodedChunk(const CuckooFilter *cf, long long pos, const char *data, size_t datalen);
+CuckooFilter *CFHeader_Load(const CFHeader *header);
+CFHeader fillCFHeader(const CuckooFilter *cf);
+
 #ifdef REDIS_TEST
 int cuckooTest(int argc, char **argv, int flags);
 #endif
