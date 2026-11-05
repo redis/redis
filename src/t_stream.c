@@ -6190,7 +6190,8 @@ static int idmpLookup(idmpProducer *producer, idmpEntry *entry, streamID *id) {
 static void idmpListRemoveEntry(stream *s, idmpProducer *producer, idmpEntry *target) {
     idmpEntry *following = target->next;
 
-    if (following != NULL && following->iid_len <= target->iid_len) {
+    if (following != NULL &&
+        following->iid_len <= zmalloc_usable_size(target) - sizeof(idmpEntry)) {
         dictEntry *de = dictFind(producer->idmp_dict, following);
         serverAssert(de != NULL);
         memcpy(target, following, sizeof(idmpEntry) + following->iid_len);
