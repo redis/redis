@@ -160,6 +160,8 @@ const char *const streamDistribMetricNames[STREAM_DISTRIB_MAX] = {
     [STREAM_DISTRIB_CGROUPS_CONSUMERS] = "stream_distrib_cgroups_consumers",
 };
 static_assert(STREAM_DISTRIB_MAX <= 8, "distrib_counted holds one bit per metric");
+/* The bit of 'metric' in a stamp's 'counted' byte. */
+#define STREAM_DISTRIB_BIT(metric) (1u << (metric))
 
 /* The group stamp (streamDistribStamp) and the per-stream state of the
  * max-lag row (streamLagState) are declared in stream.h, since defrag.c
@@ -212,7 +214,7 @@ static void streamUpdateStat(redisDb *db, uint32_t *epoch, uint8_t *counted,
         *counted = 0;
     }
 
-    uint8_t bit = 1u << metric;
+    uint8_t bit = STREAM_DISTRIB_BIT(metric);
     int old_bin = streamDistribBin(old_val);
     int new_bin = streamDistribBin(new_val);
     if ((*counted & bit) && old_bin == new_bin) return; /* sample didn't move */
@@ -305,7 +307,14 @@ static void streamStatsReenterStructural(redisDb *db, stream *s, streamCG *cg) {
  * a sample taken on change would drift with the stream.
  * -------------------------------------------------------------------------- */
 
-#define STREAM_LAG_MEMBER_BIT (1u << STREAM_DISTRIB_STREAMS_MAX_LAG)
+/* A group has no sample of its own in the per-stream rows, so in a group's
+ * stamp the bits of those metrics are free. The max-lag metric's bit is
+ * given a meaning there: the group is in its stream's max-lag heap, and so
+ * counts toward the stream's sample. In the stream's own stamp the same bit
+ * keeps the usual meaning, "the row holds this stream's sample"; see
+ * streamLagAssert(). The other bits have no names: streamUpdateStat() and
+ * streamTallySample() address them as STREAM_DISTRIB_BIT(metric). */
+#define STREAM_CG_IN_LAG_HEAP STREAM_DISTRIB_BIT(STREAM_DISTRIB_STREAMS_MAX_LAG)
 #define STREAM_LAG_MAX_MEMBERS (1u << 24) /* the stamp's slot has 24 bits */
 
 /* The current generation of 'db's INFO Streams rows. */
@@ -412,7 +421,7 @@ static void streamLagGroupTouched(redisDb *db, stream *s, streamCG *cg) {
     debugServerAssert(s->distrib_epoch == streamStatsEpochOf(db));
     debugServerAssert(st->epoch == streamStatsEpochOf(db));
     int64_t old = streamLagSample(s);
-    if (st->counted & STREAM_LAG_MEMBER_BIT) {
+    if (st->counted & STREAM_CG_IN_LAG_HEAP) {
         debugServerAssert(ls->heap != NULL); /* a current member is in a heap */
         iheapUpdate(ls->heap, streamStampSlot(st), streamLagKey(cg));
     } else if (raxSize(s->cgroups) <= STREAM_LAG_MAX_MEMBERS &&
@@ -422,7 +431,7 @@ static void streamLagGroupTouched(redisDb *db, stream *s, streamCG *cg) {
         if (!ls->heap) ls->heap = iheapNew(&streamLagHeapType, 1);
         iheapInsert(&ls->heap, streamLagKey(cg), cg);
         s->alloc_size += zmalloc_usable_size(ls->heap) - before;
-        st->counted |= STREAM_LAG_MEMBER_BIT;
+        st->counted |= STREAM_CG_IN_LAG_HEAP;
     }
     streamLagSampleChanged(db, s, old);
 }
@@ -439,29 +448,43 @@ static void streamLagGroupTouched(redisDb *db, stream *s, streamCG *cg) {
  * policy uniform across the rows.
  *
  * Nothing to do for a group that is not a member, or whose stamp is from an
- * old generation: its member bit and slot mean nothing then. A member of the
+ * old generation: its in-heap bit and slot mean nothing then. A member of the
  * current generation always has a heap to be in, because the heap is freed
  * in only two places: when the stream moves to a new generation, which makes
- * every member bit stale, and in streamUpdateStreamSamples(), which clears
+ * every in-heap bit stale, and in streamUpdateStreamSamples(), which clears
  * the bits before it rebuilds. Hence the assertion. */
 static void streamLagMemberMoved(redisDb *db, stream *s, streamCG *cg) {
     streamLagState *ls = streamLagStateOf(s);
     streamDistribStamp *st = streamCGStamp(cg);
-    if (st->epoch != streamStatsEpochOf(db) || !(st->counted & STREAM_LAG_MEMBER_BIT)) return;
+    if (st->epoch != streamStatsEpochOf(db) || !(st->counted & STREAM_CG_IN_LAG_HEAP)) return;
     debugServerAssert(ls->heap != NULL);
     iheapUpdate(ls->heap, streamStampSlot(st), streamLagKey(cg));
 }
 
-/* XGROUP DESTROY: take a member out before the group is freed. Runs whether
- * or not stats are on: a freed group must not stay in a heap that is still
- * of the current generation. */
+/* XGROUP DESTROY: take a member out before the group is freed, so that the
+ * heap never holds a freed group. Runs whether or not stats are on. While
+ * off it could be skipped, since DESTROY sets stream_stats_needs_reset and
+ * the next enable starts a new generation, which frees the heap before any
+ * item is read from it. It runs anyway so that this one function keeps the
+ * invariant in every state, rather than every other path having to reason
+ * about it; the cost is an epoch compare on a rare command.
+ *
+ * A stamp from an old generation says nothing about the heap the stream
+ * holds now. If the stream was touched since, that heap was freed and maybe
+ * rebuilt, and the stale slot could point at an unrelated entry. If it was
+ * not, the heap is the stale one the group may still sit in; it is never
+ * read for its items, and the stream's next stamp refresh frees it (with
+ * stats on, the one a few lines below in DESTROY). Either way the group is
+ * left alone. The epoch check matters with stats off, when nothing
+ * refreshes stamps; with stats on, streamRemoveCGStat() has just refreshed
+ * a stale stamp and cleared its bits, so it is the bit check that returns. */
 static void streamLagGroupLeaving(redisDb *db, stream *s, streamCG *cg) {
     streamLagState *ls = streamLagStateOf(s);
     streamDistribStamp *st = streamCGStamp(cg);
-    if (st->epoch != streamStatsEpochOf(db) || !(st->counted & STREAM_LAG_MEMBER_BIT)) return;
+    if (st->epoch != streamStatsEpochOf(db) || !(st->counted & STREAM_CG_IN_LAG_HEAP)) return;
     debugServerAssert(ls->heap != NULL); /* see streamLagMemberMoved() */
     iheapRemove(ls->heap, streamStampSlot(st));
-    st->counted &= ~STREAM_LAG_MEMBER_BIT;
+    st->counted &= ~STREAM_CG_IN_LAG_HEAP;
 }
 
 /* While stats are off a change to a stream with groups leaves the rows
@@ -486,8 +509,17 @@ int64_t streamLagCaptureSample(stream *s) {
 
 /* Before appending one entry: the XADD fast path. Three compares and one
  * load when stats are on; the sample is read only when this entry reaches
- * the threshold. A threshold left over from an earlier generation may fire
- * once for nothing; streamLagChanged() then parks it. */
+ * the threshold, the entries_added at which the worst lag changes bin.
+ *
+ * The threshold is kept with the heap and ages with it: when a new
+ * generation starts, neither is touched until the stream is next touched,
+ * and XADD may be that touch. An old threshold then sends this one XADD
+ * down the slow path, where streamLagChanged() refreshes the stream's
+ * stamp: the old heap is freed, the old sample is ignored since the stamp
+ * was stale (streamUpdateStat()'s rule), and the threshold is parked at
+ * UINT64_MAX until a group command enrols a member again. One slow XADD per
+ * generation is the price of discarding stale state lazily; nothing stale
+ * reaches the row. */
 int64_t streamLagBeforeAppend(stream *s) {
     if (!server.stream_stats) {
         streamLagNoteChangeWhileOff(s);
@@ -497,7 +529,15 @@ int64_t streamLagBeforeAppend(stream *s) {
     return streamLagSample(s);
 }
 
-/* After the change whose sample was captured, if anything changed. */
+/* The second half of a capture: after the change for which
+ * streamLagCaptureSample() or streamLagBeforeAppend() returned 'old',
+ * re-enter the stream's sample and recompute the threshold. STREAM_LAG_OFF
+ * means the earlier capture found nothing to track (stats off, no groups,
+ * or an XADD short of the threshold).
+ *
+ * Callers skip the call when the change did not happen, e.g. a trim that
+ * deleted nothing, but only to save work: a call with an unmoved sample is
+ * harmless. */
 void streamLagChanged(redisDb *db, stream *s, int64_t old) {
     if (old == STREAM_LAG_OFF) return;
     streamLagSampleChanged(db, s, old);
@@ -529,7 +569,7 @@ static void streamLagAssert(redisDb *db, stream *s) {
     while (raxNext(&ri)) {
         streamCG *cg = ri.data;
         streamDistribStamp *st = streamCGStamp(cg);
-        if (st->epoch != epoch || !(st->counted & STREAM_LAG_MEMBER_BIT)) continue;
+        if (st->epoch != epoch || !(st->counted & STREAM_CG_IN_LAG_HEAP)) continue;
         members++;
         uint32_t slot = streamStampSlot(st);
         if (!h || slot >= iheapCount(h) || h->e[slot].item != cg || h->e[slot].key != streamLagKey(cg))
@@ -540,7 +580,8 @@ static void streamLagAssert(redisDb *db, stream *s) {
     if (count != members)
         serverPanic("streamLagAssert: heap holds %u entries, %u groups are members", count, members);
     int64_t sample = streamLagSample(s);
-    int in_row = s->distrib_epoch == epoch && (s->distrib_counted & STREAM_LAG_MEMBER_BIT);
+    int in_row = s->distrib_epoch == epoch &&
+                 (s->distrib_counted & STREAM_DISTRIB_BIT(STREAM_DISTRIB_STREAMS_MAX_LAG));
     if (in_row != (sample >= 0))
         serverPanic("streamLagAssert: sample %lld but the row %s it", (long long) sample, in_row ? "holds" : "lacks");
     if (ls->xadd_threshold != streamLagThreshold(s))
@@ -585,10 +626,10 @@ static void streamUpdateStreamSamples(redisDb *db, stream *s, int adding) {
             streamUpdateCGStat(db, cg, STREAM_DISTRIB_CGROUPS_PEL, -1);
             streamUpdateCGStat(db, cg, STREAM_DISTRIB_CGROUPS_CONSUMERS, -1);
             streamDistribStamp *st = streamCGStamp(cg);
-            st->counted &= ~STREAM_LAG_MEMBER_BIT;
+            st->counted &= ~STREAM_CG_IN_LAG_HEAP;
             if (build) {
                 iheapAppend(&ls->heap, streamLagKey(cg), cg);
-                st->counted |= STREAM_LAG_MEMBER_BIT;
+                st->counted |= STREAM_CG_IN_LAG_HEAP;
             }
         } else {
             streamRemoveCGStat(db, cg, STREAM_DISTRIB_CGROUPS_PEL);
@@ -2327,7 +2368,7 @@ static int64_t streamStreamSample(stream *s, streamDistribMetric metric) {
  * unconditionally when 'all'. */
 static inline void streamTallySample(streamStatsHist tally, int all, uint8_t counted,
                                      streamDistribMetric metric, int64_t sample) {
-    if (!all && !(counted & (1u << metric))) return;
+    if (!all && !(counted & STREAM_DISTRIB_BIT(metric))) return;
     int bin = streamDistribBin(sample);
     if (bin >= 0) tally[metric][bin]++;
 }
@@ -3751,7 +3792,10 @@ void xreadCommand(client *c) {
             if (groups) {
                 streamUpdateCGStat(c->db, groups[i], STREAM_DISTRIB_CGROUPS_PEL, old_pel);
                 /* Deliveries advance the group's entries_read: move it in
-                 * the lag heap and re-enter the stream's sample. */
+                 * the lag heap and re-enter the stream's sample. Both stamps
+                 * are current: streamStatsReenterStructural() above refreshed
+                 * the stream's, the PEL update just refreshed the group's,
+                 * and the epoch cannot move within a command. */
                 if (server.stream_stats) streamLagGroupTouched(c->db, s, groups[i]);
             }
             if (server.memory_tracking_enabled)
