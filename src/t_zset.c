@@ -1116,9 +1116,8 @@ int zsetTypeMaybeConvert(robj *zobj, size_t size_hint) {
     return 0;
 }
 
-/* Convert the zset to specified encoding. The zset dict (when converting
- * to a skiplist) is presized to hold the number of elements in the original
- * zset. */
+/* Convert the zset to the specified encoding. When converting to a B+ tree,
+ * reserve member index capacity for the original number of elements. */
 void zsetConvert(robj *zobj, int encoding) {
     zsetConvertAndExpand(zobj, encoding, zsetLength(zobj));
 }
@@ -1425,7 +1424,7 @@ int zsetScore(robj *zobj, sds member, double *score) {
  * start.
  *
  * The command as a side effect of adding a new element may convert the sorted
- * set internal encoding from listpack to hashtable+skiplist.
+ * set internal encoding from listpack to a B+ tree.
  *
  * Memory management of 'ele':
  *
@@ -2090,10 +2089,6 @@ typedef struct {
                 unsigned char *zl;
                 unsigned char *eptr, *sptr;
             } zl;
-            struct {
-                zset *zs;
-                zskiplistNode *node;
-            } sl;
             struct {
                 zbtreeIterator iter;
             } bt;
