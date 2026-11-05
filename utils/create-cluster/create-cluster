@@ -10,14 +10,11 @@ TIMEOUT=2000
 NODES=6
 REPLICAS=1
 PROTECTED_MODE=yes
-<<<<<<< HEAD
 # The nodes talk over an unauthenticated cluster bus on loopback, which a cluster
 # node refuses to do by default, so protection has to be waived explicitly.
 BUS_PROTECTED_MODE=no
-=======
 STARTUP_RETRIES=50
 STARTUP_RETRY_DELAY=0.1
->>>>>>> 6756a3fc8 (address race condition by waiting for cluster nodes to respond before create)
 ADDITIONAL_OPTIONS=""
 
 # You may want to put the above config parameters into config.sh in order to
@@ -43,31 +40,142 @@ fi
 
 if [ "$1" == "start-and-create" ]
 then
-    "$SCRIPT_DIR/create-cluster" start || exit $?
-
-    WAIT_PORT=$PORT
-    while [ $((WAIT_PORT < ENDPORT)) != "0" ]; do
-        WAIT_PORT=$((WAIT_PORT+1))
-        RETRIES=$STARTUP_RETRIES
-
-        while ! "$BIN_PATH/redis-cli" -h "$CLUSTER_HOST" -p "$WAIT_PORT" PING >/dev/null 2>&1; do
-            RETRIES=$((RETRIES-1))
-
-            if [ "$RETRIES" == "0" ]; then
-                echo "Redis instance on port $WAIT_PORT failed to start."
+    # Redis may still bind IPv6 when an IPv4 port is occupied. Check both the
+    # client and bus ports before launching any nodes.
+    for ((p=PORT+1; p<=ENDPORT; p++)); do
+        for check_port in "$p" "$((p+10000))"; do
+            if (: >/dev/tcp/127.0.0.1/"$check_port") 2>/dev/null; then
+                echo "Port $check_port is already in use." >&2
                 exit 1
             fi
-
-            sleep "$STARTUP_RETRY_DELAY"
         done
     done
 
-    if [ "$2" == "-f" ]; then
-        "$SCRIPT_DIR/create-cluster" create -f
-    else
-        "$SCRIPT_DIR/create-cluster" create
-    fi
-    exit $?
+    # Resolve paths before changing to the temporary working directory.
+    BIN_PATH=$(cd -- "$BIN_PATH" && pwd) || exit 1
+    TMP_BASE=$(cd -- "${TMPDIR:-/tmp}" && pwd) || exit 1
+    RUN_DIR=""
+
+    cleanup() {
+        status=$?
+        trap - EXIT
+        trap '' INT TERM
+        echo "Stopping temporary cluster..."
+
+        # Only signal our own background jobs, never a process found by port or
+        # a PID file. Include stopped jobs so cleanup also handles stuck nodes.
+        for pid in $(jobs -pr) $(jobs -ps); do
+            kill -TERM "$pid" 2>/dev/null
+            kill -CONT "$pid" 2>/dev/null
+        done
+        for ((attempt=0; attempt<50; attempt++)); do
+            [ -z "$(jobs -pr)$(jobs -ps)" ] && break
+            sleep 0.1
+        done
+        for pid in $(jobs -pr) $(jobs -ps); do
+            echo "Force stopping process $pid." >&2
+            kill -KILL "$pid" 2>/dev/null
+        done
+        for ((attempt=0; attempt<10; attempt++)); do
+            [ -z "$(jobs -pr)$(jobs -ps)" ] && break
+            sleep 0.1
+        done
+        if [ -n "$(jobs -pr)$(jobs -ps)" ]; then
+            echo "Cleanup failed; keeping $RUN_DIR." >&2
+            exit 1
+        fi
+        wait
+        if [ -n "$RUN_DIR" ]; then
+            rm -rf -- "$RUN_DIR" || status=1
+        fi
+        exit "$status"
+    }
+
+    trap cleanup EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    RUN_DIR=$(mktemp -d "$TMP_BASE/redis-cluster.XXXXXX") || exit 1
+    cd -- "$RUN_DIR" || exit 1
+
+    # Wait interruptibly, with a deadline: redis-cli can otherwise wait forever
+    # for a reply or for the cluster bus to converge. Track it as our own job.
+    run_cli() {
+        local cli_pid deadline timeout=$1
+        shift
+        "$BIN_PATH/redis-cli" "$@" &
+        cli_pid=$!
+        deadline=$((SECONDS+timeout))
+        while [ "$SECONDS" -lt "$deadline" ]; do
+            kill -0 "$cli_pid" 2>/dev/null || break
+            sleep 0.1 &
+            wait $!
+        done
+        if kill -0 "$cli_pid" 2>/dev/null; then
+            echo "redis-cli timed out." >&2
+            kill -KILL "$cli_pid" 2>/dev/null
+            wait "$cli_pid" 2>/dev/null
+            return 1
+        fi
+        wait "$cli_pid"
+    }
+
+    HOSTS=()
+    NODE_PIDS=()
+    for ((p=PORT+1; p<=ENDPORT; p++)); do
+        echo "Starting $p"
+        "$BIN_PATH/redis-server" \
+            --protected-mode "$PROTECTED_MODE" \
+            --cluster-enabled yes \
+            --cluster-bus-port-protected-mode "$BUS_PROTECTED_MODE" \
+            --cluster-node-timeout "$TIMEOUT" \
+            --appendonly yes \
+            ${ADDITIONAL_OPTIONS} \
+            --port "$p" --cluster-port "$((p+10000))" \
+            --cluster-config-file "nodes-${p}.conf" \
+            --appendfilename "appendonly-${p}.aof" \
+            --appenddirname "appendonlydir-${p}" \
+            --dbfilename "dump-${p}.rdb" \
+            --logfile "$RUN_DIR/${p}.log" \
+            --dir "$RUN_DIR" --pidfile "$RUN_DIR/redis-${p}.pid" \
+            --daemonize no --supervised no &
+        node_pid=$!
+        NODE_PIDS+=("$node_pid")
+        HOSTS+=("$CLUSTER_HOST:$p")
+
+        retries=$STARTUP_RETRIES
+        while true; do
+            # Verify the responding server is the child we just launched. A
+            # successful PING alone could belong to an unrelated Redis instance.
+            if run_cli 1 -h "$CLUSTER_HOST" -p "$p" INFO server > ready 2>/dev/null &&
+                grep -q "^process_id:${node_pid}$(printf '\r')$" ready &&
+                kill -0 "$node_pid" 2>/dev/null; then
+                break
+            fi
+            retries=$((retries-1))
+            if ! kill -0 "$node_pid" 2>/dev/null || [ "$retries" -le 0 ]; then
+                echo "Node $p failed to start; check for occupied client or cluster bus ports." >&2
+                cat "$RUN_DIR/${p}.log" >&2
+                exit 1
+            fi
+            sleep "$STARTUP_RETRY_DELAY" &
+            wait $!
+        done
+    done
+
+    run_cli 60 --cluster create "${HOSTS[@]}" \
+        --cluster-replicas "$REPLICAS" --cluster-yes || exit $?
+
+    echo "Cluster ready. Press Ctrl+C to stop and clean up."
+    while true; do
+        for pid in "${NODE_PIDS[@]}"; do
+            if ! kill -0 "$pid" 2>/dev/null; then
+                echo "A Redis node exited unexpectedly." >&2
+                exit 1
+            fi
+        done
+        sleep 1 &
+        wait $!
+    done
 fi
 
 if [ "$1" == "create" ]
@@ -168,14 +276,14 @@ then
 fi
 
 echo "Usage: $0 [start|start-and-create|create|stop|restart|watch|tail|tailall|clean|clean-logs|call]"
-echo "start                  -- Launch Redis Cluster instances."
-echo "start-and-create [-f]  -- Launch Redis Cluster instances and create the cluster."
-echo "create [-f]            -- Create a cluster using redis-cli --cluster create."
-echo "stop                   -- Stop Redis Cluster instances."
-echo "restart                -- Restart Redis Cluster instances."
-echo "watch                  -- Show CLUSTER NODES output (first 30 lines) of first node."
-echo "tail <id>              -- Run tail -f of instance at base port + ID."
-echo "tailall                -- Run tail -f for all the log files at once."
-echo "clean                  -- Remove all instances data, logs, configs."
-echo "clean-logs             -- Remove just instances logs."
-echo "call <cmd>             -- Call a command (up to 7 arguments) on all nodes."
+echo "start       -- Launch Redis Cluster instances."
+echo "start-and-create -- Run a temporary cluster; Ctrl+C stops and cleans up."
+echo "create [-f] -- Create a cluster using redis-cli --cluster create."
+echo "stop        -- Stop Redis Cluster instances."
+echo "restart     -- Restart Redis Cluster instances."
+echo "watch       -- Show CLUSTER NODES output (first 30 lines) of first node."
+echo "tail <id>   -- Run tail -f of instance at base port + ID."
+echo "tailall     -- Run tail -f for all the log files at once."
+echo "clean       -- Remove all instances data, logs, configs."
+echo "clean-logs  -- Remove just instances logs."
+echo "call <cmd>  -- Call a command (up to 7 arguments) on all nodes."
