@@ -644,6 +644,23 @@ start_server {tags {"introspection"}} {
         }
     } {} {external:skip}
 
+    if {[s arch_bits] == 64} {
+        test {CONFIG REWRITE preserves narrowed included save counts after parent rules} {
+            set include_file [file normalize [tmpfile save-narrowed.conf]]
+            set fd [open $include_file w]
+            puts $fd {save 100 2147483648}
+            close $fd
+            start_server [list config minimal.conf config_lines [list include "\"$include_file\"" save {200 2}]] {
+                set expected {100 -2147483648 200 2}
+                assert_equal $expected [lindex [r config get save] 1]
+                r config rewrite
+                assert_no_match {*save 100 -2147483648*} [read_file [srv 0 config_file]]
+                restart_server 0 true false
+                assert_equal $expected [lindex [r config get save] 1]
+            }
+        } {} {external:skip}
+    }
+
     test {CONFIG sanity} {
         # Do CONFIG GET, CONFIG SET and then CONFIG GET again
         # Skip immutable configs, one with no get, and other complicated configs
@@ -1733,6 +1750,32 @@ test {CONFIG REWRITE compares aggregated save rules from includes} {
 
         restart_server 0 true false
         assert_equal {300 1} [lindex [r config get save] 1]
+    }
+} {} {external:skip}
+
+test {CONFIG REWRITE preserves save overrides after included number spellings} {
+    set leaf_file [file normalize [tmpfile save-spellings.conf]]
+    set wrapper_file [file normalize [tmpfile save-spellings-wrapper.conf]]
+    set fd [open $wrapper_file w]
+    puts $fd "include \"$leaf_file\""
+    close $fd
+    foreach spelling {{+100 1} {0100 1} {100 +1} {100 -0} {" 100" 1}} {
+        set fd [open $leaf_file w]
+        puts $fd "save $spelling"
+        close $fd
+        foreach include_file [list $leaf_file $wrapper_file] {
+            foreach {suffix target} {{} {} {200 2} {200 2}} {
+                start_server [list tags {external:skip} config minimal.conf overrides {config-rewrite-source-aware yes} \
+                    config_lines [list include "\"$include_file\"" save $suffix]] {
+                    r config set save $target
+                    r config rewrite
+                    assert_equal $target [lindex [r config get save] 1]
+                    restart_server 0 true false
+                    assert_equal $target [lindex [r config get save] 1]
+                    assert_equal "save $spelling\n" [read_file $leaf_file]
+                }
+            }
+        }
     }
 } {} {external:skip}
 

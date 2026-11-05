@@ -1659,8 +1659,9 @@ void rewriteConfigSaveOption(standardConfig *config, const char *name, struct re
         rewriteConfigRewriteLine(state,name,sdsnew("save \"\""),1);
     } else {
         for (j = 0; j < server.saveparamslen; j++) {
-            line = sdscatprintf(sdsempty(),"save %ld %d",
-                (long) server.saveparams[j].seconds, server.saveparams[j].changes);
+            /* Recreate counts narrowed from accepted nonnegative input. */
+            line = sdscatprintf(sdsempty(),"save %ld %u",
+                (long) server.saveparams[j].seconds, (unsigned int) server.saveparams[j].changes);
             rewriteConfigRewriteLine(state,name,line,1);
         }
     }
@@ -2643,14 +2644,18 @@ static sds rewriteConfigNormalizeFileArgs(standardConfig *config, sds *argv, int
         if (nargs % 2) return NULL;
         value = sdsempty();
         for (int i = 1; i < argc; i++) {
-            long long number;
-            if (!string2ll(argv[i], sdslen(argv[i]), &number) ||
-                ((i - 1) % 2 == 0 && number < 1) ||
-                ((i - 1) % 2 == 1 && number < 0))
+            /* Match the save setter's accepted syntax and stored types. */
+            char *eptr;
+            long long number = strtoll(argv[i], &eptr, 10);
+            long val = number;
+            if (eptr[0] != '\0' ||
+                ((i - 1) % 2 == 0 && val < 1) ||
+                ((i - 1) % 2 == 1 && val < 0))
             {
                 sdsfree(value);
                 return NULL;
             }
+            number = (i & 1) ? (intmax_t)(time_t)number : (int)number;
             value = sdscatprintf(value, "%s%lld", i == 1 ? "" : " ", number);
         }
         /* Each save directive adds rules to the aggregate; an empty
