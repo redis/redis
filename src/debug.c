@@ -334,23 +334,6 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
                 xorDigest(digest,eledigest,20);
                 zzlNext(zl,&eptr,&sptr);
             }
-        } else if (o->encoding == OBJ_ENCODING_SKIPLIST) {
-            zset *zs = o->ptr;
-            dictIterator di;
-            dictEntry *de;
-
-            dictInitIterator(&di, zs->dict);
-            while((de = dictNext(&di)) != NULL) {
-                zskiplistNode *znode = dictGetKey(de);
-                sds sdsele = zslGetNodeElement(znode);
-                const int len = fpconv_dtoa(znode->score, buf);
-                buf[len] = '\0';
-                memset(eledigest,0,20);
-                mixDigest(eledigest,sdsele,sdslen(sdsele));
-                mixDigest(eledigest,buf,strlen(buf));
-                xorDigest(digest,eledigest,20);
-            }
-            dictResetIterator(&di);
         } else if (o->encoding == OBJ_ENCODING_BTREE) {
             zbtreeIterator iter;
             const unsigned char *ele;
@@ -1243,12 +1226,6 @@ NULL
 
         /* Get the hash table reference from the object, if possible. */
         switch (o->encoding) {
-        case OBJ_ENCODING_SKIPLIST:
-            {
-                zset *zs = o->ptr;
-                ht = zs->dict;
-            }
-            break;
         case OBJ_ENCODING_HT:
             ht = o->ptr;
             break;

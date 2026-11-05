@@ -15,8 +15,6 @@
 #include <math.h> /* isnan() */
 #include "cluster.h"
 
-zskiplistNode* zslGetElementByRank(zskiplist *zsl, unsigned long rank);
-
 redisSortOperation *createSortOperation(int type, robj *pattern) {
     redisSortOperation *so = zmalloc(sizeof(*so));
     so->type = type;
@@ -480,29 +478,7 @@ void sortCommandGeneric(client *c, int readonly) {
                 j++;
             }
         } else {
-            zset *zs = sortval->ptr;
-            zskiplist *zsl = zs->zsl;
-            zskiplistNode *ln;
-
-            if (desc) {
-                ln = zsl->tail;
-                if (start > 0)
-                    ln = zslGetElementByRank(zsl,zsetLength(sortval)-start);
-            } else {
-                ln = zsl->header->level[0].forward;
-                if (start > 0)
-                    ln = zslGetElementByRank(zsl,start+1);
-            }
-
-            while(rangelen--) {
-                serverAssertWithInfo(c,sortval,ln != NULL);
-                sds ele = zslGetNodeElement(ln);
-                vector[j].obj = createStringObject(ele,sdslen(ele));
-                vector[j].u.score = 0;
-                vector[j].u.cmpobj = NULL;
-                j++;
-                ln = desc ? ln->backward : ln->level[0].forward;
-            }
+            serverPanic("Unknown sorted set encoding: %d", sortval->encoding);
         }
         /* Fix start/end: output code is not aware of this optimization. */
         end -= start;
@@ -522,18 +498,7 @@ void sortCommandGeneric(client *c, int readonly) {
                 j++;
             }
         } else {
-            dict *set = ((zset*)sortval->ptr)->dict;
-            dictIterator di;
-            dictEntry *setele;
-            dictInitIterator(&di, set);
-            while((setele = dictNext(&di)) != NULL) {
-                sds ele = zslGetNodeElement(dictGetKey(setele));
-                vector[j].obj = createStringObject(ele,sdslen(ele));
-                vector[j].u.score = 0;
-                vector[j].u.cmpobj = NULL;
-                j++;
-            }
-            dictResetIterator(&di);
+            serverPanic("Unknown sorted set encoding: %d", sortval->encoding);
         }
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), sortval, oldsize, kvobjAllocSize(sortval));
