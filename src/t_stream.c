@@ -3907,10 +3907,8 @@ void xidmprecordCommand(client *c) {
         return;
     }
 
-    /* found == -1 from a master link or while loading an AOF: the upstream
-     * node had already expired the previous mapping when it recorded this
-     * one, while our copy is still tracked here. The recorded mapping is
-     * authoritative and replaces the stale one. */
+    /* From a master or the AOF a different stream ID replaces the stale
+     * mapping: the upstream node already expired it. */
 
     idmpInsertEntry(s, producer, entry, &id);
     trackStreamIdmpEntries(c, c->argv[1]);
