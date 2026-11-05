@@ -1397,8 +1397,11 @@ static int aofFlushFaultInjection(int force) {
     /* Simulate a main-thread AOF write failure (e.g. ENOSPC). We set the
      * error status and bail before writing/fsyncing, so the buffered
      * commands stay in aof_buf and fsynced_reploff stalls. Clearing the
-     * flag lets the next flush write the buffered data and recover to C_OK. */
-    if (server.aof_flush_force_error) {
+     * flag lets the next flush write the buffered data and recover to C_OK.
+     * Like a real write failure, only fail when there is something to write,
+     * otherwise the error could never be cleared, since an empty buffer never
+     * reaches the recovery path and writes are denied while in error. */
+    if (server.aof_flush_force_error && sdslen(server.aof_buf)) {
         if (server.aof_last_write_status == C_OK)
             serverLog(LL_WARNING,"Simulating an AOF write error (debug aof-flush-force error).");
         server.aof_last_write_status = C_ERR;
@@ -3352,6 +3355,10 @@ int rewriteAppendOnlyFileBackground(void) {
         serverLog(LL_WARNING,
             "Can't flush the AOF buffer to disk. Background AOF rewrite aborted.");
         server.aof_lastbgrewrite_status = C_ERR;
+        /* Count it as a failure so that scheduled / automatic rewrites back
+         * off via aofRewriteLimited() instead of retrying on every cron tick
+         * while the write error persists. */
+        server.stat_aofrw_consecutive_failures++;
         return C_ERR;
     }
 
