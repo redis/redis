@@ -23,3 +23,12 @@ The native integration tests and C tests run separately:
 src/redis-server test cuckoo --accurate
 src/redis-server test cuckoo-object --accurate
 ```
+
+`test_acl.py` and `test_configs.py` cover the Cuckoo cases from the module's
+shared suites. Configuration at module load is tested through native server
+configuration instead; range errors use Redis core's wording. ACL checks use
+valid arity because core checks arity before command permissions.
+
+`test_replication.py` keeps the module's Cuckoo write scenarios and adds
+`CF.COMPACT`, which is a write command in core. Its synchronization and data
+comparison helpers are shared with Bloom in `tests/bloom/replication_utils.py`.
