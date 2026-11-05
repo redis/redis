@@ -200,3 +200,19 @@ start_server {tags {"modules external:skip"}} {
         assert_equal {OK} [r module unload zset]
     }
 }
+
+start_server {tags {"modules external:skip needs:debug"} overrides {key-memory-histograms yes}} {
+    r module load $testmodule
+    r debug ALLOCSIZE-SLOTS-ASSERT 1
+
+    test {Module SORT_RO from a pop notification keeps alloc sizes in sync} {
+        # SORT_RO in the notification converts the listpack to a btree.
+        foreach members {{1 a 2 b} {1 a}} {
+            r del k
+            r zadd k {*}$members
+            assert_encoding listpack k
+            r zpopmin k
+            assert_equal PONG [r ping]
+        }
+    }
+}
