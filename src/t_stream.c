@@ -395,8 +395,9 @@ static inline void streamLagNewGeneration(redisDb *db, stream *s) {
 
 /* Move the stream's sample from 'old' to its current value and refresh the
  * XADD threshold. Every change to the heap, to entries_added or to length
- * ends here. */
+ * ends here, and only while stats are on: the off path never gets this far. */
 static void streamLagSampleChanged(redisDb *db, stream *s, int64_t old) {
+    debugServerAssert(server.stream_stats);
     streamUpdateStreamStat(db, s, STREAM_DISTRIB_STREAMS_MAX_LAG, old);
     streamLagStateOf(s)->xadd_threshold = streamLagThreshold(s);
 }
@@ -407,9 +408,12 @@ static void streamLagSampleChanged(redisDb *db, stream *s, int64_t old) {
 static void streamLagGroupTouched(redisDb *db, stream *s, streamCG *cg) {
     streamLagState *ls = streamLagStateOf(s);
     streamDistribStamp *st = streamCGStamp(cg);
+    debugServerAssert(server.stream_stats);
+    debugServerAssert(s->distrib_epoch == streamStatsEpochOf(db));
     debugServerAssert(st->epoch == streamStatsEpochOf(db));
     int64_t old = streamLagSample(s);
     if (st->counted & STREAM_LAG_MEMBER_BIT) {
+        debugServerAssert(ls->heap != NULL); /* a current member is in a heap */
         iheapUpdate(ls->heap, streamStampSlot(st), streamLagKey(cg));
     } else if (raxSize(s->cgroups) <= STREAM_LAG_MAX_MEMBERS &&
                (!ls->heap || iheapCount(ls->heap) < STREAM_LAG_MAX_MEMBERS))
@@ -423,13 +427,28 @@ static void streamLagGroupTouched(redisDb *db, stream *s, streamCG *cg) {
     streamLagSampleChanged(db, s, old);
 }
 
-/* A member's entries_read changed outside a group command (the XSETID clamp):
- * move it. No-op for a non-member or a stale stamp. */
+/* Re-sort one group in its stream's heap after its entries_read changed.
+ * Group commands do this through streamLagGroupTouched(). This is for the one
+ * other place that changes a position, the XSETID clamp, which lowers many
+ * groups in one loop and then posts the stream's sample once, through
+ * streamLagChanged(); so no sample update happens here. That loop visits
+ * every group of the stream, but it does not enrol the ones that are not
+ * members: a group enters the row only on its own command, through
+ * streamLagGroupTouched(), or with the whole stream, through
+ * streamUpdateStreamSamples(). Keeping XSETID out of that keeps the entry
+ * policy uniform across the rows.
+ *
+ * Nothing to do for a group that is not a member, or whose stamp is from an
+ * old generation: its member bit and slot mean nothing then. A member of the
+ * current generation always has a heap to be in, because the heap is freed
+ * in only two places: when the stream moves to a new generation, which makes
+ * every member bit stale, and in streamUpdateStreamSamples(), which clears
+ * the bits before it rebuilds. Hence the assertion. */
 static void streamLagMemberMoved(redisDb *db, stream *s, streamCG *cg) {
     streamLagState *ls = streamLagStateOf(s);
     streamDistribStamp *st = streamCGStamp(cg);
-    if (!ls->heap || st->epoch != streamStatsEpochOf(db) ||
-        !(st->counted & STREAM_LAG_MEMBER_BIT)) return;
+    if (st->epoch != streamStatsEpochOf(db) || !(st->counted & STREAM_LAG_MEMBER_BIT)) return;
+    debugServerAssert(ls->heap != NULL);
     iheapUpdate(ls->heap, streamStampSlot(st), streamLagKey(cg));
 }
 
@@ -439,8 +458,8 @@ static void streamLagMemberMoved(redisDb *db, stream *s, streamCG *cg) {
 static void streamLagGroupLeaving(redisDb *db, stream *s, streamCG *cg) {
     streamLagState *ls = streamLagStateOf(s);
     streamDistribStamp *st = streamCGStamp(cg);
-    if (!ls->heap || st->epoch != streamStatsEpochOf(db) ||
-        !(st->counted & STREAM_LAG_MEMBER_BIT)) return;
+    if (st->epoch != streamStatsEpochOf(db) || !(st->counted & STREAM_LAG_MEMBER_BIT)) return;
+    debugServerAssert(ls->heap != NULL); /* see streamLagMemberMoved() */
     iheapRemove(ls->heap, streamStampSlot(st));
     st->counted &= ~STREAM_LAG_MEMBER_BIT;
 }
