@@ -2599,16 +2599,11 @@ void xaddCommand(client *c) {
         /* Create entry for lookup and potential insertion */
         entry = idmpEntryCreate(iid_str, iid_len, &s->alloc_size);
         
-        /* Check if IID already exists and reply if found. This must not run
-         * for a command with an explicit ID: the parser already rejects IDMP
-         * unless the ID is auto-generated, so such a command can only come
-         * from a master link or from AOF loading, and it is an append the
-         * upstream node actually made (a duplicate is propagated with its
-         * wildcard ID unmodified). A mapping that is still tracked here (it
-         * expires on this node's own threshold, which can trail the upstream
-         * one) would wrongly skip the append and permanently diverge this
-         * node. A wildcard-ID command from such a client is a duplicate the
-         * upstream node did not append: it is still filtered out here. */
+        /* Check if IID already exists and reply if found. Skipped for an
+         * explicit ID: IDMP accepts one only from a master or the AOF, where
+         * the * was replaced with the ID of an entry the upstream node did
+         * append, so it must be applied even if the IID is still tracked here.
+         * Duplicates are propagated with *, so they are still filtered here. */
         if (!parsed_args.id_given && idmpLookupAndReply(s, producer, entry, c))
         {
             /* IID already exists, free the entry and return */
