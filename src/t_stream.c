@@ -3895,9 +3895,8 @@ void xidmprecordCommand(client *c) {
     idmpEntry *entry = idmpEntryCreate(iid_str, iid_len, &s->alloc_size);
     int found = idmpLookup(producer, entry, &id);
     if (found == 1 || (found == -1 && !mustObeyClient(c))) {
-        /* Same stream ID: nothing to record. A different stream ID from a
-         * real client: the tracked mapping is still valid there, so this is
-         * an error. */
+        /* Same stream ID: nothing to record. A different stream ID is an
+         * error, unless it comes from a master or the AOF. */
         idmpEntryFree(entry, &s->alloc_size);
         if (found == 1)
             addReply(c, shared.ok);
