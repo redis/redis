@@ -19,15 +19,14 @@ proc generate_collections {suffix elements} {
     set has_vsets [server_has_command vadd]
     if {$has_vsets} {incr numcmd}
 
-    # Keep the source hash alive when its expiring fields are gone so that
-    # the fuzzer's DBSIZE check remains valid.
-    r hset hashmd$suffix __persistent_field__ 1
-
     for {set j 0} {$j < $elements} {incr j} {
         # add both string values and integers
         if {$j % 2 == 0} {set val $j} else {set val "_$j"}
         $rd hset hash$suffix $j $val
-        $rd hset hashmd$suffix $j $val
+        # Expiring all fields would delete the source hash and fail the fuzzer's
+        # DBSIZE check. Keep __persistent_field__ without a TTL to retain the hash;
+        # the HEXPIRE below applies only to field $j.
+        $rd hset hashmd$suffix $j $val __persistent_field__ 1
         $rd hexpire hashmd$suffix [expr {int(rand() * 10000)}] FIELDS 1 $j
         $rd lpush list$suffix $val
         $rd zadd zset$suffix $j $val
