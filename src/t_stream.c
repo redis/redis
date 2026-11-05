@@ -6224,8 +6224,7 @@ static void idmpInsertEntry(stream *s, idmpProducer *producer, idmpEntry *entry,
         idmpEntry *stale = dictGetKey(existing);
 
         if (stale->next == NULL) {
-            /* The stale mapping is the tail: it keeps its list slot and only
-             * its stream ID is refreshed, so the new entry is dropped. */
+            /* The stale mapping is the tail: just update its stream ID */
             stale->id = *id;
             idmpEntryFree(entry, &s->alloc_size);
             s->iids_added++;
