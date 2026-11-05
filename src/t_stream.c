@@ -6209,13 +6209,11 @@ static void idmpInsertEntry(stream *s, idmpProducer *producer, idmpEntry *entry,
     entry->next = NULL;
     entry->id = *id;
 
-    /* A command applied from a master or while loading an AOF can carry an
-     * append for an IID that is still tracked here: this node expires the
-     * mapping on its own threshold, which can trail the upstream one (the
-     * replica may be behind, or the mapping was restored from a snapshot with
-     * a fresh window). The upstream append is authoritative, so the stale
-     * mapping is replaced instead of kept. dictAddRaw reports the existing
-     * dict entry, when there is one, without a second lookup. */
+    /* From a master or the AOF the IID may still be tracked here, because the
+     * replica's cron did not expire it yet or because nothing expires while
+     * the AOF is loading. The upstream append is authoritative, so replace
+     * the stale mapping. dictAddRaw returns the existing entry, if any, so no
+     * second lookup is needed. */
     dictEntry *existing = NULL;
     dictEntry *de = dictAddRaw(producer->idmp_dict, entry, &existing);
 
