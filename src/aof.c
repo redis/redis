@@ -2076,11 +2076,11 @@ uxeof: /* Unexpected AOF end of file. */
     goto cleanup;
 
 fmterr: /* Format error. */
+    /* Count the whole unfinished transaction against the corrupt tail limit. */
+    if (fakeClient->flags & CLIENT_MULTI) valid_up_to = valid_before_multi;
     /* fmterr may be caused by accidentally machine shutdown, so if the broken tail
      * is less than a specified size, try to recover it automatically */
     if (server.aof_load_corrupt_tail_max_size && sb.st_size - valid_up_to < server.aof_load_corrupt_tail_max_size) {
-        /* Discard the whole unfinished transaction, not just the corrupt command. */
-        if (fakeClient->flags & CLIENT_MULTI) valid_up_to = valid_before_multi;
         serverLog(LL_WARNING,"!!! Warning: corrupt AOF file tail!!!");
         serverLog(LL_WARNING,"!!! Truncating the AOF %s at offset %llu (remaining %llu) !!!",
             aof_filepath, (unsigned long long) valid_up_to, (unsigned long long) sb.st_size - valid_up_to);
