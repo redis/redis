@@ -3264,6 +3264,7 @@ void initServer(void) {
         server.maxmemory = 3072LL*(1024*1024); /* 3 GB */
         server.maxmemory_policy = MAXMEMORY_NO_EVICTION;
     }
+    moduleUpdateMaxmemorySnapshot();
 
     luaEnvInit();
     scriptingInit(1);

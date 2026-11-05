@@ -3417,6 +3417,7 @@ static int updateReplBacklogSize(const char **err) {
 
 static int updateMaxmemory(const char **err) {
     UNUSED(err);
+    moduleUpdateMaxmemorySnapshot();
     if (server.maxmemory) {
         size_t used = zmalloc_used_memory()-freeMemoryGetNotCountedMemory();
         if (server.maxmemory < used) {
