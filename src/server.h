@@ -326,6 +326,9 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define ACL_CATEGORY_ARRAY (1ULL<<21)
 #ifdef ENABLE_GCRA
 #define ACL_CATEGORY_RATE_LIMIT (1ULL<<22)
+#define ACL_CATEGORY_BLOOM (1ULL<<23)
+#else
+#define ACL_CATEGORY_BLOOM (1ULL<<22)
 #endif
 
 /* Key-spec flags *
@@ -940,10 +943,9 @@ typedef enum {
 #define OBJ_BITMAP 8    /* Bitmap object. */
 #ifdef ENABLE_GCRA
 #define OBJ_GCRA 9      /* GCRA object. */
-#define OBJ_TYPE_MAX 10 /* Maximum number of object types */
-#else
-#define OBJ_TYPE_MAX 9  /* Maximum number of object types */
 #endif
+#define OBJ_BLOOM 10    /* Scalable Bloom filter; type 9 is reserved for GCRA. */
+#define OBJ_TYPE_MAX 11 /* Maximum number of object types */
 
 /* NOTE: adding a new object requires changes in the following places:
  * - rdb.c - save/load (also bump RDB_VERSION if needed)
@@ -2691,6 +2693,9 @@ struct redisServer {
     size_t zset_max_listpack_entries;
     size_t zset_max_listpack_value;
     size_t hll_sparse_max_bytes;
+    double bf_error_rate;
+    long long bf_initial_size;
+    long long bf_expansion_factor;
     size_t stream_node_max_bytes;
     long long stream_node_max_entries;
     /* Stream IDMP parameters */
@@ -3069,6 +3074,7 @@ typedef enum {
     COMMAND_GROUP_BITMAP,
     COMMAND_GROUP_ARRAY,
     COMMAND_GROUP_MODULE,
+    COMMAND_GROUP_BLOOM,
 #ifdef ENABLE_GCRA
     COMMAND_GROUP_RATE_LIMIT,
 #endif
@@ -5012,6 +5018,18 @@ void geoposCommand(client *c);
 void geodistCommand(client *c);
 void geosearchCommand(client *c);
 void geosearchstoreCommand(client *c);
+void bfReserveCommand(client *c);
+void bfAddCommand(client *c);
+void bfMAddCommand(client *c);
+void bfInsertCommand(client *c);
+void bfExistsCommand(client *c);
+void bfMExistsCommand(client *c);
+void bfCardCommand(client *c);
+void bfInfoCommand(client *c);
+void bfDebugCommand(client *c);
+void bfScanDumpCommand(client *c);
+void bfLoadChunkCommand(client *c);
+
 void pfselftestCommand(client *c);
 void pfaddCommand(client *c);
 void pfcountCommand(client *c);

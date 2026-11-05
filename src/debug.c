@@ -13,6 +13,7 @@
  */
 
 #include "server.h"
+#include "t_bloom.h"
 #include "bitroar.h"
 #include "util.h"
 #include "sha1.h"   /* SHA1 is used for DEBUG DIGEST */
@@ -441,6 +442,8 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
         }
     } else if (o->type == OBJ_BITMAP) {
         mixBitmapObjectDigest(digest, o);
+    } else if (o->type == OBJ_BLOOM) {
+        bloomMixDigest(digest, o);
     } else {
         serverPanic("Unknown object type");
     }
@@ -1531,6 +1534,9 @@ void serverLogObjectDebugInfo(const robj *o) {
             serverLog(LL_WARNING,"Object raw string content: %s", repr);
             sdsfree(repr);
         }
+    } else if (o->type == OBJ_BLOOM) {
+        serverLog(LL_WARNING,"Bloom size: %zu, filters: %zu",
+                  ((SBChain *)o->ptr)->size, ((SBChain *)o->ptr)->nfilters);
     } else if (o->type == OBJ_BITMAP) {
         serverLog(LL_WARNING,"Bitmap logical byte length: %llu",
                   (unsigned long long)bitroarLen(o));
