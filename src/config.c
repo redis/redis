@@ -785,10 +785,11 @@ static void loadServerConfigFromString(char *config, int cli_start_line, configS
 
         clusterBusWarnIfUnprotected();
         tlsWarnExpectedPeerNameScope();
+        /* Only the outermost load leaves configuration-file reading mode. */
+        reading_config_file = 0;
     }
 
     sdsfreesplitres(lines,totlines);
-    reading_config_file = 0;
     return;
 
 loaderr:
@@ -1637,6 +1638,12 @@ void rewriteConfigSaveOption(standardConfig *config, const char *name, struct re
         rewriteConfigMarkAsProcessed(state,name);
         return;
     }
+
+    /* Write the complete save list after all includes, even in legacy mode.
+     * Reusing earlier save lines could leave included rules to be added again. */
+    sds include = sdsnew("include");
+    if (dictFind(state->option_to_line, include)) state->append_after_include = 1;
+    sdsfree(include);
 
     /* Save rules accumulate across directives. When appending after includes,
      * clear the included rules before writing the current non-empty rule set.
@@ -2631,6 +2638,8 @@ static sds rewriteConfigNormalizeFileArgs(standardConfig *config, sds *argv, int
     }
     if (!strcasecmp(config->name, "save")) {
         if (nargs == 1 && !sdslen(argv[1])) return sdsnew("");
+        /* Only the first zero-pair directive clears defaults; later ones add no rules. */
+        if (nargs == 0 && old_file_value) return sdsdup(old_file_value->value);
         if (nargs % 2) return NULL;
         value = sdsempty();
         for (int i = 1; i < argc; i++) {

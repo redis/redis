@@ -622,6 +622,28 @@ start_server {tags {"introspection"}} {
         }
     } {} {external:skip}
 
+    test {CONFIG save rules accumulate after nested includes} {
+        set leaf_file [file normalize [tmpfile save-leaf.conf]]
+        set fd [open $leaf_file w]
+        puts $fd {save 100 1}
+        close $fd
+        set include_file [file normalize [tmpfile save-include.conf]]
+        set fd [open $include_file w]
+        puts $fd "include \"$leaf_file\""
+        puts $fd {save 200 2}
+        close $fd
+
+        start_server [list config minimal.conf config_lines [list save {50 0} include "\"$include_file\"" save {300 3} save {400 4}]] {
+            assert_equal {50 0 100 1 200 2 300 3 400 4} [lindex [r config get save] 1]
+
+            # Leaving the outermost load must restore runtime replacement semantics.
+            r config set save {500 5 600 6}
+            assert_equal {500 5 600 6} [lindex [r config get save] 1]
+            r config set save ""
+            assert_equal {} [lindex [r config get save] 1]
+        }
+    } {} {external:skip}
+
     test {CONFIG sanity} {
         # Do CONFIG GET, CONFIG SET and then CONFIG GET again
         # Skip immutable configs, one with no get, and other complicated configs
@@ -1711,6 +1733,47 @@ test {CONFIG REWRITE compares aggregated save rules from includes} {
 
         restart_server 0 true false
         assert_equal {300 1} [lindex [r config get save] 1]
+    }
+} {} {external:skip}
+
+test {CONFIG REWRITE keeps included save rules stable in default mode} {
+    set include_file [file normalize [tmpfile config-save-default.conf]]
+    set fd [open $include_file w]
+    puts $fd {save 3600 1}
+    close $fd
+    foreach saves {{} {{300 100}} {{300 100} {60 10000}}} {
+        set config_lines [list include "\"$include_file\""]
+        foreach rule $saves {
+            lappend config_lines save $rule
+        }
+        start_server [list tags {external:skip} config minimal.conf config_lines $config_lines] {
+            assert_equal no [lindex [r config get config-rewrite-source-aware] 1]
+            set expected [concat {3600 1} {*}$saves]
+            assert_equal $expected [lindex [r config get save] 1]
+            for {set cycle 0} {$cycle < 2} {incr cycle} {
+                r config rewrite
+                assert_equal $expected [lindex [r config get save] 1]
+                restart_server 0 true false
+                assert_equal $expected [lindex [r config get save] 1]
+                assert_equal "save 3600 1\n" [read_file $include_file]
+            }
+        }
+    }
+} {} {external:skip}
+
+test {CONFIG REWRITE preserves runtime save clears after zero-pair directives} {
+    set include_file [file normalize [tmpfile config-save-zero-pairs.conf]]
+    set fd [open $include_file w]
+    puts $fd {save 100 1}
+    close $fd
+    foreach save_args {{} {" "}} {
+        start_server [list tags {external:skip} config minimal.conf overrides {config-rewrite-source-aware yes} \
+            config_lines [list include "\"$include_file\"" save {200 2} save $save_args]] {
+            r config set save ""
+            r config rewrite
+            restart_server 0 true false
+            assert_equal {} [lindex [r config get save] 1]
+        }
     }
 } {} {external:skip}
 
