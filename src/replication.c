@@ -4268,6 +4268,8 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
         while (processed < o->used) {
             /* Consumed bytes from the current block in the current iteration. */
             size_t consumed = 0;
+            /* Bytes passed to the command parser, after decompression (if decompression is needed). */
+            size_t applied = 0;
 
             if (compressed_stream) {
                 c->querybuf = sdsMakeRoomFor(c->querybuf, PROTO_IOBUF_LEN);
@@ -4283,6 +4285,7 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
                 sdsIncrLen(c->querybuf, decompressed);
                 c->read_reploff += (long long) decompressed;
                 c->io_read_reploff += (long long int) decompressed;
+                applied = decompressed;
 
                 atomicIncr(server.stat_net_repl_input_decompressed_bytes, decompressed);
             } else {
@@ -4290,7 +4293,9 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
                 c->querybuf = sdscatlen(c->querybuf, &o->buf[processed], bytes);
                 c->read_reploff += (long long int) bytes;
                 c->io_read_reploff += (long long int) bytes;
+                //  without compression, applied = consumed = bytes
                 consumed = bytes;
+                applied = bytes;
             }
             c->lastinteraction = server.unixtime;
 
@@ -4312,13 +4317,13 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
 
             /* Check if we should yield back to the event loop */
             if (server.loading_process_events_interval_bytes &&
-                ((ctx->applied_offset + consumed) / server.loading_process_events_interval_bytes >
+                ((ctx->applied_offset + applied) / server.loading_process_events_interval_bytes >
                   ctx->applied_offset / server.loading_process_events_interval_bytes))
             {
                 ctx->yield_callback(ctx);
                 processEventsWhileBlocked();
             }
-            ctx->applied_offset += consumed;
+            ctx->applied_offset += applied;
 
             /* Check if we should continue processing */
             if (!ctx->should_continue(ctx)) {
