@@ -4167,6 +4167,7 @@ start_server {tags {"stream external:skip"} overrides {appendonly yes appendfsyn
         # Snapshot the mapping into the AOF, then let it expire and retry:
         # the retry appends a new entry that is recorded in the AOF with an
         # explicit ID.
+        r config set aof-use-rdb-preamble no
         r BGREWRITEAOF
         waitForBgrewriteaof r
         after 3000
