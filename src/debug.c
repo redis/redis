@@ -570,6 +570,9 @@ void debugCommand(client *c) {
         const char *help[] = {
 "AOF-FLUSH-SLEEP <microsec>",
 "    Server will sleep before flushing the AOF, this is used for testing.",
+"AOF-FLUSH-FORCE <ERROR|STALL> <0|1>",
+"    ERROR: force the AOF flush to fail (set the AOF write error status).",
+"    STALL: skip the AOF flush so the durable offset stalls (no error).",
 "ASSERT",
 "    Crash by assertion failed.",
 "BITMAP-RAW <key>",
@@ -1174,6 +1177,16 @@ NULL
                c->argc == 3)
     {
         server.aof_flush_sleep = atoi(c->argv[2]->ptr);
+        addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"aof-flush-force") && c->argc == 4) {
+        if (!strcasecmp(c->argv[2]->ptr,"error")) {
+            server.aof_flush_force_error = atoi(c->argv[3]->ptr);
+        } else if (!strcasecmp(c->argv[2]->ptr,"stall")) {
+            server.aof_flush_force_stall = atoi(c->argv[3]->ptr);
+        } else {
+            addReplySubcommandSyntaxError(c);
+            return;
+        }
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"replicate") && c->argc >= 3) {
         replicationFeedSlaves(server.slaves, -1,
