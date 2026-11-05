@@ -772,6 +772,17 @@ void afterErrorReply(client *c, const char *s, size_t len, int flags) {
 
         if (len > 4096) len = 4096;
         sds cmdname = c->lastcmd ? c->lastcmd->fullname : NULL;
+
+        /* This node is importing slots and rejected a command sent by the
+         * source node, so the imported data is incomplete. Fail the task,
+         * otherwise the import would complete with missing keys. */
+        if ((c->flags & CLIENT_ASM_IMPORTING) && c->task) {
+            asmTaskSetFailed(c->task, "Slot migration import failed, the command '%s' "
+                             "received from the source node was rejected: %.*s",
+                             cmdname ? cmdname : "<unknown>", (int)len, s);
+            return;
+        }
+
         serverLog(LL_WARNING,"== CRITICAL == This %s is sending an error "
                              "to its %s: '%.*s' after processing the command "
                              "'%s'", from, to, (int)len, s, cmdname ? cmdname : "<unknown>");
