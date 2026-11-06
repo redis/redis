@@ -208,7 +208,11 @@ size_t mstrlen(const mstr s);
 static inline int mstrIsMetaAttached(mstr s) { return s[-1] & MSTR_META_MASK; }
 
 /* return whether if a specific flag-index is set */
-static inline int mstrGetFlag(mstr s, int flagIdx) { return *mstrFlagsRef(s) & (1 << flagIdx); }
+static inline int mstrGetFlag(mstr s, int flagIdx) {
+    /* mstrFlagsRef() points before the allocation when no metadata is
+     * attached, so check that first. */
+    return mstrIsMetaAttached(s) && (*mstrFlagsRef(s) & (1 << flagIdx));
+}
 
 /* DEBUG */
 void mstrPrint(mstr s, struct mstrKind *kind, int verbose);
