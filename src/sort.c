@@ -174,6 +174,13 @@ int sortCompare(const void *s1, const void *s2) {
     return server.sort_desc ? -cmp : cmp;
 }
 
+/* Create a sort vector element from a value read in place: the 'len' bytes
+ * at 'str', or the integer 'll' when 'str' is NULL. */
+static robj *createSortElement(const char *str, size_t len, long long ll) {
+    if (str) return createStringObject(str,len);
+    return createStringObjectFromLongLong(ll);
+}
+
 /* The SORT command is the most complex command in Redis. Warning: this code
  * is optimized for speed and a bit less for readability */
 void sortCommandGeneric(client *c, int readonly) {
@@ -434,10 +441,12 @@ void sortCommandGeneric(client *c, int readonly) {
         if (server.memory_tracking_enabled)
             oldsize = kvobjAllocSize(sortval);
         setTypeIterator si;
-        sds sdsele;
+        char *str;
+        size_t len;
+        int64_t llele;
         setTypeInitIterator(&si, sortval, SET_ITER_SKIP_EXPIRED);
-        while((sdsele = setTypeNextObject(&si)) != NULL) {
-            vector[j].obj = createObject(OBJ_STRING,sdsele);
+        while(setTypeNext(&si, &str, &len, &llele) != -1) {
+            vector[j].obj = createSortElement(str,len,llele);
             vector[j].u.score = 0;
             vector[j].u.cmpobj = NULL;
             j++;
@@ -448,7 +457,9 @@ void sortCommandGeneric(client *c, int readonly) {
     } else if (sortval->type == OBJ_ZSET && sortval->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *lp = sortval->ptr;
         unsigned char *eptr = NULL, *sptr = NULL;
-        sds sdsele;
+        unsigned char *vstr;
+        unsigned int vlen;
+        long long vlong;
 
         if (dontsort) {
             /* Special handling for a listpack encoded sorted set, if 'dontsort'
@@ -464,8 +475,8 @@ void sortCommandGeneric(client *c, int readonly) {
 
             while (rangelen--) {
                 serverAssertWithInfo(c,sortval,eptr != NULL);
-                sdsele = lpGetObject(eptr);
-                vector[j].obj = createObject(OBJ_STRING,sdsele);
+                vstr = lpGetValue(eptr,&vlen,&vlong);
+                vector[j].obj = createSortElement((char *)vstr,vlen,vlong);
                 vector[j].u.score = 0;
                 vector[j].u.cmpobj = NULL;
                 j++;
@@ -485,8 +496,8 @@ void sortCommandGeneric(client *c, int readonly) {
             sptr = lpNext(lp,eptr);
             serverAssertWithInfo(c,sortval,sptr != NULL);
             while (eptr) {
-                sdsele = lpGetObject(eptr);
-                vector[j].obj = createObject(OBJ_STRING,sdsele);
+                vstr = lpGetValue(eptr,&vlen,&vlong);
+                vector[j].obj = createSortElement((char *)vstr,vlen,vlong);
                 vector[j].u.score = 0;
                 vector[j].u.cmpobj = NULL;
                 j++;
