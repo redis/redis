@@ -658,6 +658,11 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
          * need to incr to retain old */
         incrRefCount(old);
 
+        /* The hooks below may run module code that looks up or deletes keys in
+         * this dict. Keep rehashing paused, so that `link` stays valid. */
+        dict *keys = kvstoreGetDict(db->keys, slot);
+        dictPauseRehashing(keys);
+
         /* Free related metadata. Ignore builtin metadata (currently only expire) */
         if (getModuleMetaBits(old->metabits)) {
             keyMetaOnUnlink(db, key, old);
@@ -675,6 +680,7 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
          * looked up keys, which may move entries. */
         dbRefreshLink(db, key->ptr, &link, old);
         old = dictGetKV(*link);
+        dictResumeRehashing(keys);
     }
     if (server.memory_tracking_enabled)
         oldsize = kvobjAllocSize(old);

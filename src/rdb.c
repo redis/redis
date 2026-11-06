@@ -2737,8 +2737,7 @@ static sds *rdbLoadSdsArray(rio *rdb, uint64_t count, const char *ctx) {
 static dict *rdb_tmpls = NULL;
 
 static uint64_t rdbTmplIdHash(const void *key) {
-    uint64_t id = (uint64_t)(uintptr_t)key;
-    return dictGenHashFunction(&id, sizeof(id));
+    return dictIdHash((uint64_t)(uintptr_t)key);
 }
 
 static int rdbTmplIdCompare(dictCmpCache *cache, const void *k1, const void *k2) {
