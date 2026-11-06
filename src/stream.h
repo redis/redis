@@ -41,7 +41,11 @@ extern dictType idmpDictType;
 /* A consumer group's INFO Streams stamp, kept in the metadata of its PEL rax
  * so that streamCG stays one cache line. */
 typedef struct {
-    uint32_t epoch;   /* Generation the bits refer to. */
+    uint32_t epoch;   /* Generation the bits refer to. After 2^32 generations
+                         an untouched stamp can pass as current again: a row
+                         may then miscount by one sample, and the lag heap
+                         checks the slot before believing the bit
+                         (streamLagIsMember() in t_stream.c). */
     uint8_t counted;  /* Bit per metric with a sample in its row. A group has
                          no sample in the per-stream rows, so the bit of
                          STREAM_DISTRIB_STREAMS_MAX_LAG says instead whether the

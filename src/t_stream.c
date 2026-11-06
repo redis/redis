@@ -359,9 +359,27 @@ static uint32_t streamLagGetSlot(void *item) {
 static const iheapType streamLagHeapType = { streamLagSetSlot, streamLagGetSlot };
 
 /* Whether 'cg' is held by 'h' at 'slot': what a member's stamp claims, and
- * what iheapUpdate() and iheapRemove() act on. For the assertions. */
+ * what iheapUpdate() and iheapRemove() act on. */
 static inline int streamLagHeldAt(const iheap *h, uint32_t slot, const streamCG *cg) {
     return h && slot < iheapCount(h) && h->e[slot].item == cg;
+}
+
+/* Whether 'cg', whose stamp is of the current generation, is a member of its
+ * stream's heap. The stamp's bit is believed only if the heap agrees, that
+ * is, if the group's slot holds it. A disagreement is a bookkeeping bug,
+ * except after an epoch wrap: the epoch is 32 bits and moves once per
+ * emptied db and per reset, so a stamp untouched for 2^32 generations can
+ * pass as current while its bit and slot describe a heap long gone. Hence
+ * asserted in debug builds and handled in production, where the bit is
+ * cleared and the group is not a member. Acting on the slot regardless would
+ * re-key or remove whatever group sits there now, or dereference a heap that
+ * was freed. */
+static inline int streamLagIsMember(streamLagState *ls, streamDistribStamp *st, streamCG *cg) {
+    if (!(st->counted & STREAM_CG_IN_LAG_HEAP)) return 0;
+    if (streamLagHeldAt(ls->heap, streamStampSlot(st), cg)) return 1;
+    debugServerAssert(0 && "a member's slot does not hold it");
+    st->counted &= ~STREAM_CG_IN_LAG_HEAP;
+    return 0;
 }
 
 /* The stream's sample: the worst lag among its members, or -1 when there is
@@ -427,9 +445,7 @@ static void streamLagGroupTouched(redisDb *db, stream *s, streamCG *cg) {
     debugServerAssert(s->distrib_epoch == streamStatsEpochOf(db));
     debugServerAssert(st->epoch == streamStatsEpochOf(db));
     int64_t old = streamLagSample(s);
-    if (st->counted & STREAM_CG_IN_LAG_HEAP) {
-        /* A current member is in a heap, at its slot. */
-        debugServerAssert(streamLagHeldAt(ls->heap, streamStampSlot(st), cg));
+    if (streamLagIsMember(ls, st, cg)) {
         iheapUpdate(ls->heap, streamStampSlot(st), streamLagKey(cg));
     } else if (raxSize(s->cgroups) <= STREAM_LAG_MAX_MEMBERS &&
                (!ls->heap || iheapCount(ls->heap) < STREAM_LAG_MAX_MEMBERS))
@@ -461,17 +477,17 @@ static void streamLagGroupTouched(redisDb *db, stream *s, streamCG *cg) {
  * generation, which makes every in-heap bit stale; in
  * streamUpdateStreamSamples(), which clears the bits before it rebuilds; and
  * in streamLagGroupLeaving() with stats off, which leaves the bits set but
- * in a generation that ends before stats are on again. Hence the assertions
+ * in a generation that ends before stats are on again. Hence the checks
  * below, the same ones streamLagGroupTouched() makes: stats are on (here,
- * the caller's STREAM_LAG_OFF gate), and a current member's stream is in
- * this generation too, with the member's slot holding it. */
+ * the caller's STREAM_LAG_OFF gate), the member's slot holds it
+ * (streamLagIsMember()), and a current member's stream is in this
+ * generation too. */
 static void streamLagMemberMoved(redisDb *db, stream *s, streamCG *cg) {
     streamLagState *ls = streamLagStateOf(s);
     streamDistribStamp *st = streamCGStamp(cg);
     debugServerAssert(server.stream_stats);
-    if (st->epoch != streamStatsEpochOf(db) || !(st->counted & STREAM_CG_IN_LAG_HEAP)) return;
+    if (st->epoch != streamStatsEpochOf(db) || !streamLagIsMember(ls, st, cg)) return;
     debugServerAssert(s->distrib_epoch == streamStatsEpochOf(db));
-    debugServerAssert(streamLagHeldAt(ls->heap, streamStampSlot(st), cg));
     iheapUpdate(ls->heap, streamStampSlot(st), streamLagKey(cg));
 }
 
@@ -490,9 +506,9 @@ static void streamLagMemberMoved(redisDb *db, stream *s, streamCG *cg) {
  * first invalidating its members' bits; see streamLagMemberMoved().
  *
  * With stats on the group's stamp is current, since streamRemoveCGStat() has
- * just refreshed it, clearing the bits if it was stale. A set bit is a live
- * member: take it out, and streamLagChanged() re-enters the stream's sample
- * after the destroy. */
+ * just refreshed it, clearing the bits if it was stale. A set bit that the
+ * heap confirms (streamLagIsMember()) is a live member: take it out, and
+ * streamLagChanged() re-enters the stream's sample after the destroy. */
 static void streamLagGroupLeaving(redisDb *db, stream *s, streamCG *cg) {
     streamLagState *ls = streamLagStateOf(s);
     if (!server.stream_stats) {
@@ -503,8 +519,7 @@ static void streamLagGroupLeaving(redisDb *db, stream *s, streamCG *cg) {
     }
     streamDistribStamp *st = streamCGStamp(cg);
     serverAssert(st->epoch == streamStatsEpochOf(db));
-    if (!(st->counted & STREAM_CG_IN_LAG_HEAP)) return;
-    debugServerAssert(streamLagHeldAt(ls->heap, streamStampSlot(st), cg)); /* see streamLagMemberMoved() */
+    if (!streamLagIsMember(ls, st, cg)) return;
     iheapRemove(ls->heap, streamStampSlot(st));
     st->counted &= ~STREAM_CG_IN_LAG_HEAP;
 }
