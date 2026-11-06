@@ -1013,6 +1013,9 @@ static void applyBackupConfig(standardConfig **set_configs, int count, const cha
 }
 
 static void restoreBackupConfig(standardConfig **set_configs, sds *old_values, int count) {
+    /* A failed module save setter leaves the rules and their source intact.
+     * Replaying it would promote CLI rules into the rewrite prefix. */
+    if (count == 1 && !strcmp(set_configs[0]->name, "save")) return;
     const char *errstr = "unknown error";
     restoreBackupConfigValues(set_configs, old_values, count, &errstr);
     applyBackupConfig(set_configs, count, &errstr);
@@ -1124,9 +1127,12 @@ void configSetCommand(client *c) {
     for (i = 0; i < config_count; i++) {
         int res = performInterfaceSet(set_configs[i], new_values[i], &errstr);
         if (!res) {
-            restoreBackupConfigValues(set_configs, old_values, i+1, &restore_errstr);
-            /* Apply callbacks can rewrite the config, so restore its save extent first. */
-            saveparamslen_to_rewrite = old_saveparamslen_to_rewrite;
+            /* Restore the save extent with its value, before later callbacks. */
+            for (j = 0; j < i+1; j++) {
+                restoreBackupConfigValues(&set_configs[j], &old_values[j], 1, &restore_errstr);
+                if (!strcmp(set_configs[j]->name, "save"))
+                    saveparamslen_to_rewrite = old_saveparamslen_to_rewrite;
+            }
             applyBackupConfig(set_configs, i+1, &restore_errstr);
             err_arg_name = set_configs[i]->name;
             goto err;
@@ -1150,8 +1156,11 @@ void configSetCommand(client *c) {
             res = set_configs[i]->interface.apply(&errstr);
         
         if (!res) {
-            restoreBackupConfigValues(set_configs, old_values, config_count, &restore_errstr);
-            saveparamslen_to_rewrite = old_saveparamslen_to_rewrite;
+            for (j = 0; j < config_count; j++) {
+                restoreBackupConfigValues(&set_configs[j], &old_values[j], 1, &restore_errstr);
+                if (!strcmp(set_configs[j]->name, "save"))
+                    saveparamslen_to_rewrite = old_saveparamslen_to_rewrite;
+            }
             applyBackupConfig(set_configs, config_count, &restore_errstr);
             err_arg_name = set_configs[i]->name;
             goto err;
