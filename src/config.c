@@ -405,28 +405,6 @@ int yesnotoi(char *s) {
  * rules are replayed; runtime CONFIG SET replaces the list with persistable rules. */
 static int saveparamslen_to_rewrite;
 
-static sds getConfigSaveOption(standardConfig *config);
-
-static sds getSaveParamsValue(int unsigned_changes) {
-    sds buf = sdsempty();
-    int j;
-
-    for (j = 0; j < server.saveparamslen; j++) {
-        if (unsigned_changes)
-            buf = sdscatprintf(buf,"%jd %u",
-                               (intmax_t)server.saveparams[j].seconds,
-                               (unsigned int)server.saveparams[j].changes);
-        else
-            buf = sdscatprintf(buf,"%jd %d",
-                               (intmax_t)server.saveparams[j].seconds,
-                               server.saveparams[j].changes);
-        if (j != server.saveparamslen-1)
-            buf = sdscatlen(buf," ",1);
-    }
-
-    return buf;
-}
-
 void appendServerSaveParams(time_t seconds, int changes) {
     server.saveparams = zrealloc(server.saveparams,sizeof(struct saveparam)*(server.saveparamslen+1));
     server.saveparams[server.saveparamslen].seconds = seconds;
@@ -1007,7 +985,7 @@ static int configIsSameConfig(standardConfig *a, standardConfig *b) {
     return !strcasecmp(configGetPrimaryName(a), configGetPrimaryName(b));
 }
 
-static void restoreBackupConfig(standardConfig **set_configs, sds *old_values, int count, int old_saveparamslen_to_rewrite) {
+static void restoreBackupConfig(standardConfig **set_configs, sds *old_values, int count) {
     int i;
     const char *errstr = "unknown error";
     /* Set all backup values */
@@ -1015,8 +993,6 @@ static void restoreBackupConfig(standardConfig **set_configs, sds *old_values, i
         if (!performInterfaceSet(set_configs[i], old_values[i], &errstr))
             serverLog(LL_WARNING, "Failed restoring failed CONFIG SET command. Error setting %s to '%s': %s",
                       set_configs[i]->name, old_values[i], errstr);
-        else if (!strcmp(set_configs[i]->name, "save"))
-            saveparamslen_to_rewrite = old_saveparamslen_to_rewrite;
     }
  
     for (i = 0; i < count; i++) {
@@ -1121,17 +1097,14 @@ void configSetCommand(client *c) {
     if (invalid_args) goto err;
 
     /* Backup old values before setting new ones */
-    for (i = 0; i < config_count; i++) {
-        /* Narrowed save counts need a nonnegative spelling for the setter. */
-        old_values[i] = set_configs[i]->interface.get == getConfigSaveOption ?
-                        getSaveParamsValue(1) : set_configs[i]->interface.get(set_configs[i]);
-    }
+    for (i = 0; i < config_count; i++)
+        old_values[i] = set_configs[i]->interface.get(set_configs[i]);
 
     /* Set all new values (don't apply yet) */
     for (i = 0; i < config_count; i++) {
         int res = performInterfaceSet(set_configs[i], new_values[i], &errstr);
         if (!res) {
-            restoreBackupConfig(set_configs, old_values, i+1, old_saveparamslen_to_rewrite);
+            restoreBackupConfig(set_configs, old_values, i+1);
             err_arg_name = set_configs[i]->name;
             goto err;
         }
@@ -1154,7 +1127,7 @@ void configSetCommand(client *c) {
             res = set_configs[i]->interface.apply(&errstr);
         
         if (!res) {
-            restoreBackupConfig(set_configs, old_values, config_count, old_saveparamslen_to_rewrite);
+            restoreBackupConfig(set_configs, old_values, config_count);
             err_arg_name = set_configs[i]->name;
             goto err;
         }
@@ -1166,6 +1139,15 @@ void configSetCommand(client *c) {
     goto end;
 
 err:
+    /* Restoring save also restores which rules may be persisted. A backup
+     * that the setter cannot restore must not restore an unrelated extent. */
+    for (i = 0; i < config_count; i++) {
+        if (!old_values[i] || strcmp(set_configs[i]->name, "save")) continue;
+        sds restored_value = set_configs[i]->interface.get(set_configs[i]);
+        if (!sdscmp(restored_value, old_values[i]))
+            saveparamslen_to_rewrite = old_saveparamslen_to_rewrite;
+        sdsfree(restored_value);
+    }
     if (deny_loading_error) {
         /* We give the loading error precedence because it may be handled by clients differently, unlike a plain -ERR. */
         addReplyErrorObject(c,shared.loadingerr);
@@ -3938,7 +3920,18 @@ static int setConfigSaveOption(standardConfig *config, sds *argv, int argc, cons
 
 static sds getConfigSaveOption(standardConfig *config) {
     UNUSED(config);
-    return getSaveParamsValue(0);
+    sds buf = sdsempty();
+    int j;
+
+    for (j = 0; j < server.saveparamslen; j++) {
+        buf = sdscatprintf(buf,"%jd %d",
+                           (intmax_t)server.saveparams[j].seconds,
+                           server.saveparams[j].changes);
+        if (j != server.saveparamslen-1)
+            buf = sdscatlen(buf," ",1);
+    }
+
+    return buf;
 }
 
 static int setConfigClientOutputBufferLimitOption(standardConfig *config, sds *argv, int argc, const char **err) {
@@ -4801,7 +4794,7 @@ static int configApply(standardConfig *config, sds old_value, const char **err) 
 
     /* Apply failed - restore old value and apply it again since we don't know
      * the side effects of the failed apply. */
-    restoreBackupConfig(&config, &old_value, 1, saveparamslen_to_rewrite);
+    restoreBackupConfig(&config, &old_value, 1);
 
     return res;
 }
@@ -4820,7 +4813,7 @@ int moduleSetBoolConfig(client *c, sds name, int val, const char **err) {
     /* We can't be sure if value was changed but setting still failed so we need
      * to restore the old value */
     if (!res)
-        restoreBackupConfig(&config, &old_value, 1, saveparamslen_to_rewrite);
+        restoreBackupConfig(&config, &old_value, 1);
     else
         res = configApply(config, old_value, err);
 
@@ -4847,7 +4840,7 @@ int moduleSetStringConfig(client *c, sds name, const char *val, const char **err
     /* We can't be sure if value was changed but setting still failed so we need
      * to restore the old value */
     if (!res)
-        restoreBackupConfig(&config, &old_value, 1, saveparamslen_to_rewrite);
+        restoreBackupConfig(&config, &old_value, 1);
     else
         res = configApply(config, old_value, err);
  
@@ -4867,7 +4860,7 @@ int moduleSetEnumConfig(client *c, sds name, sds *vals, int vals_cnt, const char
     /* We can't be sure if value was changed but setting still failed so we need
      * to restore the old value */
     if (!res)
-        restoreBackupConfig(&config, &old_value, 1, saveparamslen_to_rewrite);
+        restoreBackupConfig(&config, &old_value, 1);
     else
         res = configApply(config, old_value, err);
 
@@ -4887,7 +4880,7 @@ int moduleSetNumericConfig(client *c, sds name, long long val, const char **err)
     /* We can't be sure if value was changed but setting still failed so we need
      * to restore the old value */
     if (!res)
-        restoreBackupConfig(&config, &old_value, 1, saveparamslen_to_rewrite);
+        restoreBackupConfig(&config, &old_value, 1);
     else
         res = configApply(config, old_value, err);
 
