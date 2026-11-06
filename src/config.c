@@ -653,6 +653,10 @@ static void loadServerConfigFromString(char *config, int cli_start_line, configS
                 err = "No such command in rename-command";
                 goto loaderr;
             }
+            if (cmd->flags & CMD_INTERNAL) {
+                err = "Cannot rename an internal command";
+                goto loaderr;
+            }
 
             /* If the target command name is the empty string we just
              * remove it from the command table. */
