@@ -434,10 +434,15 @@ void sortCommandGeneric(client *c, int readonly) {
         if (server.memory_tracking_enabled)
             oldsize = kvobjAllocSize(sortval);
         setTypeIterator si;
-        sds sdsele;
+        char *str;
+        size_t len;
+        int64_t llele;
         setTypeInitIterator(&si, sortval, SET_ITER_SKIP_EXPIRED);
-        while((sdsele = setTypeNextObject(&si)) != NULL) {
-            vector[j].obj = createObject(OBJ_STRING,sdsele);
+        while(setTypeNext(&si, &str, &len, &llele) != -1) {
+            if (str)
+                vector[j].obj = createStringObject(str,len);
+            else
+                vector[j].obj = createStringObjectFromLongLong(llele);
             vector[j].u.score = 0;
             vector[j].u.cmpobj = NULL;
             j++;
@@ -448,7 +453,9 @@ void sortCommandGeneric(client *c, int readonly) {
     } else if (sortval->type == OBJ_ZSET && sortval->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *lp = sortval->ptr;
         unsigned char *eptr = NULL, *sptr = NULL;
-        sds sdsele;
+        unsigned char *vstr;
+        unsigned int vlen;
+        long long vlong;
 
         if (dontsort) {
             /* Special handling for a listpack encoded sorted set, if 'dontsort'
@@ -464,8 +471,11 @@ void sortCommandGeneric(client *c, int readonly) {
 
             while (rangelen--) {
                 serverAssertWithInfo(c,sortval,eptr != NULL);
-                sdsele = lpGetObject(eptr);
-                vector[j].obj = createObject(OBJ_STRING,sdsele);
+                vstr = lpGetValue(eptr,&vlen,&vlong);
+                if (vstr)
+                    vector[j].obj = createStringObject((char *)vstr,vlen);
+                else
+                    vector[j].obj = createStringObjectFromLongLong(vlong);
                 vector[j].u.score = 0;
                 vector[j].u.cmpobj = NULL;
                 j++;
@@ -485,8 +495,11 @@ void sortCommandGeneric(client *c, int readonly) {
             sptr = lpNext(lp,eptr);
             serverAssertWithInfo(c,sortval,sptr != NULL);
             while (eptr) {
-                sdsele = lpGetObject(eptr);
-                vector[j].obj = createObject(OBJ_STRING,sdsele);
+                vstr = lpGetValue(eptr,&vlen,&vlong);
+                if (vstr)
+                    vector[j].obj = createStringObject((char *)vstr,vlen);
+                else
+                    vector[j].obj = createStringObjectFromLongLong(vlong);
                 vector[j].u.score = 0;
                 vector[j].u.cmpobj = NULL;
                 j++;
