@@ -29,6 +29,9 @@ uint64_t TrackingTableTotalItems = 0; /* Total number of IDs stored across
                                          are using server side for CSC. */
 robj *TrackingChannelName;
 
+/* Forward declaration. */
+void sendTrackingMessage(client *c, char *keyname, size_t keylen, int proto);
+
 /* This is the structure that we have as value of the PrefixTable, and
  * represents the list of keys modified, and the list of clients that need
  * to be notified, for a given prefix. */
@@ -43,8 +46,14 @@ typedef struct bcastState {
  * tracking mode, because we just store the ID of the client in the tracking
  * table, so we'll remove the ID reference in a lazy way. Otherwise when a
  * client with many entries in the table is removed, it would cost a lot of
- * time to do the cleanup. */
-void disableTracking(client *c) {
+ * time to do the cleanup.
+ *
+ * The 'voluntary' parameter indicates whether tracking was disabled by an
+ * explicit CLIENT TRACKING OFF command from the client (1), or because the
+ * data connection was terminated (0). When the tracking source disconnects
+ * involuntarily and has a valid redirection target, we send a NULL message
+ * to the redirect client to signal that all keys should be invalidated. */
+void disableTracking(client *c, int voluntary) {
     /* If this client is in broadcasting mode, we need to unsubscribe it
      * from all the prefixes it is registered to. */
     if (c->flags & CLIENT_TRACKING_BCAST) {
@@ -71,8 +80,20 @@ void disableTracking(client *c) {
         c->client_tracking_prefixes = NULL;
     }
 
-    /* Clear flags and adjust the count. */
+    /* Clear flags and adjust the count. If tracking is disabled
+     * involuntarily (e.g. the connection was terminated) and the client
+     * redirects invalidation messages to another client, notify the
+     * redirection target that all keys should be invalidated. */
     if (c->flags & CLIENT_TRACKING) {
+        if (!voluntary &&
+            c->client_tracking_redirection &&
+            !(c->flags & CLIENT_TRACKING_BROKEN_REDIR))
+        {
+            /* Send a NULL invalidation to indicate that all keys
+             * should be invalidated. */
+            sendTrackingMessage(c,shared.null[c->resp]->ptr,
+                sdslen(shared.null[c->resp]->ptr),1);
+        }
         server.tracking_clients--;
         c->flags &= ~(CLIENT_TRACKING|CLIENT_TRACKING_BROKEN_REDIR|
                       CLIENT_TRACKING_BCAST|CLIENT_TRACKING_OPTIN|
