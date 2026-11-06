@@ -165,6 +165,26 @@ start_server {tags {"zset"}} {
             assert_equal {y x z} [r zrange ztmp 0 -1]
         }
 
+        test "ZSET element -0 is stored as 0 - $encoding" {
+            r del ztmp
+            r zadd ztmp -0 x
+            assert_encoding $encoding ztmp
+            assert_equal {0} [r zscore ztmp x]
+            assert_equal {x 0} [r zrange ztmp 0 -1 withscores]
+        }
+
+        test "ZINCRBY replies the stored score when it doesn't change - $encoding" {
+            r del ztmp{t} zsrc{t}
+            r zadd zsrc{t} 0 x
+            r zunionstore ztmp{t} 1 zsrc{t} weights -1
+            set stored [r zscore ztmp{t} x]
+            assert_equal $stored [r zincrby ztmp{t} -0 x]
+            assert_equal $stored [r zincrby ztmp{t} 0 x]
+            assert_equal $stored [r zadd ztmp{t} incr -0 x]
+            assert_equal $stored [r zscore ztmp{t} x]
+            r del ztmp{t} zsrc{t}
+        }
+
         test "ZSET element can't be set to NaN with ZADD - $encoding" {
             assert_error "*not*float*" {r zadd myzset nan abc}
         }
@@ -1276,14 +1296,32 @@ start_server {tags {"zset"}} {
     test {ZPOPMIN keeps mixed signed zero scores exact in a B+tree leaf} {
         set old_limit [lindex [r config get zset-max-listpack-entries] 1]
         r config set zset-max-listpack-entries 0
-        r del signed-zero-pop
-        r zadd signed-zero-pop 0 a 0 b 0 c -0 d
-        assert_encoding btree signed-zero-pop
-        assert_equal {a 0} [r zpopmin signed-zero-pop]
-        assert_equal {b 0 c 0 d -0} [r zrange signed-zero-pop 0 -1 withscores]
-        r del signed-zero-pop
+        r del signed-zero-pop{t} signed-zero-src{t}
+        r zadd signed-zero-pop{t} 0 a 0 b 0 c
+        r zadd signed-zero-src{t} 0 d
+        # ZADD stores -0 as 0, a negative weight still makes a -0 score.
+        r zunionstore signed-zero-pop{t} 2 signed-zero-pop{t} signed-zero-src{t} weights 1 -1
+        assert_encoding btree signed-zero-pop{t}
+        assert_equal {a 0} [r zpopmin signed-zero-pop{t}]
+        assert_equal {b 0 c 0 d -0} [r zrange signed-zero-pop{t} 0 -1 withscores]
+        r del signed-zero-pop{t} signed-zero-src{t}
         r config set zset-max-listpack-entries $old_limit
     }
+
+    test {B+tree -0 score survives DUMP/RESTORE and DEBUG RELOAD} {
+        set old_limit [lindex [r config get zset-max-listpack-entries] 1]
+        r config set zset-max-listpack-entries 0
+        r del signed-zero-src{t} signed-zero{t} signed-zero-restored{t}
+        r zadd signed-zero-src{t} 0 a
+        r zunionstore signed-zero{t} 1 signed-zero-src{t} weights -1
+        assert_equal {-0} [r zscore signed-zero{t} a]
+        r restore signed-zero-restored{t} 0 [r dump signed-zero{t}]
+        assert_equal {-0} [r zscore signed-zero-restored{t} a]
+        r debug reload
+        assert_equal {-0} [r zscore signed-zero{t} a]
+        r del signed-zero-src{t} signed-zero{t} signed-zero-restored{t}
+        r config set zset-max-listpack-entries $old_limit
+    } {OK} {needs:debug}
 
     foreach {popmin popmax} {ZPOPMIN ZPOPMAX ZMPOP_MIN ZMPOP_MAX} {
         test "Basic $popmin/$popmax with a single key - $encoding" {

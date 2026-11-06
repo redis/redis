@@ -1810,7 +1810,8 @@ int zsetAdd(robj *zobj, double score, sds ele, int in_flags, int *out_flags, dou
                 return 1;
             }
 
-            if (newscore) *newscore = score;
+            /* Reply the stored score when it doesn't change, it can still be -0. */
+            if (newscore) *newscore = (score == curscore) ? curscore : score;
 
             /* Remove and re-insert when score changed. */
             if (score != curscore) {
@@ -1879,7 +1880,8 @@ int zsetAdd(robj *zobj, double score, sds ele, int in_flags, int *out_flags, dou
                 return 1;
             }
 
-            if (newscore) *newscore = score;
+            /* Reply the stored score when it doesn't change, it can still be -0. */
+            if (newscore) *newscore = (score == curscore) ? curscore : score;
 
             /* Remove and re-insert when score changes. */
             if (score != curscore) {
@@ -1925,7 +1927,8 @@ int zsetAdd(robj *zobj, double score, sds ele, int in_flags, int *out_flags, dou
                 *out_flags |= ZADD_OUT_NOP;
                 return 1;
             }
-            if (newscore) *newscore = score;
+            /* Reply the stored score when it doesn't change, it can still be -0. */
+            if (newscore) *newscore = (score == curscore) ? curscore : score;
             if (score != curscore) {
                 zbtreeUpdateScore(zs, ele, score, &position);
                 *out_flags |= ZADD_OUT_UPDATED;
@@ -2256,6 +2259,8 @@ void zaddGenericCommand(client *c, int flags) {
     for (j = 0; j < elements; j++) {
         if (getDoubleFromObjectOrReply(c,c->argv[scoreidx+j*2],&scores[j],NULL)
             != C_OK) goto cleanup;
+        /* Store -0 as 0 so the score doesn't depend on the encoding. */
+        if (scores[j] == 0) scores[j] = 0;
     }
 
     /* Lookup the key and create the sorted set if does not exist. */
