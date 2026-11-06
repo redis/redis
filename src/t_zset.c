@@ -766,14 +766,17 @@ static int zslParseRange(robj *min, robj *max, zrangespec *spec) {
 static int zslParseLexRangeItem(robj *item, sds *dest, int *ex) {
     char *c = item->ptr;
 
+    /* The bounds are binary-safe strings, so "+" and "-" have to be the whole
+     * string: checking c[1] would accept an embedded NUL ("-\0x"). After "("
+     * and "[" any bytes, NUL included, are part of the member bound. */
     switch(c[0]) {
     case '+':
-        if (c[1] != '\0') return C_ERR;
+        if (sdslen(c) != 1) return C_ERR;
         *ex = 1;
         *dest = shared.maxstring;
         return C_OK;
     case '-':
-        if (c[1] != '\0') return C_ERR;
+        if (sdslen(c) != 1) return C_ERR;
         *ex = 1;
         *dest = shared.minstring;
         return C_OK;
