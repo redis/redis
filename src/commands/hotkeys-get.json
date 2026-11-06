@@ -86,7 +86,7 @@
                             },
                             "total-net-bytes": {
                                 "type": "integer",
-                                "description": "Total network bytes (only present when NET tracking is enabled)."
+                                "description": "Estimated total network bytes for the tracked slot scope. When sampling is enabled, the sampled total is scaled by the sample ratio (only present when NET tracking is enabled)."
                             },
                             "by-cpu-time-us": {
                                 "type": "array",
@@ -100,7 +100,7 @@
                                         }
                                     ]
                                 },
-                                "description": "Flat array of key-value pairs (key1, cpu_time1, key2, cpu_time2, ...) for top-K hotkeys by CPU time in microseconds (only present when CPU tracking is enabled)."
+                                "description": "Flat array of key-value pairs (key1, cpu_time1, key2, cpu_time2, ...) for top-K hotkeys by CPU time in microseconds. When sampling is enabled, values are scaled by the sample ratio to estimate unsampled values for the tracked slot scope (only present when CPU tracking is enabled)."
                             },
                             "by-net-bytes": {
                                 "type": "array",
@@ -114,7 +114,7 @@
                                         }
                                     ]
                                 },
-                                "description": "Flat array of key-value pairs (key1, bytes1, key2, bytes2, ...) for top-K hotkeys by network bytes (only present when NET tracking is enabled)."
+                                "description": "Flat array of key-value pairs (key1, bytes1, key2, bytes2, ...) for top-K hotkeys by network bytes. When sampling is enabled, values are scaled by the sample ratio to estimate unsampled values for the tracked slot scope (only present when NET tracking is enabled)."
                             }
                         },
                         "additionalProperties": false
