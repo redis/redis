@@ -923,6 +923,63 @@ start_server {tags {"tracking network logreqres:skip"}} {
         r ACL DELUSER shareduser
     }
 
+    # Clients of four users share the same prefixes and receive one flush. The
+    # flush visits them in an order set by their client pointers, so clients of
+    # one user may follow each other or alternate with other users. usr_z sees
+    # none of the keys and usr_w sees both. The writer is a NOLOOP client of
+    # usr_w: it must get nothing, while the other usr_w client gets both keys.
+    test {BCAST ACL filtering - clients of different users get their own keys in one flush} {
+        clean_all
+
+        r ACL SETUSER usr_x on >passX ~x:* +@all
+        r ACL SETUSER usr_y on >passY ~y:* +@all
+        r ACL SETUSER usr_z on >passZ ~z:* +@all
+        r ACL SETUSER usr_w on >passW ~x:* ~y:* +@all
+
+        set clients {}
+        foreach u {x x x y y y wn z z y x w} {
+            set user [string index $u 0]
+            set c [redis_deferring_client]
+            $c AUTH usr_$user pass[string toupper $user]
+            $c read
+            $c HELLO 3
+            $c read
+            if {$u eq "wn"} {
+                $c CLIENT TRACKING on BCAST PREFIX x: PREFIX y: NOLOOP
+                set writer $c
+            } else {
+                $c CLIENT TRACKING on BCAST PREFIX x: PREFIX y:
+            }
+            assert_match {*OK*} [$c read]
+            lappend clients $c $u
+        }
+
+        $writer MSET x:1{t} 1 y:1{t} 2
+        assert_equal OK [$writer read]
+
+        # One message per prefix with keys the user may see. The PING after
+        # the flush makes a missing invalidation fail the assertion instead of
+        # blocking the read.
+        set expected [dict create \
+            x [list [list x:1{t}]] \
+            y [list [list y:1{t}]] \
+            z {} \
+            w [list [list x:1{t}] [list y:1{t}]] \
+            wn {}]
+        foreach {c u} $clients {
+            $c PING
+            foreach keys [dict get $expected $u] {
+                assert_equal [list invalidate $keys] [$c read]
+            }
+            assert_equal PONG [$c read]
+        }
+
+        foreach {c u} $clients {
+            $c close
+        }
+        r ACL DELUSER usr_x usr_y usr_z usr_w
+    }
+
     test {BCAST ACL filtering uses new user after re-AUTH} {
         clean_all
 
