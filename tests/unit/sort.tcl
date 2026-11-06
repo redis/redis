@@ -185,9 +185,8 @@ foreach command {SORT SORT_RO} {
     } {{a c e b d} {d b e c a}}
 
     foreach enc {listpack btree} {
+        set orig [config_get_set zset-max-listpack-entries [expr {$enc eq "listpack" ? 128 : 0}]]
         test "SORT and SORT_RO sorted set preserve encoding ($enc)" {
-            set orig [lindex [r config get zset-max-listpack-entries] 1]
-            if {$enc eq "btree"} {r config set zset-max-listpack-entries 0}
             r del zset
             r zadd zset 1 a 5 b 2 c 10 d 3 e
             assert_encoding $enc zset
@@ -211,8 +210,8 @@ foreach command {SORT SORT_RO} {
                 assert_equal {10 2 100 3 -1} [r $command zset by nosort asc]
                 assert_encoding $enc zset
             }
-            r config set zset-max-listpack-entries $orig
         }
+        r config set zset-max-listpack-entries $orig
     }
 
     test "SORT sorted set: +inf and -inf handling" {
