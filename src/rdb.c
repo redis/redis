@@ -720,8 +720,7 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
     case OBJ_ZSET:
         if (o->encoding == OBJ_ENCODING_LISTPACK)
             return rdbSaveType(rdb,RDB_TYPE_ZSET_LISTPACK);
-        else if (o->encoding == OBJ_ENCODING_SKIPLIST ||
-                 o->encoding == OBJ_ENCODING_BTREE)
+        else if (o->encoding == OBJ_ENCODING_BTREE)
             return rdbSaveType(rdb,RDB_TYPE_ZSET_2);
         else
             serverPanic("Unknown sorted set encoding");
@@ -1319,41 +1318,12 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
             serverPanic("Unknown set encoding");
         }
     } else if (o->type == OBJ_ZSET) {
-        /* Save a sorted set value. SKIPLIST is only a temporary encoding,
-         * keyspace zsets are LISTPACK or BTREE. */
-        debugServerAssert(o->encoding != OBJ_ENCODING_SKIPLIST);
+        /* Save a sorted set value */
         if (o->encoding == OBJ_ENCODING_LISTPACK) {
             size_t l = lpBytes((unsigned char*)o->ptr);
 
             if ((n = rdbSaveRawString(rdb,o->ptr,l)) == -1) return -1;
             nwritten += n;
-        } else if (o->encoding == OBJ_ENCODING_SKIPLIST) {
-            zset *zs = o->ptr;
-            zskiplist *zsl = zs->zsl;
-
-            if ((n = rdbSaveLen(rdb,zsl->length)) == -1) return -1;
-            nwritten += n;
-
-            /* We save the skiplist elements from the greatest to the smallest
-             * (that's trivial since the elements are already ordered in the
-             * skiplist): this improves the load process, since the next loaded
-             * element will always be the smaller, so adding to the skiplist
-             * will always immediately stop at the head, making the insertion
-             * O(1) instead of O(log(N)). */
-            zskiplistNode *zn = zsl->tail;
-            while (zn != NULL) {
-                sds ele = zslGetNodeElement(zn);
-                if ((n = rdbSaveRawString(rdb,
-                    (unsigned char*)ele,sdslen(ele))) == -1)
-                {
-                    return -1;
-                }
-                nwritten += n;
-                if ((n = rdbSaveBinaryDoubleValue(rdb,zn->score)) == -1)
-                    return -1;
-                nwritten += n;
-                zn = zn->backward;
-            }
         } else if (o->encoding == OBJ_ENCODING_BTREE) {
             zbtreeIterator iter;
             const unsigned char *ele;

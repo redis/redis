@@ -296,30 +296,6 @@ int geoGetPointsInRange(robj *zobj, double min, double max, GeoShape *shape, geo
             if (ga->used && limit && ga->used >= limit) break;
             zzlNext(zl, &eptr, &sptr);
         }
-    } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
-        zset *zs = zobj->ptr;
-        zskiplist *zsl = zs->zsl;
-        zskiplistNode *ln;
-
-        if ((ln = zslNthInRange(zsl, &range, 0, NULL)) == NULL) {
-            /* Nothing exists starting at our min.  No results. */
-            return 0;
-        }
-
-        while (ln) {
-            double xy[2];
-            double distance = 0;
-            /* Abort when the node is no longer in range. */
-            if (!zslValueLteMax(ln->score, &range))
-                break;
-            if (geoWithinShape(shape, ln->score, xy, &distance) == C_OK) {
-                /* Append the new element. */
-                sds ele = zslGetNodeElement(ln);
-                geoArrayAppend(ga, xy, distance, ln->score, sdsdup(ele));
-            }
-            if (ga->used && limit && ga->used >= limit) break;
-            ln = ln->level[0].forward;
-        }
     } else if (zobj->encoding == OBJ_ENCODING_BTREE) {
         zbtreeIterator iter;
         const unsigned char *ele;
