@@ -130,11 +130,11 @@
                                 "token": "BYSCORE"
                             },
                             {
-                                "name": "min",
+                                "name": "score-min",
                                 "type": "double"
                             },
                             {
-                                "name": "max",
+                                "name": "score-max",
                                 "type": "double"
                             },
                             {

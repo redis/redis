@@ -5750,8 +5750,7 @@ void zmovememberCommand(client *c) {
     zmoveGenericCommand(c, c->argv[1], c->argv[2], 0, c->argv[3]);
 }
 
-/* ZMOVE <source> <destination> MIN|MAX
- * ZMOVE <source> <destination> BYSCORE <min> <max> [LIMIT <count>]
+/* ZMOVE source destination <MIN | MAX | BYSCORE score-min score-max [LIMIT count]>
  * MIN/MAX moves one extremal member. BYSCORE atomically claims an eligible
  * score range, optionally bounded by count, without a client-side score-check
  * race against concurrent writers. */
