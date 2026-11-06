@@ -784,6 +784,42 @@ start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-
         flushallAndVerifyCleanup
     }
 
+    test {DUMP/RESTORE: duplicate metadata class is rejected} {
+        # Payload layout: KEY_META opcode, numClasses, class records, then
+        # type+value+version+crc. A plain DUMP of the same value gives the
+        # tail length, which lets us cut out the single class record.
+        r set plain v
+        r set withmeta v
+        r keymeta.set [cname 1] withmeta "dupmeta"
+        set plain [r dump plain]
+        set withmeta [r dump withmeta]
+        assert_equal [format %c 243] [string index $withmeta 0]
+        assert_equal [format %c 1] [string index $withmeta 1]
+        set tailLen [string length $plain]
+        set record [string range $withmeta 2 end-$tailLen]
+        set tail [string range $withmeta end-[expr {$tailLen - 1}] end]
+        r del plain withmeta
+
+        r debug set-skip-checksum-validation 1
+        foreach n {1 2 7} {
+            set payload "[string index $withmeta 0][format %c $n][string repeat $record $n]$tail"
+            if {$n == 1} {
+                # Sanity: the rebuilt payload restores fine with one record
+                r restore k 0 $payload
+                assert_equal dupmeta [r keymeta.get [cname 1] k]
+                r del k
+            } else {
+                set loglines [count_log_lines 0]
+                assert_error {*Bad data format*} {r restore k 0 $payload}
+                assert_equal 0 [r exists k]
+                verify_log_message 0 "*Duplicate key metadata class '[cname 1]'*" $loglines
+            }
+        }
+        r debug set-skip-checksum-validation 0
+
+        flushallAndVerifyCleanup
+    }
+
 
     # Test all combinations except the error case (ALLOW_IGNORE=0, RDBLOAD=0, RDBSAVE=1)
     foreach RDBLOAD {0 1} {
