@@ -542,6 +542,34 @@ proc test_all_stream_stats { {replMode 0} } {
         verify_streams_max_lag {$server xreadgroup group g c count 1 streams st >} {db0_LAG:0=1}
     }
 
+    test "STREAM-STATS - streams_max_lag: XSETID ENTRIESADDED moves the sample and clamps the groups $suffix" {
+        verify_streams_max_lag {$server FLUSHALL} {}
+        seed_stream $server st 8
+        $server xgroup create st g1 0
+        $server xgroup create st g2 0
+        verify_streams_max_lag {$server xreadgroup group g1 c count 8 streams st >} {db0_LAG:0=1}
+        verify_streams_max_lag {$server xreadgroup group g2 c count 4 streams st >} {db0_LAG:4=1}
+        # Two entries left: the cap by length brings g2's lag of 4 down to 2.
+        verify_streams_max_lag {$server xtrim st maxlen 2} {db0_LAG:2=1}
+        # Lowering entries_added to 3, below both read counts (8 and 4), clamps
+        # them to 3: lag 0 for both, with no group command involved.
+        verify_streams_max_lag {$server xsetid st 8-1 entriesadded 3} {db0_LAG:0=1}
+        # Raising it moves the sample up again, capped by the two entries.
+        verify_streams_max_lag {$server xsetid st 8-1 entriesadded 10} {db0_LAG:2=1}
+        # g1 moves ahead to lag 1; g2 has read 3 of 10, lag 7 capped to the two
+        # entries, and stays the laggiest: the row holds.
+        verify_streams_max_lag {$server xgroup setid st g1 8-1 entriesread 9} {db0_LAG:2=1}
+        # A partial clamp: only g1 has read more than 4 and is clamped to it
+        # (lag 0); g2 is untouched, its lag shrinks to 1 with entries_added.
+        verify_streams_max_lag {$server xsetid st 8-1 entriesadded 4} {db0_LAG:1=1}
+        # Both lags back at the cap of 2.
+        verify_streams_max_lag {$server xsetid st 8-1 entriesadded 10} {db0_LAG:2=1}
+        # Destroying g1, which is not the laggiest, leaves the sample in place.
+        verify_streams_max_lag {$server xgroup destroy st g1} {db0_LAG:2=1}
+        # Lowering without a clamp: g2 has read 3, below 4; only its lag moves.
+        verify_streams_max_lag {$server xsetid st 8-1 entriesadded 4} {db0_LAG:1=1}
+    }
+
     test "STREAM-STATS - randomized sequence matches keyspace cross-check $suffix" {
         verify_pel {$server FLUSHALL} {}
         for {set s 0} {$s < 6} {incr s} {
@@ -631,6 +659,37 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats yes}}
             [get_info_stream_field r stream_distrib_streams_max_lag]
     }
 
+    test "STREAM-STATS - streams_max_lag: a stream that appears whole enrols every group at once" {
+        r FLUSHALL
+        seed_stream r st 8
+        r xgroup create st g1 0
+        r xgroup create st g2 0
+        r xreadgroup group g1 c count 8 streams st >
+        r xreadgroup group g2 c count 2 streams st >
+        assert_equal "db0_stream_distrib_streams_max_lag:4=1" [get_info_stream_field r stream_distrib_streams_max_lag]
+        # COPY and RESTORE build the new stream's heap from all its groups in
+        # one go; RENAME is a removal and an appearance under another name.
+        r copy st st2
+        assert_equal "db0_stream_distrib_streams_max_lag:4=2" [get_info_stream_field r stream_distrib_streams_max_lag]
+        r restore st3 0 [r dump st]
+        assert_equal "db0_stream_distrib_streams_max_lag:4=3" [get_info_stream_field r stream_distrib_streams_max_lag]
+        r rename st3 st4
+        assert_equal "db0_stream_distrib_streams_max_lag:4=3" [get_info_stream_field r stream_distrib_streams_max_lag]
+        # MOVE takes the sample along. INFO lists db 0 then db 1, and the
+        # helper concatenates the two lines.
+        r move st2 1
+        assert_equal "db0_stream_distrib_streams_max_lag:4=2db1_stream_distrib_streams_max_lag:4=1" [get_info_stream_field r stream_distrib_streams_max_lag]
+        # The rebuilt heap is live: a read by the moved copy's laggard lowers it.
+        r select 1
+        r xreadgroup group g2 c count 4 streams st2 >
+        assert_equal "db0_stream_distrib_streams_max_lag:4=2db1_stream_distrib_streams_max_lag:2=1" [get_info_stream_field r stream_distrib_streams_max_lag]
+        r flushdb
+        r select 0
+        r del st4
+        assert_equal "db0_stream_distrib_streams_max_lag:4=1" [get_info_stream_field r stream_distrib_streams_max_lag]
+        assert_equal [eval_stream_histogram r 0 stream_distrib_streams_max_lag max_lag] [get_info_stream_field r stream_distrib_streams_max_lag]
+    } {} {cluster:skip}
+
     test "STREAM-STATS - section is empty after the streams are removed" {
         r FLUSHALL
         assert_equal "" [get_info_stream_stripped r]
@@ -703,11 +762,14 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         r xack B gB 1-1
         assert_equal "db0_stream_distrib_cgroups_pel:0=1" [get_info_stream_field r stream_distrib_cgroups_pel]
         assert_equal "db0_stream_distrib_cgroups_consumers:1=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
+        # The read pinned gB's position at the first entry: lag 3, bin "2".
+        assert_equal "db0_stream_distrib_streams_max_lag:2=1" [get_info_stream_field r stream_distrib_streams_max_lag]
         # gA's first change used to decrement bin 0 -- gB's tally -- because gA
         # was never in it. Now it registers gA instead: 0=1 (gB) and 1=1 (gA).
         r xreadgroup group gA c count 1 streams A >
         assert_equal "db0_stream_distrib_cgroups_pel:0=1,1=1" [get_info_stream_field r stream_distrib_cgroups_pel]
         assert_equal "db0_stream_distrib_cgroups_consumers:1=2" [get_info_stream_field r stream_distrib_cgroups_consumers]
+        assert_equal "db0_stream_distrib_streams_max_lag:2=2" [get_info_stream_field r stream_distrib_streams_max_lag]
     }
 
     test "STREAM-STATS - lazy enable: removing a never-counted stream steals nothing" {
@@ -725,6 +787,7 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         r del A
         assert_equal "db0_stream_distrib_cgroups_pel:0=1" [get_info_stream_field r stream_distrib_cgroups_pel]
         assert_equal "db0_stream_distrib_cgroups_consumers:1=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
+        assert_equal "db0_stream_distrib_streams_max_lag:2=1" [get_info_stream_field r stream_distrib_streams_max_lag]
     }
 
     test "STREAM-STATS - lazy enable: a two-metric command on a stale group is exact" {
@@ -745,13 +808,16 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         r xclaim A gA zed 0 1-1
         assert_equal "db0_stream_distrib_cgroups_pel:4=1" [get_info_stream_field r stream_distrib_cgroups_pel]
         assert_equal "db0_stream_distrib_cgroups_consumers:2=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
+        assert_equal "db0_stream_distrib_streams_max_lag:0=1" [get_info_stream_field r stream_distrib_streams_max_lag]
         # DELCONSUMER on stale gB: PEL stays 2, consumers 2 -> 1.
         r xgroup delconsumer B gB carol
         assert_equal "db0_stream_distrib_cgroups_pel:2=1,4=1" [get_info_stream_field r stream_distrib_cgroups_pel]
         assert_equal "db0_stream_distrib_cgroups_consumers:1=1,2=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
+        assert_equal "db0_stream_distrib_streams_max_lag:0=1,2=1" [get_info_stream_field r stream_distrib_streams_max_lag]
         # Both groups are now counted, and the rows match the keyspace exactly.
         assert_equal [eval_stream_histogram r 0 stream_distrib_cgroups_pel pending] [get_info_stream_field r stream_distrib_cgroups_pel]
         assert_equal [eval_stream_histogram r 0 stream_distrib_cgroups_consumers consumers] [get_info_stream_field r stream_distrib_cgroups_consumers]
+        assert_equal [eval_stream_histogram r 0 stream_distrib_streams_max_lag max_lag] [get_info_stream_field r stream_distrib_streams_max_lag]
     }
 
     test "STREAM-STATS - lazy enable: a change within the same bin registers a stale group" {
@@ -765,6 +831,7 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         # return and the group stayed invisible; now the change enters its sample.
         r xack A g 1-1
         assert_equal "db0_stream_distrib_cgroups_pel:4=1" [get_info_stream_field r stream_distrib_cgroups_pel]
+        assert_equal "db0_stream_distrib_streams_max_lag:2=1" [get_info_stream_field r stream_distrib_streams_max_lag]
     }
 
     test "STREAM-STATS - lazy enable: a read by an existing consumer registers every row" {
@@ -784,6 +851,8 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         assert_equal "db0_stream_distrib_cgroups_consumers:1=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
         assert_equal [eval_stream_histogram r 0 stream_distrib_streams_cgroups groups] [get_info_stream_field r stream_distrib_streams_cgroups]
         assert_equal [eval_stream_histogram r 0 stream_distrib_cgroups_consumers consumers] [get_info_stream_field r stream_distrib_cgroups_consumers]
+        assert_equal "db0_stream_distrib_streams_max_lag:0=1" [get_info_stream_field r stream_distrib_streams_max_lag]
+        assert_equal [eval_stream_histogram r 0 stream_distrib_streams_max_lag max_lag] [get_info_stream_field r stream_distrib_streams_max_lag]
     }
 
     test "STREAM-STATS - lazy enable: an ack registers every row of the group and its stream" {
@@ -797,6 +866,7 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         assert_equal "db0_stream_distrib_streams_cgroups:1=1" [get_info_stream_field r stream_distrib_streams_cgroups]
         assert_equal "db0_stream_distrib_cgroups_pel:1=1" [get_info_stream_field r stream_distrib_cgroups_pel]
         assert_equal "db0_stream_distrib_cgroups_consumers:1=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
+        assert_equal "db0_stream_distrib_streams_max_lag:2=1" [get_info_stream_field r stream_distrib_streams_max_lag]
     }
 
     test "STREAM-STATS - lazy enable: a read that delivers nothing registers every row" {
@@ -813,6 +883,8 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         assert_equal "db0_stream_distrib_streams_cgroups:1=1" [get_info_stream_field r stream_distrib_streams_cgroups]
         assert_equal "db0_stream_distrib_cgroups_pel:2=1" [get_info_stream_field r stream_distrib_cgroups_pel]
         assert_equal "db0_stream_distrib_cgroups_consumers:2=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
+        # The group has read everything: it enrols with lag 0.
+        assert_equal "db0_stream_distrib_streams_max_lag:0=1" [get_info_stream_field r stream_distrib_streams_max_lag]
     }
 
     test "STREAM-STATS - lazy enable: XGROUP CREATECONSUMER registers every row, backlog included" {
@@ -829,6 +901,7 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         assert_equal "db0_stream_distrib_streams_cgroups:1=1" [get_info_stream_field r stream_distrib_streams_cgroups]
         assert_equal "db0_stream_distrib_cgroups_pel:2=1" [get_info_stream_field r stream_distrib_cgroups_pel]
         assert_equal "db0_stream_distrib_cgroups_consumers:2=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
+        assert_equal "db0_stream_distrib_streams_max_lag:1=1" [get_info_stream_field r stream_distrib_streams_max_lag]
     }
 
     test "STREAM-STATS - lazy enable: XGROUP DELCONSUMER registers every row" {
@@ -844,6 +917,7 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         assert_equal "db0_stream_distrib_streams_cgroups:1=1" [get_info_stream_field r stream_distrib_streams_cgroups]
         assert_equal "db0_stream_distrib_cgroups_pel:2=1" [get_info_stream_field r stream_distrib_cgroups_pel]
         assert_equal "db0_stream_distrib_cgroups_consumers:1=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
+        assert_equal "db0_stream_distrib_streams_max_lag:1=1" [get_info_stream_field r stream_distrib_streams_max_lag]
     }
 
     test "STREAM-STATS - lazy enable: XGROUP SETID registers every row" {
@@ -858,6 +932,12 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         assert_equal "db0_stream_distrib_streams_cgroups:1=1" [get_info_stream_field r stream_distrib_streams_cgroups]
         assert_equal "db0_stream_distrib_cgroups_pel:2=1" [get_info_stream_field r stream_distrib_cgroups_pel]
         assert_equal "db0_stream_distrib_cgroups_consumers:1=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
+        # SETID without ENTRIESREAD makes the position unknown: the group
+        # enrols, but an unknown position is not a lag, so no sample...
+        assert_equal "" [get_info_stream_field r stream_distrib_streams_max_lag]
+        # ...and with ENTRIESREAD 0 the lag is the whole stream, capped at 4.
+        r xgroup setid s g 0 entriesread 0
+        assert_equal "db0_stream_distrib_streams_max_lag:4=1" [get_info_stream_field r stream_distrib_streams_max_lag]
     }
 
     test "STREAM-STATS - lazy enable: XNACK registers every row" {
@@ -872,6 +952,29 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         assert_equal "db0_stream_distrib_streams_cgroups:1=1" [get_info_stream_field r stream_distrib_streams_cgroups]
         assert_equal "db0_stream_distrib_cgroups_pel:2=1" [get_info_stream_field r stream_distrib_cgroups_pel]
         assert_equal "db0_stream_distrib_cgroups_consumers:1=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
+        assert_equal "db0_stream_distrib_streams_max_lag:2=1" [get_info_stream_field r stream_distrib_streams_max_lag]
+    }
+
+    test "STREAM-STATS - lazy enable: the lag row sees a group only once it is touched" {
+        # Membership in the stream's heap is lazy per group, like every row's
+        # sample. Until the laggard is touched, the stream's sample is the worst
+        # over the members it has, not over all its groups.
+        r config set stream-stats no
+        r FLUSHALL
+        seed_stream r s 8
+        r xgroup create s g1 0
+        r xgroup create s g2 0
+        r xreadgroup group g1 c count 8 streams s >
+        r xreadgroup group g2 c count 2 streams s >
+        r config set stream-stats yes
+        assert_equal "" [get_info_stream_stripped r]
+        # g1 is touched first: it alone is a member, and it has read everything.
+        r xack s g1 1-1
+        assert_equal "db0_stream_distrib_streams_max_lag:0=1" [get_info_stream_field r stream_distrib_streams_max_lag]
+        # Touching g2 enrols it, and the stream's sample becomes its lag of 6.
+        r xgroup createconsumer s g2 c2
+        assert_equal "db0_stream_distrib_streams_max_lag:4=1" [get_info_stream_field r stream_distrib_streams_max_lag]
+        assert_equal [eval_stream_histogram r 0 stream_distrib_streams_max_lag max_lag] [get_info_stream_field r stream_distrib_streams_max_lag]
     }
 
     test "STREAM-STATS - lazy enable: a stream moved to another db while off is counted there" {
@@ -895,11 +998,16 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         assert_equal "db1_stream_distrib_streams_cgroups:1=1" [get_info_stream_field r stream_distrib_streams_cgroups]
         assert_equal "db1_stream_distrib_cgroups_pel:1=1" [get_info_stream_field r stream_distrib_cgroups_pel]
         assert_equal "db1_stream_distrib_cgroups_consumers:1=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
+        # The moved group's old heap belongs to db 0's generation and is gone;
+        # SETID left its position unknown, so the lag row has no sample.
+        assert_equal "" [get_info_stream_field r stream_distrib_streams_max_lag]
         seed_stream r t 1
         r xgroup create t g 0
         r xreadgroup group g c count 1 streams t >
         r xack s g 1-1
         assert_equal "db1_stream_distrib_cgroups_pel:0=1,1=1" [get_info_stream_field r stream_distrib_cgroups_pel]
+        # t's group read its one entry: lag 0. s's is still unknown.
+        assert_equal "db1_stream_distrib_streams_max_lag:0=1" [get_info_stream_field r stream_distrib_streams_max_lag]
         r select 0
     }
 
@@ -918,6 +1026,7 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         assert_equal "db0_stream_distrib_streams_cgroups:1=1" [get_info_stream_field r stream_distrib_streams_cgroups]
         assert_equal "db0_stream_distrib_cgroups_pel:4=1" [get_info_stream_field r stream_distrib_cgroups_pel]
         assert_equal "db0_stream_distrib_cgroups_consumers:1=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
+        assert_equal "db0_stream_distrib_streams_max_lag:0=1" [get_info_stream_field r stream_distrib_streams_max_lag]
         # ...and db 0's objects are still counted, so a change is an exact move.
         r xack A g 1-1 2-1
         assert_equal "db0_stream_distrib_cgroups_pel:2=1" [get_info_stream_field r stream_distrib_cgroups_pel]
@@ -940,6 +1049,7 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         assert_equal "db0_stream_distrib_streams_cgroups:1=1" [get_info_stream_field r stream_distrib_streams_cgroups]
         assert_equal "db0_stream_distrib_cgroups_pel:4=1" [get_info_stream_field r stream_distrib_cgroups_pel]
         assert_equal "db0_stream_distrib_cgroups_consumers:1=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
+        assert_equal "db0_stream_distrib_streams_max_lag:0=1" [get_info_stream_field r stream_distrib_streams_max_lag]
         # The generation survived too: the group is still counted, so PEL 4 -> 3
         # is an exact move into bin "2". A lost generation would re-enter the
         # sample instead and leave bin "4" behind (2=1,4=1).
@@ -980,6 +1090,9 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         r config set stream-stats yes
         assert_equal "db0_stream_distrib_cgroups_pel:4=1" [get_info_stream_field r stream_distrib_cgroups_pel]
         assert_equal [eval_stream_histogram r 0 stream_distrib_cgroups_pel pending] [get_info_stream_field r stream_distrib_cgroups_pel]
+        # The heap survived the cycle with the rows: the group is still a member.
+        assert_equal "db0_stream_distrib_streams_max_lag:0=1" [get_info_stream_field r stream_distrib_streams_max_lag]
+        assert_equal [eval_stream_histogram r 0 stream_distrib_streams_max_lag max_lag] [get_info_stream_field r stream_distrib_streams_max_lag]
         # A stream change while off does: enabling starts a new generation and
         # the group is counted again only once touched.
         r config set stream-stats no
@@ -988,6 +1101,7 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         assert_equal "" [get_info_stream_stripped r]
         r xack st g 2-1
         assert_equal "db0_stream_distrib_cgroups_pel:2=1" [get_info_stream_field r stream_distrib_cgroups_pel]
+        assert_equal "db0_stream_distrib_streams_max_lag:0=1" [get_info_stream_field r stream_distrib_streams_max_lag]
     }
 
     test "STREAM-STATS - runtime enable is lazy, reload makes it exact" {
@@ -1008,6 +1122,7 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         assert_equal "db0_stream_distrib_cgroups_pel:4=1" [get_info_stream_field r stream_distrib_cgroups_pel]
         assert_equal "db0_stream_distrib_cgroups_consumers:1=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
         assert_equal "db0_stream_distrib_streams_cgroups:1=1" [get_info_stream_field r stream_distrib_streams_cgroups]
+        assert_equal "db0_stream_distrib_streams_max_lag:0=1" [get_info_stream_field r stream_distrib_streams_max_lag]
 
         # Disabling hides the section; the rows are kept for an exact re-enable
         # if nothing changes meanwhile.
