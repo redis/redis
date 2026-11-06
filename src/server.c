@@ -567,6 +567,9 @@ int dictResizeAllowed(size_t moreMem, double usedRatio) {
     /* for debug purposes: dict is not allowed to be resized. */
     if (!server.dict_resizing) return 0;
 
+    /* Shrinking (moreMem is 0) frees memory, allow it even at maxmemory. */
+    if (moreMem == 0) return 1;
+
     if (usedRatio <= HASHTABLE_MAX_LOAD_FACTOR) {
         return !overMaxmemoryAfterAlloc(moreMem);
     } else {
