@@ -1284,6 +1284,9 @@ void asmMigrateSetFailed(asmTask *task) {
      * to make asmTaskReset work properly after migrate task failed  */
     replDataBufClear(&task->sync_buffer);
 
+    /* Resume writes if they were paused for the handoff. */
+    unpauseActions(PAUSE_DURING_SLOT_HANDOFF);
+
     /* Mark the task as failed and notify the cluster */
     task->state = ASM_FAILED;
     asmNotifyStateChange(task, ASM_EVENT_MIGRATE_FAILED);
@@ -3077,6 +3080,7 @@ int clusterAsmHandoff(const char *task_id, sds *err) {
 
     task->state = ASM_HANDOFF;
     task->paused_time = server.mstime;
+    pauseActions(PAUSE_DURING_SLOT_HANDOFF, LLONG_MAX, PAUSE_ACTIONS_CLIENT_WRITE_SET);
 
     /* Now that writes are paused and no more user commands will be fed to the
      * main channel, give modules a chance to propagate commands at the end of
@@ -3114,6 +3118,10 @@ int clusterAsmDone(const char *task_id, sds *err) {
     sdsfree(task->error);
     task->error = sdsempty();
     task->state = ASM_COMPLETED;
+
+    /* Resume writes before trimming, the trim job waits for the pause. */
+    if (event == ASM_EVENT_MIGRATE_COMPLETED)
+        unpauseActions(PAUSE_DURING_SLOT_HANDOFF);
 
     asmNotifyStateChange(task, event);
     asmTaskFinalize(task);
