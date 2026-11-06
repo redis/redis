@@ -481,9 +481,10 @@ void sortCommandGeneric(client *c, int readonly) {
             /* Load every element of a listpack encoded sorted set, the actual
              * sorting is performed later on the vector. */
             eptr = lpSeek(lp,0);
+            serverAssertWithInfo(c,sortval,eptr != NULL);
+            sptr = lpNext(lp,eptr);
+            serverAssertWithInfo(c,sortval,sptr != NULL);
             while (eptr) {
-                sptr = lpNext(lp,eptr);
-                serverAssertWithInfo(c,sortval,sptr != NULL);
                 sdsele = lpGetObject(eptr);
                 vector[j].obj = createObject(OBJ_STRING,sdsele);
                 vector[j].u.score = 0;
