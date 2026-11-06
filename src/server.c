@@ -1085,6 +1085,29 @@ void updateClientMemoryUsage(client *c) {
     c->last_memory_usage = mem;
     c->last_memory_shared = c->reply_bytes_shared;
     c->last_memory_unshared = c->reply_bytes_unshared;
+    c->last_watch_pubsub_mem = c->watched_keys_mem + c->pubsub_names_mem;
+}
+
+void updateClientWatchPubsubMemoryUsage(client *c) {
+    if (!c->conn) return;
+    size_t watch_pubsub_mem = c->watched_keys_mem + c->pubsub_names_mem;
+    if (watch_pubsub_mem == c->last_watch_pubsub_mem) return;
+    size_t mem = c->last_memory_usage - c->last_watch_pubsub_mem + watch_pubsub_mem;
+    server.stat_clients_type_memory[c->last_memory_type] =
+        server.stat_clients_type_memory[c->last_memory_type] - c->last_memory_usage + mem;
+    if (c->mem_usage_bucket) {
+        clientMemUsageBucket *bucket = getMemUsageBucket(mem);
+        c->mem_usage_bucket->mem_usage_sum -= c->last_memory_usage;
+        bucket->mem_usage_sum += mem;
+        if (bucket != c->mem_usage_bucket) {
+            listDelNode(c->mem_usage_bucket->clients, c->mem_usage_bucket_node);
+            c->mem_usage_bucket = bucket;
+            listAddNodeTail(bucket->clients, c);
+            c->mem_usage_bucket_node = listLast(bucket->clients);
+        }
+    }
+    c->last_memory_usage = mem;
+    c->last_watch_pubsub_mem = watch_pubsub_mem;
 }
 
 int clientEvictionAllowed(client *c) {
@@ -1141,6 +1164,7 @@ static int updateClientMemUsageAndBucketInternal(client *c, int unshared_refresh
     removeClientFromMemUsageBucket(c, allow_eviction);
 
     if (!allow_eviction) {
+        updateClientWatchPubsubMemoryUsage(c);
         return 0;
     }
 
@@ -3227,6 +3251,7 @@ void initServer(void) {
         server.stat_clients_type_memory[j] = 0;
     server.stat_clients_shared_memory = 0;
     server.stat_clients_unshared_memory = 0;
+    server.stat_clients_watch_pubsub_shared_overcount = 0;
     server.stat_cluster_links_memory = 0;
     server.cron_malloc_stats.zmalloc_used = 0;
     server.cron_malloc_stats.process_rss = 0;

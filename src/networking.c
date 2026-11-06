@@ -63,6 +63,10 @@ size_t getStringObjectSdsUsedMemory(robj *o) {
     }
 }
 
+size_t getStringObjectMemory(robj *o) {
+    return sizeof(robj) + getStringObjectSdsUsedMemory(o);
+}
+
 /* Return the length of a string object.
  * This does NOT includes internal fragmentation or sds unused space. */
 size_t getStringObjectLen(robj *o) {
@@ -222,9 +226,11 @@ client *createClient(connection *conn) {
     initClientBlockingState(c);
     c->woff = 0;
     c->watched_keys = listCreate();
+    c->watched_keys_mem = 0;
     c->pubsub_channels = dictCreate(&objectKeyPointerValueDictType);
     c->pubsub_patterns = dictCreate(&objectKeyPointerValueDictType);
     c->pubsubshard_channels = dictCreate(&objectKeyPointerValueDictType);
+    c->pubsub_names_mem = 0;
     c->peerid = NULL;
     c->sockname = NULL;
     c->client_list_node = NULL;
@@ -236,6 +242,7 @@ client *createClient(connection *conn) {
     c->io_last_client_cron = 0;
     c->io_last_repl_cron = 0;
     c->last_memory_usage = 0;
+    c->last_watch_pubsub_mem = 0;
     c->last_memory_type = CLIENT_TYPE_NORMAL;
     c->last_memory_shared = 0;
     c->last_memory_unshared = 0;
@@ -2137,6 +2144,7 @@ static void clearClientPubSubState(client *c) {
         pubsubUnsubscribeAllChannels(c, 0);
         pubsubUnsubscribeShardAllChannels(c, 0);
         pubsubUnsubscribeAllPatterns(c, 0);
+        updateClientWatchPubsubMemoryUsage(c);
         unmarkClientAsPubSub(c);
     }
 }
@@ -2369,10 +2377,12 @@ void freeClient(client *c) {
 
     /* UNWATCH all the keys */
     unwatchAllKeys(c);
+    debugServerAssert(c->watched_keys_mem == 0);
     listRelease(c->watched_keys);
 
     /* Unsubscribe from all the pubsub channels */
     clearClientPubSubState(c);
+    debugServerAssert(c->pubsub_names_mem == 0);
     dictRelease(c->pubsub_channels);
     dictRelease(c->pubsub_patterns);
     dictRelease(c->pubsubshard_channels);
@@ -5414,8 +5424,7 @@ size_t getClientMemoryUsage(client *c) {
     /* Add memory overhead of this client's HIMPORT fieldset bindings. */
     mem += himportFieldsetsMemOverhead(c);
 
-    /* Add memory overhead of pubsub channels and patterns. Note: this is just the overhead of the robj pointers
-     * to the strings themselves because they aren't stored per client. */
+    /* Add memory overhead of pubsub channels and patterns. */
     mem += pubsubMemOverhead(c);
 
     /* Add memory overhead of the tracking prefixes, this is an underestimation so we don't need to traverse the entire rax */
@@ -5857,6 +5866,11 @@ size_t getClientEvictionLimit(void) {
     return maxmemory_clients_actual;
 }
 
+size_t subtractClientsWatchPubsubOvercount(size_t mem) {
+    size_t shared = server.stat_clients_watch_pubsub_shared_overcount;
+    return mem > shared ? mem - shared : 0;
+}
+
 void evictClients(void) {
     if (!server.client_mem_usage_buckets)
         return;
@@ -5867,8 +5881,8 @@ void evictClients(void) {
     size_t client_eviction_limit = getClientEvictionLimit();
     if (client_eviction_limit == 0)
         return;
-    while (server.stat_clients_type_memory[CLIENT_TYPE_NORMAL] +
-           server.stat_clients_type_memory[CLIENT_TYPE_PUBSUB] >= client_eviction_limit) {
+    while (subtractClientsWatchPubsubOvercount(server.stat_clients_type_memory[CLIENT_TYPE_NORMAL] +
+                                               server.stat_clients_type_memory[CLIENT_TYPE_PUBSUB]) >= client_eviction_limit) {
         listNode *ln = listNext(&bucket_iter);
         if (ln) {
             client *c = ln->value;
