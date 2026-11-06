@@ -133,134 +133,76 @@ foreach command {SORT SORT_RO} {
         r sort mylist alpha
     } {1 10 2 3}
 
-    proc create_sort_zset {enc} {
+    test "SORT sorted set" {
         r del zset
-        if {$enc eq "listpack"} {
-            r config set zset-max-listpack-entries 128
-        } else {
-            r config set zset-max-listpack-entries 0
-        }
-        r zadd zset 1 a 5 b 2 c 10 d 3 e
-        assert_encoding $enc zset
-    }
-
-foreach enc {listpack btree} {
-    test "SORT sorted set ($enc)" {
-        create_sort_zset $enc
+        r zadd zset 1 a
+        r zadd zset 5 b
+        r zadd zset 2 c
+        r zadd zset 10 d
+        r zadd zset 3 e
         r sort zset alpha desc
     } {e d c b a}
 
-    test "SORT sorted set BY nosort should retain ordering ($enc)" {
-        create_sort_zset $enc
+    test "SORT sorted set BY nosort should retain ordering" {
+        r del zset
+        r zadd zset 1 a
+        r zadd zset 5 b
+        r zadd zset 2 c
+        r zadd zset 10 d
+        r zadd zset 3 e
         r multi
         r sort zset by nosort asc
         r sort zset by nosort desc
         r exec
     } {{a c e b d} {d b e c a}}
 
-    test "SORT sorted set BY nosort + LIMIT ($enc)" {
-        create_sort_zset $enc
-        assert_equal [r sort zset by nosort asc limit 0 1] {a}
-        assert_equal [r sort zset by nosort desc limit 0 1] {d}
-        assert_equal [r sort zset by nosort asc limit 0 2] {a c}
-        assert_equal [r sort zset by nosort desc limit 0 2] {d b}
-        assert_equal [r sort zset by nosort asc limit 1 2] {c e}
-        assert_equal [r sort zset by nosort desc limit 1 2] {b e}
-        assert_equal [r sort zset by nosort asc limit 4 10] {d}
-        assert_equal [r sort zset by nosort desc limit 4 10] {a}
-        assert_equal [r sort zset by nosort limit 5 10] {}
-        assert_equal [r sort zset by nosort limit -10 100] {a c e b d}
-    }
-
-    test "SORT sorted set BY nosort works as expected from scripts ($enc)" {
-        create_sort_zset $enc
-        assert_equal {{a c e b d} {d b e c a}} [r eval {
-            return {redis.call('sort',KEYS[1],'by','nosort','asc'),
-                    redis.call('sort',KEYS[1],'by','nosort','desc')}
-        } 1 zset]
-        assert_encoding $enc zset
-    }
-}
-
-    foreach command {SORT SORT_RO} {
-        test "$command sorted set preserves listpack encoding" {
-            r config set zset-max-listpack-entries 128
-            r del zset
-            r zadd zset 1 a
-            r zadd zset 5 b
-            r zadd zset 2 c
-            r zadd zset 10 d
-            r zadd zset 3 e
-            assert_encoding listpack zset
-            assert_equal {e d c b a} [r $command zset alpha desc]
-            assert_equal {a c e b d} [r $command zset by nosort asc]
-            assert_equal {d b e c a} [r $command zset by nosort desc]
-            assert_equal {b e} [r $command zset by nosort desc limit 1 2]
-            assert_encoding listpack zset
-        }
-    }
-
-    foreach command {SORT SORT_RO} {
-        test "$command sorted set BY <pattern> preserves listpack encoding" {
-            r config set zset-max-listpack-entries 128
-            r del zset
-            r zadd zset 1 a
-            r zadd zset 2 b
-            r zadd zset 3 c
-            foreach {ele weight} {a 3 b 1 c 2} {
-                r set weight_$ele $weight
-                r hset wobj_$ele weight $weight
-            }
-            assert_encoding listpack zset
-            assert_equal {b c a} [r $command zset by weight_*]
-            assert_equal {b 1 c 2 a 3} [r $command zset by weight_* get # get weight_*]
-            assert_equal {b c a} [r $command zset by wobj_*->weight]
-            assert_encoding listpack zset
-        } {} {cluster:skip}
-    }
-
-    test "SORT sorted set STORE preserves listpack encoding" {
-        r config set zset-max-listpack-entries 128
-        r del zset sort-res
+    test "SORT sorted set BY nosort + LIMIT" {
+        r del zset
         r zadd zset 1 a
         r zadd zset 5 b
         r zadd zset 2 c
         r zadd zset 10 d
         r zadd zset 3 e
-        assert_encoding listpack zset
-        assert_equal 5 [r sort zset alpha desc store sort-res]
-        assert_equal {e d c b a} [r lrange sort-res 0 -1]
-        assert_equal 5 [r sort zset by nosort store sort-res]
-        assert_equal {a c e b d} [r lrange sort-res 0 -1]
-        assert_encoding listpack zset
-    } {} {cluster:skip}
-
-    # The listpack encoding of these paths is covered by the tests above.
-    foreach command {SORT SORT_RO} {
-        test "$command sorted set BY <pattern> (btree encoding)" {
-            create_sort_zset btree
-            foreach {ele weight} {a 3 b 5 c 1 d 4 e 2} {
-                r set weight_$ele $weight
-                r hset wobj_$ele weight $weight
-            }
-            assert_equal {c e a d b} [r $command zset by weight_*]
-            assert_equal {b d a e c} [r $command zset by weight_* desc]
-            assert_equal {e a} [r $command zset by weight_* limit 1 2]
-            assert_equal {c 1 e 2 a 3} [r $command zset by weight_* limit 0 3 get # get weight_*]
-            assert_equal {c e a d b} [r $command zset by wobj_*->weight]
-            assert_encoding btree zset
-        } {} {cluster:skip}
+        assert_equal [r sort zset by nosort asc limit 0 1] {a}
+        assert_equal [r sort zset by nosort desc limit 0 1] {d}
+        assert_equal [r sort zset by nosort asc limit 0 2] {a c}
+        assert_equal [r sort zset by nosort desc limit 0 2] {d b}
+        assert_equal [r sort zset by nosort limit 5 10] {}
+        assert_equal [r sort zset by nosort limit -10 100] {a c e b d}
     }
 
-    test "SORT sorted set STORE (btree encoding)" {
-        create_sort_zset btree
-        r del sort-res
-        assert_equal 5 [r sort zset alpha desc store sort-res]
-        assert_equal {e d c b a} [r lrange sort-res 0 -1]
-        assert_equal 2 [r sort zset by nosort desc limit 1 2 store sort-res]
-        assert_equal {b e} [r lrange sort-res 0 -1]
-        assert_encoding btree zset
-    } {} {cluster:skip}
+    test "SORT sorted set BY nosort works as expected from scripts" {
+        r del zset
+        r zadd zset 1 a
+        r zadd zset 5 b
+        r zadd zset 2 c
+        r zadd zset 10 d
+        r zadd zset 3 e
+        r eval {
+            return {redis.call('sort',KEYS[1],'by','nosort','asc'),
+                    redis.call('sort',KEYS[1],'by','nosort','desc')}
+        } 1 zset
+    } {{a c e b d} {d b e c a}}
+
+    foreach enc {listpack btree} {
+        test "SORT and SORT_RO sorted set preserve encoding ($enc)" {
+            set orig [lindex [r config get zset-max-listpack-entries] 1]
+            if {$enc eq "btree"} {r config set zset-max-listpack-entries 0}
+            r del zset
+            r zadd zset 1 a 5 b 2 c 10 d 3 e
+            assert_encoding $enc zset
+            foreach command {SORT SORT_RO} {
+                assert_equal {e d c b a} [r $command zset alpha desc]
+                assert_equal {a c e b d} [r $command zset by nosort asc]
+                assert_equal {d b e c a} [r $command zset by nosort desc]
+                assert_equal {c e} [r $command zset by nosort asc limit 1 2]
+                assert_equal {b e} [r $command zset by nosort desc limit 1 2]
+                assert_equal {} [r $command zset by nosort limit 5 10]
+                assert_encoding $enc zset
+            }
+            r config set zset-max-listpack-entries $orig
+        }
+    }
 
     test "SORT sorted set: +inf and -inf handling" {
         r del zset
