@@ -82,7 +82,7 @@ static inline size_t spt_min(size_t a, size_t b) {
 
 /*
  * For discussion on the portability of the various methods, see
- * http://lists.freebsd.org/pipermail/freebsd-stable/2008-June/043136.html
+ * https://lists.freebsd.org/pipermail/freebsd-stable/2008-June/043136.html
  */
 int spt_clearenv(void) {
 #ifdef HAVE_CLEARENV
