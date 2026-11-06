@@ -792,11 +792,15 @@ int VADD_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     /* Insert vector synchronously: we reach this place even
      * if cas was true but thread creation failed. */
+    int existing = RedisModule_DictGet(vset->dict,val,NULL) != NULL;
     int added = vectorSetInsert(vset,vec,NULL,0,val,attrib,1,ef);
     RedisModule_Free(vec);
 
     RedisModule_ReplyWithBool(ctx,added);
-    if (added) RedisModule_ReplicateVerbatim(ctx);
+    /* When the element was already there it has been updated: its vector,
+     * and its attribute if SETATTR was given. Replicas and AOF need the
+     * command in that case as well. */
+    if (added || existing) RedisModule_ReplicateVerbatim(ctx);
     return REDISMODULE_OK;
 }
 
