@@ -33,6 +33,32 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
         }
     }
 
+    foreach command {zmove bzmove} {
+        foreach position {min max} {
+            test "$command $position moves integer-encoded listpack members" {
+                r del src{t} dst{t}
+                r config set zset-max-listpack-entries 128
+                r zadd src{t} 1 42 1 7
+                assert_encoding listpack src{t}
+                # Equal scores still use lexical member ordering, including
+                # when listpack stores the member bytes as integers.
+                if {$position eq "min"} {
+                    set moved 42
+                    set remaining 7
+                } else {
+                    set moved 7
+                    set remaining 42
+                }
+                r zadd dst{t} 99 $moved 100 retained
+                set args [list $position]
+                if {$command eq "bzmove"} {lappend args 0}
+                assert_equal [list $moved 1] [r $command src{t} dst{t} {*}$args]
+                assert_equal [list $remaining 1] [r zrange src{t} 0 -1 withscores]
+                assert_equal [list $moved 1 retained 100] [r zrange dst{t} 0 -1 withscores]
+            }
+        }
+    }
+
     test {ZMOVE BYSCORE empty ranges, missing keys and same-key moves have no effects} {
         r del src{t} dst{t} missing{t}
         r zadd src{t} 1 a 2 b
