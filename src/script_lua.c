@@ -1722,7 +1722,7 @@ void luaCallFunction(scriptRunCtx* run_ctx, lua_State *lua, robj** keys, size_t 
             final_msg = sdscatfmt(final_msg, "-%s",
                                   err_info.msg);
             if (err_info.line && err_info.source) {
-                final_msg = sdscatfmt(final_msg, " script: %s, on %s:%s.",
+                final_msg = sdscatfmt(final_msg, ". script: %s, on %s:%s.",
                                       run_ctx->funcname,
                                       err_info.source,
                                       err_info.line);
