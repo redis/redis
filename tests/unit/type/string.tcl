@@ -1776,30 +1776,97 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
 }
 
 start_server {tags {"string" "external:skip"} overrides {appendonly yes auto-aof-rewrite-percentage 0}} {
+    # Every MSETEX below sets two keys with a repeated expire option of the
+    # same unit (last wins), plus NX or XX placed before, between or after the
+    # two expire options. All commands are written out literally.
     test {MSETEX - repeated EX/PX and NX/XX survive AOF reload} {
         waitForBgrewriteaof r
         set expected {}
-        foreach {unit first last} {ex 10 100 px 10000 100000} {
-            foreach condition {nx xx} {
-                foreach position {before between after} {
-                    set key1 "aof:$unit:$condition:$position:1{t}"
-                    set key2 "aof:$unit:$condition:$position:2{t}"
-                    if {$condition eq "xx"} {
-                        r mset $key1 old1 $key2 old2
-                    }
-                    switch $position {
-                        before {set options [list $condition $unit $first $unit $last]}
-                        between {set options [list $unit $first $condition $unit $last]}
-                        after {set options [list $unit $first $unit $last $condition]}
-                    }
-                    assert_equal 1 [r msetex 2 $key1 val1 $key2 val2 {*}$options]
-                    foreach {key value} [list $key1 val1 $key2 val2] {
-                        assert_range [r ttl $key] 98 100
-                        lappend expected $key $value [r pexpiretime $key]
-                    }
-                }
-            }
-        }
+
+        # Repeated EX with NX: nx before / between / after the two EX options.
+        assert_equal 1 [r msetex 2 aof:ex:nx:before:1{t} val1 aof:ex:nx:before:2{t} val2 nx ex 10 ex 100]
+        assert_range [r ttl aof:ex:nx:before:1{t}] 98 100
+        lappend expected aof:ex:nx:before:1{t} val1 [r pexpiretime aof:ex:nx:before:1{t}]
+        assert_range [r ttl aof:ex:nx:before:2{t}] 98 100
+        lappend expected aof:ex:nx:before:2{t} val2 [r pexpiretime aof:ex:nx:before:2{t}]
+
+        assert_equal 1 [r msetex 2 aof:ex:nx:between:1{t} val1 aof:ex:nx:between:2{t} val2 ex 10 nx ex 100]
+        assert_range [r ttl aof:ex:nx:between:1{t}] 98 100
+        lappend expected aof:ex:nx:between:1{t} val1 [r pexpiretime aof:ex:nx:between:1{t}]
+        assert_range [r ttl aof:ex:nx:between:2{t}] 98 100
+        lappend expected aof:ex:nx:between:2{t} val2 [r pexpiretime aof:ex:nx:between:2{t}]
+
+        assert_equal 1 [r msetex 2 aof:ex:nx:after:1{t} val1 aof:ex:nx:after:2{t} val2 ex 10 ex 100 nx]
+        assert_range [r ttl aof:ex:nx:after:1{t}] 98 100
+        lappend expected aof:ex:nx:after:1{t} val1 [r pexpiretime aof:ex:nx:after:1{t}]
+        assert_range [r ttl aof:ex:nx:after:2{t}] 98 100
+        lappend expected aof:ex:nx:after:2{t} val2 [r pexpiretime aof:ex:nx:after:2{t}]
+
+        # Repeated EX with XX: the keys exist first, so XX succeeds.
+        r mset aof:ex:xx:before:1{t} old1 aof:ex:xx:before:2{t} old2
+        assert_equal 1 [r msetex 2 aof:ex:xx:before:1{t} val1 aof:ex:xx:before:2{t} val2 xx ex 10 ex 100]
+        assert_range [r ttl aof:ex:xx:before:1{t}] 98 100
+        lappend expected aof:ex:xx:before:1{t} val1 [r pexpiretime aof:ex:xx:before:1{t}]
+        assert_range [r ttl aof:ex:xx:before:2{t}] 98 100
+        lappend expected aof:ex:xx:before:2{t} val2 [r pexpiretime aof:ex:xx:before:2{t}]
+
+        r mset aof:ex:xx:between:1{t} old1 aof:ex:xx:between:2{t} old2
+        assert_equal 1 [r msetex 2 aof:ex:xx:between:1{t} val1 aof:ex:xx:between:2{t} val2 ex 10 xx ex 100]
+        assert_range [r ttl aof:ex:xx:between:1{t}] 98 100
+        lappend expected aof:ex:xx:between:1{t} val1 [r pexpiretime aof:ex:xx:between:1{t}]
+        assert_range [r ttl aof:ex:xx:between:2{t}] 98 100
+        lappend expected aof:ex:xx:between:2{t} val2 [r pexpiretime aof:ex:xx:between:2{t}]
+
+        r mset aof:ex:xx:after:1{t} old1 aof:ex:xx:after:2{t} old2
+        assert_equal 1 [r msetex 2 aof:ex:xx:after:1{t} val1 aof:ex:xx:after:2{t} val2 ex 10 ex 100 xx]
+        assert_range [r ttl aof:ex:xx:after:1{t}] 98 100
+        lappend expected aof:ex:xx:after:1{t} val1 [r pexpiretime aof:ex:xx:after:1{t}]
+        assert_range [r ttl aof:ex:xx:after:2{t}] 98 100
+        lappend expected aof:ex:xx:after:2{t} val2 [r pexpiretime aof:ex:xx:after:2{t}]
+
+        # Repeated PX with NX: nx before / between / after the two PX options.
+        assert_equal 1 [r msetex 2 aof:px:nx:before:1{t} val1 aof:px:nx:before:2{t} val2 nx px 10000 px 100000]
+        assert_range [r ttl aof:px:nx:before:1{t}] 98 100
+        lappend expected aof:px:nx:before:1{t} val1 [r pexpiretime aof:px:nx:before:1{t}]
+        assert_range [r ttl aof:px:nx:before:2{t}] 98 100
+        lappend expected aof:px:nx:before:2{t} val2 [r pexpiretime aof:px:nx:before:2{t}]
+
+        assert_equal 1 [r msetex 2 aof:px:nx:between:1{t} val1 aof:px:nx:between:2{t} val2 px 10000 nx px 100000]
+        assert_range [r ttl aof:px:nx:between:1{t}] 98 100
+        lappend expected aof:px:nx:between:1{t} val1 [r pexpiretime aof:px:nx:between:1{t}]
+        assert_range [r ttl aof:px:nx:between:2{t}] 98 100
+        lappend expected aof:px:nx:between:2{t} val2 [r pexpiretime aof:px:nx:between:2{t}]
+
+        assert_equal 1 [r msetex 2 aof:px:nx:after:1{t} val1 aof:px:nx:after:2{t} val2 px 10000 px 100000 nx]
+        assert_range [r ttl aof:px:nx:after:1{t}] 98 100
+        lappend expected aof:px:nx:after:1{t} val1 [r pexpiretime aof:px:nx:after:1{t}]
+        assert_range [r ttl aof:px:nx:after:2{t}] 98 100
+        lappend expected aof:px:nx:after:2{t} val2 [r pexpiretime aof:px:nx:after:2{t}]
+
+        # Repeated PX with XX: the keys exist first, so XX succeeds.
+        r mset aof:px:xx:before:1{t} old1 aof:px:xx:before:2{t} old2
+        assert_equal 1 [r msetex 2 aof:px:xx:before:1{t} val1 aof:px:xx:before:2{t} val2 xx px 10000 px 100000]
+        assert_range [r ttl aof:px:xx:before:1{t}] 98 100
+        lappend expected aof:px:xx:before:1{t} val1 [r pexpiretime aof:px:xx:before:1{t}]
+        assert_range [r ttl aof:px:xx:before:2{t}] 98 100
+        lappend expected aof:px:xx:before:2{t} val2 [r pexpiretime aof:px:xx:before:2{t}]
+
+        r mset aof:px:xx:between:1{t} old1 aof:px:xx:between:2{t} old2
+        assert_equal 1 [r msetex 2 aof:px:xx:between:1{t} val1 aof:px:xx:between:2{t} val2 px 10000 xx px 100000]
+        assert_range [r ttl aof:px:xx:between:1{t}] 98 100
+        lappend expected aof:px:xx:between:1{t} val1 [r pexpiretime aof:px:xx:between:1{t}]
+        assert_range [r ttl aof:px:xx:between:2{t}] 98 100
+        lappend expected aof:px:xx:between:2{t} val2 [r pexpiretime aof:px:xx:between:2{t}]
+
+        r mset aof:px:xx:after:1{t} old1 aof:px:xx:after:2{t} old2
+        assert_equal 1 [r msetex 2 aof:px:xx:after:1{t} val1 aof:px:xx:after:2{t} val2 px 10000 px 100000 xx]
+        assert_range [r ttl aof:px:xx:after:1{t}] 98 100
+        lappend expected aof:px:xx:after:1{t} val1 [r pexpiretime aof:px:xx:after:1{t}]
+        assert_range [r ttl aof:px:xx:after:2{t}] 98 100
+        lappend expected aof:px:xx:after:2{t} val2 [r pexpiretime aof:px:xx:after:2{t}]
+
+        # Reload the AOF and check that every key, value and absolute expire
+        # time (PEXPIRETIME) survived.
         r debug loadaof
         foreach {key value expire} $expected {
             assert_equal $value [r get $key]
