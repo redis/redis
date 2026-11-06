@@ -5438,6 +5438,8 @@ int RM_ZsetRem(RedisModuleKey *key, RedisModuleString *ele, int *deleted) {
  * * There is no such element 'ele' in the sorted set.
  * * The key is not a sorted set.
  * * The key is an open empty key.
+ *
+ * 'score' may be NULL to only test whether 'ele' exists.
  */
 int RM_ZsetScore(RedisModuleKey *key, RedisModuleString *ele, double *score) {
     if (key->kv == NULL) return REDISMODULE_ERR;
