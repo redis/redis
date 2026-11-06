@@ -1387,6 +1387,37 @@ ssize_t aofWrite(int fd, const char *buf, size_t len) {
     return totwritten;
 }
 
+/* Test-only fault injection for flushAppendOnlyFile(), gating on the DEBUG
+ * AOF-FLUSH-FORCE-* flags below. Returns 1 if a fault was injected -- the
+ * caller must bail out immediately without touching the AOF -- or 0 to
+ * proceed with the real flush. */
+static int aofFlushFaultInjection(int force) {
+    UNUSED(force);
+
+    /* Simulate a main-thread AOF write failure (e.g. ENOSPC). We set the
+     * error status and bail before writing/fsyncing, so the buffered
+     * commands stay in aof_buf and fsynced_reploff stalls. Clearing the
+     * flag lets the next flush write the buffered data and recover to C_OK.
+     * Like a real write failure, only fail when there is something to write,
+     * otherwise the error could never be cleared, since an empty buffer never
+     * reaches the recovery path and writes are denied while in error. */
+    if (server.aof_flush_force_error && sdslen(server.aof_buf)) {
+        if (server.aof_last_write_status == C_OK)
+            serverLog(LL_WARNING,"Simulating an AOF write error (debug aof-flush-force error).");
+        server.aof_last_write_status = C_ERR;
+        server.aof_last_write_errno = ENOSPC;
+        return 1;
+    }
+
+    /* Stall the durable offset (skip write+fsync) without flagging an
+     * error, so the buffered commands stay in aof_buf while new writes are
+     * still accepted. */
+    if (server.aof_flush_force_stall)
+        return 1;
+
+    return 0;
+}
+
 /* Write the append only file buffer on disk.
  *
  * Since we are required to write the AOF before replying to the client,
@@ -1410,6 +1441,9 @@ void flushAppendOnlyFile(int force) {
     ssize_t nwritten;
     int sync_in_progress = 0;
     mstime_t latency;
+
+    /* Test-only: DEBUG AOF-FLUSH-FORCE-* fault injection. */
+    if (aofFlushFaultInjection(force)) return;
 
     if (sdslen(server.aof_buf) == 0) {
         if (server.aof_last_incr_fsync_offset == server.aof_last_incr_size) {
@@ -3309,6 +3343,25 @@ int rewriteAppendOnlyFileBackground(void) {
      * feedAppendOnlyFile() to issue a SELECT command. */
     server.aof_selected_db = -1;
     flushAppendOnlyFile(1);
+
+    /* If the AOF buffer could not be fully written (write error or short
+     * write), its commands are already reflected in the dataset the child is
+     * about to snapshot. Switching to a new INCR file now would later write
+     * them there too, so they would be replayed twice on load (and a partial
+     * write could leave a command split across two files). Refuse to start
+     * the rewrite: the buffer stays bound to the current INCR file and the
+     * rewrite can be retried once the write error is resolved. */
+    if (sdslen(server.aof_buf) != 0) {
+        serverLog(LL_WARNING,
+            "Can't flush the AOF buffer to disk. Background AOF rewrite aborted.");
+        server.aof_lastbgrewrite_status = C_ERR;
+        /* Count it as a failure so that scheduled / automatic rewrites back
+         * off via aofRewriteLimited() instead of retrying on every cron tick
+         * while the write error persists. */
+        server.stat_aofrw_consecutive_failures++;
+        return C_ERR;
+    }
+
     if (openNewIncrAofForAppend() != C_OK) {
         server.aof_lastbgrewrite_status = C_ERR;
         return C_ERR;

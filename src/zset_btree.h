@@ -59,6 +59,7 @@ size_t zbtreeAllocSize(const zbtreeSet *zs);
 void zbtreeDismissMemory(zbtreeSet *zs);
 void zbtreeReserve(zbtreeSet *zs, unsigned long count);
 int zbtreeTryReserve(zbtreeSet *zs, uint64_t count);
+void zbtreeShrinkToFit(zbtreeSet *zs);
 
 /* Active defragmentation. Start may move the set itself and therefore returns
  * its current address. Step moves at most one leaf, one external member, and

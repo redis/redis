@@ -1579,6 +1579,29 @@ start_server {tags {"zset"}} {
         r config set zset-max-listpack-entries $original_max
     }
 
+    test {ZSET btree converted by ZADD is not sized by repeated pairs} {
+        # A B+ tree created directly holds one member in the smallest index.
+        set original_max [lindex [r config get zset-max-listpack-entries] 1]
+        r config set zset-max-listpack-entries 0
+        r del ref{t} sparse{t}
+        r zadd ref{t} 1 a
+        assert_encoding btree ref{t}
+        r config set zset-max-listpack-entries $original_max
+
+        # Converting a listpack for a ZADD that repeats one pair must not
+        # keep the index reserved for every pair the command carries.
+        r zadd sparse{t} 1 a
+        assert_encoding listpack sparse{t}
+        set args {}
+        for {set j 0} {$j < 65536} {incr j} {
+            lappend args 1 a
+        }
+        assert_equal 0 [r zadd sparse{t} nx {*}$args]
+        assert_encoding btree sparse{t}
+        assert_equal 1 [r zcard sparse{t}]
+        assert_lessthan_equal [r memory usage sparse{t}] [expr {[r memory usage ref{t}] * 2}]
+    }
+
     test "ZPOP/ZMPOP against wrong type" {
         r set foo{t} bar
         assert_error "*WRONGTYPE*" {r zpopmin foo{t}}
@@ -2907,9 +2930,8 @@ start_server {tags {"zset"}} {
         }
         assert_equal [lrange $full_sorted 100 399] $got_fwd
 
-        # REV rank slice -- must keep using the original (slower but always
-        # correct) zsetAdd() path; the fast path is guarded off for reverse
-        # emission. Rank indices for REV count from the highest score down.
+        # REV rank slice -- too large for a listpack, so ZRANGESTORE walks the
+        # mirrored forward range. REV ranks count from the highest score down.
         r zrangestore zdst_rev{t} zsrc{t} 100 399 REV
         assert_encoding btree zdst_rev{t}
         set full_desc [lreverse $full_sorted]
@@ -2964,6 +2986,73 @@ start_server {tags {"zset"}} {
         assert_equal $expected_lim $got_lim
 
         r config set zset-max-listpack-entries $original_max
+    }
+
+    test {ZRANGESTORE REV rank ranges store the same set as ZRANGE REV} {
+        set old_entries [lindex [r config get zset-max-listpack-entries] 1]
+        set old_value [lindex [r config get zset-max-listpack-value] 1]
+        set lim 128
+        set lmax [expr {[s arch_bits] == 32 ? 2147483647 : 9223372036854775807}]
+        try {
+            r config set zset-max-listpack-entries $lim
+            r config set zset-max-listpack-value 64
+            r del zsrc{t} zdst{t}
+            # 1000 members over 200 scores, so rank bounds cut through
+            # equal-score runs, where the order is by member. One member is
+            # longer than zset-max-listpack-value.
+            set cmd [list r zadd zsrc{t}]
+            for {set j 0} {$j < 1000} {incr j} {
+                lappend cmd [expr {($j * 7919) % 200}] [format "m:%04d" $j]
+            }
+            {*}$cmd
+            set long [string repeat x 100]
+            r zadd zsrc{t} 150 $long
+            assert_encoding btree zsrc{t}
+            set lr [r zrevrank zsrc{t} $long]
+            # 128 results fit in a listpack and keep the REV walk, 129 do not
+            # and are walked forward. A small range holding the long member
+            # converts its destination during the store.
+            foreach range [list {0 127} {0 128} {12 900} {-300 -1} {-1000000 500} \
+                               {0 1000000} {5 3} {5000 6000} \
+                               [list [expr {$lr-10}] [expr {$lr+10}]] \
+                               [list [expr {-$lmax-1}] $lmax]] {
+                set want [lsort -command zlistAlikeSort [lmap {e s} \
+                    [r zrange zsrc{t} {*}$range REV withscores] {list $s $e}]]
+                set n [llength $want]
+                assert_equal $n [r zrangestore zdst{t} zsrc{t} {*}$range REV]
+                assert_equal $want [lmap {e s} [r zrange zdst{t} 0 -1 withscores] {list $s $e}]
+                if {$n == 0} {
+                    assert_equal 0 [r exists zdst{t}]
+                } elseif {$n > $lim || [lsearch -exact -index 1 $want $long] >= 0} {
+                    assert_encoding btree zdst{t}
+                } else {
+                    assert_encoding listpack zdst{t}
+                }
+            }
+
+            # Destination is the source.
+            set want [lsort -command zlistAlikeSort [lmap {e s} \
+                [r zrange zsrc{t} 2 201 REV withscores] {list $s $e}]]
+            assert_equal 200 [r zrangestore zsrc{t} zsrc{t} 2 201 REV]
+            assert_equal $want [lmap {e s} [r zrange zsrc{t} 0 -1 withscores] {list $s $e}]
+
+            # A listpack source with integer members, into another key and
+            # into itself.
+            r del zsrc{t}
+            r zadd zsrc{t} 1 1 2 2 3 3 4 4 5 5
+            r config set zset-max-listpack-entries 2
+            assert_encoding listpack zsrc{t}
+            assert_equal 4 [r zrangestore zdst{t} zsrc{t} 0 3 REV]
+            assert_equal {2 2 3 3 4 4 5 5} [r zrange zdst{t} 0 -1 withscores]
+            assert_encoding btree zdst{t}
+            assert_equal 3 [r zrangestore zsrc{t} zsrc{t} 1 3 REV]
+            assert_equal {2 2 3 3 4 4} [r zrange zsrc{t} 0 -1 withscores]
+            assert_encoding btree zsrc{t}
+        } finally {
+            r del zsrc{t} zdst{t}
+            r config set zset-max-listpack-entries $old_entries
+            r config set zset-max-listpack-value $old_value
+        }
     }
 
     test {ZRANGE invalid syntax} {

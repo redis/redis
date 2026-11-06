@@ -63,6 +63,10 @@ size_t getStringObjectSdsUsedMemory(robj *o) {
     }
 }
 
+size_t getStringObjectMemory(robj *o) {
+    return sizeof(robj) + getStringObjectSdsUsedMemory(o);
+}
+
 /* Return the length of a string object.
  * This does NOT includes internal fragmentation or sds unused space. */
 size_t getStringObjectLen(robj *o) {
@@ -192,7 +196,7 @@ client *createClient(connection *conn) {
     c->cluster_compatibility_check_slot = -2;
     c->ctime = c->lastinteraction = server.unixtime;
     c->io_lastinteraction = 0;
-    c->duration = 0;
+    resetClientCommandDuration(c);
     c->user = DefaultUser; /* Set a safe default value: clientSetDefaultAuth reads c->user. */
     clientSetDefaultAuth(c);
     c->replstate = REPL_STATE_NONE;
@@ -222,9 +226,11 @@ client *createClient(connection *conn) {
     initClientBlockingState(c);
     c->woff = 0;
     c->watched_keys = listCreate();
+    c->watched_keys_mem = 0;
     c->pubsub_channels = dictCreate(&objectKeyPointerValueDictType);
     c->pubsub_patterns = dictCreate(&objectKeyPointerValueDictType);
     c->pubsubshard_channels = dictCreate(&objectKeyPointerValueDictType);
+    c->pubsub_names_mem = 0;
     c->peerid = NULL;
     c->sockname = NULL;
     c->client_list_node = NULL;
@@ -236,6 +242,7 @@ client *createClient(connection *conn) {
     c->io_last_client_cron = 0;
     c->io_last_repl_cron = 0;
     c->last_memory_usage = 0;
+    c->last_watch_pubsub_mem = 0;
     c->last_memory_type = CLIENT_TYPE_NORMAL;
     c->last_memory_shared = 0;
     c->last_memory_unshared = 0;
@@ -2137,6 +2144,7 @@ static void clearClientPubSubState(client *c) {
         pubsubUnsubscribeAllChannels(c, 0);
         pubsubUnsubscribeShardAllChannels(c, 0);
         pubsubUnsubscribeAllPatterns(c, 0);
+        updateClientWatchPubsubMemoryUsage(c);
         unmarkClientAsPubSub(c);
     }
 }
@@ -2363,16 +2371,18 @@ void freeClient(client *c) {
 
     /* Deallocate structures used to block on blocking ops. */
     /* If there is any in-flight command, we don't record their duration. */
-    c->duration = 0;
+    resetClientCommandDuration(c);
     if (c->flags & CLIENT_BLOCKED) unblockClient(c, 1);
     dictRelease(c->bstate.keys);
 
     /* UNWATCH all the keys */
     unwatchAllKeys(c);
+    debugServerAssert(c->watched_keys_mem == 0);
     listRelease(c->watched_keys);
 
     /* Unsubscribe from all the pubsub channels */
     clearClientPubSubState(c);
+    debugServerAssert(c->pubsub_names_mem == 0);
     dictRelease(c->pubsub_channels);
     dictRelease(c->pubsub_patterns);
     dictRelease(c->pubsubshard_channels);
@@ -5414,8 +5424,7 @@ size_t getClientMemoryUsage(client *c) {
     /* Add memory overhead of this client's HIMPORT fieldset bindings. */
     mem += himportFieldsetsMemOverhead(c);
 
-    /* Add memory overhead of pubsub channels and patterns. Note: this is just the overhead of the robj pointers
-     * to the strings themselves because they aren't stored per client. */
+    /* Add memory overhead of pubsub channels and patterns. */
     mem += pubsubMemOverhead(c);
 
     /* Add memory overhead of the tracking prefixes, this is an underestimation so we don't need to traverse the entire rax */
@@ -5498,21 +5507,26 @@ int checkClientOutputBufferLimits(client *c) {
      * like normal clients. */
     if (class == CLIENT_TYPE_MASTER) class = CLIENT_TYPE_NORMAL;
 
-    /* Note that it doesn't make sense to set the replica clients output buffer
-     * limit lower than the repl-backlog-size config (partial sync will succeed
-     * and then replica will get disconnected).
-     * Such a configuration is ignored (the size of repl-backlog-size will be used).
-     * This doesn't have memory consumption implications since the replica client
-     * will share the backlog buffers memory. */
-    size_t hard_limit_bytes = server.client_obuf_limits[class].hard_limit_bytes;
-    if (class == CLIENT_TYPE_SLAVE && hard_limit_bytes &&
-        (long long)hard_limit_bytes < server.repl_backlog_size)
+    /* Note that neither the soft nor the hard output buffer limit for replica
+     * clients should be set below repl-backlog-size. Otherwise, the replica may
+     * be disconnected even after a successful partial sync.
+     * Any non-zero limit below repl-backlog-size is treated as repl-backlog-size.
+     * This has no additional memory cost, since replica clients share the
+     * backlog buffers. ASM clients use the replica limits but have their own
+     * output buffers, so their limits are not adjusted. */
+    unsigned long long hard_limit_bytes = server.client_obuf_limits[class].hard_limit_bytes;
+    if (clientTypeIsSlave(c) && hard_limit_bytes &&
+        hard_limit_bytes < (unsigned long long)server.repl_backlog_size)
         hard_limit_bytes = server.repl_backlog_size;
+    unsigned long long soft_limit_bytes = server.client_obuf_limits[class].soft_limit_bytes;
+    if (clientTypeIsSlave(c) && soft_limit_bytes &&
+        soft_limit_bytes < (unsigned long long)server.repl_backlog_size)
+        soft_limit_bytes = server.repl_backlog_size;
     if (server.client_obuf_limits[class].hard_limit_bytes &&
         used_mem >= hard_limit_bytes)
         hard = 1;
     if (server.client_obuf_limits[class].soft_limit_bytes &&
-        used_mem >= server.client_obuf_limits[class].soft_limit_bytes)
+        used_mem >= soft_limit_bytes)
         soft = 1;
 
     /* We need to check if the soft limit is reached continuously for the
@@ -5800,6 +5814,10 @@ void processEventsWhileBlocked(void) {
     int prev_propagate_targets = server.allowed_propagate_targets;
     server.allowed_propagate_targets = PROPAGATE_AOF|PROPAGATE_REPL;
 
+    /* Commands served here, and the blocked command's later calls, measure from
+     * this sample. The blocked command keeps its own start (see call()). */
+    if (server.off_cpu_tracking) cpuSampleTake(&server.cpu_checkpoint);
+
     /* Note: when we are processing events while blocked (for instance during
      * busy Lua scripts), we set a global flag. When such flag is set, we
      * avoid handling the read part of clients using threaded I/O.
@@ -5853,6 +5871,11 @@ size_t getClientEvictionLimit(void) {
     return maxmemory_clients_actual;
 }
 
+size_t subtractClientsWatchPubsubOvercount(size_t mem) {
+    size_t shared = server.stat_clients_watch_pubsub_shared_overcount;
+    return mem > shared ? mem - shared : 0;
+}
+
 void evictClients(void) {
     if (!server.client_mem_usage_buckets)
         return;
@@ -5863,8 +5886,8 @@ void evictClients(void) {
     size_t client_eviction_limit = getClientEvictionLimit();
     if (client_eviction_limit == 0)
         return;
-    while (server.stat_clients_type_memory[CLIENT_TYPE_NORMAL] +
-           server.stat_clients_type_memory[CLIENT_TYPE_PUBSUB] >= client_eviction_limit) {
+    while (subtractClientsWatchPubsubOvercount(server.stat_clients_type_memory[CLIENT_TYPE_NORMAL] +
+                                               server.stat_clients_type_memory[CLIENT_TYPE_PUBSUB]) >= client_eviction_limit) {
         listNode *ln = listNext(&bucket_iter);
         if (ln) {
             client *c = ln->value;
