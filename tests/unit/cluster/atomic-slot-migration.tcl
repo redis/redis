@@ -950,6 +950,8 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         # Set a small output buffer limit to trigger the error
         R 0 config set client-output-buffer-limit "replica 4mb 0 0"
+        # ASM output buffer limits apply even when the backlog size is larger.
+        R 0 config set repl-backlog-size 100mb
 
         set task_id [setup_slot_migration_with_delay 0 1 0 100]
 

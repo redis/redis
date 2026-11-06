@@ -5507,21 +5507,26 @@ int checkClientOutputBufferLimits(client *c) {
      * like normal clients. */
     if (class == CLIENT_TYPE_MASTER) class = CLIENT_TYPE_NORMAL;
 
-    /* Note that it doesn't make sense to set the replica clients output buffer
-     * limit lower than the repl-backlog-size config (partial sync will succeed
-     * and then replica will get disconnected).
-     * Such a configuration is ignored (the size of repl-backlog-size will be used).
-     * This doesn't have memory consumption implications since the replica client
-     * will share the backlog buffers memory. */
-    size_t hard_limit_bytes = server.client_obuf_limits[class].hard_limit_bytes;
-    if (class == CLIENT_TYPE_SLAVE && hard_limit_bytes &&
-        (long long)hard_limit_bytes < server.repl_backlog_size)
+    /* Note that neither the soft nor the hard output buffer limit for replica
+     * clients should be set below repl-backlog-size. Otherwise, the replica may
+     * be disconnected even after a successful partial sync.
+     * Any non-zero limit below repl-backlog-size is treated as repl-backlog-size.
+     * This has no additional memory cost, since replica clients share the
+     * backlog buffers. ASM clients use the replica limits but have their own
+     * output buffers, so their limits are not adjusted. */
+    unsigned long long hard_limit_bytes = server.client_obuf_limits[class].hard_limit_bytes;
+    if (clientTypeIsSlave(c) && hard_limit_bytes &&
+        hard_limit_bytes < (unsigned long long)server.repl_backlog_size)
         hard_limit_bytes = server.repl_backlog_size;
+    unsigned long long soft_limit_bytes = server.client_obuf_limits[class].soft_limit_bytes;
+    if (clientTypeIsSlave(c) && soft_limit_bytes &&
+        soft_limit_bytes < (unsigned long long)server.repl_backlog_size)
+        soft_limit_bytes = server.repl_backlog_size;
     if (server.client_obuf_limits[class].hard_limit_bytes &&
         used_mem >= hard_limit_bytes)
         hard = 1;
     if (server.client_obuf_limits[class].soft_limit_bytes &&
-        used_mem >= server.client_obuf_limits[class].soft_limit_bytes)
+        used_mem >= soft_limit_bytes)
         soft = 1;
 
     /* We need to check if the soft limit is reached continuously for the
