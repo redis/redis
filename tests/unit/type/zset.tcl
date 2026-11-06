@@ -1125,6 +1125,64 @@ start_server {tags {"zset"}} {
             r del s1{t} s2{t} s3{t} t1{t}
         }
 
+        foreach agg {sum min max} {
+            test "ZINTER/ZINTERSTORE treat a NaN weighted score as 0 in any input order, AGGREGATE $agg - $encoding" {
+                r del zinfa{t} zinfb{t} zinfc{t} dst{t}
+                # A zero weight turns the infinities of zinfa and zinfc into NaN
+                # (0*inf). zinfa and zinfb have the same size, so the argument
+                # order decides which of them is the first input. zinfc is
+                # larger than zinfb, so it is always a later input.
+                r zadd zinfa{t} inf x inf y -inf z 1 w
+                r zadd zinfb{t} -inf x 5 y -5 z 7 w
+                r zadd zinfc{t} inf x inf y -inf z 1 w 2 extra1 3 extra2
+                assert_encoding $encoding zinfa{t}
+
+                # A NaN weighted score counts as 0, so with a weight of 0 every
+                # score of zinfa and zinfc counts as 0.
+                set want [dict get [dict create \
+                    sum {x -inf y 5 z -5 w 7} \
+                    min {x -inf y 0 z -5 w 0} \
+                    max {x 0 y 5 z 0 w 7}] $agg]
+
+                foreach {k1 k2 w1 w2} {
+                    zinfa{t} zinfb{t} 0 1
+                    zinfb{t} zinfa{t} 1 0
+                    zinfc{t} zinfb{t} 0 1
+                    zinfb{t} zinfc{t} 1 0
+                } {
+                    set cmdargs [list 2 $k1 $k2 weights $w1 $w2 aggregate $agg]
+                    set inter [dict create {*}[r zinter {*}$cmdargs withscores]]
+                    set union [dict create {*}[r zunion {*}$cmdargs withscores]]
+                    assert_equal [dict size $want] [dict size $inter] $cmdargs
+                    dict for {m s} $want {
+                        assert_equal $s [dict get $inter $m] "$cmdargs: $m"
+                    }
+                    # ZINTER agrees with ZUNION on the members present in every input.
+                    dict for {m s} $inter {
+                        assert_equal [dict get $union $m] $s "$cmdargs: $m (ZUNION)"
+                    }
+                    # ZINTERSTORE agrees with ZINTER.
+                    assert_equal [dict size $want] [r zinterstore dst{t} {*}$cmdargs]
+                    dict for {m s} [dict create {*}[r zrange dst{t} 0 -1 withscores]] {
+                        assert_equal [dict get $inter $m] $s "$cmdargs: $m (ZINTERSTORE)"
+                    }
+                }
+
+                # The same key given twice is handled without a lookup.
+                set want [dict get [dict create \
+                    sum {x inf y inf z -inf w 1} \
+                    min {x 0 y 0 z -inf w 0} \
+                    max {x inf y inf z 0 w 1}] $agg]
+                set cmdargs [list 2 zinfa{t} zinfa{t} weights 1 0 aggregate $agg]
+                set inter [dict create {*}[r zinter {*}$cmdargs withscores]]
+                set union [dict create {*}[r zunion {*}$cmdargs withscores]]
+                dict for {m s} $want {
+                    assert_equal $s [dict get $inter $m] "$cmdargs: $m"
+                    assert_equal $s [dict get $union $m] "$cmdargs: $m (ZUNION)"
+                }
+            }
+        }
+
         foreach cmd {ZUNIONSTORE ZINTERSTORE} {
             test "$cmd with +inf/-inf scores - $encoding" {
                 r del zsetinf1{t} zsetinf2{t}
