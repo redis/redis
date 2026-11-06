@@ -182,7 +182,39 @@ start_server {tags {"modules external:skip"}} {
         close_replication_stream $repl
     } {} {needs:repl}
 
+    test {Module reads a sorted set emptied by a pop from its notification} {
+        r del k
+        foreach member [list a [string repeat x 80]] encoding {listpack btree} {
+            foreach pop {zpopmin zpopmax} {
+                r zadd k 1 $member
+                assert_encoding $encoding k
+                assert_equal [list $member 1] [r $pop k]
+                # All four reads saw the emptied key before it was deleted.
+                assert_equal 4 [r zset.emptyreads]
+                assert_equal 0 [r exists k]
+            }
+        }
+    }
+
     test "Unload the module - zset" {
         assert_equal {OK} [r module unload zset]
+    }
+}
+
+start_server {tags {"modules external:skip needs:debug"} overrides {key-memory-histograms yes}} {
+    r module load $testmodule
+    r debug ALLOCSIZE-SLOTS-ASSERT 1
+
+    test {Module SORT_RO from a pop notification keeps alloc sizes in sync} {
+        # SORT_RO used to convert the listpack to a btree while ZPOPMIN was
+        # still updating it, leaving the tracked alloc size out of sync.
+        foreach members {{1 a 2 b} {1 a}} {
+            r del k
+            r zadd k {*}$members
+            assert_encoding listpack k
+            r zpopmin k
+            assert_equal PONG [r ping]
+            if {[r exists k]} {assert_encoding listpack k}
+        }
     }
 }
