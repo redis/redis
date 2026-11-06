@@ -8454,7 +8454,7 @@ int RM_GetDbIdFromIO(RedisModuleIO *io) {
  */
 void moduleLogRaw(RedisModule *module, const char *levelstr, const char *fmt, va_list ap) {
     char msg[LOG_MAX_LEN];
-    size_t name_len;
+    int name_len;
     int level;
 
     if (!strcasecmp(levelstr,"debug")) level = LL_DEBUG;
@@ -8466,6 +8466,7 @@ void moduleLogRaw(RedisModule *module, const char *levelstr, const char *fmt, va
     if (level < server.verbosity) return;
 
     name_len = snprintf(msg, sizeof(msg),"<%s> ", module? module->name: "module");
+    if (name_len < 0 || (size_t)name_len >= sizeof(msg)) name_len = sizeof(msg)-1;
     vsnprintf(msg + name_len, sizeof(msg) - name_len, fmt, ap);
     serverLogRaw(level,msg);
 }
