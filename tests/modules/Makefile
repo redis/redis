@@ -25,12 +25,16 @@ endif
 endif
 
 
-# This is a hack to override the default CC. When running with SANITIZER=memory
-# tough we want to keep the compiler as clang as MSan is not supported for gcc
+# This is a hack to override the default compiler. Preserve compilers supplied
+# by cross-compilation environments or on the make command line.
 ifeq ($(uname_S),Linux)
 ifneq ($(SANITIZER),memory)
-	LD = gcc
+ifeq ($(origin CC),default)
 	CC = gcc
+endif
+ifeq ($(origin LD),default)
+	LD = $(CC)
+endif
 endif
 endif
 
