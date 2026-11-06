@@ -65,6 +65,7 @@ void initClientBlockingState(client *c) {
     c->bstate.numreplicas = 0;
     c->bstate.reploffset = 0;
     c->bstate.unblock_on_nokey = 0;
+    c->bstate.stream_ids = NULL;
     c->bstate.async_rm_call_handle = NULL;
 }
 
@@ -188,6 +189,8 @@ void unblockClient(client *c, int queue_for_reprocessing) {
         c->bstate.btype == BLOCKED_ZSET ||
         c->bstate.btype == BLOCKED_STREAM) {
         unblockClientWaitingData(c);
+        zfree(c->bstate.stream_ids);
+        c->bstate.stream_ids = NULL;
     } else if (c->bstate.btype == BLOCKED_WAIT || c->bstate.btype == BLOCKED_WAITAOF) {
         unblockClientWaitingReplicas(c);
     } else if (c->bstate.btype == BLOCKED_MODULE) {
@@ -665,6 +668,15 @@ static void handleClientsBlockedOnKey(readyList *rl) {
                 (o != NULL && (receiver->bstate.btype == BLOCKED_MODULE)) ||
                 (receiver->bstate.unblock_on_nokey))
             {
+                /* Re-executing a blocked XREAD/XREADGROUP that has nothing to
+                 * read only blocks it again, so skip it while the stream
+                 * cannot serve it. With many clients blocked on one stream
+                 * this turns every XADD from O(waiters) command executions
+                 * into O(waiters) ID compares. */
+                if (receiver->bstate.btype == BLOCKED_STREAM &&
+                    obtype == BLOCKED_STREAM &&
+                    !streamBlockedClientMayBeServed(receiver, rl->key, o->ptr))
+                    continue;
                 if (receiver->bstate.btype != BLOCKED_MODULE)
                     unblockClientOnKey(receiver, rl->key);
                 else if (rl->wake_modules)

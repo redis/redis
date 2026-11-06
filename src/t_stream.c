@@ -3053,6 +3053,34 @@ void xlenCommand(client *c) {
  * This is useful because while XREAD is a read command and can be called
  * on slaves, XREADGROUP is not. */
 #define XREAD_BLOCKED_DEFAULT_COUNT 1000
+
+/* Called when a stream key a client is blocked on is signaled. Return 0 only
+ * if re-executing the client's XREAD/XREADGROUP could not serve anything from
+ * stream 's' (stored under 'key'), so the client can stay blocked; return 1 if
+ * the command must be re-executed. Re-execution serves a stream only if its
+ * last valid ID is greater than the ID the client reads after (the group's
+ * last delivered ID for XREADGROUP '>'), and the last valid ID is never greater
+ * than s->last_id, so comparing against s->last_id never skips a client that
+ * could be served. */
+int streamBlockedClientMayBeServed(client *c, robj *key, stream *s) {
+    blockingState *b = &c->bstate;
+    int found = 0;
+
+    if (b->stream_ids == NULL) return 1;
+    for (int i = 0; i < b->stream_numkeys; i++) {
+        if (!equalStringObjects(c->argv[b->stream_keys_arg+i], key)) continue;
+        found = 1;
+        streamID *gt = &b->stream_ids[i];
+        if (b->stream_group_arg) {
+            streamCG *cg = streamLookupCG(s, c->argv[b->stream_group_arg]->ptr);
+            if (cg == NULL) return 1; /* Re-execution replies -NOGROUP. */
+            gt = &cg->last_id;
+        }
+        if (streamCompareID(&s->last_id, gt) > 0) return 1;
+    }
+    return !found;
+}
+
 void xreadCommand(client *c) {
     long long min_idle_time = -1; /* -1 means, no IDLE argument given. */
     uint64_t timeout = 0;
@@ -3068,6 +3096,7 @@ void xreadCommand(client *c) {
     streamCG **groups = NULL;
     int xreadgroup = sdslen(c->argv[0]->ptr) == 10; /* XREAD or XREADGROUP? */
     robj *groupname = NULL;
+    int groupname_arg = 0;
     robj *consumername = NULL;
     size_t old_alloc = 0;
 
@@ -3135,6 +3164,7 @@ void xreadCommand(client *c) {
                 return;
             }
             groupname = c->argv[i+1];
+            groupname_arg = i+1;
             consumername = c->argv[i+2];
             i += 2;
         } else if (!strcasecmp(o,"NOACK")) {
@@ -3480,6 +3510,18 @@ void xreadCommand(client *c) {
             else
                 pel_expire_time += commandTimeSnapshot();
             trackStreamClaimTimeouts(c, c->argv+streams_arg, streams_count, pel_expire_time);
+        }
+        /* Remember what we wait for, see streamBlockedClientMayBeServed().
+         * CLAIM can be served by PEL entries becoming idle, not only by new
+         * entries, so such clients are always re-executed. */
+        zfree(c->bstate.stream_ids);
+        c->bstate.stream_ids = NULL;
+        if (min_idle_time == -1) {
+            c->bstate.stream_ids = zmalloc(sizeof(streamID)*streams_count);
+            memcpy(c->bstate.stream_ids, ids, sizeof(streamID)*streams_count);
+            c->bstate.stream_keys_arg = streams_arg;
+            c->bstate.stream_numkeys = streams_count;
+            c->bstate.stream_group_arg = groupname_arg;
         }
         blockForKeys(c, BLOCKED_STREAM, c->argv+streams_arg, streams_count, timeout, xreadgroup);
         goto cleanup;
