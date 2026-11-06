@@ -68,7 +68,17 @@ exprtoken *safe_extract_field(const char *json, size_t json_len,
     boundary_violation = 0;
 
     if (setjmp(jmpbuf) == 0) {
-        return jsonExtractField(json, json_len, field, field_len);
+        exprtoken *token = NULL;
+        int status = jsonExtractField(json, json_len, field, field_len, &token);
+        if (status == JSON_FIELD_STATUS_OK) {
+            return token;
+        }
+        /* Missing or unsupported -> NULL. */
+        if (token) {
+            /* Should not happen unless future API changes */
+            exprTokenRelease(token);
+        }
+        return NULL;
     } else {
         return NULL; /* Return NULL if boundary violation occurred */
     }
