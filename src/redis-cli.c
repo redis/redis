@@ -2205,13 +2205,13 @@ static sds cliFormatReplyCSV(redisReply *r) {
 
 /* Append specified buffer to out and return it, using required JSON output
  * mode. */
-static sds jsonStringOutput(sds out, const char *p, int len, int mode) {
+static sds jsonStringOutput(sds out, const char *p, size_t len, int mode) {
     if (mode == OUTPUT_JSON) {
         return escapeJsonString(out, p, len);
     } else if (mode == OUTPUT_QUOTED_JSON) {
         /* Need to double-quote backslashes */
         sds tmp = sdscatrepr(sdsempty(), p, len);
-        int tmplen = sdslen(tmp);
+        size_t tmplen = sdslen(tmp);
         char *n = tmp;
         while (tmplen--) {
             if (*n == '\\') out = sdscatlen(out, "\\\\", 2);
