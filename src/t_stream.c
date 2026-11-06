@@ -358,6 +358,12 @@ static uint32_t streamLagGetSlot(void *item) {
 
 static const iheapType streamLagHeapType = { streamLagSetSlot, streamLagGetSlot };
 
+/* Whether 'cg' is held by 'h' at 'slot': what a member's stamp claims, and
+ * what iheapUpdate() and iheapRemove() act on. For the assertions. */
+static inline int streamLagHeldAt(const iheap *h, uint32_t slot, const streamCG *cg) {
+    return h && slot < iheapCount(h) && h->e[slot].item == cg;
+}
+
 /* The stream's sample: the worst lag among its members, or -1 when there is
  * none (no groups, no member, every member's position unknown, or more
  * groups than the slot can address). Reads only the stream, so the BIO
@@ -422,7 +428,8 @@ static void streamLagGroupTouched(redisDb *db, stream *s, streamCG *cg) {
     debugServerAssert(st->epoch == streamStatsEpochOf(db));
     int64_t old = streamLagSample(s);
     if (st->counted & STREAM_CG_IN_LAG_HEAP) {
-        debugServerAssert(ls->heap != NULL); /* a current member is in a heap */
+        /* A current member is in a heap, at its slot. */
+        debugServerAssert(streamLagHeldAt(ls->heap, streamStampSlot(st), cg));
         iheapUpdate(ls->heap, streamStampSlot(st), streamLagKey(cg));
     } else if (raxSize(s->cgroups) <= STREAM_LAG_MAX_MEMBERS &&
                (!ls->heap || iheapCount(ls->heap) < STREAM_LAG_MAX_MEMBERS))
@@ -454,13 +461,17 @@ static void streamLagGroupTouched(redisDb *db, stream *s, streamCG *cg) {
  * generation, which makes every in-heap bit stale; in
  * streamUpdateStreamSamples(), which clears the bits before it rebuilds; and
  * in streamLagGroupLeaving() with stats off, which leaves the bits set but
- * in a generation that ends before stats are on again. Hence the assertion,
- * here and in streamLagGroupTouched(). */
+ * in a generation that ends before stats are on again. Hence the assertions
+ * below, the same ones streamLagGroupTouched() makes: stats are on (here,
+ * the caller's STREAM_LAG_OFF gate), and a current member's stream is in
+ * this generation too, with the member's slot holding it. */
 static void streamLagMemberMoved(redisDb *db, stream *s, streamCG *cg) {
     streamLagState *ls = streamLagStateOf(s);
     streamDistribStamp *st = streamCGStamp(cg);
+    debugServerAssert(server.stream_stats);
     if (st->epoch != streamStatsEpochOf(db) || !(st->counted & STREAM_CG_IN_LAG_HEAP)) return;
-    debugServerAssert(ls->heap != NULL);
+    debugServerAssert(s->distrib_epoch == streamStatsEpochOf(db));
+    debugServerAssert(streamLagHeldAt(ls->heap, streamStampSlot(st), cg));
     iheapUpdate(ls->heap, streamStampSlot(st), streamLagKey(cg));
 }
 
@@ -493,7 +504,7 @@ static void streamLagGroupLeaving(redisDb *db, stream *s, streamCG *cg) {
     streamDistribStamp *st = streamCGStamp(cg);
     serverAssert(st->epoch == streamStatsEpochOf(db));
     if (!(st->counted & STREAM_CG_IN_LAG_HEAP)) return;
-    debugServerAssert(ls->heap != NULL); /* see streamLagMemberMoved() */
+    debugServerAssert(streamLagHeldAt(ls->heap, streamStampSlot(st), cg)); /* see streamLagMemberMoved() */
     iheapRemove(ls->heap, streamStampSlot(st));
     st->counted &= ~STREAM_CG_IN_LAG_HEAP;
 }
@@ -583,7 +594,7 @@ static void streamLagAssert(redisDb *db, stream *s) {
         if (st->epoch != epoch || !(st->counted & STREAM_CG_IN_LAG_HEAP)) continue;
         members++;
         uint32_t slot = streamStampSlot(st);
-        if (!h || slot >= iheapCount(h) || h->e[slot].item != cg || h->e[slot].key != streamLagKey(cg))
+        if (!streamLagHeldAt(h, slot, cg) || h->e[slot].key != streamLagKey(cg))
             serverPanic("streamLagAssert: a member group is not where its slot says");
     }
     raxStop(&ri);
