@@ -1100,6 +1100,7 @@ jobs:
         version: 15.1
         shell: bash
     - name: test
+      # cpa.sh is installed by the step above; it runs this script inside the FreeBSD VM.
       shell: cpa.sh {0}
       run: |
         sudo pkg install -y bash gmake lang/tcl86 lang/tclX gcc
