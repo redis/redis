@@ -4401,6 +4401,7 @@ size_t RM_ValueLength(RedisModuleKey *key) {
 int RM_DeleteKey(RedisModuleKey *key) {
     if (!(key->mode & REDISMODULE_WRITE)) return REDISMODULE_ERR;
     if (key->kv) {
+        if (key->iter) moduleFreeKeyIterator(key);
         dbDelete(key->db,key->key);
         key->kv = NULL;
     }
@@ -4415,6 +4416,7 @@ int RM_DeleteKey(RedisModuleKey *key) {
 int RM_UnlinkKey(RedisModuleKey *key) {
     if (!(key->mode & REDISMODULE_WRITE)) return REDISMODULE_ERR;
     if (key->kv) {
+        if (key->iter) moduleFreeKeyIterator(key);
         dbAsyncDelete(key->db,key->key);
         key->kv = NULL;
     }
