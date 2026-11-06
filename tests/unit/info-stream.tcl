@@ -51,10 +51,17 @@ proc get_info_stream_field {server field} {
 }
 
 # Reconstruct a metric's expected histogram for 'dbid' directly from the
-# keyspace (the INFO-independent cross-check): for every stream, read the given
-# XINFO GROUPS field per group and bin it. A nil field contributes no sample,
-# matching the live histogram. 'pending' is never nil, so that branch is unused
-# today; it keeps the helper usable for a metric XINFO can report as NULL.
+# keyspace (the INFO-independent cross-check). Per-group metrics: for every
+# stream, read the given XINFO GROUPS field per group and bin it; a nil field
+# contributes no sample, matching the live histogram. 'pending' is never nil,
+# so that branch is unused today; it keeps the helper usable for a metric
+# XINFO can report as NULL. The two per-stream metrics are rebuilt from their
+# definitions instead: 'groups' bins the group count of XINFO STREAM, and
+# 'max_lag' bins the worst lag over the stream's groups of known position,
+# min(entries-added - smallest entries-read, length), from XINFO STREAM and
+# the raw entries-read of XINFO GROUPS; a stream with no such group has no
+# sample. XINFO's own lag field is never used: it estimates a lag for a group
+# of unknown position, which the row does not count.
 # Returns the same canonical form as get_info_stream_field.
 proc eval_stream_histogram {server dbid metric xinfo_field} {
     $server select $dbid
@@ -64,6 +71,23 @@ proc eval_stream_histogram {server dbid metric xinfo_field} {
         if {$xinfo_field eq "groups"} {
             # A per-stream metric: one sample per stream, from XINFO STREAM.
             incr bin_counts([hist_label [dict get [$server xinfo stream $key] groups]])
+            continue
+        }
+        if {$xinfo_field eq "max_lag"} {
+            set min_read {}
+            foreach g [$server xinfo groups $key] {
+                array set gi $g
+                set er $gi(entries-read)
+                if {$er ne {} && ($min_read eq {} || $er < $min_read)} { set min_read $er }
+                unset gi
+            }
+            if {$min_read eq {}} continue
+            set info [$server xinfo stream $key]
+            set added [dict get $info entries-added]
+            set lag [expr {$added > $min_read ? $added - $min_read : 0}]
+            set len [dict get $info length]
+            if {$lag > $len} { set lag $len }
+            incr bin_counts([hist_label $lag])
             continue
         }
         foreach g [$server xinfo groups $key] {
@@ -146,11 +170,11 @@ proc verify_streams_cgroups {cmd exp {waitCond 0}} {
 }
 
 # stream_distrib_streams_max_lag: placeholder "LAG"; one sample per stream, the
-# worst lag over its groups of known position. No XINFO cross-check: XINFO
-# GROUPS estimates a lag for a group whose position is unknown, this row does
-# not count such a group at all.
+# worst lag over its groups of known position. Cross-checked against a
+# reconstruction from XINFO STREAM entries-added / length and XINFO GROUPS
+# entries-read (see eval_stream_histogram), never against XINFO's lag field.
 proc verify_streams_max_lag {cmd exp {waitCond 0}} {
-    uplevel 1 [list verify_stream_metric $cmd $exp stream_distrib_streams_max_lag LAG lag $waitCond]
+    uplevel 1 [list verify_stream_metric $cmd $exp stream_distrib_streams_max_lag LAG max_lag $waitCond]
 }
 
 # Sum of all bin counts on one INFO histogram line ("" -> 0).
@@ -532,12 +556,13 @@ proc test_all_stream_stats { {replMode 0} } {
             catch {$server xtrim strm$s maxlen [expr {int(rand()*10)}]}
             catch {$server xdel strm$s [expr {int(rand()*15)+1}]-1}
         }
-        # All three metrics must match an independent reconstruction from XINFO
-        # (GROUPS pending / consumers, STREAM groups) -- across
-        # trims/deletes/reads/acks.
+        # All four metrics must match an independent reconstruction from XINFO
+        # (GROUPS pending / consumers / entries-read, STREAM groups /
+        # entries-added / length) -- across trims/deletes/reads/acks.
         verify_pel {} {__EVAL__ 0}
         verify_consumers {} {__EVAL__ 0}
         verify_streams_cgroups {} {__EVAL__ 0}
+        verify_streams_max_lag {} {__EVAL__ 0}
     }
 }
 
@@ -562,23 +587,27 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats yes}}
         verify_pel {} {__EVAL__ 0}
         verify_consumers {} {__EVAL__ 0}
         verify_streams_cgroups {} {__EVAL__ 0}
+        verify_streams_max_lag {} {__EVAL__ 0}
         # Every stream is exactly one sample of the groups-per-stream row.
         assert_equal [count_stream_keys r] [hist_total [get_info_stream_field r stream_distrib_streams_cgroups]]
 
-        # A reload must reconstruct all three metrics for a random dataset too.
+        # A reload must reconstruct all four metrics for a random dataset too.
         set before_pel [get_info_stream_field r stream_distrib_cgroups_pel]
         set before_cons [get_info_stream_field r stream_distrib_cgroups_consumers]
         set before_sc [get_info_stream_field r stream_distrib_streams_cgroups]
+        set before_lag [get_info_stream_field r stream_distrib_streams_max_lag]
         r DEBUG RELOAD
         assert_equal $before_pel [get_info_stream_field r stream_distrib_cgroups_pel]
         assert_equal $before_cons [get_info_stream_field r stream_distrib_cgroups_consumers]
         assert_equal $before_sc [get_info_stream_field r stream_distrib_streams_cgroups]
+        assert_equal $before_lag [get_info_stream_field r stream_distrib_streams_max_lag]
 
         verify_pel {r FLUSHALL} {}
         createComplexDataset r 1000 {useexpire}
         verify_pel {} {__EVAL__ 0}
         verify_consumers {} {__EVAL__ 0}
         verify_streams_cgroups {} {__EVAL__ 0}
+        verify_streams_max_lag {} {__EVAL__ 0}
     } {} {cluster:skip}
 
     test "STREAM-STATS - DEBUG RELOAD reconstructs the histogram from RDB" {
@@ -592,12 +621,14 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats yes}}
         set before [get_info_stream_stripped r]
         r DEBUG RELOAD
         assert_equal $before [get_info_stream_stripped r]
-        # All three metrics match an independent reconstruction from XINFO.
+        # All four metrics match an independent reconstruction from XINFO.
         assert_equal [eval_stream_histogram r 0 stream_distrib_cgroups_pel pending] [get_info_stream_field r stream_distrib_cgroups_pel]
         assert_equal [eval_stream_histogram r 0 stream_distrib_cgroups_consumers consumers] \
             [get_info_stream_field r stream_distrib_cgroups_consumers]
         assert_equal [eval_stream_histogram r 0 stream_distrib_streams_cgroups groups] \
             [get_info_stream_field r stream_distrib_streams_cgroups]
+        assert_equal [eval_stream_histogram r 0 stream_distrib_streams_max_lag max_lag] \
+            [get_info_stream_field r stream_distrib_streams_max_lag]
     }
 
     test "STREAM-STATS - section is empty after the streams are removed" {
