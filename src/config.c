@@ -985,29 +985,37 @@ static int configIsSameConfig(standardConfig *a, standardConfig *b) {
     return !strcasecmp(configGetPrimaryName(a), configGetPrimaryName(b));
 }
 
-static void restoreBackupConfig(standardConfig **set_configs, sds *old_values, int count) {
+static void restoreBackupConfigValues(standardConfig **set_configs, sds *old_values, int count, const char **errstr) {
     int i;
-    const char *errstr = "unknown error";
     /* Set all backup values */
     for (i = 0; i < count; i++) {
-        if (!performInterfaceSet(set_configs[i], old_values[i], &errstr))
+        if (!performInterfaceSet(set_configs[i], old_values[i], errstr))
             serverLog(LL_WARNING, "Failed restoring failed CONFIG SET command. Error setting %s to '%s': %s",
-                      set_configs[i]->name, old_values[i], errstr);
+                      set_configs[i]->name, old_values[i], *errstr);
     }
- 
+}
+
+static void applyBackupConfig(standardConfig **set_configs, int count, const char **errstr) {
+    int i;
     for (i = 0; i < count; i++) {
         if (!configNeedsApply(set_configs[i])) continue;
 
         int applyres = 0;
         if (set_configs[i]->flags & MODULE_CONFIG)
-            applyres = moduleConfigApply(set_configs[i]->privdata, &errstr);
+            applyres = moduleConfigApply(set_configs[i]->privdata, errstr);
         else
-            applyres = set_configs[i]->interface.apply(&errstr);
+            applyres = set_configs[i]->interface.apply(errstr);
         
         if (!applyres)
             serverLog(LL_WARNING, "Failed applying restored CONFIG SET command. Error applying %s: %s",
-                      set_configs[i]->name, errstr);
+                      set_configs[i]->name, *errstr);
     }
+}
+
+static void restoreBackupConfig(standardConfig **set_configs, sds *old_values, int count) {
+    const char *errstr = "unknown error";
+    restoreBackupConfigValues(set_configs, old_values, count, &errstr);
+    applyBackupConfig(set_configs, count, &errstr);
 }
 
 /*-----------------------------------------------------------------------------
@@ -1016,6 +1024,7 @@ static void restoreBackupConfig(standardConfig **set_configs, sds *old_values, i
 
 void configSetCommand(client *c) {
     const char *errstr = NULL;
+    const char *restore_errstr = "unknown error";
     const char *invalid_arg_name = NULL;
     const char *err_arg_name = NULL;
     standardConfig **set_configs; /* TODO: make this a dict for better performance */
@@ -1097,14 +1106,28 @@ void configSetCommand(client *c) {
     if (invalid_args) goto err;
 
     /* Backup old values before setting new ones */
-    for (i = 0; i < config_count; i++)
-        old_values[i] = set_configs[i]->interface.get(set_configs[i]);
+    for (i = 0; i < config_count; i++) {
+        if (!strcmp(set_configs[i]->name, "save")) {
+            /* The setter accepts nonnegative counts, even when stored as a negative int. */
+            old_values[i] = sdsempty();
+            for (j = 0; j < server.saveparamslen; j++) {
+                old_values[i] = sdscatprintf(old_values[i], "%s%jd %u", j ? " " : "",
+                                           (intmax_t)server.saveparams[j].seconds,
+                                           (unsigned int)server.saveparams[j].changes);
+            }
+        } else {
+            old_values[i] = set_configs[i]->interface.get(set_configs[i]);
+        }
+    }
 
     /* Set all new values (don't apply yet) */
     for (i = 0; i < config_count; i++) {
         int res = performInterfaceSet(set_configs[i], new_values[i], &errstr);
         if (!res) {
-            restoreBackupConfig(set_configs, old_values, i+1);
+            restoreBackupConfigValues(set_configs, old_values, i+1, &restore_errstr);
+            /* Apply callbacks can rewrite the config, so restore its save extent first. */
+            saveparamslen_to_rewrite = old_saveparamslen_to_rewrite;
+            applyBackupConfig(set_configs, i+1, &restore_errstr);
             err_arg_name = set_configs[i]->name;
             goto err;
         }
@@ -1127,7 +1150,9 @@ void configSetCommand(client *c) {
             res = set_configs[i]->interface.apply(&errstr);
         
         if (!res) {
-            restoreBackupConfig(set_configs, old_values, config_count);
+            restoreBackupConfigValues(set_configs, old_values, config_count, &restore_errstr);
+            saveparamslen_to_rewrite = old_saveparamslen_to_rewrite;
+            applyBackupConfig(set_configs, config_count, &restore_errstr);
             err_arg_name = set_configs[i]->name;
             goto err;
         }
@@ -1139,15 +1164,6 @@ void configSetCommand(client *c) {
     goto end;
 
 err:
-    /* Restoring save also restores which rules may be persisted. A backup
-     * that the setter cannot restore must not restore an unrelated extent. */
-    for (i = 0; i < config_count; i++) {
-        if (!old_values[i] || strcmp(set_configs[i]->name, "save")) continue;
-        sds restored_value = set_configs[i]->interface.get(set_configs[i]);
-        if (!sdscmp(restored_value, old_values[i]))
-            saveparamslen_to_rewrite = old_saveparamslen_to_rewrite;
-        sdsfree(restored_value);
-    }
     if (deny_loading_error) {
         /* We give the loading error precedence because it may be handled by clients differently, unlike a plain -ERR. */
         addReplyErrorObject(c,shared.loadingerr);

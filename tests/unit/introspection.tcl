@@ -650,9 +650,18 @@ start_server {tags {"introspection"}} {
             set fd [open $include_file w]
             puts $fd {save 100 2147483648}
             close $fd
-            start_server [list config minimal.conf config_lines [list include "\"$include_file\"" save {200 2}]] {
+            start_server [list config minimal.conf overrides {bind 127.0.0.1} config_lines [list include "\"$include_file\"" save {200 2}]] {
                 set expected {100 -2147483648 200 2}
                 assert_equal $expected [lindex [r config get save] 1]
+                assert_error {*timeout*} {r config set save {300 3} timeout -1}
+                assert_equal $expected [lindex [r config get save] 1]
+
+                set sockfd [socket -server {apply {{chan addr port} {close $chan}}} -myaddr 127.0.0.1 0]
+                set used_port [lindex [fconfigure $sockfd -sockname] 2]
+                assert_error {*Unable to listen on this port*} {r config set save {300 3} port $used_port}
+                close $sockfd
+                assert_equal $expected [lindex [r config get save] 1]
+                assert_equal PONG [r ping]
                 r config rewrite
                 assert_no_match {*save 100 -2147483648*} [read_file [srv 0 config_file]]
                 restart_server 0 true false
