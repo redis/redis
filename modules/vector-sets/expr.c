@@ -332,21 +332,53 @@ exprtoken *exprParseNumber(exprstate *es) {
     return t;
 }
 
+/* Process the escapes of a string token that still points to the raw
+ * expression text, so that "a\"b" in an expression matches the JSON
+ * string "a\"b". The token gets a private copy of the string. Same
+ * escapes handled by jsonParseStringToken(). */
+static void exprUnescapeString(exprtoken *t) {
+    char *dst = RedisModule_Alloc(t->str.len + 1);
+    const char *src = t->str.start, *end = t->str.start + t->str.len;
+    size_t len = 0;
+
+    while (src < end) {
+        if (*src == '\\' && src + 1 < end) {
+            src++;
+            switch (*src) {
+            case 'n': dst[len++] = '\n'; break;
+            case 'r': dst[len++] = '\r'; break;
+            case 't': dst[len++] = '\t'; break;
+            /* \\ \" \' and any other escape: the char itself. */
+            default: dst[len++] = *src; break;
+            }
+            src++;
+            continue;
+        }
+        dst[len++] = *src++;
+    }
+    dst[len] = '\0';
+    t->str.start = t->str.heapstr = dst;
+    t->str.len = len;
+}
+
 exprtoken *exprParseString(exprstate *es) {
     char quote = es->p[0];  /* Store the quote type (' or "). */
     es->p++;                /* Skip opening quote. */
 
     exprtoken *t = exprNewToken(EXPR_TOKEN_STR);
     t->str.start = es->p;
+    int has_esc = 0;
 
     while(es->p[0] != '\0') {
         if (es->p[0] == '\\' && es->p[1] != '\0') {
             es->p += 2; // Skip escaped char.
+            has_esc = 1;
             continue;
         }
         if (es->p[0] == quote) {
             t->str.len = es->p - t->str.start;
             es->p++; // Skip closing quote.
+            if (has_esc) exprUnescapeString(t);
             return t;
         }
         es->p++;
