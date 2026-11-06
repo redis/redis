@@ -83,8 +83,8 @@ test {Zset listpack duplicate members are rejected by sanitization and assert on
         # check can catch the duplicate.
         set payload [string map {bravo alpha} [r dump dup-source]]
         r debug set-skip-checksum-validation 1
-        foreach {sanitize limit} {yes 128 yes 1} {
-            r config set sanitize-dump-payload $sanitize
+        r config set sanitize-dump-payload yes
+        foreach {limit} {128 1} {
             r config set zset-max-listpack-entries $limit
             assert_error {*Bad data format*} {r restore dup 0 $payload}
             assert_equal 0 [r exists dup]
