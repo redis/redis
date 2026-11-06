@@ -2134,6 +2134,26 @@ foreach {pop} {BLPOP BLMPOP_RIGHT} {
 }
 
     foreach {max_lp_size large} "3 $largevalue(listpack) -1 $largevalue(quicklist)" {
+        test "List LSET keeps listpack encoding when replacement stays within limits - $max_lp_size" {
+            set origin_conf [config_get_set list-max-listpack-size $max_lp_size]
+
+            create_listpack lst "a b c"
+            r LSET lst 0 x
+            assert_encoding listpack lst
+
+            r config set list-max-listpack-size $origin_conf
+        }
+
+        test "List LSET converts listpack when replacement exceeds safety limit - $max_lp_size" {
+            set origin_conf [config_get_set list-max-listpack-size $max_lp_size]
+
+            create_listpack lst "a"
+            r LSET lst 0 [string repeat x 9000]
+            assert_encoding quicklist lst
+
+            r config set list-max-listpack-size $origin_conf
+        }
+        
         test "List listpack -> quicklist encoding conversion" {
             set origin_conf [config_get_set list-max-listpack-size $max_lp_size]
 
@@ -2150,7 +2170,11 @@ foreach {pop} {BLPOP BLMPOP_RIGHT} {
             # LSET
             create_listpack lst "a b c"
             r LSET lst 0 $large
-            assert_encoding quicklist lst
+            if {$max_lp_size == 3} {
+                assert_encoding listpack lst
+            } else {
+                assert_encoding quicklist lst
+            }
 
             # LMOVE
             create_quicklist lsrc{t} "a b c $large"
