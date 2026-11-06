@@ -22,8 +22,10 @@
 
 /* For GCC, Clang — use builtins that compile to a single instruction */
 #if defined(__GNUC__) || defined(__clang__)
+#define REDIS_BSWAP32(v) __builtin_bswap32(v)
 #define REDIS_BSWAP64(v) __builtin_bswap64(v)
 #else
+#define REDIS_BSWAP32(v) intrev32(v)
 #define REDIS_BSWAP64(v) intrev64(v)
 #endif
 
