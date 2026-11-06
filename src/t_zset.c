@@ -2263,14 +2263,6 @@ static void zsetGetMinMax(client *c, robj *zobj, sds *ele, double *score, int wh
         sptr = lpNext(zl, eptr);
         serverAssertWithInfo(c, zobj, sptr != NULL);
         *score = zzlGetScore(sptr);
-    } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
-        zset *zs = zobj->ptr;
-        zskiplistNode *zln;
-
-        zln = (where == ZSET_MAX) ? zs->zsl->tail : zs->zsl->header->level[0].forward;
-        serverAssertWithInfo(c, zobj, zln != NULL);
-        *ele = sdsdup(zslGetNodeElement(zln));
-        *score = zln->score;
     } else if (zobj->encoding == OBJ_ENCODING_BTREE) {
         zbtreeIterator iter;
         const unsigned char *raw;
@@ -5724,13 +5716,6 @@ static void zmoveRangeCommand(client *c, zrangespec *range, long limit) {
     if (sobj->encoding == OBJ_ENCODING_LISTPACK) {
         sobj->ptr = zzlDeleteRangeByRank(sobj->ptr, first + 1,
                                         first + state.moved, &deleted);
-    } else if (sobj->encoding == OBJ_ENCODING_SKIPLIST) {
-        zset *zs = sobj->ptr;
-        dictPauseAutoResize(zs->dict);
-        deleted = zslDeleteRangeByRank(zs->zsl, first + 1,
-                                       first + state.moved, zs->dict);
-        dictResumeAutoResize(zs->dict);
-        dictShrinkIfNeeded(zs->dict);
     } else if (sobj->encoding == OBJ_ENCODING_BTREE) {
         deleted = zbtreeDeleteRangeByRank(sobj->ptr, first, first + state.moved - 1);
     } else {
@@ -5766,7 +5751,10 @@ void zmovememberCommand(client *c) {
 }
 
 /* ZMOVE <source> <destination> MIN|MAX
- * ZMOVE <source> <destination> BYSCORE <min> <max> [LIMIT <count>] */
+ * ZMOVE <source> <destination> BYSCORE <min> <max> [LIMIT <count>]
+ * MIN/MAX moves one extremal member. BYSCORE atomically claims an eligible
+ * score range, optionally bounded by count, without a client-side score-check
+ * race against concurrent writers. */
 void zmoveCommand(client *c) {
     if (!strcasecmp(c->argv[3]->ptr, "BYSCORE")) {
         if (c->argc != 6 && c->argc != 8) {

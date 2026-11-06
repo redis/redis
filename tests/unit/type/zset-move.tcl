@@ -76,11 +76,13 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
     }
 
     foreach resp {2 3} {
+        if {$resp == 3 && [lsearch $::denytags "resp3"] >= 0} {continue}
+        if {$resp == 2 && $::force_resp3} {continue}
         test "ZMOVE BYSCORE returns nested pairs including integer and binary members in RESP$resp" {
             r hello $resp
             r del src{t} dst{t}
             r config set zset-max-listpack-entries 128
-            set binary "a\x00b"
+            set binary "a\x00\x62"
             r zadd src{t} 1 42 2 $binary
             assert_encoding listpack src{t}
             r readraw 1

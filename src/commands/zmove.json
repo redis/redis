@@ -3,7 +3,7 @@
         "summary": "Moves a highest- or lowest-scoring member, or a score range of members, from one sorted set to another, preserving scores. Deletes the source sorted set if the last member was moved.",
         "complexity": "O(log(N) + K*(log(N)+log(M))) where N and M are the source and destination sizes and K is the number of moved members.",
         "group": "sorted_set",
-        "since": "8.8.0",
+        "since": "8.12.0",
         "arity": -4,
         "function": "zmoveCommand",
         "command_flags": [
@@ -131,11 +131,11 @@
                             },
                             {
                                 "name": "min",
-                                "type": "string"
+                                "type": "double"
                             },
                             {
                                 "name": "max",
-                                "type": "string"
+                                "type": "double"
                             },
                             {
                                 "name": "count",

@@ -1445,7 +1445,7 @@ start_server {tags {"zset"}} {
         }
 
         test "ZMOVE preserves binary members and deletes the last source member - $encoding" {
-            set member "a\x00b[string repeat x 80]"
+            set member "a\x00\x62[string repeat x 80]"
             r del zset{t} target{t}
             r zadd zset{t} -1 $member
             assert_encoding btree zset{t}
@@ -2873,7 +2873,7 @@ start_server {tags {"zset"}} {
         assert_equal {+OK} [r multi]
         assert_equal {+QUEUED} [r bzmove zset{t} target{t} min 0]
         assert_equal {*1} [r exec]
-        verify_nil_response 2 [r read]
+        verify_nil_response [expr {$::force_resp3 ? 3 : 2}] [r read]
 
         r readraw 0
         assert_equal 0 [r exists target{t}]
