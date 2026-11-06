@@ -1,0 +1,19 @@
+#!/bin/sh
+# Raise open files limit (macOS default 256 is too low for tests).
+OPEN_FILE_LIMIT=$(ulimit -n 2>/dev/null)
+if [ -n "$OPEN_FILE_LIMIT" ] && [ "$OPEN_FILE_LIMIT" != "unlimited" ] && [ "$OPEN_FILE_LIMIT" -lt 1024 ]; then
+    ulimit -n 1024 2>/dev/null || true
+fi
+TCL_VERSIONS="8.5 8.6 8.7 9.0"
+TCLSH=""
+
+for VERSION in $TCL_VERSIONS; do
+	TCL=`which tclsh$VERSION 2>/dev/null` && TCLSH=$TCL
+done
+
+if [ -z $TCLSH ]
+then
+    echo "You need tcl 8.5 or newer in order to run the Redis Sentinel test"
+    exit 1
+fi
+$TCLSH tests/sentinel/run.tcl $*

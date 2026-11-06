@@ -1,0 +1,32 @@
+{
+    "SENTINELS": {
+        "summary": "Returns a list of Sentinel instances.",
+        "complexity": "O(N) where N is the number of Sentinels",
+        "group": "sentinel",
+        "since": "2.8.4",
+        "arity": 3,
+        "container": "SENTINEL",
+        "function": "sentinelCommand",
+        "command_flags": [
+            "ADMIN",
+            "SENTINEL",
+            "ONLY_SENTINEL"
+        ],
+        "reply_schema": {
+            "type": "array",
+            "description": "List of sentinel instances, and their state.",
+            "items": {
+                "type": "object",
+                "additionalProperties": {
+                    "type": "string"
+                }
+            }
+        },
+        "arguments": [
+            {
+                "name": "master-name",
+                "type": "string"
+            }
+        ]
+    }
+}

@@ -1,0 +1,85 @@
+{
+    "BZPOPMIN": {
+        "summary": "Removes and returns the member with the lowest score from one or more sorted sets. Blocks until a member is available otherwise. Deletes the sorted set if the last element was popped.",
+        "complexity": "O(log(N)) with N being the number of elements in the sorted set.",
+        "group": "sorted_set",
+        "since": "5.0.0",
+        "arity": -3,
+        "function": "bzpopminCommand",
+        "history": [
+            [
+                "6.0.0",
+                "`timeout` is interpreted as a double instead of an integer."
+            ]
+        ],
+        "command_flags": [
+            "WRITE",
+            "FAST",
+            "BLOCKING"
+        ],
+        "acl_categories": [
+            "SORTEDSET"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "ACCESS",
+                    "DELETE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": -2,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "Timeout reached and no elements were popped.",
+                    "type": "null"
+                },
+                {
+                    "description": "The keyname, popped member, and its score.",
+                    "type": "array",
+                    "minItems": 3,
+                    "maxItems": 3,
+                    "items": [
+                        {
+                            "description": "Keyname",
+                            "type": "string"
+                        },
+                        {
+                            "description": "Member",
+                            "type": "string"
+                        },
+                        {
+                            "description": "Score",
+                            "type": "number"
+                        }
+                    ]
+                }
+            ]
+        },
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0,
+                "multiple": true
+            },
+            {
+                "name": "timeout",
+                "type": "double"
+            }
+        ]
+    }
+}

@@ -1,0 +1,52 @@
+{
+    "PFDEBUG": {
+        "summary": "Internal commands for debugging HyperLogLog values.",
+        "complexity": "N/A",
+        "group": "hyperloglog",
+        "since": "2.8.9",
+        "arity": 3,
+        "function": "pfdebugCommand",
+        "doc_flags": [
+            "SYSCMD"
+        ],
+        "command_flags": [
+            "WRITE",
+            "DENYOOM",
+            "ADMIN"
+        ],
+        "acl_categories": [
+            "HYPERLOGLOG"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 2
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "subcommand",
+                "type": "string"
+            },
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            }
+        ]
+    }
+}

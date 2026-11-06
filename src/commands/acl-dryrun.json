@@ -1,0 +1,47 @@
+{
+    "DRYRUN": {
+        "summary": "Simulates the execution of a command by a user, without executing the command.",
+        "complexity": "O(1).",
+        "group": "server",
+        "since": "7.0.0",
+        "arity": -4,
+        "container": "ACL",
+        "function": "aclCommand",
+        "history": [],
+        "command_flags": [
+            "ADMIN",
+            "NOSCRIPT",
+            "LOADING",
+            "STALE",
+            "SENTINEL"
+        ],
+        "reply_schema": {
+            "anyOf": [
+                {
+                    "const": "OK",
+                    "description": "The given user may successfully execute the given command."
+                },
+                {
+                    "type": "string",
+                    "description": "The description of the problem, in case the user is not allowed to run the given command."
+                }
+            ]
+        },
+        "arguments": [
+            {
+                "name": "username",
+                "type": "string"
+            },
+            {
+                "name": "command",
+                "type": "string"
+            },
+            {
+                "name": "arg",
+                "type": "string",
+                "optional": true,
+                "multiple": true
+            }
+        ]
+    }
+}

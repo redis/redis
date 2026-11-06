@@ -1,0 +1,64 @@
+{
+    "ARGETRANGE": {
+        "summary": "Gets values in a range of indices.",
+        "complexity": "O(N) where N is the range length",
+        "group": "array",
+        "since": "8.8.0",
+        "arity": 4,
+        "function": "argetrangeCommand",
+        "command_flags": [
+            "READONLY"
+        ],
+        "acl_categories": [
+            "ARRAY"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "type": "array",
+            "items": {
+                "oneOf": [
+                    {
+                        "type": "string"
+                    },
+                    {
+                        "type": "null"
+                    }
+                ]
+            }
+        },
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "start",
+                "type": "integer"
+            },
+            {
+                "name": "end",
+                "type": "integer"
+            }
+        ]
+    }
+}

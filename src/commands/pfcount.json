@@ -1,0 +1,50 @@
+{
+    "PFCOUNT": {
+        "summary": "Returns the approximated cardinality of the set(s) observed by the HyperLogLog key(s).",
+        "complexity": "O(1) with a very small average constant time when called with a single key. O(N) with N being the number of keys, and much bigger constant times, when called with multiple keys.",
+        "group": "hyperloglog",
+        "since": "2.8.9",
+        "arity": -2,
+        "function": "pfcountCommand",
+        "command_flags": [
+            "READONLY",
+            "MAY_REPLICATE"
+        ],
+        "acl_categories": [
+            "HYPERLOGLOG"
+        ],
+        "key_specs": [
+            {
+                "notes": "RW because it may change the internal representation of the key, and propagate to replicas",
+                "flags": [
+                    "RW",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": -1,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0,
+                "multiple": true
+            }
+        ],
+        "reply_schema": {
+            "description": "The approximated number of unique elements observed via PFADD",
+            "type": "integer"
+        }
+    }
+}

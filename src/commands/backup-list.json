@@ -1,0 +1,22 @@
+{
+    "LIST": {
+        "summary": "List the immutable backup file paths pinned so far.",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "8.10.0",
+        "arity": 2,
+        "container": "BACKUP",
+        "function": "backupCommand",
+        "command_flags": [
+            "ADMIN",
+            "STALE"
+        ],
+        "reply_schema": {
+            "type": "array",
+            "description": "The absolute paths of immutable files pinned so far.",
+            "items": {
+                "type": "string"
+            }
+        }
+    }
+}

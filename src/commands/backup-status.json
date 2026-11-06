@@ -1,0 +1,53 @@
+{
+    "STATUS": {
+        "summary": "Report the current backup state.",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "8.10.0",
+        "arity": 2,
+        "container": "BACKUP",
+        "function": "backupCommand",
+        "command_flags": [
+            "ADMIN",
+            "STALE"
+        ],
+        "reply_schema": {
+            "type": "object",
+            "description": "Current backup state.",
+            "additionalProperties": false,
+            "properties": {
+                "state": {
+                    "oneOf": [
+                        {
+                            "const": "idle"
+                        },
+                        {
+                            "const": "pending"
+                        },
+                        {
+                            "const": "snapshotting"
+                        },
+                        {
+                            "const": "incrementing"
+                        },
+                        {
+                            "const": "sealed"
+                        },
+                        {
+                            "const": "failed"
+                        }
+                    ]
+                },
+                "error": {
+                    "type": "string"
+                },
+                "start_time": {
+                    "type": "integer"
+                },
+                "end_time": {
+                    "type": "integer"
+                }
+            }
+        }
+    }
+}

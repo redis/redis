@@ -1,0 +1,1482 @@
+################################################################################
+# Test the "info keysizes" command.
+# The command returns a histogram of the sizes of keys in the database.
+################################################################################
+
+# Verify output of "info keysizes" command is as expected.
+#
+# Arguments:
+#  cmd         -  A command that should be run before the verification.
+#  expOutput   -  This is a string that represents the expected output abbreviated.
+#                 Instead of the output of "strings_len_exp_distrib" write "STR". 
+#                 Similarly for LIST, SET, ZSET, HASH, STREAM and BITMAP. Spaces and
+#                 newlines are ignored.
+#
+#                 Alternatively, you can set "__EVAL_DB_HIST__". The function
+#                 will read all the keys from the server for selected db index,
+#                 ask for their length and compute the expected output.
+
+#  waitCond    -  If set to 1, the function wait_for_condition 50x50msec for the 
+#                 expOutput to match the actual output. 
+# 
+# (replicaMode) -  Global variable that indicates if the test is running in replica 
+#                  mode. If so, run the command on leader, verify the output. Then wait
+#                  for the replica to catch up and verify the output on the replica
+#                  as well. Otherwise, just run the command on the leader and verify 
+#                  the output.
+proc run_cmd_verify_hist {cmd expOutput {waitCond 0}} {
+
+    #################### internal funcs ################
+    proc build_exp_hist {server expOutput} {
+        if {[regexp {^__EVAL_DB_HIST__\s+(\d+)$} $expOutput -> dbid]} {
+            set expOutput [eval_db_histogram $server $dbid]
+        }
+    
+        # Replace all placeholders with the actual values. Remove spaces & newlines.
+        set res [string map {
+            "BITMAP" "distrib_bitmaps_sizes"
+            "STREAM" "distrib_streams_items"
+            "STR" "distrib_strings_sizes"
+            "LIST" "distrib_lists_items"
+            "SET" "distrib_sets_items"
+            "ZSET" "distrib_zsets_items"
+            "HASH" "distrib_hashes_items"
+            " " "" "\n" "" "\r" ""
+        } $expOutput]
+        return $res
+    }
+    proc verify_histogram { server expOutput cmd {retries 1} } {
+         wait_for_condition 50 $retries {
+            [build_exp_hist $server $expOutput] eq [get_info_hist_stripped $server]
+        } else {
+            fail "Expected: \n`[build_exp_hist $server $expOutput]` \
+                Actual: `[get_info_hist_stripped $server]`. \nFailed after command: $cmd"
+        }
+    }
+    # Query and Strip result of "info keysizes" from header, spaces, and newlines.
+    proc get_info_hist_stripped {server} {
+        set infoStripped [string map {
+            "# Keysizes" ""
+            " " "" "\n" "" "\r" ""
+        } [$server info keysizes] ]
+        return $infoStripped
+    }
+    #################### EOF internal funcs ################
+
+    uplevel 1 $cmd
+    global replicaMode
+
+    # ref the leader with `server` variable
+    if {$replicaMode eq 1} {
+        set server [srv -1 client]
+        set replica [srv 0 client]
+    } else {
+        set server [srv 0 client]
+    }
+
+    # Compare the stripped expected output with the actual output from the server
+    set retries [expr { $waitCond ? 20 : 1}]
+    verify_histogram $server $expOutput $cmd $retries
+
+    # If we are testing `replicaMode` then need to wait for the replica to catch up
+    if {$replicaMode eq 1} {
+        verify_histogram $replica $expOutput $cmd 20
+    }
+}
+
+# eval_db_histogram - eval The expected histogram for current db, by
+# reading all the keys from the server, query for their length, and computing
+# the expected output.
+proc eval_db_histogram {server dbid} {
+    $server select $dbid
+    array set type_counts {}
+
+    set keys [$server keys *]
+    foreach key $keys {
+        set key_type [$server type $key]
+        switch -exact $key_type {
+            "string" {
+                set value [$server strlen $key]
+                set type "STR"
+            }
+            "list" {
+                set value [$server llen $key]
+                set type "LIST"
+            }
+            "set" {
+                set value [$server scard $key]
+                set type "SET"
+            }
+            "zset" {
+                set value [$server zcard $key]
+                set type "ZSET"
+            }
+            "hash" {
+                set value [$server hlen $key]
+                set type "HASH"
+            }
+            "stream" {
+                set value [$server xlen $key]
+                set type "STREAM"
+            }
+            "bitmap" {
+                set value [string length [$server debug bitmap-raw $key]]
+                set type "BITMAP"
+            }
+            default {
+                continue  ; # Skip unknown types
+            }
+        }
+
+        set power 1
+        while { ($power * 2) <= $value } { set power [expr {$power * 2}] }
+        if {$value == 0} { set power 0}
+        # Store counts by type and size bucket
+        incr type_counts($type,$power)
+    }
+
+    set result {}
+    foreach type {STR LIST SET ZSET HASH STREAM BITMAP} {
+        if {[array exists type_counts] && [array names type_counts $type,*] ne ""} {
+            set sorted_powers [lsort -integer [lmap item [array names type_counts $type,*] {
+                lindex [split $item ,] 1  ; # Extracts only the numeric part
+            }]]
+
+            set type_result {}
+            foreach power $sorted_powers {
+                set display_power $power
+                if { $power >= 1024 } {  set display_power "[expr {$power / 1024}]K" }
+                lappend type_result "$display_power=$type_counts($type,$power)"
+            }
+            lappend result "db${dbid}_$type: [join $type_result ", "]"
+        }
+    }
+
+    return [join $result " "]
+}
+
+proc test_all_keysizes { {replMode 0} } {
+    # If in replica mode then update global var `replicaMode` so function 
+    # `run_cmd_verify_hist` knows to run the command on the leader and then
+    # wait for the replica to catch up. 
+    global replicaMode
+    set replicaMode $replMode    
+    # ref the leader with `server` variable
+    if {$replicaMode eq 1} { 
+        set server [srv -1 client]
+        set replica [srv 0 client]
+        set suffixRepl "(replica)"
+    } else { 
+        set server [srv 0 client]
+        set suffixRepl "" 
+    }    
+        
+    test "KEYSIZES - Test i'th bin counts keysizes between (2^i) and (2^(i+1)-1) as expected $suffixRepl" {
+        set base_string ""
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        for {set i 1} {$i <= 10} {incr i} {
+            append base_string "x"
+            set log_value [expr {1 << int(log($i) / log(2))}]
+            #puts "Iteration $i: $base_string (Log base 2 pattern: $log_value)"
+            run_cmd_verify_hist {$server set mykey $base_string}  "db0_STR:$log_value=1"
+        }
+    }
+
+    test "KEYSIZES - Histogram values of Bytes, Kilo and Mega $suffixRepl" {
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server set x 0123456789ABCDEF} {db0_STR:16=1}
+        run_cmd_verify_hist {$server APPEND x [$server get x]} {db0_STR:32=1}
+        run_cmd_verify_hist {$server APPEND x [$server get x]} {db0_STR:64=1}
+        run_cmd_verify_hist {$server APPEND x [$server get x]} {db0_STR:128=1}
+        run_cmd_verify_hist {$server APPEND x [$server get x]} {db0_STR:256=1}
+        run_cmd_verify_hist {$server APPEND x [$server get x]} {db0_STR:512=1}
+        run_cmd_verify_hist {$server APPEND x [$server get x]} {db0_STR:1K=1}
+        run_cmd_verify_hist {$server APPEND x [$server get x]} {db0_STR:2K=1}
+        run_cmd_verify_hist {$server APPEND x [$server get x]} {db0_STR:4K=1}
+        run_cmd_verify_hist {$server APPEND x [$server get x]} {db0_STR:8K=1}
+        run_cmd_verify_hist {$server APPEND x [$server get x]} {db0_STR:16K=1}
+        run_cmd_verify_hist {$server APPEND x [$server get x]} {db0_STR:32K=1}
+        run_cmd_verify_hist {$server APPEND x [$server get x]} {db0_STR:64K=1}
+        run_cmd_verify_hist {$server APPEND x [$server get x]} {db0_STR:128K=1}
+        run_cmd_verify_hist {$server APPEND x [$server get x]} {db0_STR:256K=1}
+        run_cmd_verify_hist {$server APPEND x [$server get x]} {db0_STR:512K=1}
+        run_cmd_verify_hist {$server APPEND x [$server get x]} {db0_STR:1M=1}
+        run_cmd_verify_hist {$server APPEND x [$server get x]} {db0_STR:2M=1}               
+    }
+
+    # It is difficult to predict the actual string length of hyperloglog. To address
+    # this, we will create expected output by indicating __EVAL_DB_HIST__ to read
+    # all keys & lengths from server. Based on it, generate the expected output.
+    test "KEYSIZES - Test hyperloglog $suffixRepl" {
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        # PFADD (sparse & dense)
+        for {set i 1} {$i <= 3000} {incr i} {
+            $server PFADD hll1 a$i b$i c$i
+            $server PFADD hll2 x$i y$i z$i
+            run_cmd_verify_hist {} {__EVAL_DB_HIST__ 0}
+        }
+        # PFMERGE, PFCOUNT (sparse & dense)
+        for {set i 1} {$i <= 3000} {incr i} {
+        $server PFADD hll3 x$i y$i z$i
+        $server PFMERGE hll4 hll1 hll2 hll3
+        $server PFCOUNT hll1 hll2 hll3 hll4
+        run_cmd_verify_hist {} {__EVAL_DB_HIST__ 0}
+        }
+        # DEL
+        run_cmd_verify_hist {$server DEL hll4} {__EVAL_DB_HIST__ 0}
+        run_cmd_verify_hist {$server DEL hll3} {__EVAL_DB_HIST__ 0}
+        run_cmd_verify_hist {$server DEL hll1} {__EVAL_DB_HIST__ 0}
+        run_cmd_verify_hist {$server DEL hll2} {}
+        # SET overwrites
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server PFADD hll1 a b c d e f g h i j k l m} {db0_STR:32=1}
+        run_cmd_verify_hist {$server SET hll1 1234567} {db0_STR:4=1}
+        catch {run_cmd_verify_hist {$server PFADD hll1 a b c d e f g h i j k l m} {db0_STR:4=1}}
+        run_cmd_verify_hist {} {db0_STR:4=1}
+        # EXPIRE
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server PFADD hll1 a b c d e f g h i j k l m} {db0_STR:32=1}
+        run_cmd_verify_hist {$server PEXPIRE hll1 50} {db0_STR:32=1}
+        run_cmd_verify_hist {} {} 1
+    } {} {cluster:skip}
+            
+    test "KEYSIZES - Test List $suffixRepl" {
+        # FLUSHALL
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        # RPUSH
+        run_cmd_verify_hist {$server RPUSH l1 1 2 3 4 5} {db0_LIST:4=1}
+        run_cmd_verify_hist {$server RPUSH l1 6 7 8 9} {db0_LIST:8=1}
+        # Test also LPUSH, RPUSH, LPUSHX, RPUSHX
+        run_cmd_verify_hist {$server LPUSH l2 1} {db0_LIST:1=1,8=1}
+        run_cmd_verify_hist {$server LPUSH l2 2} {db0_LIST:2=1,8=1}
+        run_cmd_verify_hist {$server LPUSHX l2 3} {db0_LIST:2=1,8=1}
+        run_cmd_verify_hist {$server RPUSHX l2 4} {db0_LIST:4=1,8=1}
+        # RPOP
+        run_cmd_verify_hist {$server RPOP l1} {db0_LIST:4=1,8=1}
+        run_cmd_verify_hist {$server RPOP l1} {db0_LIST:4=2}         
+        # DEL
+        run_cmd_verify_hist {$server DEL l1} {db0_LIST:4=1}
+        # LINSERT, LTRIM
+        run_cmd_verify_hist {$server RPUSH l3 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14} {db0_LIST:4=1,8=1}
+        run_cmd_verify_hist {$server LINSERT l3 AFTER 9 10} {db0_LIST:4=1,16=1}
+        run_cmd_verify_hist {$server LTRIM l3 0 8} {db0_LIST:4=1,8=1}       
+        # DEL
+        run_cmd_verify_hist {$server DEL l3} {db0_LIST:4=1}
+        run_cmd_verify_hist {$server DEL l2} {}        
+        # LMOVE, BLMOVE
+        run_cmd_verify_hist {$server RPUSH l4 1 2 3 4 5 6 7 8} {db0_LIST:8=1}
+        run_cmd_verify_hist {$server LMOVE l4 l5 LEFT LEFT} {db0_LIST:1=1,4=1} 
+        run_cmd_verify_hist {$server LMOVE l4 l5 RIGHT RIGHT} {db0_LIST:2=1,4=1}
+        run_cmd_verify_hist {$server LMOVE l4 l5 LEFT RIGHT} {db0_LIST:2=1,4=1}
+        run_cmd_verify_hist {$server LMOVE l4 l5 RIGHT LEFT} {db0_LIST:4=2}
+        run_cmd_verify_hist {$server BLMOVE l4 l5 RIGHT LEFT 0} {db0_LIST:2=1,4=1}        
+        # DEL
+        run_cmd_verify_hist {$server DEL l4} {db0_LIST:4=1}
+        run_cmd_verify_hist {$server DEL l5} {}
+        # LMPOP
+        run_cmd_verify_hist {$server RPUSH l6 1 2 3 4 5 6 7 8 9 10} {db0_LIST:8=1}
+        run_cmd_verify_hist {$server LMPOP 1 l6 LEFT COUNT 2} {db0_LIST:8=1}
+        run_cmd_verify_hist {$server LMPOP 1 l6 LEFT COUNT 1} {db0_LIST:4=1}
+        run_cmd_verify_hist {$server LMPOP 1 l6 LEFT COUNT 6} {db0_LIST:1=1}
+        # LPOP
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server RPUSH l7 1 2 3 4} {db0_LIST:4=1}
+        run_cmd_verify_hist {$server LPOP l7} {db0_LIST:2=1}
+        run_cmd_verify_hist {$server LPOP l7} {db0_LIST:2=1}
+        run_cmd_verify_hist {$server LPOP l7} {db0_LIST:1=1}
+        run_cmd_verify_hist {$server LPOP l7} {}
+        # LREM
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server RPUSH l8 y x y x y x y x y y} {db0_LIST:8=1}
+        run_cmd_verify_hist {$server LREM l8 3 x} {db0_LIST:4=1}        
+        run_cmd_verify_hist {$server LREM l8 0 y} {db0_LIST:1=1}
+        run_cmd_verify_hist {$server LREM l8 0 x} {}
+        # EXPIRE 
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server RPUSH l9 1 2 3 4} {db0_LIST:4=1}
+        run_cmd_verify_hist {$server PEXPIRE l9 50} {db0_LIST:4=1}
+        run_cmd_verify_hist {} {} 1
+        # SET overwrites
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server RPUSH l9 1 2 3 4} {db0_LIST:4=1}
+        run_cmd_verify_hist {$server SET l9 1234567} {db0_STR:4=1}
+        run_cmd_verify_hist {$server DEL l9} {}                            
+    } {} {cluster:skip}
+
+    test "KEYSIZES - Test SET $suffixRepl" {
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        # SADD
+        run_cmd_verify_hist {$server SADD s1 1 2 3 4 5} {db0_SET:4=1}
+        run_cmd_verify_hist {$server SADD s1 6 7 8} {db0_SET:8=1}                        
+        # Test also SADD, SREM, SMOVE, SPOP
+        run_cmd_verify_hist {$server SADD s2 1} {db0_SET:1=1,8=1}
+        run_cmd_verify_hist {$server SADD s2 2} {db0_SET:2=1,8=1}
+        run_cmd_verify_hist {$server SREM s2 3} {db0_SET:2=1,8=1}
+        run_cmd_verify_hist {$server SMOVE s2 s3 2} {db0_SET:1=2,8=1}
+        run_cmd_verify_hist {$server SPOP s3} {db0_SET:1=1,8=1}
+        run_cmd_verify_hist {$server SPOP s2} {db0_SET:8=1}
+        run_cmd_verify_hist {$server SPOP s1} {db0_SET:4=1}
+        run_cmd_verify_hist {$server SPOP s1 7} {}
+        run_cmd_verify_hist {$server SADD s2 1} {db0_SET:1=1}
+        run_cmd_verify_hist {$server SMOVE s2 s4 1} {db0_SET:1=1}
+        run_cmd_verify_hist {$server SREM s4 1} {}
+        run_cmd_verify_hist {$server SADD s2 1 2 3 4 5 6 7 8} {db0_SET:8=1}
+        run_cmd_verify_hist {$server SPOP s2 7} {db0_SET:1=1}
+        # SDIFFSTORE
+        run_cmd_verify_hist {$server flushall} {}
+        run_cmd_verify_hist {$server SADD s1 1 2 3 4 5 6 7 8} {db0_SET:8=1}
+        run_cmd_verify_hist {$server SADD s2 6 7 8 9 A B C D} {db0_SET:8=2}
+        run_cmd_verify_hist {$server SADD s3 x} {db0_SET:1=1,8=2}
+        run_cmd_verify_hist {$server SDIFFSTORE s3 s1 s2} {db0_SET:4=1,8=2}        
+        #SINTERSTORE
+        run_cmd_verify_hist {$server flushall} {}
+        run_cmd_verify_hist {$server SADD s1 1 2 3 4 5 6 7 8} {db0_SET:8=1}
+        run_cmd_verify_hist {$server SADD s2 6 7 8 9 A B C D} {db0_SET:8=2}
+        run_cmd_verify_hist {$server SADD s3 x} {db0_SET:1=1,8=2}
+        run_cmd_verify_hist {$server SINTERSTORE s3 s1 s2} {db0_SET:2=1,8=2}        
+        #SUNIONSTORE
+        run_cmd_verify_hist {$server flushall} {}
+        run_cmd_verify_hist {$server SADD s1 1 2 3 4 5 6 7 8} {db0_SET:8=1}
+        run_cmd_verify_hist {$server SADD s2 6 7 8 9 A B C D} {db0_SET:8=2}
+        run_cmd_verify_hist {$server SUNIONSTORE s3 s1 s2} {db0_SET:8=3}
+        run_cmd_verify_hist {$server SADD s4 E F G H} {db0_SET:4=1,8=3}
+        run_cmd_verify_hist {$server SUNIONSTORE s5 s3 s4} {db0_SET:4=1,8=3,16=1}
+        # DEL
+        run_cmd_verify_hist {$server flushall} {}
+        run_cmd_verify_hist {$server SADD s1 1 2 3 4 5 6 7 8} {db0_SET:8=1}
+        run_cmd_verify_hist {$server DEL s1} {}
+        # EXPIRE
+        run_cmd_verify_hist {$server flushall} {}
+        run_cmd_verify_hist {$server SADD s1 1 2 3 4 5 6 7 8} {db0_SET:8=1}
+        run_cmd_verify_hist {$server PEXPIRE s1 50} {db0_SET:8=1}
+        run_cmd_verify_hist {} {} 1
+        # SET overwrites
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server SADD s1 1 2 3 4 5 6 7 8} {db0_SET:8=1}
+        run_cmd_verify_hist {$server SET s1 1234567} {db0_STR:4=1}
+        run_cmd_verify_hist {$server DEL s1} {}        
+    } {} {cluster:skip}
+     
+    test "KEYSIZES - Test ZSET $suffixRepl" {
+        # ZADD, ZREM
+        run_cmd_verify_hist {$server FLUSHALL} {}        
+        run_cmd_verify_hist {$server ZADD z1 1 a 2 b 3 c 4 d 5 e} {db0_ZSET:4=1}
+        run_cmd_verify_hist {$server ZADD z1 6 f 7 g 8 h 9 i} {db0_ZSET:8=1}
+        run_cmd_verify_hist {$server ZADD z2 1 a} {db0_ZSET:1=1,8=1}
+        run_cmd_verify_hist {$server ZREM z1 a} {db0_ZSET:1=1,8=1}
+        run_cmd_verify_hist {$server ZREM z1 b} {db0_ZSET:1=1,4=1}
+        run_cmd_verify_hist {$server ZREM z1 c d e f g h i} {db0_ZSET:1=1}
+        run_cmd_verify_hist {$server ZREM z2 a} {}
+        # ZREMRANGEBYSCORE
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server ZADD z1 1 a 2 b 3 c 4 d 5 e} {db0_ZSET:4=1}
+        run_cmd_verify_hist {$server ZREMRANGEBYSCORE z1 -inf (2} {db0_ZSET:4=1}
+        run_cmd_verify_hist {$server ZREMRANGEBYSCORE z1 -inf (3} {db0_ZSET:2=1}
+        run_cmd_verify_hist {$server ZREMRANGEBYSCORE z1 -inf +inf} {}
+                
+        # ZREMRANGEBYRANK
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server ZADD z1 1 a 2 b 3 c 4 d 5 e 6 f} {db0_ZSET:4=1}
+        run_cmd_verify_hist {$server ZREMRANGEBYRANK z1 0 1} {db0_ZSET:4=1}
+        run_cmd_verify_hist {$server ZREMRANGEBYRANK z1 0 0} {db0_ZSET:2=1}        
+        # ZREMRANGEBYLEX
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server ZADD z1 0 a 0 b 0 c 0 d 0 e 0 f} {db0_ZSET:4=1}
+        run_cmd_verify_hist {$server ZREMRANGEBYLEX z1 - (d} {db0_ZSET:2=1}
+        # ZUNIONSTORE
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server ZADD z1 1 a 2 b 3 c 4 d 5 e} {db0_ZSET:4=1}
+        run_cmd_verify_hist {$server ZADD z2 6 f 7 g 8 h 9 i} {db0_ZSET:4=2}
+        run_cmd_verify_hist {$server ZUNIONSTORE z3 2 z1 z2} {db0_ZSET:4=2,8=1}
+        # ZINTERSTORE
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server ZADD z1 1 a 2 b 3 c 4 d 5 e} {db0_ZSET:4=1}
+        run_cmd_verify_hist {$server ZADD z2 3 c 4 d 5 e 6 f} {db0_ZSET:4=2}
+        run_cmd_verify_hist {$server ZINTERSTORE z3 2 z1 z2} {db0_ZSET:2=1,4=2}
+        # BZPOPMIN, BZPOPMAX
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server ZADD z1 1 a 2 b 3 c 4 d 5 e} {db0_ZSET:4=1}
+        run_cmd_verify_hist {$server BZPOPMIN z1 0} {db0_ZSET:4=1}
+        run_cmd_verify_hist {$server BZPOPMAX z1 0} {db0_ZSET:2=1}
+        # ZDIFFSTORE
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server ZADD z1 1 a 2 b 3 c 4 d 5 e} {db0_ZSET:4=1}
+        run_cmd_verify_hist {$server ZADD z2 3 c 4 d 5 e 6 f} {db0_ZSET:4=2}
+        run_cmd_verify_hist {$server ZDIFFSTORE z3 2 z1 z2} {db0_ZSET:2=1,4=2}
+        # ZINTERSTORE
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server ZADD z1 1 a 2 b 3 c 4 d 5 e} {db0_ZSET:4=1}
+        run_cmd_verify_hist {$server ZADD z2 3 c 4 d 5 e 6 f} {db0_ZSET:4=2}
+        run_cmd_verify_hist {$server ZADD z3 1 x} {db0_ZSET:1=1,4=2}
+        run_cmd_verify_hist {$server ZINTERSTORE z4 2 z1 z2} {db0_ZSET:1=1,2=1,4=2}
+        run_cmd_verify_hist {$server ZINTERSTORE z4 2 z1 z3} {db0_ZSET:1=1,4=2}        
+        # DEL
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server ZADD z1 1 a 2 b 3 c 4 d 5 e} {db0_ZSET:4=1}
+        run_cmd_verify_hist {$server DEL z1} {}
+        # EXPIRE
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server ZADD z1 1 a 2 b 3 c 4 d 5 e} {db0_ZSET:4=1}
+        run_cmd_verify_hist {$server PEXPIRE z1 50} {db0_ZSET:4=1}
+        run_cmd_verify_hist {} {} 1
+        # SET overwrites
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server ZADD z1 1 a 2 b 3 c 4 d 5 e} {db0_ZSET:4=1}
+        run_cmd_verify_hist {$server SET z1 1234567} {db0_STR:4=1}
+        run_cmd_verify_hist {$server DEL z1} {}
+        # ZMPOP
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server ZADD z1 1 a 2 b 3 c} {db0_ZSET:2=1}
+        run_cmd_verify_hist {$server ZMPOP 1 z1 MIN} {db0_ZSET:2=1}
+        run_cmd_verify_hist {$server ZMPOP 1 z1 MAX COUNT 2} {}
+        
+    } {} {cluster:skip}    
+    
+    test "KEYSIZES - Test STRING $suffixRepl" {
+        # SETRANGE
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server SET s2 1234567890} {db0_STR:8=1}
+        run_cmd_verify_hist {$server SETRANGE s2 10 123456} {db0_STR:16=1}
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server SETRANGE k 200000 v} {db0_STR:128K=1}
+        # MSET, MSETNX
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server MSET s3 1 s4 2 s5 3} {db0_STR:1=3}
+        run_cmd_verify_hist {$server MSETNX s6 1 s7 2 s8 3} {db0_STR:1=6}      
+        # DEL
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server SET s9 1234567890} {db0_STR:8=1}
+        run_cmd_verify_hist {$server DEL s9} {}
+        #EXPIRE
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server SET s10 1234567890} {db0_STR:8=1}
+        run_cmd_verify_hist {$server PEXPIRE s10 50} {db0_STR:8=1}
+        run_cmd_verify_hist {} {} 1
+        # SET (+overwrite)
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server SET s1 1024} {db0_STR:4=1}
+        run_cmd_verify_hist {$server SET s1 842} {db0_STR:2=1}
+        run_cmd_verify_hist {$server SET s1 2} {db0_STR:1=1}
+        run_cmd_verify_hist {$server SET s1 1234567} {db0_STR:4=1}
+        # SET (string of length 0)
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server SET s1 ""} {db0_STR:0=1}
+        run_cmd_verify_hist {$server SET s1 ""} {db0_STR:0=1}
+        run_cmd_verify_hist {$server SET s2 ""} {db0_STR:0=2}
+        run_cmd_verify_hist {$server SET s2 "bla"} {db0_STR:0=1,2=1}
+        run_cmd_verify_hist {$server SET s2 ""} {db0_STR:0=2}
+        run_cmd_verify_hist {$server HSET h f v} {db0_STR:0=2 db0_HASH:1=1}
+        run_cmd_verify_hist {$server SET h ""} {db0_STR:0=3}
+        run_cmd_verify_hist {$server DEL h} {db0_STR:0=2}
+        run_cmd_verify_hist {$server DEL s2} {db0_STR:0=1}
+        run_cmd_verify_hist {$server DEL s1} {}
+        # APPEND
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server APPEND s1 x} {db0_STR:1=1}
+        run_cmd_verify_hist {$server APPEND s2 y} {db0_STR:1=2}
+
+    } {} {cluster:skip}
+
+    test "KEYSIZES - Test UNLINK (async deletion) $suffixRepl" {
+        # UNLINK on STRING
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server SET s1 1234567890} {db0_STR:8=1}
+        run_cmd_verify_hist {$server UNLINK s1} {} 1
+
+        # UNLINK on LIST
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server RPUSH l1 1 2 3 4 5 6 7 8} {db0_LIST:8=1}
+        run_cmd_verify_hist {$server UNLINK l1} {} 1
+
+        # UNLINK on SET
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server SADD s1 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16} {db0_SET:16=1}
+        run_cmd_verify_hist {$server UNLINK s1} {} 1
+
+        # UNLINK on ZSET
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server ZADD z1 1 a 2 b 3 c 4 d 5 e 6 f 7 g 8 h} {db0_ZSET:8=1}
+        run_cmd_verify_hist {$server UNLINK z1} {} 1
+
+        # UNLINK on HASH
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server HSET h1 f1 v1 f2 v2 f3 v3 f4 v4} {db0_HASH:4=1}
+        run_cmd_verify_hist {$server UNLINK h1} {} 1
+
+        # UNLINK multiple keys of different types
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server SET s1 12345678} {db0_STR:8=1}
+        run_cmd_verify_hist {$server RPUSH l1 1 2 3 4} {db0_STR:8=1 db0_LIST:4=1}
+        run_cmd_verify_hist {$server SADD set1 a b c d e f g h} {db0_STR:8=1 db0_LIST:4=1 db0_SET:8=1}
+        run_cmd_verify_hist {$server ZADD z1 1 x 2 y} {db0_STR:8=1 db0_LIST:4=1 db0_SET:8=1 db0_ZSET:2=1}
+        run_cmd_verify_hist {$server UNLINK s1 l1 set1 z1} {} 1
+    } {} {cluster:skip}
+
+    test "KEYSIZES - Test complex dataset $suffixRepl" {
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        createComplexDataset $server 1000
+        run_cmd_verify_hist {} {__EVAL_DB_HIST__ 0}
+
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        createComplexDataset $server 1000 {useexpire usehexpire}
+        run_cmd_verify_hist {} {__EVAL_DB_HIST__ 0} 1
+    } {} {cluster:skip needs:debug}
+    
+    start_server {tags {"cluster:skip" "external:skip" "needs:debug"}} {
+        test "KEYSIZES - Test DEBUG KEYSIZES-HIST-ASSERT command" {
+        # Test based on debug command rather than __EVAL_DB_HIST__
+            r DEBUG KEYSIZES-HIST-ASSERT 1
+            r FLUSHALL
+            createComplexDataset r 100
+            createComplexDataset r 100 {useexpire usehexpire}
+        }
+    }
+    
+    foreach type {listpackex hashtable} {
+        # Test different implementations of hash tables and listpacks
+        if {$type eq "hashtable"} {
+            $server config set hash-max-listpack-entries 0
+        } else {
+            $server config set hash-max-listpack-entries 512
+        }
+    
+        test "KEYSIZES - Test HASH ($type) $suffixRepl" {
+            # HSETNX
+            run_cmd_verify_hist {$server FLUSHALL} {}
+            run_cmd_verify_hist {$server HSETNX h1 1 1} {db0_HASH:1=1}
+            run_cmd_verify_hist {$server HSETNX h1 2 2} {db0_HASH:2=1}
+            # HSET, HDEL
+            run_cmd_verify_hist {$server FLUSHALL} {}
+            run_cmd_verify_hist {$server HSET h2 1 1} {db0_HASH:1=1}
+            run_cmd_verify_hist {$server HSET h2 2 2} {db0_HASH:2=1}
+            run_cmd_verify_hist {$server HDEL h2 1}   {db0_HASH:1=1}
+            run_cmd_verify_hist {$server HDEL h2 2}   {}
+            run_cmd_verify_hist {$server HSET h2 1 1 2 2} {db0_HASH:2=1}
+            run_cmd_verify_hist {$server HDEL h2 1 2}   {}
+            # HGETDEL
+            run_cmd_verify_hist {$server FLUSHALL} {}
+            run_cmd_verify_hist {$server HSETEX h2 FIELDS 1 1 1} {db0_HASH:1=1}
+            run_cmd_verify_hist {$server HSETEX h2 FIELDS 1 2 2} {db0_HASH:2=1}
+            run_cmd_verify_hist {$server HGETDEL h2 FIELDS 1 1}  {db0_HASH:1=1}
+            run_cmd_verify_hist {$server HGETDEL h2 FIELDS 1 3}  {db0_HASH:1=1}
+            run_cmd_verify_hist {$server HGETDEL h2 FIELDS 1 2}  {}
+            # HGETEX
+            run_cmd_verify_hist {$server FLUSHALL} {}
+            run_cmd_verify_hist {$server HSETEX h1 FIELDS 2 f1 1 f2 1} {db0_HASH:2=1}
+            run_cmd_verify_hist {$server HGETEX h1 PXAT 1 FIELDS 1 f1} {db0_HASH:1=1}
+            run_cmd_verify_hist {$server HSETEX h1 FIELDS 1 f3 1} {db0_HASH:2=1}
+            run_cmd_verify_hist {$server HGETEX h1 PX 50 FIELDS 1 f2} {db0_HASH:2=1}
+            run_cmd_verify_hist {} {db0_HASH:1=1} 1
+            run_cmd_verify_hist {$server HGETEX h1 PX 50 FIELDS 1 f3} {db0_HASH:1=1}
+            run_cmd_verify_hist {} {} 1
+            # HSETEX
+            run_cmd_verify_hist {$server FLUSHALL} {}
+            run_cmd_verify_hist {$server HSETEX h1 FIELDS 2 f1 1 f2 1} {db0_HASH:2=1}
+            run_cmd_verify_hist {$server HSETEX h1 PXAT 1 FIELDS 1 f1 v1} {db0_HASH:1=1}
+            run_cmd_verify_hist {$server HSETEX h1 FIELDS 1 f3 1} {db0_HASH:2=1}
+            run_cmd_verify_hist {$server HSETEX h1 PX 50 FIELDS 1 f2 v2} {db0_HASH:2=1}
+            run_cmd_verify_hist {} {db0_HASH:1=1} 1
+            run_cmd_verify_hist {$server HSETEX h1 PX 50 FIELDS 1 f3 v3} {db0_HASH:1=1}
+            run_cmd_verify_hist {} {} 1
+            # HMSET
+            run_cmd_verify_hist {$server FLUSHALL} {}
+            run_cmd_verify_hist {$server HMSET h1 1 1 2 2 3 3} {db0_HASH:2=1}
+            run_cmd_verify_hist {$server HMSET h1 1 1 2 2 3 3} {db0_HASH:2=1}
+            run_cmd_verify_hist {$server HMSET h1 1 1 2 2 3 3 4 4} {db0_HASH:4=1}
+
+            # HINCRBY
+            run_cmd_verify_hist {$server FLUSHALL} {}
+            run_cmd_verify_hist {$server hincrby h1 f1 10} {db0_HASH:1=1}
+            run_cmd_verify_hist {$server hincrby h1 f1 10} {db0_HASH:1=1}
+            run_cmd_verify_hist {$server hincrby h1 f2 20} {db0_HASH:2=1}
+            # HINCRBYFLOAT
+            run_cmd_verify_hist {$server FLUSHALL} {}
+            run_cmd_verify_hist {$server hincrbyfloat h1 f1 10.5} {db0_HASH:1=1}
+            run_cmd_verify_hist {$server hincrbyfloat h1 f1 10.5} {db0_HASH:1=1}
+            run_cmd_verify_hist {$server hincrbyfloat h1 f2 10.5} {db0_HASH:2=1}
+            # HEXPIRE
+            run_cmd_verify_hist {$server FLUSHALL} {}
+            run_cmd_verify_hist {$server HSET h1 f1 1} {db0_HASH:1=1}
+            run_cmd_verify_hist {$server HSET h1 f2 1} {db0_HASH:2=1}
+            run_cmd_verify_hist {$server HPEXPIREAT h1 1 FIELDS 1 f1} {db0_HASH:1=1}            
+            run_cmd_verify_hist {$server HSET h1 f3 1} {db0_HASH:2=1} 
+            run_cmd_verify_hist {$server HPEXPIRE h1 50 FIELDS 1 f2} {db0_HASH:2=1}
+            run_cmd_verify_hist {} {db0_HASH:1=1} 1
+            run_cmd_verify_hist {$server HPEXPIRE h1 50 FIELDS 1 f3} {db0_HASH:1=1}
+            run_cmd_verify_hist {} {} 1
+        }
+
+        test "KEYSIZES - Test Hash field lazy expiration ($type) $suffixRepl" {
+            $server debug set-active-expire 0
+
+            # HGET
+            run_cmd_verify_hist {$server FLUSHALL} {}
+            run_cmd_verify_hist {$server HSETEX h1 PX 1 FIELDS 2 f1 v1 f2 v2} {db0_HASH:2=1}
+            run_cmd_verify_hist {after 5} {db0_HASH:2=1}
+            run_cmd_verify_hist {$server HGET h1 f1} {db0_HASH:1=1}
+            run_cmd_verify_hist {$server HGET h1 f2} {}
+
+            # HMGET
+            run_cmd_verify_hist {$server HSETEX h1 PX 1 FIELDS 2 f1 v1 f2 v2} {db0_HASH:2=1}
+            run_cmd_verify_hist {after 5} {db0_HASH:2=1}
+            run_cmd_verify_hist {$server HMGET h1 f1} {db0_HASH:1=1}
+            run_cmd_verify_hist {$server HMGET h1 f2} {}
+
+            # HGETDEL
+            run_cmd_verify_hist {$server FLUSHALL} {}
+            run_cmd_verify_hist {$server HSETEX h1 PX 1 FIELDS 2 f1 v1 f2 v2} {db0_HASH:2=1}
+            run_cmd_verify_hist {after 5} {db0_HASH:2=1}
+            run_cmd_verify_hist {$server HGETDEL h1 FIELDS 1 f1}  {db0_HASH:1=1}
+            run_cmd_verify_hist {$server HGETDEL h1 FIELDS 1 f2}  {}
+
+            # HGETEX
+            run_cmd_verify_hist {$server FLUSHALL} {}
+            run_cmd_verify_hist {$server HSETEX h1 PX 1 FIELDS 2 f1 v1 f2 v2} {db0_HASH:2=1}
+            run_cmd_verify_hist {after 5} {db0_HASH:2=1}
+            run_cmd_verify_hist {$server HGETEX h1 PX 1 FIELDS 1 f1} {db0_HASH:1=1}
+            run_cmd_verify_hist {$server HGETEX h1 PX 1 FIELDS 1 f2} {}
+
+            # HSETNX
+            run_cmd_verify_hist {$server FLUSHALL} {}
+            run_cmd_verify_hist {$server HSETEX h1 PX 1 FIELDS 1 f1 v1} {db0_HASH:1=1}
+            run_cmd_verify_hist {after 5} {db0_HASH:1=1}
+            run_cmd_verify_hist {$server HSETNX h1 f1 v1} {db0_HASH:1=1}
+            run_cmd_verify_hist {$server DEL h1} {}
+            run_cmd_verify_hist {$server HSETEX h2 PX 1 FIELDS 2 f1 v1 f2 v2} {db0_HASH:2=1}
+            run_cmd_verify_hist {after 5} {db0_HASH:2=1}
+            run_cmd_verify_hist {$server HSETNX h2 f1 v1} {db0_HASH:2=1}
+            run_cmd_verify_hist {$server HSETNX h2 f2 v2} {db0_HASH:2=1}
+
+            # HSETEX
+            run_cmd_verify_hist {$server FLUSHALL} {}
+            run_cmd_verify_hist {$server HSETEX h1 PX 1 FIELDS 1 f1 v1} {db0_HASH:1=1}
+            run_cmd_verify_hist {after 5} {db0_HASH:1=1}
+            run_cmd_verify_hist {$server HSETEX h1 PX 1 FIELDS 1 f1 v1} {db0_HASH:1=1}
+            run_cmd_verify_hist {$server HSETEX h1 PX 1 FIELDS 1 f2 v2} {db0_HASH:2=1}
+            run_cmd_verify_hist {after 5} {db0_HASH:2=1}
+            run_cmd_verify_hist {$server HGET h1 f1} {db0_HASH:1=1}
+            run_cmd_verify_hist {$server HGET h1 f2} {}
+
+            # HEXISTS
+            run_cmd_verify_hist {$server FLUSHALL} {}
+            run_cmd_verify_hist {$server HSETEX h1 PX 1 FIELDS 2 f1 v1 f2 v2} {db0_HASH:2=1}
+            run_cmd_verify_hist {after 5} {db0_HASH:2=1}
+            run_cmd_verify_hist {$server HEXISTS h1 f1} {db0_HASH:1=1}
+            run_cmd_verify_hist {$server HEXISTS h1 f2} {}
+
+            # HSTRLEN
+            run_cmd_verify_hist {$server FLUSHALL} {}
+            run_cmd_verify_hist {$server HSETEX h1 PX 1 FIELDS 2 f1 v1 f2 v2} {db0_HASH:2=1}
+            run_cmd_verify_hist {after 5} {db0_HASH:2=1}
+            run_cmd_verify_hist {$server HSTRLEN h1 f1} {db0_HASH:1=1}
+            run_cmd_verify_hist {$server HSTRLEN h1 f2} {}
+
+            # HINCRBYFLOAT
+            run_cmd_verify_hist {$server FLUSHALL} {}
+            run_cmd_verify_hist {$server HSETEX h1 PX 1 FIELDS 1 f1 1} {db0_HASH:1=1}
+            run_cmd_verify_hist {after 5} {db0_HASH:1=1}
+            run_cmd_verify_hist {$server HINCRBYFLOAT h1 f1 1.5} {db0_HASH:1=1}
+
+            # HINCRBY
+            run_cmd_verify_hist {$server FLUSHALL} {}
+            run_cmd_verify_hist {$server HSETEX h1 PX 1 FIELDS 1 f1 1} {db0_HASH:1=1}
+            run_cmd_verify_hist {after 5} {db0_HASH:1=1}
+            run_cmd_verify_hist {$server HINCRBY h1 f1 1} {db0_HASH:1=1}
+            run_cmd_verify_hist {$server HSETEX h1 PX 1 FIELDS 1 f2 1} {db0_HASH:2=1}
+            run_cmd_verify_hist {after 5} {db0_HASH:2=1}
+            run_cmd_verify_hist {$server HINCRBY h1 f2 1} {db0_HASH:2=1}
+
+            # SORT
+            run_cmd_verify_hist {$server FLUSHALL} {}
+            run_cmd_verify_hist {$server RPUSH user_ids 1 2} {db0_LIST:2=1}
+            run_cmd_verify_hist {$server HSET user:1 name "Alice" score 50} {db0_LIST:2=1 db0_HASH:2=1}
+            run_cmd_verify_hist {$server HSETEX user:2 PX 1 FIELDS 2 name "Bob" score 70} {db0_LIST:2=1 db0_HASH:2=2}
+            run_cmd_verify_hist {after 5} {db0_LIST:2=1 db0_HASH:2=2}
+            run_cmd_verify_hist {$server SORT user_ids BY user:*->score GET user:*->name GET user:*->score}  {db0_LIST:2=1 db0_HASH:2=1}
+            run_cmd_verify_hist {$server DEL user_ids} {db0_HASH:2=1}
+            run_cmd_verify_hist {$server RPUSH user_ids 1} {db0_LIST:1=1 db0_HASH:2=1}
+            run_cmd_verify_hist {$server HSETEX user:1 PX 1 FIELDS 2 name "Alice" score 50} {db0_LIST:1=1 db0_HASH:2=1}
+            run_cmd_verify_hist {after 5} {db0_LIST:1=1 db0_HASH:2=1}
+            run_cmd_verify_hist {$server SORT user_ids BY user:*->score GET user:*->name GET user:*->score}  {db0_LIST:1=1}
+
+            $server debug set-active-expire 1
+        } {OK} {cluster:skip needs:debug}
+    }
+    
+    test "KEYSIZES - Test STRING BITS $suffixRepl" {
+        # BITOPS
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server SET b1 "x123456789"} {db0_STR:8=1}
+        run_cmd_verify_hist {$server SET b2 "x12345678"} {db0_STR:8=2}
+        run_cmd_verify_hist {$server BITOP AND b3 b1 b2} {db0_STR:8=3}
+        run_cmd_verify_hist {$server BITOP OR b4 b1 b2} {db0_STR:8=4}
+        run_cmd_verify_hist {$server BITOP XOR b5 b1 b2} {db0_STR:8=5}        
+        # SETBIT
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        # Grow an existing empty string
+        run_cmd_verify_hist {$server SET b1 ""} {db0_STR:0=1}
+        run_cmd_verify_hist {$server SETBIT b1 72 1} {db0_STR:8=1}
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server setbit b1 71 1} {db0_STR:8=1}
+        run_cmd_verify_hist {$server setbit b1 72 1} {db0_STR:8=1}
+        run_cmd_verify_hist {$server setbit b2 72 1} {db0_STR:8=2}
+        run_cmd_verify_hist {$server setbit b2 640 0} {db0_STR:8=1,64=1}
+        # BITFIELD
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        # Grow an existing empty string
+        run_cmd_verify_hist {$server SET b1 ""} {db0_STR:0=1}
+        run_cmd_verify_hist {$server BITFIELD b1 SET u8 72 255} {db0_STR:8=1}
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server bitfield b3 set u8 6 255} {db0_STR:2=1}
+        run_cmd_verify_hist {$server bitfield b3 set u8 65 255} {db0_STR:8=1}
+        run_cmd_verify_hist {$server bitfield b4 set u8 1000 255} {db0_STR:8=1,64=1}
+    } {} {cluster:skip}
+
+    test "KEYSIZES - Native bitmap byte lengths are tracked $suffixRepl" {
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        set old_bitmap_default [lindex [$server config get bitmap-default-roaring] 1]
+        $server config set bitmap-default-roaring yes
+
+        # SETBIT walks logical byte lengths across histogram boundaries. A zero
+        # write beyond the end still extends a native bitmap's logical length.
+        run_cmd_verify_hist {$server SETBIT bitmap:hist 0 1} {db0_BITMAP:1=1}
+        run_cmd_verify_hist {$server SETBIT bitmap:hist 63 1} {db0_BITMAP:8=1}
+        run_cmd_verify_hist {$server SETBIT bitmap:hist 64 1} {db0_BITMAP:8=1}
+        run_cmd_verify_hist {$server SETBIT bitmap:hist 127 0} {db0_BITMAP:16=1}
+
+        # BITFIELD uses the same native mutation accounting, including writes
+        # of zero that only extend the logical length.
+        run_cmd_verify_hist {$server BITFIELD bitmap:hist SET u8 256 1} {db0_BITMAP:32=1}
+        run_cmd_verify_hist {$server BITFIELD bitmap:hist SET u8 1024 0} {db0_BITMAP:128=1}
+
+        # Async deletion removes the bitmap row on both primary and replica.
+        run_cmd_verify_hist {$server UNLINK bitmap:hist} {} 1
+        $server config set bitmap-default-roaring $old_bitmap_default
+    } {OK} {cluster:skip}
+       
+    test "KEYSIZES - Test RESTORE $suffixRepl" {
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server RPUSH l10 1 2 3 4} {db0_LIST:4=1}
+        set encoded [$server dump l10]
+        run_cmd_verify_hist {$server del l10} {}         
+        run_cmd_verify_hist {$server restore l11 0 $encoded} {db0_LIST:4=1}
+    }
+
+    test "KEYSIZES - Test RENAME $suffixRepl" {
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server RPUSH l12 1 2 3 4} {db0_LIST:4=1}
+        run_cmd_verify_hist {$server RENAME l12 l13} {db0_LIST:4=1}
+    } {} {cluster:skip}
+
+    test "KEYSIZES - Test COPY $suffixRepl" {
+        # COPY births a new key via dbAdd; the histogram should count the copy.
+        # Exercised on a stream so a stream goes through this generic path too.
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server XADD st1 1-1 f v} {db0_STREAM:1=1}
+        run_cmd_verify_hist {$server COPY st1 st2} {db0_STREAM:1=2}
+    } {} {cluster:skip}
+    
+    test "KEYSIZES - Test MOVE $suffixRepl" {
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server RPUSH l1 1 2 3 4} {db0_LIST:4=1}
+        run_cmd_verify_hist {$server RPUSH l2 1} {db0_LIST:1=1,4=1}
+        run_cmd_verify_hist {$server MOVE l1 1} {db0_LIST:1=1 db1_LIST:4=1}
+    } {} {cluster:skip}
+    
+    test "KEYSIZES - Test SWAPDB $suffixRepl" {
+        run_cmd_verify_hist {$server FLUSHALL} {}        
+        run_cmd_verify_hist {$server RPUSH l1 1 2 3 4} {db0_LIST:4=1}
+        $server select 1
+        run_cmd_verify_hist {$server ZADD z1 1 A} {db0_LIST:4=1   db1_ZSET:1=1}
+        run_cmd_verify_hist {$server SWAPDB 0 1}  {db0_ZSET:1=1   db1_LIST:4=1}
+        $server select 0    
+    } {OK} {singledb:skip}
+    
+    test "KEYSIZES - DEBUG RELOAD reset keysizes $suffixRepl" {
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server RPUSH l10 1 2 3 4} {db0_LIST:4=1}
+        run_cmd_verify_hist {$server SET s2 1234567890} {db0_STR:8=1 db0_LIST:4=1}
+        run_cmd_verify_hist {$server DEBUG RELOAD} {db0_STR:8=1 db0_LIST:4=1}
+        run_cmd_verify_hist {$server DEL l10} {db0_STR:8=1}
+        run_cmd_verify_hist {$server DEBUG RELOAD} {db0_STR:8=1}
+    } {} {cluster:skip needs:debug}
+
+    test "KEYSIZES - Stream entries are tracked in the keysizes histogram $suffixRepl" {
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        # Bin walk (floor-log2): 1->"1", 2,3->"2", 4..7->"4", 8->"8".
+        run_cmd_verify_hist {$server XADD st 1-1 f v} {db0_STREAM:1=1}
+        run_cmd_verify_hist {$server XADD st 2-1 f v} {db0_STREAM:2=1}
+        run_cmd_verify_hist {$server XADD st 3-1 f v} {db0_STREAM:2=1}
+        run_cmd_verify_hist {$server XADD st 4-1 f v} {db0_STREAM:4=1}
+        run_cmd_verify_hist {$server XADD st 5-1 f v} {db0_STREAM:4=1}
+        run_cmd_verify_hist {$server XADD st 6-1 f v} {db0_STREAM:4=1}
+        run_cmd_verify_hist {$server XADD st 7-1 f v} {db0_STREAM:4=1}
+        run_cmd_verify_hist {$server XADD st 8-1 f v} {db0_STREAM:8=1}
+        # XTRIM and XDEL move the sample down; emptying lands it in bin 0.
+        run_cmd_verify_hist {$server XTRIM st maxlen 4} {db0_STREAM:4=1}  ;# keeps 5-1..8-1
+        run_cmd_verify_hist {$server XDEL st 5-1 6-1} {db0_STREAM:2=1}
+        run_cmd_verify_hist {$server XDEL st 7-1 8-1} {db0_STREAM:0=1}
+        # Deleting the key removes its sample entirely.
+        run_cmd_verify_hist {$server DEL st} {}
+        # XGROUP CREATE ... MKSTREAM births an empty stream in bin 0.
+        run_cmd_verify_hist {$server XGROUP CREATE st2 g 0 MKSTREAM} {db0_STREAM:0=1}
+    }
+
+    test "KEYSIZES - XADD that appends and trims in one command $suffixRepl" {
+        # xaddCommand appends then trims within the same command, with a single
+        # post-command histogram update. MAXLEN 0 leaves the (newly created)
+        # stream key at length 0 -> bin 0; later MAXLEN 1 must keep it at bin 1.
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server XADD st MAXLEN 0 1-1 f v} {db0_STREAM:0=1}
+        run_cmd_verify_hist {$server XADD st 2-1 f v} {db0_STREAM:1=1}
+        run_cmd_verify_hist {$server XADD st MAXLEN 1 3-1 f v} {db0_STREAM:1=1}
+    }
+
+    test "KEYSIZES - XDELEX and XACKDEL update the stream histogram $suffixRepl" {
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        for {set i 1} {$i <= 4} {incr i} { $server XADD st $i-1 f v }
+        run_cmd_verify_hist {$server XLEN st} {db0_STREAM:4=1}
+        run_cmd_verify_hist {$server XDELEX st IDS 2 4-1 3-1} {db0_STREAM:2=1}
+        $server XGROUP CREATE st g 0
+        $server XREADGROUP GROUP g c COUNT 2 STREAMS st >
+        run_cmd_verify_hist {$server XACKDEL st g IDS 2 1-1 2-1} {db0_STREAM:0=1}
+    }
+
+    test "KEYSIZES - Stream survives DEBUG RELOAD $suffixRepl" {
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server XADD st 1-1 f v} {db0_STREAM:1=1}
+        run_cmd_verify_hist {$server XADD st 2-1 f v} {db0_STREAM:2=1}
+        run_cmd_verify_hist {$server DEBUG RELOAD} {db0_STREAM:2=1}
+    } {} {cluster:skip needs:debug}
+
+    test "KEYSIZES - Untracked types stay out of the histogram $suffixRepl" {
+        # Only strings, the four collections, streams and bitmaps own a histogram row.
+        # A key of any other type (here an array) must not be counted into some
+        # other type's row, neither when created nor when modified in place.
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server ARSET arr 0 a b c d} {}
+        assert_equal {array} [$server TYPE arr]
+        assert_equal 4 [$server ARLEN arr]
+        run_cmd_verify_hist {$server SET s1 1234} {db0_STR:4=1}
+        run_cmd_verify_hist {$server ARSET arr 4 e f g h} {db0_STR:4=1}
+        assert_equal 8 [$server ARLEN arr]
+        run_cmd_verify_hist {$server DEL arr} {db0_STR:4=1}
+    }
+
+    test "KEYSIZES - Test RDB $suffixRepl" {
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        # Write list, set and zset to db0
+        run_cmd_verify_hist {$server RPUSH l1 1 2 3 4} {db0_LIST:4=1}
+        run_cmd_verify_hist {$server SADD s1 1 2 3 4 5} {db0_LIST:4=1 db0_SET:4=1}
+        run_cmd_verify_hist {$server ZADD z1 1 a 2 b 3 c} {db0_LIST:4=1 db0_SET:4=1 db0_ZSET:2=1}
+        run_cmd_verify_hist {$server SAVE} {db0_LIST:4=1 db0_SET:4=1 db0_ZSET:2=1}
+        if {$replicaMode eq 1} {
+            run_cmd_verify_hist {$replica SAVE} {db0_LIST:4=1 db0_SET:4=1 db0_ZSET:2=1}
+            run_cmd_verify_hist {restart_server 0 true false} {db0_LIST:4=1 db0_SET:4=1 db0_ZSET:2=1} 1
+        } else {
+            run_cmd_verify_hist {restart_server 0 true false} {db0_LIST:4=1 db0_SET:4=1 db0_ZSET:2=1}
+        }
+    } {} {external:skip}
+}
+
+start_server {} {
+    r select 0
+    test_all_keysizes 0
+    # Start another server to test replication of KEYSIZES
+    start_server {tags {needs:repl external:skip}} {
+        # Set the outer layer server as primary
+        set primary [srv -1 client]
+        set primary_host [srv -1 host]
+        set primary_port [srv -1 port]
+        # Set this inner layer server as replica
+        set replica [srv 0 client]
+
+        # Server should have role replica
+        $replica replicaof $primary_host $primary_port
+        wait_for_condition 50 100 { [s 0 role] eq {slave} } else { fail "Replication not started." }
+
+        # Test KEYSIZES on leader and replica
+        $primary select 0
+        test_all_keysizes 1
+    }
+}
+
+################################################################################
+# Test the key-memory-histograms config and key memory histograms (_sizes fields)
+# in "info keysizes" command.
+#
+# The key memory histogram (distrib_*_sizes) requires key-memory-histograms or
+# cluster-slot-stats-enabled to be set on startup (which enables memory_tracking).
+#
+# Note: String and bitmap allocation rows are not exposed because their logical
+# byte histograms already use the conventional distrib_*_sizes field names.
+################################################################################
+
+# Query and Strip result of "info keysizes" from header, spaces, and newlines,
+# keeping only the key memory distribution lines.
+proc get_info_keymem_stripped {server} {
+    set info [$server info keysizes]
+    set result ""
+    foreach line [split $info "\n"] {
+        # Match key memory histograms: lists/sets/zsets/hashes/streams _sizes.
+        if {[regexp {distrib_(lists|sets|zsets|hashes|streams)_sizes} $line]} {
+            append result [string map {" " "" "\r" ""} $line]
+        }
+    }
+    return $result
+}
+
+# Verify that key memory histogram has entries for the expected types
+proc verify_keymem_non_empty {server types} {
+    set info [$server info keysizes]
+    foreach type $types {
+        if {![string match "*distrib_${type}_sizes*" $info]} {
+            fail "Expected key memory histogram for type $type but not found in: $info"
+        }
+    }
+}
+
+# Verify that key memory histogram is empty
+proc verify_keymem_empty {server} {
+    set stripped [get_info_keymem_stripped $server]
+    if {$stripped ne ""} {
+        fail "Expected empty key memory histogram but got: $stripped"
+    }
+}
+
+# Test key-memory-histograms config in standalone mode
+start_server {tags {external:skip needs:debug} overrides {key-memory-histograms yes}} {
+
+    test "KEY-MEMORY-STATS - Empty database should have empty key memory histogram" {
+        r FLUSHALL
+        verify_keymem_empty r
+    }
+
+    test "KEY-MEMORY-STATS - List keys should appear in key memory histogram" {
+        r FLUSHALL
+        r RPUSH "mylist" a b c d e
+        verify_keymem_non_empty r {lists}
+        r FLUSHALL
+        verify_keymem_empty r
+    }
+
+    test "KEY-MEMORY-STATS - All data types should appear in key memory histogram" {
+        r FLUSHALL
+        r RPUSH "list" a b c
+        r SADD "set" x y z
+        r ZADD "zset" 1 a 2 b
+        r HSET "hash" f1 v1
+        r XADD "stream" 1-1 f v
+
+        verify_keymem_non_empty r {lists sets zsets hashes streams}
+    }
+
+    test "KEY-MEMORY-STATS - Stream keys should appear in key memory histogram" {
+        r FLUSHALL
+        for {set i 1} {$i <= 8} {incr i} { r XADD mystream $i-1 f v }
+        verify_keymem_non_empty r {streams}
+        r FLUSHALL
+        verify_keymem_empty r
+    }
+
+    if {[s arch_bits] == 64} {
+        test "KEYSIZES - Sparse native bitmap saturates into the final histogram bin" {
+            r SELECT 0
+            r FLUSHALL
+            set bitmap_len [expr {1 << 59}]
+            set bit_offset [expr {($bitmap_len - 1) * 8}]
+            set old_bulk_limit [config_get_set proto-max-bulk-len $bitmap_len]
+            set old_bitmap_default [config_get_set bitmap-default-roaring yes]
+            assert_equal OK [r DEBUG KEYSIZES-HIST-ASSERT 1]
+
+            # Writing zero at the end changes only the logical length, so this
+            # exercises the final histogram bin without a matching allocation.
+            # The length exceeds the final bin's range and saturates into it.
+            assert_equal 0 [r SETBIT bitmap:hist:top $bit_offset 0]
+            assert_equal bitmap [r TYPE bitmap:hist:top]
+            assert_match "*db0_distrib_bitmaps_sizes:256P=1*" [r INFO KEYSIZES]
+
+            assert_equal 1 [r DEL bitmap:hist:top]
+            assert_equal OK [r DEBUG KEYSIZES-HIST-ASSERT 0]
+            r CONFIG SET bitmap-default-roaring $old_bitmap_default
+            r CONFIG SET proto-max-bulk-len $old_bulk_limit
+        }
+    }
+
+    test "KEY-MEMORY-STATS - BITFIELD Roaring transitions keep histograms consistent" {
+        r SELECT 0
+        r FLUSHALL
+        assert_equal OK [r DEBUG KEYSIZES-HIST-ASSERT 1]
+        assert_equal OK [r DEBUG ALLOCSIZE-SLOTS-ASSERT 1]
+        assert_equal OK [r config set bitmap-default-roaring yes]
+
+        # Exercise both construction paths: BITFIELD can create a new native
+        # bitmap or convert an existing string in place.
+        assert_equal {0} [r bitfield bitmap_new SET u1 65536 1]
+        assert_equal bitmap [r type bitmap_new]
+
+        r set "bitmap:keymem:bf:convert" ""
+        assert_equal {0} [r bitfield "bitmap:keymem:bf:convert" SET u1 65536 1]
+        assert_equal bitmap [r type "bitmap:keymem:bf:convert"]
+
+        # COPY, RESTORE, and BITOP each install a bitmap through different
+        # keyspace/accounting paths.
+        assert_equal 1 [r copy bitmap_new "bitmap:keymem:copy"]
+        r restore "bitmap:keymem:restore" 0 [r dump bitmap_new]
+        r bitop or "bitmap:keymem:bitop" bitmap_new
+        assert_match "*db0_distrib_bitmaps_sizes:8K=5*" [r INFO KEYSIZES]
+
+        foreach key {
+            bitmap_new
+            bitmap:keymem:copy
+            bitmap:keymem:restore
+            bitmap:keymem:bitop
+        } {
+            # Growing every installed value validates both the logical-size
+            # histogram and per-slot allocation accounting update paths.
+            assert_equal 0 [r setbit $key 131072 1]
+        }
+
+        assert_match "*db0_distrib_bitmaps_sizes:8K=1,16K=4*" [r INFO KEYSIZES]
+
+        # RDB loading reconstructs both histogram rows through the generic
+        # key-install path. Allocation accounting is checked internally.
+        assert_equal OK [r DEBUG RELOAD]
+        assert_match "*db0_distrib_bitmaps_sizes:8K=1,16K=4*" [r INFO KEYSIZES]
+        assert_equal 1 [r DEL "bitmap:keymem:bf:convert"]
+        assert_match "*db0_distrib_bitmaps_sizes:16K=4*" [r INFO KEYSIZES]
+
+        assert_equal OK [r DEBUG ALLOCSIZE-SLOTS-ASSERT 0]
+        assert_equal OK [r DEBUG KEYSIZES-HIST-ASSERT 0]
+        assert_equal OK [r config set bitmap-default-roaring no]
+        r FLUSHALL
+        verify_keymem_empty r
+    }
+
+    test "KEY-MEMORY-STATS - ZRANGESTORE with the destination as the source" {
+        r FLUSHALL
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+        set orig [lindex [r CONFIG GET zset-max-listpack-entries] 1]
+        foreach {encoding max} {listpack 128 btree 0} {
+            r CONFIG SET zset-max-listpack-entries $max
+            r ZADD z 1 a 2 b 3 c
+            assert_encoding $encoding z
+            assert_equal 0 [r ZRANGESTORE z z 5 10 BYSCORE]
+            assert_equal 0 [r EXISTS z]
+            r ZADD z 1 a 2 b 3 c
+            assert_equal 1 [r ZRANGESTORE z z 0 0]
+            assert_equal {a} [r ZRANGE z 0 -1]
+            r DEL z
+        }
+        # Large REV rank stores, into another key and into the source.
+        try {
+            r CONFIG SET zset-max-listpack-entries 128
+            set args {}
+            for {set i 0} {$i < 300} {incr i} {lappend args [expr {$i/5}] [format m%03d $i]}
+            r ZADD z {*}$args
+            r ZADD z2 {*}$args
+            set want [r ZRANGE z 100 299 WITHSCORES]
+            assert_equal 200 [r ZRANGESTORE z2 z 0 199 REV]
+            assert_encoding btree z2
+            assert_equal $want [r ZRANGE z2 0 -1 WITHSCORES]
+            assert_equal 200 [r ZRANGESTORE z z 0 199 REV]
+            assert_encoding btree z
+            assert_equal $want [r ZRANGE z 0 -1 WITHSCORES]
+            assert_equal 0 [r ZRANGESTORE z z 5 3 REV]
+            assert_equal 0 [r EXISTS z]
+        } finally {
+            r DEL z z2
+            r CONFIG SET zset-max-listpack-entries $orig
+            r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
+        }
+        verify_keymem_empty r
+    }
+
+    test "KEY-MEMORY-STATS - Read-only ZRANGE keeps the alloc size consistent" {
+        r FLUSHALL
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+        set orig [lindex [r CONFIG GET zset-max-listpack-entries] 1]
+        # 300 members: above the listpack limit (btree arm), several btree leaves.
+        foreach {encoding max} {listpack 512 btree 0} {
+            r CONFIG SET zset-max-listpack-entries $max
+            set args {}
+            for {set i 0} {$i < 300} {incr i} {lappend args 0 [format m%03d $i]}
+            r ZADD z {*}$args
+            assert_encoding $encoding z
+            assert_equal 600 [llength [r ZRANGE z 0 -1 WITHSCORES]]
+            assert_equal 11 [llength [r ZRANGE z 10 20 REV]]
+            assert_equal 10 [llength [r ZRANGE z 0 0 BYSCORE LIMIT 5 10]]
+            assert_equal 300 [llength [r ZRANGE z - + BYLEX]]
+            assert_equal 10 [llength [r ZREVRANGEBYLEX z + - LIMIT 5 10]]
+            assert_equal 600 [llength [r ZREVRANGEBYSCORE z +inf -inf WITHSCORES]]
+            # Different destination: the source is untouched, the destination is accounted.
+            assert_equal 300 [r ZRANGESTORE d z 0 -1]
+            assert_equal 150 [r ZRANGESTORE z z 0 149]
+            r DEL z d
+        }
+        r CONFIG SET zset-max-listpack-entries $orig
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
+        verify_keymem_empty r
+    }
+
+    test "KEY-MEMORY-STATS - Histogram bins should use power-of-2 labels" {
+        r FLUSHALL
+        r HSET "hash" f1 v1
+        set info [r info keysizes]
+        assert {[regexp {distrib_hashes_sizes:([0-9]+[KMGTPE]?)=} $info -> label]}
+        set valid_labels {0 1 2 4 8 16 32 64 128 256 512
+                          1K 2K 4K 8K 16K 32K 64K 128K 256K 512K
+                          1M 2M 4M 8M 16M 32M 64M 128M 256M 512M
+                          1G 2G 4G 8G 16G 32G 64G 128G 256G 512G
+                          1T 2T 4T 8T 16T 32T 64T 128T 256T 512T
+                          1P 2P 4P 8P 16P 32P 64P 128P 256P 512P
+                          1E 2E 4E}
+        if {[lsearch -exact $valid_labels $label] < 0} {
+            fail "Label '$label' is not a valid power-of-2 label"
+        }
+    }
+
+    test "KEY-MEMORY-STATS - DEL should remove key from key memory histogram" {
+        r FLUSHALL
+        r RPUSH "list" a b c
+        verify_keymem_non_empty r {lists}
+        r DEL "list"
+        verify_keymem_empty r
+    }
+
+    test "KEY-MEMORY-STATS - Modifying a list should update key memory histogram" {
+        r FLUSHALL
+        r RPUSH "mylist" a
+        set info1 [r info keysizes]
+        # Add many elements to change allocation
+        for {set i 0} {$i < 1000} {incr i} {
+            r RPUSH "mylist" [string repeat "x" 100]
+        }
+        set info2 [r info keysizes]
+        # The histogram should have changed
+        assert {$info1 ne $info2}
+    }
+
+    test "KEY-MEMORY-STATS - FLUSHALL clears key memory histogram" {
+        r RPUSH "list1" a b c
+        r RPUSH "list2" d e f
+        verify_keymem_non_empty r {lists}
+        r FLUSHALL
+        verify_keymem_empty r
+    }
+
+    test "KEY-MEMORY-STATS - Larger allocations go to higher bins" {
+        r FLUSHALL
+        r HSET "small" f1 v1
+        set small_info [r info keysizes]
+        r FLUSHALL
+
+        # Create a large hash
+        for {set i 0} {$i < 1000} {incr i} {
+            r HSET "large" field$i [string repeat "x" 100]
+        }
+        set large_info [r info keysizes]
+
+        # The bin labels should be different
+        assert {$small_info ne $large_info}
+    }
+
+    test "KEY-MEMORY-STATS - EXPIRE eventually removes from histogram" {
+        r FLUSHALL
+        r RPUSH "expiring" a b c
+        verify_keymem_non_empty r {lists}
+        r PEXPIRE "expiring" 50
+        after 100
+        wait_for_condition 50 20 {
+            [get_info_keymem_stripped r] eq ""
+        } else {
+            fail "Key did not expire from key memory histogram"
+        }
+    }
+
+    test "KEY-MEMORY-STATS - Test RESTORE adds to histogram" {
+        r FLUSHALL
+        r RPUSH "mylist" 1 2 3 4
+        set encoded [r dump "mylist"]
+        r DEL "mylist"
+        verify_keymem_empty r
+        r RESTORE "mylist2" 0 $encoded
+        verify_keymem_non_empty r {lists}
+    }
+
+    test "KEY-MEMORY-STATS - DEBUG RELOAD preserves key memory histogram" {
+        r FLUSHALL
+        r RPUSH "list" 1 2 3 4 5
+        r HSET "hash" f1 v1
+        verify_keymem_non_empty r {lists hashes}
+        r DEBUG RELOAD
+        verify_keymem_non_empty r {lists hashes}
+        r DEL "list"
+        r DEBUG RELOAD
+        verify_keymem_non_empty r {hashes}
+        r FLUSHALL
+        verify_keymem_empty r
+    }
+
+    test "KEY-MEMORY-STATS - RENAME should preserve key memory histogram" {
+        r FLUSHALL
+        r RPUSH "oldkey" a b c d e
+        verify_keymem_non_empty r {lists}
+        r RENAME "oldkey" "newkey"
+        verify_keymem_non_empty r {lists}
+        r DEL "newkey"
+        verify_keymem_empty r
+    }
+
+    test "KEY-MEMORY-STATS - Test DEBUG KEYSIZES-HIST-ASSERT command" {
+        r DEBUG KEYSIZES-HIST-ASSERT 1
+        r FLUSHALL
+        createComplexDataset r 100
+        createComplexDataset r 100 {useexpire usehexpire}
+        # If we get here without crash, the assertion passed
+        r DEBUG KEYSIZES-HIST-ASSERT 0
+    }
+
+    test "KEY-MEMORY-STATS - RDB save and restart preserves key memory histogram" {
+        r FLUSHALL
+        r RPUSH "list" 1 2 3 4 5
+        r SADD "set" a b c d e
+        r ZADD "zset" 1 a 2 b 3 c
+        r HSET "hash" f1 v1 f2 v2
+        verify_keymem_non_empty r {lists sets zsets hashes}
+        r SAVE
+        restart_server 0 true false
+        verify_keymem_non_empty r {lists sets zsets hashes}
+    }
+
+    foreach type {listpackex hashtable} {
+        if {$type eq "hashtable"} {
+            r config set hash-max-listpack-entries 0
+        } else {
+            r config set hash-max-listpack-entries 512
+        }
+
+        test "KEY-MEMORY-STATS - Hash field lazy expiration ($type)" {
+            r debug set-active-expire 0
+
+            # HGET triggers lazy expiration
+            r FLUSHALL
+            r HSETEX "h1" PX 1 FIELDS 2 f1 v1 f2 v2
+            verify_keymem_non_empty r {hashes}
+            after 5
+            r HGET "h1" f1
+            verify_keymem_non_empty r {hashes}
+            r HGET "h1" f2
+            verify_keymem_empty r
+
+            r debug set-active-expire 1
+            r FLUSHALL
+        }
+    }
+}
+
+# Test that key-memory-histograms=no does NOT show key memory histogram
+start_server {tags {external:skip} overrides {key-memory-histograms no}} {
+
+    test "KEY-MEMORY-STATS disabled - key memory histogram should not appear" {
+        r FLUSHALL
+        r SET "mykey" "hello world"
+        r RPUSH "list" a b c
+        r SADD "set" x y z
+        r ZADD "zset" 1 a 2 b
+        r HSET "hash" f1 v1
+        set old_bitmap_default [config_get_set bitmap-default-roaring yes]
+        r SETBIT "bitmap" 63 1
+        r CONFIG SET bitmap-default-roaring $old_bitmap_default
+
+        set info [r info keysizes]
+        # Keysizes (sizes/items) should be present
+        assert {[string match "*distrib_strings_sizes*" $info]}
+        assert {[string match "*distrib_lists_items*" $info]}
+        assert {[string match "*distrib_bitmaps_sizes*" $info]}
+        # Key memory histogram should NOT be present (note: lists_sizes
+        # is only present when memory tracking is enabled, but lists_items always is)
+        set stripped [get_info_keymem_stripped r]
+        assert {$stripped eq ""}
+    }
+
+    test "KEY-MEMORY-STATS - cannot enable key-memory-histograms at runtime when disabled at startup" {
+        # Verify the config is currently disabled
+        assert_equal [r config get key-memory-histograms] {key-memory-histograms no}
+
+        # Try to enable at runtime - should fail
+        catch {r config set key-memory-histograms yes} err
+        assert_match "*cannot be enabled at runtime*" $err
+
+        # Verify it's still disabled
+        assert_equal [r config get key-memory-histograms] {key-memory-histograms no}
+    }
+}
+
+# Test that key-memory-histograms can be disabled at runtime when enabled at startup
+start_server {tags {external:skip} overrides {key-memory-histograms yes}} {
+
+    test "KEY-MEMORY-STATS - can disable key-memory-histograms at runtime and distrib_*_sizes disappear" {
+        # Verify the config is currently enabled
+        assert_equal [r config get key-memory-histograms] {key-memory-histograms yes}
+
+        # Create some data that would appear in histogram
+        r RPUSH "list" a b c d e
+        r SADD "set" x y z
+        r ZADD "zset" 1 a 2 b
+        r HSET "hash" f1 v1
+        verify_keymem_non_empty r {lists sets zsets hashes}
+
+        # Disable at runtime - should succeed
+        r config set key-memory-histograms no
+
+        # Verify it's now disabled
+        assert_equal [r config get key-memory-histograms] {key-memory-histograms no}
+
+        # Verify distrib_*_sizes fields are no longer in INFO keysizes
+        set stripped [get_info_keymem_stripped r]
+        assert_equal $stripped "" "Expected empty key memory histogram after disabling"
+    }
+
+    test "KEY-MEMORY-STATS - cannot re-enable key-memory-histograms at runtime after disabling" {
+        # Disable first (may already be disabled from previous test)
+        r config set key-memory-histograms no
+        assert_equal [r config get key-memory-histograms] {key-memory-histograms no}
+
+        # Try to re-enable - should fail
+        catch {r config set key-memory-histograms yes} err
+        assert_match "*cannot be enabled at runtime*" $err
+
+        # Verify it's still disabled
+        assert_equal [r config get key-memory-histograms] {key-memory-histograms no}
+    }
+}
+
+# Test key memory histograms in cluster mode (with cluster-slot-stats-enabled)
+start_cluster 1 0 {tags {external:skip cluster needs:debug} overrides {cluster-slot-stats-enabled yes}} {
+
+    test "SLOT-ALLOCSIZE - Test DEBUG ALLOCSIZE-SLOTS-ASSERT command" {
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+        r FLUSHALL
+        createComplexDataset r 100 {usetag}
+        createComplexDataset r 100 {usetag useexpire usehexpire}
+        # If we get here without crash, the assertion passed
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
+    }
+
+    test "SLOT-ALLOCSIZE - SUNION/SDIFF family keep slot alloc tracking across rehash" {
+        # Every command routed through sunionDiffGenericCommand() is exercised
+        # against a source set that is mid-rehash. The DIFF commands dictFind()
+        # into that set and complete its rehash, freeing the old hash table and
+        # shrinking the set's allocation - which must be recorded via
+        # updateSlotAllocSize(). The UNION commands only iterate the set (no
+        # resize); they are gated out of the tracking and must keep the per-slot
+        # accounting correct anyway. The per-slot assertion runs after every
+        # command, so any miscounting panics inside the loop below.
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+        r FLUSHALL
+
+        # The "driver" set is only iterated (sets[0] of the DIFF algorithm), so
+        # it can be bulk-loaded for speed.
+        set driver {}
+        for {set i 0} {$i < 2000} {incr i} { lappend driver "d-$i" }
+        r SADD "driver{t}" {*}$driver
+
+        foreach cmd {
+            {SUNION driver{t} src{t}}
+            {SUNIONSTORE dst{t} driver{t} src{t}}
+            {SUNIONCARD 2 driver{t} src{t}}
+            {SUNIONCARD 2 driver{t} src{t} APPROX}
+            {SDIFF driver{t} src{t}}
+            {SDIFFSTORE dst{t} driver{t} src{t}}
+            {SDIFFCARD 2 driver{t} src{t}}
+        } {
+            # Recreate src{t} before each command, leaving it mid-rehash.
+            # We add one member per SADD on purpose: a single SADD with many
+            # members would pre-size the dict and skip rehashing. A set's dict
+            # is only rehashed by operations on it, so stopping shortly after an
+            # expand boundary (here 256) leaves the rehash unfinished.
+            r DEL "src{t}"
+            for {set i 0} {$i < 265} {incr i} { r SADD "src{t}" "s-$i" }
+            assert_encoding hashtable "src{t}"
+
+            r {*}$cmd
+        }
+
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
+    }
+
+    test "KEY-MEMORY-STATS - Test DEBUG KEYSIZES-HIST-ASSERT command" {
+        r DEBUG KEYSIZES-HIST-ASSERT 1
+        r FLUSHALL
+        createComplexDataset r 100 {usetag}
+        createComplexDataset r 100 {usetag useexpire usehexpire}
+        # If we get here without crash, the assertion passed
+        r DEBUG KEYSIZES-HIST-ASSERT 0
+    }
+
+    test "KEY-MEMORY-STATS - key memory histogram should appear" {
+        r FLUSHALL
+        r RPUSH "mylist{t}" a b c d e
+        verify_keymem_non_empty r {lists}
+        r FLUSHALL
+        verify_keymem_empty r
+    }
+
+    test "KEY-MEMORY-STATS - All data types should appear in key memory histogram" {
+        r FLUSHALL
+        r RPUSH "list{t}" a b c
+        r SADD "set{t}" x y z
+        r ZADD "zset{t}" 1 a 2 b
+        r HSET "hash{t}" f1 v1
+
+        verify_keymem_non_empty r {lists sets zsets hashes}
+    }
+}
+
+# Test with replication in cluster mode for key memory stats
+start_cluster 1 1 {tags {external:skip cluster needs:debug needs:repl} overrides {cluster-slot-stats-enabled yes}} {
+    set primary_id 0
+    set replica_id 1
+    set primary [Rn $primary_id]
+    set replica [Rn $replica_id]
+
+    # Wait for replica to sync
+    wait_for_condition 50 100 {
+        [s -1 role] eq {slave}
+    } else {
+        fail "Replica did not start"
+    }
+    wait_for_condition 1000 50 {
+        [s -1 master_link_status] eq {up}
+    } else {
+        fail "Replica link not up"
+    }
+
+    test "KEY-MEMORY-STATS - Replication updates key memory stats on replica" {
+        $primary FLUSHALL
+        wait_for_ofs_sync $primary $replica
+
+        $primary RPUSH "list{t}" 1 2 3 4 5
+        $primary SADD "set{t}" a b c d e
+        $primary ZADD "zset{t}" 1 a 2 b 3 c
+        $primary HSET "hash{t}" f1 v1 f2 v2
+
+        wait_for_ofs_sync $primary $replica
+
+        verify_keymem_non_empty $replica {lists sets zsets hashes}
+    }
+
+    test "KEY-MEMORY-STATS - DEL on primary updates key memory stats on replica" {
+        $primary FLUSHALL
+        wait_for_ofs_sync $primary $replica
+
+        $primary RPUSH "list{t}" a b c d e
+        wait_for_ofs_sync $primary $replica
+        verify_keymem_non_empty $replica {lists}
+
+        $primary DEL "list{t}"
+        wait_for_ofs_sync $primary $replica
+        verify_keymem_empty $replica
+    }
+}

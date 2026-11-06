@@ -1,0 +1,41 @@
+{
+    "INFO": {
+        "summary": "Returns information and statistics about the server.",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "1.0.0",
+        "arity": -1,
+        "function": "infoCommand",
+        "history": [
+            [
+                "7.0.0",
+                "Added support for taking multiple section arguments."
+            ]
+        ],
+        "command_flags": [
+            "LOADING",
+            "STALE",
+            "SENTINEL"
+        ],
+        "acl_categories": [
+            "DANGEROUS"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT",
+            "REQUEST_POLICY:ALL_SHARDS",
+            "RESPONSE_POLICY:SPECIAL"
+        ],
+        "reply_schema": {
+            "description": "A map of info fields, one field per line in the form of <field>:<value> where the value can be a comma separated map like <key>=<val>. Also contains section header lines starting with `#` and blank lines.",
+            "type": "string"
+        },
+        "arguments": [
+            {
+                "name": "section",
+                "type": "string",
+                "multiple": true,
+                "optional": true
+            }
+        ]
+    }
+}

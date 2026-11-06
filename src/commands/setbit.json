@@ -1,0 +1,64 @@
+{
+    "SETBIT": {
+        "summary": "Sets or clears the bit at offset of the string value. Creates the key if it doesn't exist.",
+        "complexity": "O(1)",
+        "group": "bitmap",
+        "since": "2.2.0",
+        "arity": 4,
+        "function": "setbitCommand",
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "BITMAP"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "ACCESS",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "description": "The original bit value stored at offset.",
+            "oneOf": [
+                {
+                    "const": 0
+                },
+                {
+                    "const": 1
+                }
+            ]
+        },
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "offset",
+                "type": "integer"
+            },
+            {
+                "name": "value",
+                "type": "integer"
+            }
+        ]
+    }
+}

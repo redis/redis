@@ -1,0 +1,131 @@
+{
+    "GET": {
+        "summary": "Returns lists of top K hotkeys depending on metrics chosen in HOTKEYS START command.",
+        "complexity": "O(K) where K is the number of hotkeys returned.",
+        "group": "server",
+        "since": "8.6.0",
+        "arity": 2,
+        "container": "HOTKEYS",
+        "function": "hotkeysCommand",
+        "command_flags": [
+            "ADMIN",
+            "NOSCRIPT"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT",
+            "REQUEST_POLICY:SPECIAL",
+            "RESPONSE_POLICY:SPECIAL"
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "Array of maps with various metrics (tracking-active, sample-ratio, selected-slots, time/network statistics), collection info (collection-start-time-unix-ms, collection-duration-ms, total-cpu-time-user-ms, total-cpu-time-sys-ms, total-net-bytes), and the requested lists of Top-K hotkeys (available metrics: by-cpu-time-us, by-net-bytes) where at most K hotkeys are returned.",
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "tracking-active": {
+                                "type": "integer",
+                                "description": "Whether hotkey tracking is currently active (1) or stopped (0)."
+                            },
+                            "sample-ratio": {
+                                "type": "integer",
+                                "description": "The sampling ratio used for tracking."
+                            },
+                            "selected-slots": {
+                                "type": "array",
+                                "items": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "integer"
+                                    },
+                                    "minItems": 1,
+                                    "maxItems": 2
+                                },
+                                "description": "Array of slot ranges. Each element is an array: single-element [slot] for individual slots, or two-element [start, end] for inclusive ranges."
+                            },
+                            "sampled-commands-selected-slots-us": {
+                                "type": "integer",
+                                "description": "CPU time in microseconds for sampled commands in selected slots (only present when sampling and slots are configured)."
+                            },
+                            "all-commands-selected-slots-us": {
+                                "type": "integer",
+                                "description": "CPU time in microseconds for all commands in selected slots (only present when slots are configured)."
+                            },
+                            "all-commands-all-slots-us": {
+                                "type": "integer",
+                                "description": "CPU time in microseconds for all commands across all slots."
+                            },
+                            "net-bytes-sampled-commands-selected-slots": {
+                                "type": "integer",
+                                "description": "Network bytes for sampled commands in selected slots (only present when sampling and slots are configured)."
+                            },
+                            "net-bytes-all-commands-selected-slots": {
+                                "type": "integer",
+                                "description": "Network bytes for all commands in selected slots (only present when slots are configured)."
+                            },
+                            "net-bytes-all-commands-all-slots": {
+                                "type": "integer",
+                                "description": "Network bytes for all commands across all slots."
+                            },
+                            "collection-start-time-unix-ms": {
+                                "type": "integer",
+                                "description": "Unix timestamp in milliseconds when collection started."
+                            },
+                            "collection-duration-ms": {
+                                "type": "integer",
+                                "description": "Duration of collection in milliseconds."
+                            },
+                            "total-cpu-time-user-ms": {
+                                "type": "integer",
+                                "description": "Total user CPU time in milliseconds (only present when CPU tracking is enabled)."
+                            },
+                            "total-cpu-time-sys-ms": {
+                                "type": "integer",
+                                "description": "Total system CPU time in milliseconds (only present when CPU tracking is enabled)."
+                            },
+                            "total-net-bytes": {
+                                "type": "integer",
+                                "description": "Total network bytes (only present when NET tracking is enabled)."
+                            },
+                            "by-cpu-time-us": {
+                                "type": "array",
+                                "items": {
+                                    "oneOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "integer"
+                                        }
+                                    ]
+                                },
+                                "description": "Flat array of key-value pairs (key1, cpu_time1, key2, cpu_time2, ...) for top-K hotkeys by CPU time in microseconds (only present when CPU tracking is enabled)."
+                            },
+                            "by-net-bytes": {
+                                "type": "array",
+                                "items": {
+                                    "oneOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "integer"
+                                        }
+                                    ]
+                                },
+                                "description": "Flat array of key-value pairs (key1, bytes1, key2, bytes2, ...) for top-K hotkeys by network bytes (only present when NET tracking is enabled)."
+                            }
+                        },
+                        "additionalProperties": false
+                    }
+                },
+                {
+                    "description": "If no tracking is started",
+                    "type": "null"
+                }
+            ]
+        }
+    }
+}
+

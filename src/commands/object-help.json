@@ -1,0 +1,25 @@
+{
+    "HELP": {
+        "summary": "Returns helpful text about the different subcommands.",
+        "complexity": "O(1)",
+        "group": "generic",
+        "since": "6.2.0",
+        "arity": 2,
+        "container": "OBJECT",
+        "function": "objectCommand",
+        "command_flags": [
+            "LOADING",
+            "STALE"
+        ],
+        "acl_categories": [
+            "KEYSPACE"
+        ],
+        "reply_schema": {
+            "type": "array",
+            "description": "Helpful text about subcommands.",
+            "items": {
+                "type": "string"
+            }
+        }
+    }
+}

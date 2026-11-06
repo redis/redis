@@ -1,0 +1,48 @@
+{
+    "TRIMSLOTS": {
+        "summary": "Trim the keys that belong to specified slots.",
+        "complexity": "O(N) where N is the total number of keys in all databases",
+        "group": "server",
+        "since": "8.4.0",
+        "arity": -5,
+        "function": "trimslotsCommand",
+        "command_flags": [
+            "WRITE"
+        ],
+        "acl_categories": [
+            "KEYSPACE",
+            "DANGEROUS"
+        ],
+        "reply_schema": {
+            "const": "OK"
+        },
+        "arguments": [
+            {
+                "name": "ranges",
+                "token": "RANGES",
+                "type": "block",
+                "arguments": [
+                    {
+                        "name": "numranges",
+                        "type": "integer"
+                    },
+                    {
+                        "name": "slots",
+                        "type": "block",
+                        "multiple": true,
+                        "arguments": [
+                            {
+                                "name": "startslot",
+                                "type": "integer"
+                            },
+                            {
+                                "name": "endslot",
+                                "type": "integer"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+}

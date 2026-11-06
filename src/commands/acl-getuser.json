@@ -1,0 +1,91 @@
+{
+    "GETUSER": {
+        "summary": "Lists the ACL rules of a user.",
+        "complexity": "O(N). Where N is the number of password, command and pattern rules that the user has.",
+        "group": "server",
+        "since": "6.0.0",
+        "arity": 3,
+        "container": "ACL",
+        "function": "aclCommand",
+        "history": [
+            [
+                "6.2.0",
+                "Added Pub/Sub channel patterns."
+            ],
+            [
+                "7.0.0",
+                "Added selectors and changed the format of key and channel patterns from a list to their rule representation."
+            ]
+        ],
+        "command_flags": [
+            "ADMIN",
+            "NOSCRIPT",
+            "LOADING",
+            "STALE",
+            "SENTINEL"
+        ],
+        "arguments": [
+            {
+                "name": "username",
+                "type": "string"
+            }
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "a set of ACL rule definitions for the user",
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "flags": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "passwords": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "commands": {
+                            "description": "root selector's commands",
+                            "type": "string"
+                        },
+                        "keys": {
+                            "description": "root selector's keys",
+                            "type": "string"
+                        },
+                        "channels": {
+                            "description": "root selector's channels",
+                            "type": "string"
+                        },
+                        "selectors": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "properties": {
+                                    "commands": {
+                                        "type": "string"
+                                    },
+                                    "keys": {
+                                        "type": "string"
+                                    },
+                                    "channels": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "description": "If user does not exist",
+                    "type": "null"
+                }
+            ]
+        }
+    }
+}

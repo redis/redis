@@ -1,0 +1,74 @@
+# Security Policy
+
+## Supported Versions
+
+Redis is generally backward compatible with very few exceptions, so we
+recommend users to always use the latest version to experience stability,
+performance and security.
+
+We generally backport security issues to a single previous major version,
+unless this is not possible or feasible with a reasonable effort.
+
+| Version | Supported                                                              |
+|---------|------------------------------------------------------------------------|
+| 8.10.x  | :white_check_mark:                                                     |
+| 8.8.x   | :white_check_mark:                                                     |
+| 8.6.x   | :white_check_mark:                                                     |
+| 8.4.x   | :white_check_mark:                                                     |
+| 8.2.x   | :white_check_mark:                                                     |
+| 8.0.x   | :x:                                                                    |
+| 7.4.x   | :white_check_mark:                                                     |
+| 7.2.x   | :white_check_mark: support extended till 7.4 end of support            |
+| < 7.2.x | :x:                                                                    |
+| 6.2.x   | :white_check_mark: support extended                                    |
+| < 6.2.x | :x:                                                                    |
+
+## Reporting a Vulnerability
+
+If you believe you have found a security vulnerability, to ensure proper review 
+and assessment, we kindly ask vulnerability reports be submitted through
+our [Redis Vulnerability Disclosure Program.](https://redis.io/redis-responsible-vulnerability-disclosure/)
+
+We have found this path to be beneficial for both researchers and us for 
+a number of reasons. Including, offering fast response times to researchers and 
+opportunities for us to invite those with exceptional reports into closed paid 
+engagements.  
+
+For those averse to using our chosen platform, we will also accept reports directly
+via GitHub's "Report a Vulnerability".  
+
+To contact the security team directly with questions use: [security@redis.com](mailto:security@redis.com)
+
+
+## Responsible Disclosure
+
+In some cases, we may apply a responsible disclosure process to reported or
+otherwise discovered vulnerabilities. We will usually do that for a critical
+vulnerability, and only if we have a good reason to believe information about
+it is not yet public.
+
+This process involves providing an early notification about the vulnerability,
+its impact and mitigations to a short list of vendors under a time-limited
+embargo on public disclosure.
+
+If you believe you should be on the list, please contact us and we will
+consider your request based on the above criteria.
+
+## Support across Operating Systems, Architectures, and Compilers
+
+Redis is primarily tested on modern Linux distributions, using contemporary
+Intel and AMD x86_64 CPUs, as well as ARM-based CPUs, and recent versions of
+the GCC compiler.
+Vulnerability reports that rely on unsupported or uncommon environments
+(for example, 32-bit architectures, non-Linux operating systems, or outdated
+toolchains) may be considered out of scope, even if the issue is technically
+valid. Such reports will be evaluated on a case-by-case basis at our discretion.
+
+## License Compatibility
+
+For security vulnerability patches released under Redis Open Source 7.4 and 
+thereafter, Redis permits users of earlier versions (7.2 and prior) to access 
+patches under the BSD3 license noted in REDISCONTRIBUTIONS.txt instead of the 
+full license requirements described in LICENSE.txt. Security fixes are tested 
+only against the specific versions for which they are provided. Applicability 
+or portability to other versions or forks has not been evaluated.

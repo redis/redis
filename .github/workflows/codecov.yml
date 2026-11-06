@@ -1,0 +1,36 @@
+name: "Codecov"
+
+# Enabling on each push is to display the coverage changes in every PR, 
+# where each PR needs to be compared against the coverage of the head commit
+on: [push, pull_request]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  code-coverage:
+    if: ${{ github.repository == 'redis/redis' }}
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+
+    - name: Install lcov and run test
+      run: |
+        sudo apt-get install lcov
+        make lcov
+
+    - name: Upload coverage reports to Codecov
+      uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+      env:
+        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      with:
+        files: ./src/redis.info
+        disable_search: true
+        fail_ci_if_error: true
+

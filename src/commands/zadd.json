@@ -1,0 +1,144 @@
+{
+    "ZADD": {
+        "summary": "Adds one or more members to a sorted set, or updates their scores. Creates the key if it doesn't exist.",
+        "complexity": "O(log(N)) for each item added, where N is the number of elements in the sorted set.",
+        "group": "sorted_set",
+        "since": "1.2.0",
+        "arity": -4,
+        "function": "zaddCommand",
+        "history": [
+            [
+                "2.4.0",
+                "Accepts multiple elements."
+            ],
+            [
+                "3.0.2",
+                "Added the `XX`, `NX`, `CH` and `INCR` options."
+            ],
+            [
+                "6.2.0",
+                "Added the `GT` and `LT` options."
+            ]
+        ],
+        "command_flags": [
+            "WRITE",
+            "DENYOOM",
+            "FAST"
+        ],
+        "acl_categories": [
+            "SORTEDSET"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "anyOf":[
+                {
+                    "description": "Operation was aborted (conflict with one of the `XX`/`NX`/`LT`/`GT` options).",
+                    "type": "null"
+                },
+                {
+                    "description": "The number of new members (when the `CH` option is not used)",
+                    "type": "integer"
+                },
+                {
+                    "description": "The number of new or updated members (when the `CH` option is used)",
+                    "type": "integer"
+                },
+                {
+                    "description": "The updated score of the member (when the `INCR` option is used)",
+                    "type": "number"
+                }
+            ]
+        },
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "condition",
+                "type": "oneof",
+                "optional": true,
+                "since": "3.0.2",
+                "arguments": [
+                    {
+                        "name": "nx",
+                        "type": "pure-token",
+                        "token": "NX"
+                    },
+                    {
+                        "name": "xx",
+                        "type": "pure-token",
+                        "token": "XX"
+                    }
+                ]
+            },
+            {
+                "name": "comparison",
+                "type": "oneof",
+                "optional": true,
+                "since": "6.2.0",
+                "arguments": [
+                    {
+                        "name": "gt",
+                        "type": "pure-token",
+                        "token": "GT"
+                    },
+                    {
+                        "name": "lt",
+                        "type": "pure-token",
+                        "token": "LT"
+                    }
+                ]
+            },
+            {
+                "name": "change",
+                "token": "CH",
+                "type": "pure-token",
+                "optional": true,
+                "since": "3.0.2"
+            },
+            {
+                "name": "increment",
+                "token": "INCR",
+                "type": "pure-token",
+                "optional": true,
+                "since": "3.0.2"
+            },
+            {
+                "name": "data",
+                "type": "block",
+                "multiple": true,
+                "arguments": [
+                    {
+                        "name": "score",
+                        "type": "double"
+                    },
+                    {
+                        "name": "member",
+                        "type": "string"
+                    }
+                ]
+            }
+        ]
+    }
+}

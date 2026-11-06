@@ -1,0 +1,1042 @@
+set testmodule [file normalize tests/modules/propagate.so]
+set miscmodule [file normalize tests/modules/misc.so]
+set keyspace_events [file normalize tests/modules/keyspace_events.so]
+
+tags "modules external:skip" {
+    test {Modules can propagate in async and threaded contexts} {
+        start_server [list overrides [list loadmodule "$testmodule"]] {
+            set replica [srv 0 client]
+            set replica_host [srv 0 host]
+            set replica_port [srv 0 port]
+            $replica module load $keyspace_events
+            start_server [list overrides [list loadmodule "$testmodule"]] {
+                set master [srv 0 client]
+                set master_host [srv 0 host]
+                set master_port [srv 0 port]
+                $master module load $keyspace_events
+
+                # Start the replication process...
+                $replica replicaof $master_host $master_port
+                wait_for_sync $replica
+                after 1000
+
+                test {module propagates from timer} {
+                    set repl [attach_to_replication_stream]
+
+                    $master propagate-test.timer
+
+                    wait_for_condition 500 10 {
+                        [$replica get timer] eq "3"
+                    } else {
+                        fail "The two counters don't match the expected value."
+                    }
+
+                    assert_replication_stream $repl {
+                        {select *}
+                        {incr timer}
+                        {incr timer}
+                        {incr timer}
+                    }
+                    close_replication_stream $repl
+                }
+
+                test {module propagation with notifications} {
+                    set repl [attach_to_replication_stream]
+
+                    $master set x y
+
+                    assert_replication_stream $repl {
+                        {multi}
+                        {select *}
+                        {incr notifications}
+                        {set x y}
+                        {exec}
+                    }
+                    close_replication_stream $repl
+                }
+
+                test {module propagation with notifications with multi} {
+                    set repl [attach_to_replication_stream]
+
+                    $master multi
+                    $master set x1 y1
+                    $master set x2 y2
+                    $master exec
+
+                    assert_replication_stream $repl {
+                        {multi}
+                        {select *}
+                        {incr notifications}
+                        {set x1 y1}
+                        {incr notifications}
+                        {set x2 y2}
+                        {exec}
+                    }
+                    close_replication_stream $repl
+                }
+
+                test {module propagation with notifications with active-expire} {
+                    $master debug set-active-expire 1
+                    set repl [attach_to_replication_stream]
+
+                    $master set asdf1 1 PX 300
+                    $master set asdf2 2 PX 300
+                    $master set asdf3 3 PX 300
+
+                    wait_for_condition 500 10 {
+                        [$replica keys asdf*] eq {}
+                    } else {
+                        fail "Not all keys have expired"
+                    }
+
+                    # Note whenever there's double notification: SET with PX issues two separate
+                    # notifications: one for "set" and one for "expire"
+                    assert_replication_stream $repl {
+                        {multi}
+                        {select *}
+                        {incr notifications}
+                        {incr notifications}
+                        {set asdf1 1 PXAT *}
+                        {exec}
+                        {multi}
+                        {incr notifications}
+                        {incr notifications}
+                        {set asdf2 2 PXAT *}
+                        {exec}
+                        {multi}
+                        {incr notifications}
+                        {incr notifications}
+                        {set asdf3 3 PXAT *}
+                        {exec}
+                        {multi}
+                        {incr notifications}
+                        {incr notifications}
+                        {incr testkeyspace:expired}
+                        {del asdf*}
+                        {exec}
+                        {multi}
+                        {incr notifications}
+                        {incr notifications}
+                        {incr testkeyspace:expired}
+                        {del asdf*}
+                        {exec}
+                        {multi}
+                        {incr notifications}
+                        {incr notifications}
+                        {incr testkeyspace:expired}
+                        {del asdf*}
+                        {exec}
+                    }
+                    close_replication_stream $repl
+
+                    $master debug set-active-expire 0
+                }
+
+                test {module propagation with notifications with eviction case 1} {
+                    $master flushall
+                    $master set asdf1 1
+                    $master set asdf2 2
+                    $master set asdf3 3
+          
+                    $master config set maxmemory-policy allkeys-random
+                    $master config set maxmemory 1
+
+                    # Please note the following loop:
+                    # We evict a key and send a notification, which does INCR on the "notifications" key, so
+                    # that every time we evict any key, "notifications" key exist (it happens inside the
+                    # performEvictions loop). So even evicting "notifications" causes INCR on "notifications".
+                    # If maxmemory_eviction_tenacity would have been set to 100 this would be an endless loop, but
+                    # since the default is 10, at some point the performEvictions loop would end.
+                    # Bottom line: "notifications" always exists and we can't really determine the order of evictions
+                    # This test is here only for sanity
+
+                    # The replica will get the notification with multi exec and we have a generic notification handler
+                    # that performs `RedisModule_Call(ctx, "INCR", "c", "multi");` if the notification is inside multi exec.
+                    # so we will have 2 keys, "notifications" and "multi".
+                    wait_for_condition 500 10 {
+                        [$replica dbsize] eq 2 
+                    } else {
+                        fail "Not all keys have been evicted"
+                    }
+
+                    $master config set maxmemory 0
+                    $master config set maxmemory-policy noeviction
+                }
+
+                test {module propagation with notifications with eviction case 2} {
+                    $master flushall
+                    set repl [attach_to_replication_stream]
+
+                    $master set asdf1 1 EX 300
+                    $master set asdf2 2 EX 300
+                    $master set asdf3 3 EX 300
+
+                    # Please note we use volatile eviction to prevent the loop described in the test above.
+                    # "notifications" is not volatile so it always remains
+                    $master config resetstat
+                    $master config set maxmemory-policy volatile-ttl
+                    $master config set maxmemory 1
+
+                    wait_for_condition 500 10 {
+                        [s evicted_keys] eq 3
+                    } else {
+                        fail "Not all keys have been evicted"
+                    }
+
+                    $master config set maxmemory 0
+                    $master config set maxmemory-policy noeviction
+
+                    $master set asdf4 4
+
+                    # Note whenever there's double notification: SET with EX issues two separate
+                    # notifications: one for "set" and one for "expire"
+                    # Note that although CONFIG SET maxmemory is called in this flow (see issue #10014),
+                    # eviction will happen and will not induce propagation of the CONFIG command (see #10019).
+                    assert_replication_stream $repl {
+                        {multi}
+                        {select *}
+                        {incr notifications}
+                        {incr notifications}
+                        {set asdf1 1 PXAT *}
+                        {exec}
+                        {multi}
+                        {incr notifications}
+                        {incr notifications}
+                        {set asdf2 2 PXAT *}
+                        {exec}
+                        {multi}
+                        {incr notifications}
+                        {incr notifications}
+                        {set asdf3 3 PXAT *}
+                        {exec}
+                        {multi}
+                        {incr notifications}
+                        {del asdf*}
+                        {exec}
+                        {multi}
+                        {incr notifications}
+                        {del asdf*}
+                        {exec}
+                        {multi}
+                        {incr notifications}
+                        {del asdf*}
+                        {exec}
+                        {multi}
+                        {incr notifications}
+                        {set asdf4 4}
+                        {exec}
+                    }
+                    close_replication_stream $repl
+                }
+
+                test {module propagation with timer and CONFIG SET maxmemory} {
+                    set repl [attach_to_replication_stream]
+
+                    $master config resetstat
+                    $master config set maxmemory-policy volatile-random
+
+                    $master propagate-test.timer-maxmemory
+
+                    # Wait until the volatile keys are evicted
+                    wait_for_condition 500 10 {
+                        [s evicted_keys] eq 2
+                    } else {
+                        fail "Not all keys have been evicted"
+                    }
+
+                    assert_replication_stream $repl {
+                        {multi}
+                        {select *}
+                        {incr notifications}
+                        {incr notifications}
+                        {set timer-maxmemory-volatile-start 1 PXAT *}
+                        {incr timer-maxmemory-middle}
+                        {incr notifications}
+                        {incr notifications}
+                        {set timer-maxmemory-volatile-end 1 PXAT *}
+                        {exec}
+                        {multi}
+                        {incr notifications}
+                        {del timer-maxmemory-volatile-*}
+                        {exec}
+                        {multi}
+                        {incr notifications}
+                        {del timer-maxmemory-volatile-*}
+                        {exec}
+                    }
+                    close_replication_stream $repl
+
+                    $master config set maxmemory 0
+                    $master config set maxmemory-policy noeviction
+                }
+
+                test {module propagation with timer and EVAL} {
+                    set repl [attach_to_replication_stream]
+
+                    $master propagate-test.timer-eval
+
+                    assert_replication_stream $repl {
+                        {multi}
+                        {select *}
+                        {incr notifications}
+                        {incrby timer-eval-start 1}
+                        {incr notifications}
+                        {set foo bar}
+                        {incr timer-eval-middle}
+                        {incr notifications}
+                        {incrby timer-eval-end 1}
+                        {exec}
+                    }
+                    close_replication_stream $repl
+                }
+
+                test {module propagates nested ctx case1} {
+                    set repl [attach_to_replication_stream]
+
+                    $master propagate-test.timer-nested
+
+                    wait_for_condition 500 10 {
+                        [$replica get timer-nested-end] eq "1"
+                    } else {
+                        fail "The two counters don't match the expected value."
+                    }
+
+                    assert_replication_stream $repl {
+                        {multi}
+                        {select *}
+                        {incrby timer-nested-start 1}
+                        {incrby timer-nested-end 1}
+                        {exec}
+                    }
+                    close_replication_stream $repl
+
+                    # Note propagate-test.timer-nested just propagates INCRBY, causing an
+                    # inconsistency, so we flush
+                    $master flushall
+                }
+
+                test {module propagates nested ctx case2} {
+                    set repl [attach_to_replication_stream]
+
+                    $master propagate-test.timer-nested-repl
+
+                    wait_for_condition 500 10 {
+                        [$replica get timer-nested-end] eq "1"
+                    } else {
+                        fail "The two counters don't match the expected value."
+                    }
+
+                    assert_replication_stream $repl {
+                        {multi}
+                        {select *}
+                        {incrby timer-nested-start 1}
+                        {incr notifications}
+                        {incr using-call}
+                        {incr counter-1}
+                        {incr counter-2}
+                        {incr counter-3}
+                        {incr counter-4}
+                        {incr notifications}
+                        {incr after-call}
+                        {incr notifications}
+                        {incr before-call-2}
+                        {incr notifications}
+                        {incr asdf}
+                        {incr notifications}
+                        {del asdf}
+                        {incr notifications}
+                        {incr after-call-2}
+                        {incr notifications}
+                        {incr timer-nested-middle}
+                        {incrby timer-nested-end 1}
+                        {exec}
+                    }
+                    close_replication_stream $repl
+
+                    # Note propagate-test.timer-nested-repl just propagates INCRBY, causing an
+                    # inconsistency, so we flush
+                    $master flushall
+                }
+
+                test {module propagates from thread} {
+                    set repl [attach_to_replication_stream]
+
+                    $master propagate-test.thread
+
+                    wait_for_condition 500 10 {
+                        [$replica get a-from-thread] eq "3"
+                    } else {
+                        fail "The two counters don't match the expected value."
+                    }
+
+                    assert_replication_stream $repl {
+                        {multi}
+                        {select *}
+                        {incr a-from-thread}
+                        {incr notifications}
+                        {incr thread-call}
+                        {incr b-from-thread}
+                        {exec}
+                        {multi}
+                        {incr a-from-thread}
+                        {incr notifications}
+                        {incr thread-call}
+                        {incr b-from-thread}
+                        {exec}
+                        {multi}
+                        {incr a-from-thread}
+                        {incr notifications}
+                        {incr thread-call}
+                        {incr b-from-thread}
+                        {exec}
+                    }
+                    close_replication_stream $repl
+                }
+
+                test {module propagates from thread with detached ctx} {
+                    set repl [attach_to_replication_stream]
+
+                    $master propagate-test.detached-thread
+
+                    wait_for_condition 500 10 {
+                        [$replica get thread-detached-after] eq "1"
+                    } else {
+                        fail "The key doesn't match the expected value."
+                    }
+
+                    assert_replication_stream $repl {
+                        {multi}
+                        {select *}
+                        {incr thread-detached-before}
+                        {incr notifications}
+                        {incr thread-detached-1}
+                        {incr notifications}
+                        {incr thread-detached-2}
+                        {incr thread-detached-after}
+                        {exec}
+                    }
+                    close_replication_stream $repl
+                }
+
+                test {module propagates from command} {
+                    set repl [attach_to_replication_stream]
+
+                    $master propagate-test.simple
+                    $master propagate-test.mixed
+
+                    assert_replication_stream $repl {
+                        {multi}
+                        {select *}
+                        {incr counter-1}
+                        {incr counter-2}
+                        {exec}
+                        {multi}
+                        {incr notifications}
+                        {incr using-call}
+                        {incr counter-1}
+                        {incr counter-2}
+                        {incr notifications}
+                        {incr after-call}
+                        {exec}
+                    }
+                    close_replication_stream $repl
+                }
+
+                test {module propagates from EVAL} {
+                    set repl [attach_to_replication_stream]
+
+                    assert_equal [ $master eval { \
+                        redis.call("propagate-test.simple"); \
+                        redis.call("set", "x", "y"); \
+                        redis.call("propagate-test.mixed"); return "OK" } 0 ] {OK}
+
+                    assert_replication_stream $repl {
+                        {multi}
+                        {select *}
+                        {incr counter-1}
+                        {incr counter-2}
+                        {incr notifications}
+                        {set x y}
+                        {incr notifications}
+                        {incr using-call}
+                        {incr counter-1}
+                        {incr counter-2}
+                        {incr notifications}
+                        {incr after-call}
+                        {exec}
+                    }
+                    close_replication_stream $repl
+                }
+
+                test {module propagates from command after good EVAL} {
+                    set repl [attach_to_replication_stream]
+
+                    assert_equal [ $master eval { return "hello" } 0 ] {hello}
+                    $master propagate-test.simple
+                    $master propagate-test.mixed
+
+                    assert_replication_stream $repl {
+                        {multi}
+                        {select *}
+                        {incr counter-1}
+                        {incr counter-2}
+                        {exec}
+                        {multi}
+                        {incr notifications}
+                        {incr using-call}
+                        {incr counter-1}
+                        {incr counter-2}
+                        {incr notifications}
+                        {incr after-call}
+                        {exec}
+                    }
+                    close_replication_stream $repl
+                }
+
+                test {module propagates from command after bad EVAL} {
+                    set repl [attach_to_replication_stream]
+
+                    catch { $master eval { return "hello" } -12 } e
+                    assert_equal $e {ERR Number of keys can't be negative}
+                    $master propagate-test.simple
+                    $master propagate-test.mixed
+
+                    assert_replication_stream $repl {
+                        {multi}
+                        {select *}
+                        {incr counter-1}
+                        {incr counter-2}
+                        {exec}
+                        {multi}
+                        {incr notifications}
+                        {incr using-call}
+                        {incr counter-1}
+                        {incr counter-2}
+                        {incr notifications}
+                        {incr after-call}
+                        {exec}
+                    }
+                    close_replication_stream $repl
+                }
+
+                test {module propagates from multi-exec} {
+                    set repl [attach_to_replication_stream]
+
+                    $master multi
+                    $master propagate-test.simple
+                    $master propagate-test.mixed
+                    $master propagate-test.timer-nested-repl
+                    $master exec
+
+                    wait_for_condition 500 10 {
+                        [$replica get timer-nested-end] eq "1"
+                    } else {
+                        fail "The two counters don't match the expected value."
+                    }
+
+                    assert_replication_stream $repl {
+                        {multi}
+                        {select *}
+                        {incr counter-1}
+                        {incr counter-2}
+                        {incr notifications}
+                        {incr using-call}
+                        {incr counter-1}
+                        {incr counter-2}
+                        {incr notifications}
+                        {incr after-call}
+                        {exec}
+                        {multi}
+                        {incrby timer-nested-start 1}
+                        {incr notifications}
+                        {incr using-call}
+                        {incr counter-1}
+                        {incr counter-2}
+                        {incr counter-3}
+                        {incr counter-4}
+                        {incr notifications}
+                        {incr after-call}
+                        {incr notifications}
+                        {incr before-call-2}
+                        {incr notifications}
+                        {incr asdf}
+                        {incr notifications}
+                        {del asdf}
+                        {incr notifications}
+                        {incr after-call-2}
+                        {incr notifications}
+                        {incr timer-nested-middle}
+                        {incrby timer-nested-end 1}
+                        {exec}
+                    }
+                    close_replication_stream $repl
+
+                   # Note propagate-test.timer-nested just propagates INCRBY, causing an
+                    # inconsistency, so we flush
+                    $master flushall
+                }
+
+                test {module RM_Call of expired key propagation} {
+                    $master debug set-active-expire 0
+
+                    $master set k1 900 px 100
+                    after 110
+
+                    set repl [attach_to_replication_stream]
+                    $master propagate-test.incr k1
+
+                    assert_replication_stream $repl {
+                        {multi}
+                        {select *}
+                        {del k1}
+                        {propagate-test.incr k1}
+                        {exec}
+                    }
+                    close_replication_stream $repl
+
+                    assert_equal [$master get k1] 1
+                    assert_equal [$master ttl k1] -1
+
+                    wait_for_condition 50 100 {
+                        [$replica get k1] eq 1 &&
+                        [$replica ttl k1] eq -1
+                    } else {
+                        fail "failed RM_Call of expired key propagation"
+                    }
+                }
+
+                test {module notification on set} {
+                    set repl [attach_to_replication_stream]
+
+                    $master SADD s foo
+
+                    wait_for_condition 500 10 {
+                        [$replica SCARD s] eq "1"
+                    } else {
+                        fail "Failed to wait for set to be replicated"
+                    }
+
+                    $master SPOP s 1
+
+                    wait_for_condition 500 10 {
+                        [$replica SCARD s] eq "0"
+                    } else {
+                        fail "Failed to wait for set to be replicated"
+                    }
+
+                    # Currently the `del` command comes after the notification.
+                    # When we fix spop to fire notification at the end (like all other commands),
+                    # the `del` will come first.
+                    assert_replication_stream $repl {
+                        {multi}
+                        {select *}
+                        {incr notifications}
+                        {sadd s foo}
+                        {exec}
+                        {multi}
+                        {incr notifications}
+                        {incr notifications}
+                        {del s}
+                        {exec}
+                    }
+                    close_replication_stream $repl
+                }
+
+                test {module key miss notification do not cause read command to be replicated} {
+                    set repl [attach_to_replication_stream]
+
+                    $master flushall
+                    
+                    $master get unexisting_key
+
+                    wait_for_condition 500 10 {
+                        [$replica get missed] eq "1"
+                    } else {
+                        fail "Failed to wait for set to be replicated"
+                    }
+
+                    # Test is checking a wrong!!! behavior that causes a read command to be replicated to replica/aof.
+                    # We keep the test to verify that such a wrong behavior does not cause any crashes.
+                    assert_replication_stream $repl {
+                        {select *}
+                        {flushall}
+                        {multi}
+                        {incr notifications}
+                        {incr missed}
+                        {get unexisting_key}
+                        {exec}
+                    }
+                    
+                    close_replication_stream $repl
+                }
+
+                test "Unload the module - propagate-test/testkeyspace" {
+                    assert_equal {OK} [r module unload propagate-test]
+                    assert_equal {OK} [r module unload testkeyspace]
+                }
+
+                assert_equal [s -1 unexpected_error_replies] 0
+            }
+        }
+    }
+}
+
+
+tags "modules aof external:skip" {
+    foreach aofload_type {debug_cmd startup} {
+    test "Modules RM_Replicate replicates MULTI/EXEC correctly: AOF-load type $aofload_type" {
+        start_server [list overrides [list loadmodule "$testmodule"]] {
+            # Enable the AOF
+            r config set appendonly yes
+            r config set auto-aof-rewrite-percentage 0 ; # Disable auto-rewrite.
+            waitForBgrewriteaof r
+
+            r propagate-test.simple
+            r propagate-test.mixed
+            r multi
+            r propagate-test.simple
+            r propagate-test.mixed
+            r exec
+
+            assert_equal [r get counter-1] {}
+            assert_equal [r get counter-2] {}
+            assert_equal [r get using-call] 2
+            assert_equal [r get after-call] 2
+            assert_equal [r get notifications] 4
+
+            # Load the AOF
+            if {$aofload_type == "debug_cmd"} {
+                r debug loadaof
+            } else {
+                r config rewrite
+                restart_server 0 true false
+                wait_done_loading r
+            }
+
+            # This module behaves bad on purpose, it only calls
+            # RM_Replicate for counter-1 and counter-2 so values
+            # after AOF-load are different
+            assert_equal [r get counter-1] 4
+            assert_equal [r get counter-2] 4
+            assert_equal [r get using-call] 2
+            assert_equal [r get after-call] 2
+            # 4+4+2+2 commands from AOF (just above) + 4 "INCR notifications" from AOF + 4 notifications for these INCRs
+            assert_equal [r get notifications] 20
+
+            assert_equal {OK} [r module unload propagate-test]
+            assert_equal [s 0 unexpected_error_replies] 0
+        }
+    }
+    test "Modules RM_Call does not update stats during aof load: AOF-load type $aofload_type" {
+        start_server [list overrides [list loadmodule "$miscmodule"]] {
+            # Enable the AOF
+            r config set appendonly yes
+            r config set auto-aof-rewrite-percentage 0 ; # Disable auto-rewrite.
+            waitForBgrewriteaof r
+            
+            r config resetstat
+            r set foo bar
+            r EVAL {return redis.call('SET', KEYS[1], ARGV[1])} 1 foo bar2
+            r test.rm_call_replicate set foo bar3
+            r EVAL {return redis.call('test.rm_call_replicate',ARGV[1],KEYS[1],ARGV[2])} 1 foo set bar4
+            
+            r multi
+            r set foo bar5
+            r EVAL {return redis.call('SET', KEYS[1], ARGV[1])} 1 foo bar6
+            r test.rm_call_replicate set foo bar7
+            r EVAL {return redis.call('test.rm_call_replicate',ARGV[1],KEYS[1],ARGV[2])} 1 foo set bar8
+            r exec
+
+            assert_match {*calls=8,*,rejected_calls=0,failed_calls=0*} [cmdrstat set r]
+            
+            
+            # Load the AOF
+            if {$aofload_type == "debug_cmd"} {
+                r config resetstat
+                r debug loadaof
+            } else {
+                r config rewrite
+                restart_server 0 true false
+                wait_done_loading r
+            }
+            
+            assert_no_match {*calls=*} [cmdrstat set r]
+            
+        }
+    }
+    }
+}
+
+tags "modules aof external:skip" {
+    start_server [list overrides [list loadmodule "$miscmodule"]] {
+        r config set appendonly yes
+        r config set auto-aof-rewrite-percentage 0 ; # Disable auto-rewrite.
+        waitForBgrewriteaof r
+
+        # The counted form of SPOP replaces its own propagation with an SREM
+        # queued through alsoPropagate(): it must reach only the targets the
+        # RM_Call asked for, just like the propagation of the command itself.
+        set keys {spop-none spop-repl spop-aof spop-all spop-nested}
+        foreach key $keys {
+            r sadd $key a b c d e
+        }
+
+        test {RM_Call effect commands honor the selective propagation flags} {
+            set repl [attach_to_replication_stream]
+
+            assert_equal 2 [llength [r test.rm_call spop spop-none 2]]
+            assert_equal 2 [llength [r test.rm_call_flags !A spop spop-repl 2]]
+            assert_equal 2 [llength [r test.rm_call_flags !R spop spop-aof 2]]
+            assert_equal 2 [llength [r test.rm_call_flags ! spop spop-all 2]]
+
+            # An inner RM_Call with '!' must not resurrect the propagation
+            # suppressed by the outer one.
+            assert_equal 2 [llength [r test.rm_call test.rm_call_flags ! spop spop-nested 2]]
+
+            # The master applied all of them.
+            assert_equal {3 3 3 3 3} [lmap key $keys {r scard $key}]
+
+            assert_replication_stream $repl {
+                {select *}
+                {srem spop-repl * *}
+                {srem spop-all * *}
+            }
+            close_replication_stream $repl
+        }
+
+        test {RM_Call effect commands honor the selective propagation flags after AOF reload} {
+            r debug loadaof
+
+            # Only the sets whose SREM reached the AOF are trimmed, the others
+            # are back to the 5 members added by the SADD above.
+            assert_equal {5 5 3 3 5} [lmap key $keys {r scard $key}]
+        }
+
+        test {RM_Call bitmap transitions honor the selective propagation flags} {
+            r config set bitmap-default-roaring yes
+            set repl [attach_to_replication_stream]
+            r set bitmap:rmcall:source [binary format H* 80]
+            set expected_stream [list {select *} [list set bitmap:rmcall:source [binary format H* 80]]]
+            set bitmap_cases {}
+
+            # The configuration only applies when the BITCONVERT / BITROAROP
+            # companion reaches both the AOF and the replicas: a target missing
+            # it would replay the write, or whatever the module replicates in
+            # its place, against a string. Otherwise the write keeps the string
+            # representation and propagates as a plain command.
+            foreach {mode flags on_replica in_aof type} {
+                none {} 0 0 string
+                nested {} 0 0 string
+                replica !A 1 0 string
+                aof !R 0 1 string
+                all ! 1 1 bitmap
+            } {
+                foreach command {setbit bitfield bitop} {
+                    set key bitmap:rmcall:$mode:$command
+                    switch $command {
+                        setbit {set cmd [list setbit $key 0 1]}
+                        bitfield {set cmd [list bitfield $key SET u1 0 1]}
+                        bitop {set cmd [list bitop or $key bitmap:rmcall:source]}
+                    }
+                    if {$mode eq "nested"} {
+                        # An inner call must not restore targets excluded by
+                        # the outer call, so it must not convert either.
+                        r test.rm_call test.rm_call_flags ! {*}$cmd
+                    } elseif {$flags eq {}} {
+                        r test.rm_call {*}$cmd
+                    } else {
+                        r test.rm_call_flags $flags {*}$cmd
+                    }
+                    assert_equal $type [r type $key]
+                    assert_equal 1 [r bitcount $key]
+                    lappend bitmap_cases $key $in_aof $type
+
+                    if {$on_replica} {
+                        if {$type eq "string"} {
+                            lappend expected_stream $cmd
+                        } elseif {$command eq "bitop"} {
+                            lappend expected_stream [lreplace $cmd 0 0 bitroarop]
+                        } else {
+                            lappend expected_stream {multi} [list bitconvert $key] $cmd {exec}
+                        }
+                    }
+                }
+            }
+            assert_replication_stream $repl $expected_stream
+            close_replication_stream $repl
+        }
+
+        test {RM_Call bitmap transitions honor the selective propagation flags after AOF reload} {
+            r debug loadaof
+            foreach {key in_aof type} $bitmap_cases {
+                assert_equal $in_aof [r exists $key]
+                if {$in_aof} {
+                    assert_equal $type [r type $key]
+                    assert_equal 1 [r bitcount $key]
+                }
+            }
+        }
+    }
+}
+
+tags "modules aof external:skip" {
+    start_server [list overrides [list loadmodule "$miscmodule"]] {
+        set replica [srv 0 client]
+        start_server [list overrides [list loadmodule "$miscmodule" appendonly yes auto-aof-rewrite-percentage 0]] {
+            set master [srv 0 client]
+            $replica replicaof [srv 0 host] [srv 0 port]
+            wait_for_sync $replica
+
+            # RM_Call without '!' can't propagate the bitmap transition, and
+            # the replica and the AOF replay the module command replicated
+            # verbatim, so neither node may pick the representation from its
+            # own bitmap-default-roaring.
+            foreach {master_default replica_default} {yes no no yes} {
+                test "RM_Call bitmap writes replicated verbatim keep the same type on the replica (master $master_default, replica $replica_default)" {
+                    $master config set bitmap-default-roaring $master_default
+                    $replica config set bitmap-default-roaring $replica_default
+                    set prefix bitmap:verbatim:$master_default
+                    $master set $prefix:source [binary format H* 80]
+                    $master set $prefix:convert [binary format H* 80]
+
+                    $master test.rm_call_replicate setbit $prefix:setbit 7 1
+                    $master test.rm_call_replicate setbit $prefix:convert 7 1
+                    $master test.rm_call_replicate bitfield $prefix:bitfield SET u8 0 255
+                    $master test.rm_call_replicate bitop or $prefix:bitop $prefix:source
+                    # A plain SETBIT still follows the master's configuration.
+                    $master setbit $prefix:plain 7 1
+                    wait_for_ofs_sync $master $replica
+
+                    foreach suffix {setbit convert bitfield bitop} {
+                        set key $prefix:$suffix
+                        assert_equal string [$master type $key]
+                        assert_equal string [$replica type $key]
+                        assert_equal [$master debug digest-value $key] [$replica debug digest-value $key]
+                    }
+                    set plain_type [expr {$master_default eq "yes" ? "bitmap" : "string"}]
+                    assert_equal $plain_type [$master type $prefix:plain]
+                    assert_equal $plain_type [$replica type $prefix:plain]
+
+                    # Later string writes apply on both nodes.
+                    assert_equal 4 [$master append $prefix:setbit xyz]
+                    wait_for_ofs_sync $master $replica
+                    assert_equal [$master debug digest] [$replica debug digest]
+                }
+            }
+
+            test {RM_Call bitmap writes replicated verbatim keep their type after AOF reload} {
+                # Detach before replacing the master's dataset from its AOF.
+                $replica replicaof no one
+                set digest [$master debug digest]
+                set types {}
+                foreach key [lsort [$master keys bitmap:verbatim:*]] {
+                    lappend types $key [$master type $key]
+                }
+
+                foreach default {yes no} {
+                    $master config set bitmap-default-roaring $default
+                    $master debug loadaof
+                    foreach {key type} $types {
+                        assert_equal $type [$master type $key]
+                    }
+                    assert_equal $digest [$master debug digest]
+                }
+            }
+        }
+    }
+}
+
+tags {"modules" "aof" "external:skip" "logreqres:skip"} {
+    # A module command replayed from the AOF makes its RM_Call on the module's
+    # own client, which does not obey the AOF, and with '!' the call may
+    # propagate to every target. Only the check on the client whose command is
+    # being processed keeps the local configuration out of the decision.
+    set server_path [tmpdir server.bitmap-aof-module]
+    set aof_dirpath "$server_path/appendonlydir"
+    create_aof $aof_dirpath "$aof_dirpath/appendonly.aof.1$::incr_aof_suffix$::aof_format_suffix" {
+        append_to_aof [formatCommand select 0]
+        append_to_aof [formatCommand test.rm_call_flags ! setbit bitmap:aof-module 1 1]
+    }
+    create_aof_manifest $aof_dirpath "$aof_dirpath/appendonly.aof$::manifest_suffix" {
+        append_to_manifest "file appendonly.aof.1$::incr_aof_suffix$::aof_format_suffix seq 1 type i\n"
+    }
+
+    start_server [list overrides [list dir $server_path appendonly yes bitmap-default-roaring yes loadmodule $miscmodule] keep_persistence true] {
+        test {bitmap-default-roaring yes: module RM_Call writes replayed from the AOF keep strings} {
+            r select 0
+            assert_equal string [r type bitmap:aof-module]
+            assert_equal [binary format H* 40] [r get bitmap:aof-module]
+        }
+    }
+}
+
+# This test does not really test module functionality, but rather uses a module
+# command to test Redis replication mechanisms.
+test {Replicas that was marked as CLIENT_CLOSE_ASAP should not keep the replication backlog from been trimmed} {
+    start_server [list overrides [list loadmodule "$testmodule"] tags {"external:skip"}] {
+        set replica [srv 0 client]
+        start_server [list overrides [list loadmodule "$testmodule"] tags {"external:skip"}] {
+            set master [srv 0 client]
+            set master_host [srv 0 host]
+            set master_port [srv 0 port]
+            $master config set client-output-buffer-limit "replica 10mb 5mb 0"
+
+            # Start the replication process...
+            $replica replicaof $master_host $master_port
+            wait_for_sync $replica
+
+            test {module propagates from timer} {
+                # Replicate large commands to make the replica disconnected.
+                $master write [format_command propagate-test.verbatim 100000 [string repeat "a" 1000]] ;# almost 100mb
+                # Execute this command together with module commands within the same
+                # event loop to prevent periodic cleanup of replication backlog.
+                $master write [format_command info memory]
+                $master flush
+                $master read ;# propagate-test.verbatim
+                set res [$master read] ;# info memory
+
+                # Wait for the replica to be disconnected.
+                wait_for_log_messages 0 {"*flags=S*scheduled to be closed ASAP for overcoming of output buffer limits*"} 0 1500 10
+                # Due to the replica reaching the soft limit (5MB), memory peaks should not significantly
+                # exceed the replica soft limit. Furthermore, as the replica release its reference to
+                # replication backlog, it should be properly trimmed, the memory usage of replication
+                # backlog should not significantly exceed repl-backlog-size (default 1MB). */
+                assert_lessthan [getInfoProperty $res used_memory_peak] 20000000;# less than 20mb
+                assert_lessthan [getInfoProperty $res mem_replication_backlog] 2000000;# less than 2mb
+            }
+        }
+    }
+}
+
+# Regression test for the crash where sendTrackingMessage() (src/tracking.c) calls
+# pauseIOThread() for a REDIRECT target living on an IO thread while itself running on
+# a module thread (not the main thread): pauseIOThreadsRange() then asserts
+# pthread_equal(pthread_self(), server.main_thread_id) and the server aborts.
+test {CLIENT TRACKING REDIRECT to a client on an IO thread survives invalidation from a module thread} {
+    start_server [list overrides [list loadmodule "$testmodule" io-threads 4] tags {"external:skip"}] {
+        # R is the redirect target: a plain RESP3 client, pinned to one of the IO threads.
+        set R [redis_deferring_client]
+        $R HELLO 3
+        $R read
+        $R CLIENT ID
+        set rid [$R read]
+
+        # A enables tracking redirected to R, then registers "thread-call" for tracking.
+        r CLIENT TRACKING on REDIRECT $rid
+        r SELECT 9
+        r GET thread-call
+
+        # propagate-test.thread spawns a module thread that takes the GIL and INCRs
+        # thread-call in db 9 (tests/modules/propagate.c: threadMain/propagateTestThreadCommand).
+        r propagate-test.thread
+
+        # Expect a RESP3 push: >2 "invalidate" *1 "thread-call" -- on unstable this
+        # never arrives because the server crashes first.
+        set res [$R read]
+        assert_equal invalidate [lindex $res 0]
+        assert_equal {thread-call} [lindex $res 1]
+
+        # The server must still be alive and serving other clients.
+        assert_equal {PONG} [r PING]
+    }
+}

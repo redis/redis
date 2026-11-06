@@ -1,0 +1,947 @@
+/* This module is used to test the server keyspace events API.
+ *
+ * -----------------------------------------------------------------------------
+ *
+ * Copyright (c) 2020-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+ */
+
+#define _BSD_SOURCE
+#define _DEFAULT_SOURCE /* For usleep */
+
+#include "redismodule.h"
+#include <stdio.h>
+#include <string.h>
+#include <strings.h>
+#include <unistd.h>
+
+ustime_t cached_time = 0;
+
+/** stores all the keys on which we got 'loaded' keyspace notification **/
+RedisModuleDict *loaded_event_log = NULL;
+/** stores all the keys on which we got 'module' keyspace notification **/
+RedisModuleDict *module_event_log = NULL;
+
+/** Counts how many deleted KSN we got on keys with a prefix of "count_dels_" **/
+static size_t dels = 0;
+
+/** How many times to open the key on 'new'/'overwritten' KSN (0 = off) **/
+static long long lookup_probes = 0;
+
+/* Subkey notification log */
+#define SUBKEY_LOG_MAX 256
+#define SUBKEY_LOG_LINE 2048  /* wide enough to log a large subkey count */
+static char subkey_log[SUBKEY_LOG_MAX][SUBKEY_LOG_LINE];
+static int subkey_log_count = 0;
+
+static int KeySpace_NotificationLoaded(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key){
+    REDISMODULE_NOT_USED(ctx);
+    REDISMODULE_NOT_USED(type);
+
+    if(strcmp(event, "loaded") == 0){
+        const char* keyName = RedisModule_StringPtrLen(key, NULL);
+        int nokey;
+        RedisModule_DictGetC(loaded_event_log, (void*)keyName, strlen(keyName), &nokey);
+        if(nokey){
+            RedisModule_DictSetC(loaded_event_log, (void*)keyName, strlen(keyName), RedisModule_HoldString(ctx, key));
+        }
+    }
+
+    return REDISMODULE_OK;
+}
+
+static long long callback_call_count = 0;
+static long long string_callback_call_count = 0;
+static long long bitmap_callback_call_count = 0;
+
+#define BITMAP_TRANSITION_LOG_MAX 16
+#define BITMAP_TRANSITION_LOG_ENTRY_MAX 128
+static char bitmap_transition_log[BITMAP_TRANSITION_LOG_MAX][BITMAP_TRANSITION_LOG_ENTRY_MAX];
+static int bitmap_transition_log_count = 0;
+static long long bitmap_transition_unlink_count = 0;
+
+static int IsBitmapTransitionKey(const RedisModuleString *key) {
+    static const char prefix[] = "bitmap:transition:";
+    size_t len;
+    const char *key_str = RedisModule_StringPtrLen(key, &len);
+    return len >= sizeof(prefix) - 1 &&
+           memcmp(key_str, prefix, sizeof(prefix) - 1) == 0;
+}
+
+static int IsBitmapTransitionReplayKey(const RedisModuleString *key) {
+    static const char replay_key[] = "bitmap:transition:replay";
+    size_t len;
+    const char *key_str = RedisModule_StringPtrLen(key, &len);
+    return len == sizeof(replay_key) - 1 &&
+           memcmp(key_str, replay_key, sizeof(replay_key) - 1) == 0;
+}
+
+static const char *KeyTypeName(int type) {
+    switch (type) {
+    case REDISMODULE_KEYTYPE_EMPTY: return "empty";
+    case REDISMODULE_KEYTYPE_STRING: return "string";
+    case REDISMODULE_KEYTYPE_BITMAP: return "bitmap";
+    default: return "other";
+    }
+}
+
+static int IsLiveMasterContext(RedisModuleCtx *ctx) {
+    int flags = RedisModule_GetContextFlags(ctx);
+    return (flags & REDISMODULE_CTX_FLAGS_MASTER) &&
+           !(flags & REDISMODULE_CTX_FLAGS_LOADING);
+}
+
+static int BitmapTransitionKeyIsBitmap(RedisModuleCtx *ctx,
+                                       RedisModuleString *key)
+{
+    RedisModuleKey *redis_key = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
+    int is_bitmap = RedisModule_KeyType(redis_key) == REDISMODULE_KEYTYPE_BITMAP;
+    RedisModule_CloseKey(redis_key);
+    return is_bitmap;
+}
+
+static const char *NotificationClassName(int type) {
+    switch (type) {
+    case REDISMODULE_NOTIFY_GENERIC: return "generic";
+    case REDISMODULE_NOTIFY_NEW: return "new";
+    case REDISMODULE_NOTIFY_BITMAP: return "bitmap";
+    case REDISMODULE_NOTIFY_OVERWRITTEN: return "overwritten";
+    case REDISMODULE_NOTIFY_TYPE_CHANGED: return "type_changed";
+    default: return "other";
+    }
+}
+
+static void LogBitmapTransitionNotification(RedisModuleCtx *ctx, int type,
+                                            const char *event,
+                                            RedisModuleString *key)
+{
+    int replay_only_event = type == REDISMODULE_NOTIFY_GENERIC ||
+                            type == REDISMODULE_NOTIFY_NEW;
+    if (!IsBitmapTransitionKey(key) ||
+        (replay_only_event && !IsBitmapTransitionReplayKey(key)) ||
+        bitmap_transition_log_count == BITMAP_TRANSITION_LOG_MAX)
+    {
+        return;
+    }
+
+    RedisModuleKey *redis_key = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
+    int key_type = RedisModule_KeyType(redis_key);
+    snprintf(bitmap_transition_log[bitmap_transition_log_count],
+             BITMAP_TRANSITION_LOG_ENTRY_MAX, "%s %s %s", event,
+             NotificationClassName(type), KeyTypeName(key_type));
+    bitmap_transition_log_count++;
+    RedisModule_CloseKey(redis_key);
+}
+
+static void DeleteBitmapTransitionKey(RedisModuleCtx *ctx, RedisModuleString *key) {
+    RedisModuleCallReply *reply = RedisModule_Call(ctx, "DEL", "s!", key);
+    RedisModule_Assert(reply != NULL);
+    RedisModule_FreeCallReply(reply);
+}
+
+static void ReplaceBitmapTransitionKeyWithString(RedisModuleCtx *ctx,
+                                                 RedisModuleString *key,
+                                                 int propagate)
+{
+    const unsigned char value[] = {0x20};
+    RedisModuleCallReply *reply = RedisModule_Call(
+        ctx, "SET", propagate ? "sb!" : "sb", key, value, sizeof(value));
+    RedisModule_Assert(reply != NULL);
+    RedisModule_FreeCallReply(reply);
+}
+
+static void ReplaceBitmapTransitionKeyWithList(RedisModuleCtx *ctx,
+                                               RedisModuleString *key)
+{
+    DeleteBitmapTransitionKey(ctx, key);
+    RedisModuleCallReply *reply = RedisModule_Call(
+        ctx, "LPUSH", "sc!", key, "replacement");
+    RedisModule_Assert(reply != NULL);
+    RedisModule_FreeCallReply(reply);
+}
+
+static int BitmapTransitionBitIsSet(RedisModuleCtx *ctx, RedisModuleString *key,
+                                    long long offset)
+{
+    RedisModuleCallReply *reply = RedisModule_Call(ctx, "GETBIT", "sl", key, offset);
+    RedisModule_Assert(reply != NULL);
+    RedisModule_Assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_INTEGER);
+    int is_set = RedisModule_CallReplyInteger(reply) != 0;
+    RedisModule_FreeCallReply(reply);
+    return is_set;
+}
+
+static void BitmapTransitionKeyUnlink(RedisModuleCtx *ctx, RedisModuleEvent eid,
+                                      uint64_t subevent, void *data)
+{
+    REDISMODULE_NOT_USED(ctx);
+    REDISMODULE_NOT_USED(eid);
+    REDISMODULE_NOT_USED(subevent);
+
+    RedisModuleKeyInfoV1 *info = data;
+    const RedisModuleString *key = RedisModule_GetKeyNameFromModuleKey(info->key);
+    if (IsBitmapTransitionKey(key))
+        bitmap_transition_unlink_count++;
+}
+
+static int KeySpace_NotificationGeneric(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
+    REDISMODULE_NOT_USED(type);
+    callback_call_count++;
+    const char *key_str = RedisModule_StringPtrLen(key, NULL);
+    if (strncmp(key_str, "count_dels_", 11) == 0 && strcmp(event, "del") == 0) {
+        if (RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_MASTER) {
+            dels++;
+            RedisModule_Replicate(ctx, "keyspace.incr_dels", "");
+        }
+        return REDISMODULE_OK;
+    }
+    if (cached_time) {
+        RedisModule_Assert(cached_time == RedisModule_CachedMicroseconds());
+        usleep(1);
+        RedisModule_Assert(cached_time != RedisModule_Microseconds());
+    }
+
+    if (strcmp(event, "del") == 0) {
+        RedisModuleString *copykey = RedisModule_CreateStringPrintf(ctx, "%s_copy", RedisModule_StringPtrLen(key, NULL));
+        RedisModuleCallReply* rep = RedisModule_Call(ctx, "DEL", "s!", copykey);
+        RedisModule_FreeString(ctx, copykey);
+        RedisModule_FreeCallReply(rep);
+
+        int ctx_flags = RedisModule_GetContextFlags(ctx);
+        if (ctx_flags & REDISMODULE_CTX_FLAGS_LUA) {
+            RedisModuleCallReply* rep = RedisModule_Call(ctx, "INCR", "c", "lua");
+            RedisModule_FreeCallReply(rep);
+        }
+        if (ctx_flags & REDISMODULE_CTX_FLAGS_MULTI) {
+            RedisModuleCallReply* rep = RedisModule_Call(ctx, "INCR", "c", "multi");
+            RedisModule_FreeCallReply(rep);
+        }
+    }
+
+    return REDISMODULE_OK;
+}
+
+static int KeySpace_NotificationExpired(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
+    REDISMODULE_NOT_USED(type);
+    REDISMODULE_NOT_USED(event);
+    REDISMODULE_NOT_USED(key);
+
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, "INCR", "c!", "testkeyspace:expired");
+    RedisModule_FreeCallReply(rep);
+
+    return REDISMODULE_OK;
+}
+
+/* This key miss notification handler is performing a write command inside the notification callback.
+ * Notice, it is discourage and currently wrong to perform a write command inside key miss event.
+ * It can cause read commands to be replicated to the replica/aof. This test is here temporary (for coverage and
+ * verification that it's not crashing). */
+static int KeySpace_NotificationModuleKeyMiss(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
+    REDISMODULE_NOT_USED(type);
+    REDISMODULE_NOT_USED(event);
+    REDISMODULE_NOT_USED(key);
+
+    int flags = RedisModule_GetContextFlags(ctx);
+    if (!(flags & REDISMODULE_CTX_FLAGS_MASTER)) {
+        return REDISMODULE_OK; // ignore the event on replica
+    }
+
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, "incr", "!c", "missed");
+    RedisModule_FreeCallReply(rep);
+
+    return REDISMODULE_OK;
+}
+
+static int KeySpace_NotificationModuleString(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
+    REDISMODULE_NOT_USED(type);
+    string_callback_call_count++;
+    const char *key_str = RedisModule_StringPtrLen(key, NULL);
+
+    /* Delete the key from within the notification callback, to verify the
+     * keyspace bookkeeping (e.g. keysizes histogram) was already updated by
+     * the time subscribers run. Returns early, intentionally skipping the
+     * StringDMA check below, which expects the key to still exist. */
+    if (strcmp(event, "setbit") == 0 && strncmp(key_str, "stringdel_", 10) == 0) {
+        RedisModuleCallReply *rep = RedisModule_Call(ctx, "DEL", "s!", key);
+        if (rep) RedisModule_FreeCallReply(rep);
+        return REDISMODULE_OK;
+    }
+
+    RedisModuleKey *redis_key = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
+
+    size_t len = 0;
+    /* RedisModule_StringDMA could change the data format and cause the old robj to be freed.
+     * This code verifies that such format change will not cause any crashes.*/
+    char *data = RedisModule_StringDMA(redis_key, &len, REDISMODULE_READ);
+    int res = strncmp(data, "dummy", 5);
+    REDISMODULE_NOT_USED(res);
+
+    RedisModule_CloseKey(redis_key);
+
+    return REDISMODULE_OK;
+}
+
+/* Open the notified key `lookup_probes` times. Each lookup may run a rehash
+ * step on the keyspace dict, so a command must not reuse a dictEntryLink taken
+ * before the notification without checking it. */
+static int KeySpace_NotificationLookupProbes(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
+    REDISMODULE_NOT_USED(type);
+    REDISMODULE_NOT_USED(event);
+    for (long long i = 0; i < lookup_probes; i++) {
+        RedisModuleKey *redis_key = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
+        RedisModule_CloseKey(redis_key);
+    }
+    return REDISMODULE_OK;
+}
+
+static int cmdLookupProbes(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 2) return RedisModule_WrongArity(ctx);
+    long long count;
+    if (RedisModule_StringToLongLong(argv[1], &count) != REDISMODULE_OK || count < 0)
+        return RedisModule_ReplyWithError(ctx, "ERR invalid count");
+    lookup_probes = count;
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+static int KeySpace_NotificationModuleBitmap(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
+    bitmap_callback_call_count++;
+    LogBitmapTransitionNotification(ctx, type, event, key);
+    if (IsLiveMasterContext(ctx) &&
+        strncmp(RedisModule_StringPtrLen(key, NULL),
+                "bitmap:transition:delete-bitmap",
+                strlen("bitmap:transition:delete-bitmap")) == 0)
+    {
+        DeleteBitmapTransitionKey(ctx, key);
+    }
+    return REDISMODULE_OK;
+}
+
+static int KeySpace_NotificationBitmapTransition(RedisModuleCtx *ctx, int type,
+                                                 const char *event,
+                                                 RedisModuleString *key)
+{
+    LogBitmapTransitionNotification(ctx, type, event, key);
+    if (type == REDISMODULE_NOTIFY_TYPE_CHANGED && IsLiveMasterContext(ctx) &&
+        strcmp(RedisModule_StringPtrLen(key, NULL),
+               "bitmap:transition:delete-type") == 0)
+    {
+        DeleteBitmapTransitionKey(ctx, key);
+    }
+    if (type == REDISMODULE_NOTIFY_TYPE_CHANGED && IsLiveMasterContext(ctx) &&
+        strncmp(RedisModule_StringPtrLen(key, NULL),
+                "bitmap:transition:delete-type-zero",
+                strlen("bitmap:transition:delete-type-zero")) == 0 &&
+        !BitmapTransitionBitIsSet(ctx, key, 0))
+    {
+        DeleteBitmapTransitionKey(ctx, key);
+    }
+    if (type == REDISMODULE_NOTIFY_TYPE_CHANGED && IsLiveMasterContext(ctx) &&
+        strncmp(RedisModule_StringPtrLen(key, NULL),
+                "bitmap:transition:replace-type-string",
+                strlen("bitmap:transition:replace-type-string")) == 0 &&
+        BitmapTransitionKeyIsBitmap(ctx, key))
+    {
+        ReplaceBitmapTransitionKeyWithString(ctx, key, 1);
+    }
+    if (type == REDISMODULE_NOTIFY_TYPE_CHANGED && IsLiveMasterContext(ctx) &&
+        strncmp(RedisModule_StringPtrLen(key, NULL),
+                "bitmap:transition:replace-type-list",
+                strlen("bitmap:transition:replace-type-list")) == 0 &&
+        BitmapTransitionKeyIsBitmap(ctx, key))
+    {
+        ReplaceBitmapTransitionKeyWithList(ctx, key);
+    }
+    if (type == REDISMODULE_NOTIFY_TYPE_CHANGED &&
+        strncmp(RedisModule_StringPtrLen(key, NULL),
+                "bitmap:transition:replace-replay-string",
+                strlen("bitmap:transition:replace-replay-string")) == 0 &&
+        BitmapTransitionKeyIsBitmap(ctx, key))
+    {
+        ReplaceBitmapTransitionKeyWithString(ctx, key, 0);
+    }
+    return REDISMODULE_OK;
+}
+
+static void KeySpace_PostNotificationStringFreePD(void *pd) {
+    RedisModule_FreeString(NULL, pd);
+}
+
+static void KeySpace_PostNotificationString(RedisModuleCtx *ctx, void *pd) {
+    REDISMODULE_NOT_USED(ctx);
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, "incr", "!s", pd);
+    RedisModule_FreeCallReply(rep);
+}
+
+static int KeySpace_NotificationModuleStringPostNotificationJob(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
+    REDISMODULE_NOT_USED(ctx);
+    REDISMODULE_NOT_USED(type);
+    REDISMODULE_NOT_USED(event);
+
+    const char *key_str = RedisModule_StringPtrLen(key, NULL);
+
+    if (strncmp(key_str, "string1_", 8) != 0) {
+        return REDISMODULE_OK;
+    }
+
+    RedisModuleString *new_key = RedisModule_CreateStringPrintf(NULL, "string_changed{%s}", key_str);
+    RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
+    return REDISMODULE_OK;
+}
+
+static int KeySpace_NotificationModule(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
+    REDISMODULE_NOT_USED(ctx);
+    REDISMODULE_NOT_USED(type);
+    REDISMODULE_NOT_USED(event);
+
+    const char* keyName = RedisModule_StringPtrLen(key, NULL);
+    int nokey;
+    RedisModule_DictGetC(module_event_log, (void*)keyName, strlen(keyName), &nokey);
+    if(nokey){
+        RedisModule_DictSetC(module_event_log, (void*)keyName, strlen(keyName), RedisModule_HoldString(ctx, key));
+    }
+    return REDISMODULE_OK;
+}
+
+static int cmdNotify(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
+    if(argc != 2){
+        return RedisModule_WrongArity(ctx);
+    }
+
+    RedisModule_NotifyKeyspaceEvent(ctx, REDISMODULE_NOTIFY_MODULE, "notify", argv[1]);
+    RedisModule_ReplyWithNull(ctx);
+    return REDISMODULE_OK;
+}
+
+static int cmdIsModuleKeyNotified(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
+    if(argc != 2){
+        return RedisModule_WrongArity(ctx);
+    }
+
+    const char* key  = RedisModule_StringPtrLen(argv[1], NULL);
+
+    int nokey;
+    RedisModuleString* keyStr = RedisModule_DictGetC(module_event_log, (void*)key, strlen(key), &nokey);
+
+    RedisModule_ReplyWithArray(ctx, 2);
+    RedisModule_ReplyWithLongLong(ctx, !nokey);
+    if(nokey){
+        RedisModule_ReplyWithNull(ctx);
+    }else{
+        RedisModule_ReplyWithString(ctx, keyStr);
+    }
+    return REDISMODULE_OK;
+}
+
+static int cmdIsKeyLoaded(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
+    if(argc != 2){
+        return RedisModule_WrongArity(ctx);
+    }
+
+    const char* key  = RedisModule_StringPtrLen(argv[1], NULL);
+
+    int nokey;
+    RedisModuleString* keyStr = RedisModule_DictGetC(loaded_event_log, (void*)key, strlen(key), &nokey);
+
+    RedisModule_ReplyWithArray(ctx, 2);
+    RedisModule_ReplyWithLongLong(ctx, !nokey);
+    if(nokey){
+        RedisModule_ReplyWithNull(ctx);
+    }else{
+        RedisModule_ReplyWithString(ctx, keyStr);
+    }
+    return REDISMODULE_OK;
+}
+
+static int cmdDelKeyCopy(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 2)
+        return RedisModule_WrongArity(ctx);
+
+    cached_time = RedisModule_CachedMicroseconds();
+
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, "DEL", "s!", argv[1]);
+    if (!rep) {
+        RedisModule_ReplyWithError(ctx, "NULL reply returned");
+    } else {
+        RedisModule_ReplyWithCallReply(ctx, rep);
+        RedisModule_FreeCallReply(rep);
+    }
+    cached_time = 0;
+    return REDISMODULE_OK;
+}
+
+/* Call INCR and propagate using RM_Call with `!`. */
+static int cmdIncrCase1(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 2)
+        return RedisModule_WrongArity(ctx);
+
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, "INCR", "s!", argv[1]);
+    if (!rep) {
+        RedisModule_ReplyWithError(ctx, "NULL reply returned");
+    } else {
+        RedisModule_ReplyWithCallReply(ctx, rep);
+        RedisModule_FreeCallReply(rep);
+    }
+    return REDISMODULE_OK;
+}
+
+/* Call INCR and propagate using RM_Replicate. */
+static int cmdIncrCase2(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 2)
+        return RedisModule_WrongArity(ctx);
+
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, "INCR", "s", argv[1]);
+    if (!rep) {
+        RedisModule_ReplyWithError(ctx, "NULL reply returned");
+    } else {
+        RedisModule_ReplyWithCallReply(ctx, rep);
+        RedisModule_FreeCallReply(rep);
+    }
+    RedisModule_Replicate(ctx, "INCR", "s", argv[1]);
+    return REDISMODULE_OK;
+}
+
+/* Call INCR and propagate using RM_ReplicateVerbatim. */
+static int cmdIncrCase3(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 2)
+        return RedisModule_WrongArity(ctx);
+
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, "INCR", "s", argv[1]);
+    if (!rep) {
+        RedisModule_ReplyWithError(ctx, "NULL reply returned");
+    } else {
+        RedisModule_ReplyWithCallReply(ctx, rep);
+        RedisModule_FreeCallReply(rep);
+    }
+    RedisModule_ReplicateVerbatim(ctx);
+    return REDISMODULE_OK;
+}
+
+static int cmdIncrDels(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    dels++;
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+static int cmdGetDels(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    return RedisModule_ReplyWithLongLong(ctx, dels);
+}
+
+/* Subkey notification callback */
+static void KeySpace_NotificationSubkeys(RedisModuleCtx *ctx, int type, const char *event,
+                                          RedisModuleString *key, RedisModuleString **subkeys, int count) {
+    REDISMODULE_NOT_USED(ctx);
+    REDISMODULE_NOT_USED(type);
+
+    if (subkey_log_count >= SUBKEY_LOG_MAX) return;
+
+    const char *key_str = RedisModule_StringPtrLen(key, NULL);
+
+    /* Format: "<event> <key> <count> <subkey1> <subkey2> ..." or "<event> <key> 0" */
+    char buf[SUBKEY_LOG_LINE];
+    int off = snprintf(buf, sizeof(buf), "%s %s %d", event, key_str, count);
+    for (int i = 0; i < count && (size_t)off < sizeof(buf) - 1; i++) {
+        const char *sk = RedisModule_StringPtrLen(subkeys[i], NULL);
+        off += snprintf(buf + off, sizeof(buf) - off, " %s", sk);
+    }
+    snprintf(subkey_log[subkey_log_count], sizeof(subkey_log[0]), "%s", buf);
+    subkey_log_count++;
+}
+
+/* keyspace.get_subkey_events — return all logged subkey events as an array */
+static int cmdGetSubkeyEvents(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    RedisModule_ReplyWithArray(ctx, subkey_log_count);
+    for (int i = 0; i < subkey_log_count; i++) {
+        RedisModule_ReplyWithCString(ctx, subkey_log[i]);
+    }
+    return REDISMODULE_OK;
+}
+
+/* keyspace.reset_subkey_events — clear the log */
+static int cmdResetSubkeyEvents(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    subkey_log_count = 0;
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/* keyspace.notify_with_subkeys <key> <subkey1> [subkey2 ...] — trigger a module subkey notification */
+static int cmdNotifyWithSubkeys(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc < 3) return RedisModule_WrongArity(ctx);
+
+    RedisModuleString *key = argv[1];
+    RedisModuleString **subkeys = &argv[2];
+    int count = argc - 2;
+
+    RedisModule_NotifyKeyspaceEventWithSubkeys(ctx, REDISMODULE_NOTIFY_HASH, "module_subkey_event", key, subkeys, count);
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/* keyspace.subscribe_subkeys — subscribe with NONE flag (all events) */
+static int cmdSubscribeSubkeys(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    if (RedisModule_SubscribeToKeyspaceEventsWithSubkeys(ctx, REDISMODULE_NOTIFY_HASH | REDISMODULE_NOTIFY_GENERIC,
+                                                         REDISMODULE_NOTIFY_FLAG_NONE, KeySpace_NotificationSubkeys) != REDISMODULE_OK) {
+        return RedisModule_ReplyWithError(ctx, "ERR subscribe failed");
+    }
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/* keyspace.unsubscribe_subkeys — unsubscribe the subkey callback */
+static int cmdUnsubscribeSubkeys(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    if (RedisModule_UnsubscribeFromKeyspaceEventsWithSubkeys(ctx, REDISMODULE_NOTIFY_HASH | REDISMODULE_NOTIFY_GENERIC,
+                                                             REDISMODULE_NOTIFY_FLAG_NONE, KeySpace_NotificationSubkeys) != REDISMODULE_OK) {
+        return RedisModule_ReplyWithError(ctx, "ERR unsubscribe failed");
+    }
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/* keyspace.subscribe_require_subkeys — subscribe with SUBKEYS_REQUIRED flag */
+static int cmdSubscribeRequireSubkeys(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    if (RedisModule_SubscribeToKeyspaceEventsWithSubkeys(ctx, REDISMODULE_NOTIFY_HASH | REDISMODULE_NOTIFY_GENERIC,
+                                                         REDISMODULE_NOTIFY_FLAG_SUBKEYS_REQUIRED,
+                                                         KeySpace_NotificationSubkeys) != REDISMODULE_OK) {
+        return RedisModule_ReplyWithError(ctx, "ERR subscribe failed");
+    }
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/* keyspace.unsubscribe_require_subkeys — unsubscribe the SUBKEYS_REQUIRED callback */
+static int cmdUnsubscribeRequireSubkeys(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    if (RedisModule_UnsubscribeFromKeyspaceEventsWithSubkeys(ctx, REDISMODULE_NOTIFY_HASH | REDISMODULE_NOTIFY_GENERIC,
+                                                             REDISMODULE_NOTIFY_FLAG_SUBKEYS_REQUIRED,
+                                                             KeySpace_NotificationSubkeys) != REDISMODULE_OK) {
+        return RedisModule_ReplyWithError(ctx, "ERR unsubscribe failed");
+    }
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+static RedisModuleNotificationFunc get_callback_for_event(int event_mask) {
+    switch(event_mask) {
+    case REDISMODULE_NOTIFY_LOADED:
+        return KeySpace_NotificationLoaded;
+    case REDISMODULE_NOTIFY_GENERIC:
+        return KeySpace_NotificationGeneric;
+    case REDISMODULE_NOTIFY_EXPIRED:
+        return KeySpace_NotificationExpired;
+    case REDISMODULE_NOTIFY_MODULE:
+        return KeySpace_NotificationModule;
+    case REDISMODULE_NOTIFY_KEY_MISS:
+        return KeySpace_NotificationModuleKeyMiss;
+    case REDISMODULE_NOTIFY_STRING:
+        // We have two callbacks for STRING events in your OnLoad,
+        // For simplicity, pick the first:
+        return KeySpace_NotificationModuleString;
+    case REDISMODULE_NOTIFY_BITMAP:
+        return KeySpace_NotificationModuleBitmap;
+    default:
+        return NULL;
+    }
+}
+
+int GetCallbackCountCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    RedisModule_ReplyWithLongLong(ctx, callback_call_count);
+    return REDISMODULE_OK;
+}
+
+int GetStringCallbackCountCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    RedisModule_ReplyWithLongLong(ctx, string_callback_call_count);
+    return REDISMODULE_OK;
+}
+
+int GetBitmapCallbackCountCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    RedisModule_ReplyWithLongLong(ctx, bitmap_callback_call_count);
+    return REDISMODULE_OK;
+}
+
+static int ResetBitmapTransitionCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    if (argc != 1)
+        return RedisModule_WrongArity(ctx);
+
+    bitmap_transition_log_count = 0;
+    bitmap_transition_unlink_count = 0;
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+static int GetBitmapTransitionCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    if (argc != 1)
+        return RedisModule_WrongArity(ctx);
+
+    RedisModule_ReplyWithArray(ctx, bitmap_transition_log_count);
+    for (int i = 0; i < bitmap_transition_log_count; i++) {
+        RedisModule_ReplyWithStringBuffer(ctx, bitmap_transition_log[i],
+                                          strlen(bitmap_transition_log[i]));
+    }
+    return REDISMODULE_OK;
+}
+
+static int GetBitmapTransitionUnlinkCountCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    if (argc != 1)
+        return RedisModule_WrongArity(ctx);
+
+    return RedisModule_ReplyWithLongLong(ctx, bitmap_transition_unlink_count);
+}
+
+static int GetKeyTypeCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 2)
+        return RedisModule_WrongArity(ctx);
+
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
+    int type = RedisModule_KeyType(key);
+    RedisModule_ReplyWithCString(ctx, KeyTypeName(type));
+    RedisModule_CloseKey(key);
+    return REDISMODULE_OK;
+}
+
+static int CmdUnsub(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 2) {
+        return RedisModule_WrongArity(ctx);
+    }
+
+    long long event_mask;
+    if (RedisModule_StringToLongLong(argv[1], &event_mask) != REDISMODULE_OK) {
+        return RedisModule_ReplyWithError(ctx, "ERR invalid event mask");
+    }
+
+    RedisModuleNotificationFunc cb = get_callback_for_event((int)event_mask);
+    if (cb == NULL) {
+        return RedisModule_ReplyWithError(ctx, "ERR unknown event mask");
+    }
+
+    if (RedisModule_UnsubscribeFromKeyspaceEvents(ctx, (int)event_mask, cb) != REDISMODULE_OK) {
+        return RedisModule_ReplyWithError(ctx, "ERR unsubscribe failed");
+    }
+
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+/* This function must be present on each Redis module. It is used in order to
+ * register the commands into the Redis server. */
+int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (RedisModule_Init(ctx,"testkeyspace",1,REDISMODULE_APIVER_1) == REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+
+    loaded_event_log = RedisModule_CreateDict(ctx);
+    module_event_log = RedisModule_CreateDict(ctx);
+
+    int keySpaceAll = RedisModule_GetKeyspaceNotificationFlagsAll();
+
+    if (!(keySpaceAll & REDISMODULE_NOTIFY_LOADED)) {
+        // REDISMODULE_NOTIFY_LOADED event are not supported we can not start
+        return REDISMODULE_ERR;
+    }
+
+    if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_LOADED, KeySpace_NotificationLoaded) != REDISMODULE_OK){
+        return REDISMODULE_ERR;
+    }
+
+    if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_GENERIC, KeySpace_NotificationGeneric) != REDISMODULE_OK){
+        return REDISMODULE_ERR;
+    }
+
+    if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_EXPIRED, KeySpace_NotificationExpired) != REDISMODULE_OK){
+        return REDISMODULE_ERR;
+    }
+
+    if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_MODULE, KeySpace_NotificationModule) != REDISMODULE_OK){
+        return REDISMODULE_ERR;
+    }
+
+    if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_KEY_MISS, KeySpace_NotificationModuleKeyMiss) != REDISMODULE_OK){
+        return REDISMODULE_ERR;
+    }
+
+    if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_STRING, KeySpace_NotificationModuleString) != REDISMODULE_OK){
+        return REDISMODULE_ERR;
+    }
+
+    if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_STRING, KeySpace_NotificationModuleStringPostNotificationJob) != REDISMODULE_OK){
+        return REDISMODULE_ERR;
+    }
+
+    if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_BITMAP, KeySpace_NotificationModuleBitmap) != REDISMODULE_OK){
+        return REDISMODULE_ERR;
+    }
+
+    if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_NEW | REDISMODULE_NOTIFY_OVERWRITTEN,
+        KeySpace_NotificationLookupProbes) != REDISMODULE_OK) {
+        return REDISMODULE_ERR;
+    }
+    
+    if(RedisModule_SubscribeToKeyspaceEvents(ctx,
+        REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_NEW |
+        REDISMODULE_NOTIFY_OVERWRITTEN | REDISMODULE_NOTIFY_TYPE_CHANGED,
+        KeySpace_NotificationBitmapTransition) != REDISMODULE_OK){
+        return REDISMODULE_ERR;
+    }
+
+    if(RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Key,
+        BitmapTransitionKeyUnlink) != REDISMODULE_OK){
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx,"keyspace.notify", cmdNotify,"",0,0,0) == REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx,"keyspace.lookup_probes", cmdLookupProbes,"",0,0,0) == REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx,"keyspace.is_module_key_notified", cmdIsModuleKeyNotified,"",0,0,0) == REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx,"keyspace.is_key_loaded", cmdIsKeyLoaded,"",0,0,0) == REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "keyspace.del_key_copy", cmdDelKeyCopy,
+                                  "write", 0, 0, 0) == REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "keyspace.incr_case1", cmdIncrCase1,
+                                  "write", 0, 0, 0) == REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "keyspace.incr_case2", cmdIncrCase2,
+                                  "write", 0, 0, 0) == REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "keyspace.incr_case3", cmdIncrCase3,
+                                  "write", 0, 0, 0) == REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "keyspace.incr_dels", cmdIncrDels,
+                                  "write", 0, 0, 0) == REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "keyspace.get_dels", cmdGetDels,
+                                  "readonly", 0, 0, 0) == REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "keyspace.unsubscribe", CmdUnsub, "write", 0, 0, 0) == REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "keyspace.callback_count", GetCallbackCountCommand, "", 0, 0, 0)== REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "keyspace.string_callback_count", GetStringCallbackCountCommand, "", 0, 0, 0)== REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "keyspace.bitmap_callback_count", GetBitmapCallbackCountCommand, "", 0, 0, 0)== REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "keyspace.reset_bitmap_transition", ResetBitmapTransitionCommand, "", 0, 0, 0) == REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "keyspace.get_bitmap_transition", GetBitmapTransitionCommand, "readonly", 0, 0, 0) == REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "keyspace.bitmap_transition_unlink_count", GetBitmapTransitionUnlinkCountCommand, "readonly", 0, 0, 0) == REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "keyspace.key_type", GetKeyTypeCommand, "readonly", 1, 1, 1) == REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "keyspace.subscribe_subkeys", cmdSubscribeSubkeys, "", 0, 0, 0) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "keyspace.unsubscribe_subkeys", cmdUnsubscribeSubkeys, "", 0, 0, 0) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "keyspace.get_subkey_events", cmdGetSubkeyEvents, "readonly", 0, 0, 0) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "keyspace.reset_subkey_events", cmdResetSubkeyEvents, "", 0, 0, 0) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "keyspace.notify_with_subkeys", cmdNotifyWithSubkeys, "write", 0, 0, 0) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "keyspace.subscribe_require_subkeys", cmdSubscribeRequireSubkeys, "", 0, 0, 0) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "keyspace.unsubscribe_require_subkeys", cmdUnsubscribeRequireSubkeys, "", 0, 0, 0) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+
+    if (argc == 1) {
+        const char *ptr = RedisModule_StringPtrLen(argv[0], NULL);
+        if (!strcasecmp(ptr, "noload")) {
+            /* This is a hint that we return ERR at the last moment of OnLoad. */
+            RedisModule_FreeDict(ctx, loaded_event_log);
+            RedisModule_FreeDict(ctx, module_event_log);
+            return REDISMODULE_ERR;
+        }
+    }
+
+    return REDISMODULE_OK;
+}
+
+int RedisModule_OnUnload(RedisModuleCtx *ctx) {
+    RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(loaded_event_log, "^", NULL, 0);
+    char* key;
+    size_t keyLen;
+    RedisModuleString* val;
+    while((key = RedisModule_DictNextC(iter, &keyLen, (void**)&val))){
+        RedisModule_FreeString(ctx, val);
+    }
+    RedisModule_FreeDict(ctx, loaded_event_log);
+    RedisModule_DictIteratorStop(iter);
+    loaded_event_log = NULL;
+
+    iter = RedisModule_DictIteratorStartC(module_event_log, "^", NULL, 0);
+    while((key = RedisModule_DictNextC(iter, &keyLen, (void**)&val))){
+        RedisModule_FreeString(ctx, val);
+    }
+    RedisModule_FreeDict(ctx, module_event_log);
+    RedisModule_DictIteratorStop(iter);
+    module_event_log = NULL;
+
+    return REDISMODULE_OK;
+}

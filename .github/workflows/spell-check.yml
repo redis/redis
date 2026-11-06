@@ -1,0 +1,30 @@
+# A CI action that uses https://github.com/crate-ci/typos to check spelling.
+# .config/typos.toml is a configuration file.
+# More details please check the following link:
+# https://github.com/crate-ci/typos
+name: Spellcheck
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Spellcheck
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install typos
+        uses: taiki-e/install-action@v2
+        with:
+          tool: typos
+
+      - name: Spell check
+        run: typos --config=./.config/typos.toml

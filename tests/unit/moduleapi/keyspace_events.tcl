@@ -1,0 +1,1018 @@
+set testmodule [file normalize tests/modules/keyspace_events.so]
+
+tags "modules external:skip" {
+    start_server [list overrides [list loadmodule "$testmodule"]] {
+
+        # avoid using shared integers, to increase the chance of detection heap issues
+        r config set maxmemory-policy allkeys-lru
+        r config set maxmemory 1gb
+
+        test {Test loaded key space event} {
+            r set x 1
+            r hset y f v
+            r lpush z 1 2 3
+            r sadd p 1 2 3
+            r zadd t 1 f1 2 f2
+            r xadd s * f v
+            r debug reload
+            assert_equal {1 x} [r keyspace.is_key_loaded x]
+            assert_equal {1 y} [r keyspace.is_key_loaded y]
+            assert_equal {1 z} [r keyspace.is_key_loaded z]
+            assert_equal {1 p} [r keyspace.is_key_loaded p]
+            assert_equal {1 t} [r keyspace.is_key_loaded t]
+            assert_equal {1 s} [r keyspace.is_key_loaded s]
+        }
+
+        test {Nested multi due to RM_Call} {
+            r del multi
+            r del lua
+
+            r set x 1
+            r set x_copy 1
+            r keyspace.del_key_copy x
+            r keyspace.incr_case1 x
+            r keyspace.incr_case2 x
+            r keyspace.incr_case3 x
+            assert_equal {} [r get multi]
+            assert_equal {} [r get lua]
+            r get x
+        } {3}
+        
+        test {Nested multi due to RM_Call, with client MULTI} {
+            r del multi
+            r del lua
+
+            r set x 1
+            r set x_copy 1
+            r multi
+            r keyspace.del_key_copy x
+            r keyspace.incr_case1 x
+            r keyspace.incr_case2 x
+            r keyspace.incr_case3 x
+            r exec
+            assert_equal {1} [r get multi]
+            assert_equal {} [r get lua]
+            r get x
+        } {3}
+        
+        test {Nested multi due to RM_Call, with EVAL} {
+            r del multi
+            r del lua
+
+            r set x 1
+            r set x_copy 1
+            r eval {
+                redis.pcall('keyspace.del_key_copy', KEYS[1])
+                redis.pcall('keyspace.incr_case1', KEYS[1])
+                redis.pcall('keyspace.incr_case2', KEYS[1])
+                redis.pcall('keyspace.incr_case3', KEYS[1])
+            } 1 x
+            assert_equal {} [r get multi]
+            assert_equal {1} [r get lua]
+            r get x
+        } {3}
+
+        test {Test module key space event} {
+            r keyspace.notify x
+            assert_equal {1 x} [r keyspace.is_module_key_notified x]
+        }
+
+        test "Keyspace notifications: module events test" {
+            r config set notify-keyspace-events Kd
+            r del x
+            set rd1 [redis_deferring_client]
+            assert_equal {1} [psubscribe $rd1 *]
+            r keyspace.notify x
+            assert_equal {pmessage * __keyspace@9__:x notify} [$rd1 read]
+            $rd1 close
+        }
+
+        test "Keyspace notifications: unsubscribe removes handler" {
+            r config set notify-keyspace-events KEA
+            set before [r keyspace.callback_count]
+            r set a 1
+            r del a
+            wait_for_condition 100 10 {
+                [r keyspace.callback_count] > $before
+            } else {
+                fail "callback did not trigger"
+            }
+            set before_unsub [r keyspace.callback_count]
+            r keyspace.unsubscribe 4  ;# REDISMODULE_NOTIFY_GENERIC
+            r set a 1
+            r del a
+            set after_unsub [r keyspace.callback_count]
+            assert_equal $before_unsub $after_unsub
+        }
+
+        test "Keyspace notifications: module bitmap event class" {
+            r del bitmap:module:notify bitmap:module:string
+            set before_bitmap [r keyspace.bitmap_callback_count]
+            set before_string [r keyspace.string_callback_count]
+
+            r config set bitmap-default-roaring yes
+            r setbit bitmap:module:notify 0 1
+            assert_equal [expr {$before_bitmap + 1}] [r keyspace.bitmap_callback_count]
+            assert_equal $before_string [r keyspace.string_callback_count]
+
+            r config set bitmap-default-roaring no
+            r set bitmap:module:string dummy
+            assert_equal [expr {$before_string + 1}] [r keyspace.string_callback_count]
+        }
+
+        test "Keyspace notifications: bitmap conversion module contract" {
+            set key bitmap:transition:setbit
+
+            r config set bitmap-default-roaring no
+            r del $key
+            r set $key [binary format H* 80]
+            assert_equal string [r keyspace.key_type $key]
+            assert_equal OK [r keyspace.reset_bitmap_transition]
+
+            # The conversion is observable as an installed bitmap before the
+            # type_changed callback. The following no-op SETBIT emits no write
+            # event, matching BITCONVERT + SETBIT replay exactly.
+            r config set bitmap-default-roaring yes
+            assert_equal 1 [r setbit $key 0 1]
+            assert_equal bitmap [r keyspace.key_type $key]
+            assert_equal {{type_changed type_changed bitmap}} \
+                [r keyspace.get_bitmap_transition]
+            assert_equal 0 [r keyspace.bitmap_transition_unlink_count]
+
+            r config set bitmap-default-roaring no
+        }
+
+        test "Keyspace notifications: BITFIELD conversion module contract" {
+            foreach {suffix raw args expected} {
+                noop 01 {SET u8 0 1} {1}
+                fail ff {OVERFLOW FAIL INCRBY u8 0 1} {{}}
+            } {
+                set key bitmap:transition:bitfield:$suffix
+
+                r config set bitmap-default-roaring no
+                r del $key
+                r set $key [binary format H* $raw]
+                assert_equal string [r keyspace.key_type $key]
+                assert_equal OK [r keyspace.reset_bitmap_transition]
+
+                # BITFIELD converts even when the write is a no-op or every
+                # operation is rejected. Only BITCONVERT changes the key.
+                r config set bitmap-default-roaring yes
+                assert_equal $expected [r bitfield $key {*}$args]
+                assert_equal bitmap [r keyspace.key_type $key]
+                assert_equal {{type_changed type_changed bitmap}} \
+                    [r keyspace.get_bitmap_transition]
+                assert_equal 0 [r keyspace.bitmap_transition_unlink_count]
+            }
+
+            r config set bitmap-default-roaring no
+        }
+
+        test "Keyspace notifications: bitmap conversion tolerates callback deletion" {
+            foreach command {setbit bitfield} {
+                foreach key {
+                    bitmap:transition:delete-type
+                    bitmap:transition:delete-bitmap
+                } {
+                    r config set bitmap-default-roaring no
+                    r set $key [binary format H* 80]
+                    assert_equal OK [r keyspace.reset_bitmap_transition]
+
+                    r config set bitmap-default-roaring yes
+                    if {$command eq "setbit"} {
+                        assert_equal 0 [r setbit $key 1 1]
+                    } else {
+                        if {$key eq "bitmap:transition:delete-type"} {
+                            # The type callback deletes the converted value, so
+                            # BITFIELD resumes against a missing key just as on replay.
+                            assert_equal {0} [r bitfield $key SET u8 0 255]
+                        } else {
+                            assert_equal {128} [r bitfield $key SET u8 0 255]
+                        }
+                    }
+
+                    if {$key eq "bitmap:transition:delete-type"} {
+                        assert_equal string [r type $key]
+                        if {$command eq "setbit"} {
+                            set expected_raw [binary format H* 40]
+                        } else {
+                            set expected_raw [binary format H* ff]
+                        }
+                        assert_equal $expected_raw [r get $key]
+                        assert_equal {{type_changed type_changed bitmap}} \
+                            [r keyspace.get_bitmap_transition]
+                    } else {
+                        assert_equal 0 [r exists $key]
+                        assert_equal \
+                            {{type_changed type_changed bitmap} {setbit bitmap bitmap}} \
+                            [r keyspace.get_bitmap_transition]
+                    }
+                }
+            }
+
+            r config set bitmap-default-roaring no
+        }
+
+        test "Keyspace notifications: conversion follows callback string replacement" {
+            foreach command {setbit bitfield} {
+                set key bitmap:transition:replace-type-string:$command
+
+                r config set bitmap-default-roaring no
+                r set $key [binary format H* 80]
+                r config set bitmap-default-roaring yes
+
+                if {$command eq "setbit"} {
+                    assert_equal 0 [r setbit $key 0 1]
+                    set expected [binary format H* a0]
+                } else {
+                    assert_equal {0} [r bitfield $key SET u4 4 15]
+                    set expected [binary format H* 2f]
+                }
+                assert_equal string [r type $key]
+                assert_equal $expected [r get $key]
+
+                if {$command eq "setbit"} {
+                    # A second write re-triggers the transition against the
+                    # callback-installed string, and the callback replaces
+                    # the converted value with 0x20 again. Bit 2 of 0x20 is
+                    # already set, so SETBIT resumes on the string path and
+                    # changes nothing: only the conversion pair modified the
+                    # keyspace. The dirty delta is exactly the callback's SET
+                    # plus the pending transition accounted in
+                    # setbitCommand()'s string path.
+                    set dirty_before [s rdb_changes_since_last_save]
+                    assert_equal 1 [r setbit $key 2 1]
+                    assert_equal 2 [expr {[s rdb_changes_since_last_save] - $dirty_before}]
+                    assert_equal string [r type $key]
+                    assert_equal [binary format H* 20] [r get $key]
+                }
+            }
+
+            r config set bitmap-default-roaring no
+        }
+
+        test "Keyspace notifications: conversion replays deterministic callback replacement" {
+            foreach command {setbit bitfield} {
+                set key bitmap:transition:replace-replay-string:$command
+
+                r config set bitmap-default-roaring no
+                r set $key [binary format H* 80]
+                r config set bitmap-default-roaring yes
+
+                if {$command eq "setbit"} {
+                    assert_equal 0 [r setbit $key 0 1]
+                    set expected [binary format H* a0]
+                } else {
+                    assert_equal {0} [r bitfield $key SET u4 4 15]
+                    set expected [binary format H* 2f]
+                }
+                assert_equal string [r type $key]
+                assert_equal $expected [r get $key]
+            }
+
+            r config set bitmap-default-roaring no
+        }
+
+        test "Keyspace notifications: conversion rejects callback list replacement" {
+            foreach command {setbit bitfield} {
+                set key bitmap:transition:replace-type-list:$command
+
+                r config set bitmap-default-roaring no
+                r set $key [binary format H* 80]
+                r config set bitmap-default-roaring yes
+
+                if {$command eq "setbit"} {
+                    assert_error {WRONGTYPE*} {r setbit $key 0 1}
+                } else {
+                    assert_error {WRONGTYPE*} {r bitfield $key SET u8 0 255}
+                }
+                assert_equal list [r type $key]
+                assert_equal replacement [r lindex $key 0]
+            }
+
+            r config set bitmap-default-roaring no
+        }
+
+        test "Keyspace notifications: conversion callbacks observe pre-write bits" {
+            set key bitmap:transition:delete-type-zero
+            r config set bitmap-default-roaring no
+            r set $key [binary format H* 00]
+            assert_equal OK [r keyspace.reset_bitmap_transition]
+
+            # The callback deletes only when bit 0 is clear. It must see the
+            # converted pre-SETBIT value, then SETBIT recreates a plain string.
+            r config set bitmap-default-roaring yes
+            assert_equal 0 [r setbit $key 0 1]
+            assert_equal string [r type $key]
+            assert_equal [binary format H* 80] [r get $key]
+            assert_equal {{type_changed type_changed bitmap}} \
+                [r keyspace.get_bitmap_transition]
+            r config set bitmap-default-roaring no
+        }
+
+        test "Keyspace notifications: force-native BITOP avoids transient conversion events" {
+            set key bitmap:transition:delete-type
+            r config set bitmap-default-roaring no
+            r del $key
+            r set bitmap:transition:bitop-source [binary format H* f0]
+            assert_equal OK [r keyspace.reset_bitmap_transition]
+
+            r config set bitmap-default-roaring yes
+            assert_equal 1 [r bitop or $key bitmap:transition:bitop-source]
+            assert_equal bitmap [r type $key]
+            assert_equal [binary format H* f0] [r debug bitmap-raw $key]
+            assert_equal {{set bitmap bitmap}} \
+                [r keyspace.get_bitmap_transition]
+            r config set bitmap-default-roaring no
+        }
+
+        test {Test expired key space event} {
+            set prev_expired [s expired_keys]
+            r set exp 1 PX 10
+            wait_for_condition 100 10 {
+                [s expired_keys] eq $prev_expired + 1
+            } else {
+                fail "key not expired"
+            }
+            assert_equal [r get testkeyspace:expired] 1
+        }
+
+        test "Subkey notification: subscribe starts callback" {
+            r keyspace.subscribe_subkeys
+            r keyspace.reset_subkey_events
+            r config set notify-keyspace-events ""
+        }
+    
+        test "Subkey notification: HSET triggers module subkey callback" {
+            r keyspace.reset_subkey_events
+            r hset myhash f1 v1 f2 v2
+            set events [r keyspace.get_subkey_events]
+            assert_equal 1 [llength $events]
+            assert_equal "hset myhash 2 f1 f2" [lindex $events 0]
+            r del myhash
+        }
+
+        test "Subkey notification: HIMPORT SET triggers module subkey callback" {
+            # HIMPORT SET emits an "hset" event with the template's fields,
+            # matching plain HSET semantics. Single-field template.
+            r himport prepare fieldset1 f1
+            r keyspace.reset_subkey_events
+            r himport set myhash fieldset1 v1
+            set events [r keyspace.get_subkey_events]
+            assert_equal 1 [llength $events]
+            assert_equal "hset myhash 1 f1" [lindex $events 0]
+            r del myhash
+            r himport discard fieldset1
+
+            # Multi-field template fires the same event with all of its fields.
+            r himport prepare fieldset4 f1 f2 f3 f4
+            r keyspace.reset_subkey_events
+            r himport set myhash fieldset4 v1 v2 v3 v4
+            set events [r keyspace.get_subkey_events]
+            assert_equal 1 [llength $events]
+            assert_equal "hset myhash 4 f1 f2 f3 f4" [lindex $events 0]
+            r del myhash
+            r himport discard fieldset4
+
+            # Large field count: many fields all delivered as subkeys. Fixed-width
+            # names so the sorted template order matches numeric order.
+            set nfields 129
+            set fields {}
+            set vals {}
+            for {set i 1} {$i <= $nfields} {incr i} {
+                lappend fields [format f%03d $i]
+                lappend vals v$i
+            }
+            r himport prepare bigfs {*}$fields
+            r keyspace.reset_subkey_events
+            r himport set myhash bigfs {*}$vals
+            set events [r keyspace.get_subkey_events]
+            assert_equal 1 [llength $events]
+            set ev [lindex $events 0]
+            assert_equal "hset" [lindex $ev 0]
+            assert_equal "myhash" [lindex $ev 1]
+            assert_equal $nfields [lindex $ev 2]
+            assert_equal $fields [lrange $ev 3 end]
+            r del myhash
+            r himport discard bigfs
+        }
+
+        test "Subkey notification: HSETEX on a template hash triggers hset" {
+            r himport prepare fieldset2 f1 f2
+            r himport set myhash fieldset2 v1 v2
+            r keyspace.reset_subkey_events
+            r hsetex myhash FIELDS 2 f1 v9 f3 v3
+            set events [r keyspace.get_subkey_events]
+            assert_equal 1 [llength $events]
+            assert_equal "hset myhash 2 f1 f3" [lindex $events 0]
+            r del myhash
+            r himport discard fieldset2
+        }
+
+        test "Subkey notification: HDEL triggers module subkey callback" {
+            r hset myhash f1 v1 f2 v2
+            r keyspace.reset_subkey_events
+            r hdel myhash f1
+            set events [r keyspace.get_subkey_events]
+            assert_equal 1 [llength $events]
+            assert_equal "hdel myhash 1 f1" [lindex $events 0]
+            r del myhash
+        }
+
+        test "Subkey notification: HDEL on a template hash lists a repeated field once" {
+            r himport prepare fieldset3 f1 f2 f3
+            r himport set myhash fieldset3 v1 v2 v3
+            r keyspace.reset_subkey_events
+            r hdel myhash f1 f1 f2
+            set events [r keyspace.get_subkey_events]
+            assert_equal 1 [llength $events]
+            assert_equal "hdel myhash 2 f1 f2" [lindex $events 0]
+            r del myhash
+            r himport discard fieldset3
+        }
+
+        test "Subkey notification: HGETDEL on a template hash lists a repeated field once" {
+            r himport prepare fieldset4 f1 f2 f3
+            r himport set myhash fieldset4 v1 v2 v3
+            r keyspace.reset_subkey_events
+            assert_equal {v1 {} v2} [r hgetdel myhash FIELDS 3 f1 f1 f2]
+            set events [r keyspace.get_subkey_events]
+            assert_equal 1 [llength $events]
+            assert_equal "hdel myhash 2 f1 f2" [lindex $events 0]
+            r del myhash
+            r himport discard fieldset4
+        }
+
+        test "Subkey notification: non-subkey event calls subkey callback with count=0" {
+            r hset myhash f1 v1
+            r keyspace.reset_subkey_events
+            r del myhash
+            set events [r keyspace.get_subkey_events]
+            # DEL is NOTIFY_GENERIC — our callback is registered for
+            # HASH|GENERIC, so it should be called with subkeys=NULL, count=0.
+            assert_equal 1 [llength $events]
+            assert_equal "del myhash 0" [lindex $events 0]
+        }
+
+        test "Subkey notification: module-triggered NotifyKeyspaceEventWithSubkeys" {
+            r keyspace.reset_subkey_events
+            r keyspace.notify_with_subkeys mykey sk1 sk2 sk3
+            set events [r keyspace.get_subkey_events]
+            assert_equal 1 [llength $events]
+            assert_equal "module_subkey_event mykey 3 sk1 sk2 sk3" [lindex $events 0]
+        }
+
+        test "Subkey notification: lazy hash field expiry triggers hexpired with subkeys" {
+            r debug set-active-expire 0
+            r del myhash
+            r hset myhash f1 v1 f2 v2 f3 v3
+            r hpexpire myhash 10 FIELDS 2 f1 f2
+            r keyspace.reset_subkey_events
+            after 100
+            r hmget myhash f1 f2
+            assert_equal "hexpired myhash 2 f1 f2" [lindex [r keyspace.get_subkey_events] 0]
+            r debug set-active-expire 1
+        } {OK} {needs:debug}
+
+        test "Subkey notification: active hash field expiry triggers hexpired with subkeys" {
+            r del myhash
+            r hset myhash f1 v1 f2 v2
+            r keyspace.reset_subkey_events
+            r hpexpire myhash 10 FIELDS 2 f1 f2
+            # wait for active expiry to kick in
+            wait_for_condition 50 100 {
+                [r exists myhash] == 0
+            } else {
+                fail "Fields not expired by active expiry"
+            }
+            # fields order is undefined
+            assert_match "hexpired myhash 2 f* f*" [lindex [r keyspace.get_subkey_events] 1]
+            r del myhash
+        }
+
+        test "Subkey notification: unsubscribe stops callback and resubscribe resumes" {
+            r keyspace.reset_subkey_events
+            r hset myhash f1 v1
+            set events [r keyspace.get_subkey_events]
+            assert_equal 1 [llength $events]
+
+            # Unsubscribe — events should stop
+            r keyspace.unsubscribe_subkeys
+            r keyspace.reset_subkey_events
+            r hset myhash f2 v2
+            set events [r keyspace.get_subkey_events]
+            assert_equal 0 [llength $events]
+            # active expire should not trigger subkey callback
+            r hpexpire myhash 10 FIELDS 2 f1 f2
+            wait_for_condition 50 100 {
+                [r exists myhash] == 0
+            } else {
+                fail "Fields not expired by active expiry"
+            }
+            set events [r keyspace.get_subkey_events]
+            assert_equal 0 [llength $events]
+
+            # Re-subscribe — events should resume
+            r keyspace.subscribe_subkeys
+            r del myhash
+            r hset myhash f1 v1 f2 v2
+            r keyspace.reset_subkey_events
+            r hpexpire myhash 10 FIELDS 2 f1 f2
+            assert_match "hexpire myhash 2 f* f*" [lindex [r keyspace.get_subkey_events] 0]
+            # active expire should also resume subkey callback
+            wait_for_condition 50 100 {
+                [r exists myhash] == 0
+            } else {
+                fail "Fields not expired by active expiry"
+            }
+            assert_match "hexpired myhash 2 f* f*" [lindex [r keyspace.get_subkey_events] 1]
+
+            r keyspace.unsubscribe_subkeys
+            r keyspace.reset_subkey_events
+            r del myhash
+        }
+
+        test "Subkey notification: SUBKEYS_REQUIRED flag skips events without subkeys" {
+            r keyspace.subscribe_require_subkeys
+            r keyspace.reset_subkey_events
+
+            # HSET has subkeys — should trigger callback
+            r hset myhash f1 v1 f2 v2
+            set events [r keyspace.get_subkey_events]
+            assert_equal 1 [llength $events]
+            assert_equal "hset myhash 2 f1 f2" [lindex $events 0]
+
+            # DEL has no subkeys — the callback should be skipped.
+            r keyspace.reset_subkey_events
+            r del myhash
+            set events [r keyspace.get_subkey_events]
+            assert_equal 0 [llength $events]
+
+            r keyspace.unsubscribe_require_subkeys
+        }
+
+        test "Unload the module - testkeyspace" {
+            assert_equal {OK} [r module unload testkeyspace]
+        }
+
+        test "Verify RM_StringDMA with expiration are not causing invalid memory access" {
+            assert_equal {OK} [r set x 1 EX 1]
+        }
+    }
+
+    start_server [list overrides [list loadmodule "$testmodule" appendonly yes \
+        appendfsync always save {} aof-use-rdb-preamble yes \
+        auto-aof-rewrite-percentage 0]] {
+        test "Keyspace notifications: incremental AOF conversion replay preserves callback contract" {
+            set key bitmap:transition:replay
+
+            r config set bitmap-default-roaring no
+            r set $key [binary format H* ff]
+
+            # Put the original string in the RDB preamble so startup emits no
+            # keyspace event for it. The incremental file then converts it in
+            # place before replaying the no-op BITFIELD.
+            r bgrewriteaof
+            waitForBgrewriteaof r
+
+            r config set bitmap-default-roaring yes
+            assert_equal {{}} [r bitfield $key \
+                OVERFLOW FAIL INCRBY u8 0 1]
+            assert_equal bitmap [r keyspace.key_type $key]
+
+            r config rewrite
+            restart_server 0 true false
+            wait_done_loading r
+
+            assert_equal bitmap [r keyspace.key_type $key]
+            assert_equal {{type_changed type_changed bitmap}} \
+                [r keyspace.get_bitmap_transition]
+            assert_equal 0 [r keyspace.bitmap_transition_unlink_count]
+        }
+
+        test "Keyspace notifications: incremental AOF BITOP replay preserves callback contract" {
+            set key bitmap:transition:replay
+            set source bitmap:bitop-aof-source
+            r flushall
+            r config set bitmap-default-roaring yes
+            r setbit $key 0 1
+            r set $source [binary format H* f0]
+            r bgrewriteaof
+            waitForBgrewriteaof r
+            r keyspace.reset_bitmap_transition
+
+            assert_equal 1 [r bitop or $key $source]
+            set expected {{overwritten overwritten bitmap} {set bitmap bitmap}}
+            assert_equal $expected [r keyspace.get_bitmap_transition]
+
+            # The base RDB contains the original bitmap. Loading the incremental
+            # write with the opposite default must not expose a transient string.
+            r config set bitmap-default-roaring no
+            r config rewrite
+            restart_server 0 true false
+            wait_done_loading r
+
+            assert_equal bitmap [r type $key]
+            assert_equal [binary format H* f0] [r debug bitmap-raw $key]
+            assert_equal $expected [r keyspace.get_bitmap_transition]
+            assert_equal 0 [r keyspace.string_callback_count]
+            assert_equal 1 [r keyspace.bitmap_callback_count]
+        }
+
+        test "Keyspace notifications: AOF replay preserves conversion callback ordering" {
+            set type_setbit bitmap:transition:delete-type-zero:aof-setbit
+            set type_bitfield bitmap:transition:delete-type-zero:aof-bitfield
+            set bitmap_setbit bitmap:transition:delete-bitmap:aof-setbit
+            set bitmap_bitfield bitmap:transition:delete-bitmap:aof-bitfield
+            set bitop_dest bitmap:transition:replace-replay-string:aof-bitop
+            set bitop_source bitmap:transition:aof-bitop-source
+            set replay_keys [list $type_setbit $type_bitfield \
+                $bitmap_setbit $bitmap_bitfield $bitop_dest $bitop_source]
+
+            r flushall
+            r config set bitmap-default-roaring no
+            r set $type_setbit [binary format H* 40]
+            r set $type_bitfield [binary format H* 40]
+            r set $bitmap_setbit [binary format H* 00]
+            r set $bitmap_bitfield [binary format H* 00]
+            r set $bitop_source [binary format H* f0]
+            r bgrewriteaof
+            waitForBgrewriteaof r
+
+            r config set bitmap-default-roaring yes
+            assert_equal 0 [r setbit $type_setbit 2 1]
+            assert_equal {0} [r bitfield $type_bitfield SET u4 4 15]
+            assert_equal 0 [r setbit $bitmap_setbit 0 1]
+            assert_equal {0} [r bitfield $bitmap_bitfield SET u8 0 255]
+            assert_equal 1 [r bitop or $bitop_dest $bitop_source]
+
+            foreach {key raw} [list \
+                $type_setbit 20 $type_bitfield 0f] {
+                assert_equal string [r type $key]
+                assert_equal [binary format H* $raw] [r get $key]
+            }
+            assert_equal bitmap [r type $bitop_dest]
+            assert_equal [binary format H* f0] [r debug bitmap-raw $bitop_dest]
+            assert_equal 0 [r exists $bitmap_setbit $bitmap_bitfield]
+            # Expanded propagation is atomically wrapped in MULTI/EXEC. The
+            # module's generic DEL fixture deliberately increments an unrelated
+            # "multi" key when replay callbacks run in that context, so compare
+            # only the values whose ordering this test covers.
+            set digests_before [r debug digest-value {*}$replay_keys]
+
+            r config rewrite
+            restart_server 0 true false
+            wait_done_loading r
+
+            assert_equal $digests_before [r debug digest-value {*}$replay_keys]
+            foreach {key raw} [list \
+                $type_setbit 20 $type_bitfield 0f] {
+                assert_equal string [r type $key]
+                assert_equal [binary format H* $raw] [r get $key]
+            }
+            assert_equal bitmap [r type $bitop_dest]
+            assert_equal [binary format H* f0] [r debug bitmap-raw $bitop_dest]
+            assert_equal 0 [r exists $bitmap_setbit $bitmap_bitfield]
+        }
+    }
+
+    # Keep callback-ordering regression tests in a dedicated server because
+    # they enable the keysizes histogram assertion. Future tests for other
+    # commands can share this isolated server without leaking that state.
+    start_server [list overrides [list loadmodule "$testmodule" enable-debug-command yes]] {
+        tags {"regression"} {
+            test "SETBIT and BITFIELD should update keysizes before module callbacks" {
+                # Enable keysizes histogram assertion for this isolated server.
+                r DEBUG KEYSIZES-HIST-ASSERT 1
+
+                # SETBIT callback deletion.
+                r set stringdel_setbit x
+                r setbit stringdel_setbit 16 1
+                assert_equal 0 [r exists stringdel_setbit]
+
+                # BITFIELD SET callback deletion.
+                r set stringdel_bitfield x
+                r bitfield stringdel_bitfield set u8 16 1
+                assert_equal 0 [r exists stringdel_bitfield]
+
+                # BITFIELD OVERFLOW FAIL still grows the string before rejecting the write.
+                r set stringdel_bitfield_fail x
+                r bitfield stringdel_bitfield_fail overflow fail set u8 72 256
+                assert_equal 0 [r exists stringdel_bitfield_fail]
+            }
+        }
+    }
+
+    # Replication test: replica module receives subkey notifications
+    start_server [list overrides [list loadmodule "$testmodule"]] {
+        set master [srv 0 client]
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+
+        start_server [list overrides [list loadmodule "$testmodule" \
+            appendonly yes appendfsync always save {} \
+            aof-use-rdb-preamble no auto-aof-rewrite-percentage 0]] {
+            set replica [srv 0 client]
+
+            $replica replicaof $master_host $master_port
+            wait_for_sync $replica
+
+            foreach replica_mode {no yes} {
+                foreach initial_type {bitmap string none} {
+                    test "Keyspace notifications: native BITOP replay matches primary ($initial_type destination, replica mode $replica_mode)" {
+                        set key bitmap:transition:replay
+                        set source bitmap:bitop-replay-source
+                        $master config set bitmap-default-roaring no
+                        $replica config set bitmap-default-roaring $replica_mode
+                        $master del $key $source
+                        $master set $source [binary format H* f0]
+                        if {$initial_type eq "string"} {
+                            $master set $key [binary format H* 00]
+                        } elseif {$initial_type eq "bitmap"} {
+                            $master config set bitmap-default-roaring yes
+                            $master setbit $key 0 1
+                        }
+                        wait_for_ofs_sync $master $replica
+
+                        set string_counts {}
+                        set bitmap_counts {}
+                        foreach client [list $master $replica] {
+                            $client keyspace.reset_bitmap_transition
+                            lappend string_counts [$client keyspace.string_callback_count]
+                            lappend bitmap_counts [$client keyspace.bitmap_callback_count]
+                        }
+
+                        # All sources are strings, so the primary's config is
+                        # the only reason the result is native. Replay must
+                        # store it directly without exposing a string result.
+                        $master config set bitmap-default-roaring yes
+                        assert_equal 1 [$master bitop or $key $source]
+                        wait_for_ofs_sync $master $replica
+
+                        if {$initial_type eq "none"} {
+                            set expected {{new new bitmap} {set bitmap bitmap}}
+                        } elseif {$initial_type eq "string"} {
+                            set expected {{overwritten overwritten bitmap} {type_changed type_changed bitmap} {set bitmap bitmap}}
+                        } else {
+                            set expected {{overwritten overwritten bitmap} {set bitmap bitmap}}
+                        }
+                        foreach client [list $master $replica] \
+                            string_count $string_counts bitmap_count $bitmap_counts {
+                            assert_equal bitmap [$client type $key]
+                            assert_equal [binary format H* f0] [$client debug bitmap-raw $key]
+                            assert_equal $expected [$client keyspace.get_bitmap_transition]
+                            assert_equal $string_count [$client keyspace.string_callback_count]
+                            assert_equal [expr {$bitmap_count + 1}] [$client keyspace.bitmap_callback_count]
+                        }
+                        $master config set bitmap-default-roaring no
+                        $replica config set bitmap-default-roaring no
+                        $master del $key $source
+                        wait_for_ofs_sync $master $replica
+                    }
+                }
+            }
+
+            test "Keyspace notifications: conversion replay preserves callback contract" {
+                set key bitmap:transition:replay
+
+                $master config set bitmap-default-roaring no
+                $master del $key
+                $master set $key [binary format H* ff]
+                wait_for_ofs_sync $master $replica
+                assert_equal string [$replica keyspace.key_type $key]
+                assert_equal OK [$replica keyspace.reset_bitmap_transition]
+
+                # The replica applies BITCONVERT in place. It emits
+                # "type_changed", but no "new" or "overwritten", and does not
+                # invoke the key-unlink server event. The following BITFIELD is
+                # a logical no-op and emits no bitmap write event on replay.
+                $master config set bitmap-default-roaring yes
+                assert_equal {{}} [$master bitfield $key \
+                    OVERFLOW FAIL INCRBY u8 0 1]
+                wait_for_ofs_sync $master $replica
+
+                assert_equal bitmap [$replica keyspace.key_type $key]
+                assert_equal {{type_changed type_changed bitmap}} \
+                    [$replica keyspace.get_bitmap_transition]
+                assert_equal 0 [$replica keyspace.bitmap_transition_unlink_count]
+
+                $master config set bitmap-default-roaring no
+                $master del $key
+            }
+
+            test "Subkey notification: replica module receives subkey callback after replication" {
+                $master keyspace.subscribe_subkeys
+                $replica keyspace.subscribe_subkeys
+                $replica keyspace.reset_subkey_events
+
+                $master hset myhash f1 v1 f2 v2
+
+                wait_for_ofs_sync $master $replica
+
+                set events [$replica keyspace.get_subkey_events]
+                assert_equal 1 [llength $events]
+                assert_equal "hset myhash 2 f1 f2" [lindex $events 0]
+
+                $master del myhash
+                $master keyspace.unsubscribe_subkeys
+                $replica keyspace.unsubscribe_subkeys
+            }
+
+            test "Keyspace notifications: replica AOF preserves callback command order" {
+                set type_setbit bitmap:transition:delete-type-zero:repl-setbit
+                set type_bitfield bitmap:transition:delete-type-zero:repl-bitfield
+                set bitmap_setbit bitmap:transition:delete-bitmap:repl-setbit
+                set bitmap_bitfield bitmap:transition:delete-bitmap:repl-bitfield
+                set string_setbit bitmap:transition:replace-type-string:repl-setbit
+                set string_bitfield bitmap:transition:replace-type-string:repl-bitfield
+                set replay_string_setbit bitmap:transition:replace-replay-string:repl-setbit
+                set replay_string_bitfield bitmap:transition:replace-replay-string:repl-bitfield
+                set list_setbit bitmap:transition:replace-type-list:repl-setbit
+                set list_bitfield bitmap:transition:replace-type-list:repl-bitfield
+                set bitop_dest bitmap:transition:replace-replay-string:repl-bitop
+                set bitop_source bitmap:transition:repl-bitop-source
+
+                $master config set bitmap-default-roaring no
+                $master del $type_setbit $type_bitfield \
+                    $bitmap_setbit $bitmap_bitfield \
+                    $string_setbit $string_bitfield \
+                    $replay_string_setbit $replay_string_bitfield \
+                    $list_setbit $list_bitfield \
+                    $bitop_dest $bitop_source
+                $master set $type_setbit [binary format H* 40]
+                $master set $type_bitfield [binary format H* 40]
+                $master set $bitmap_setbit [binary format H* 00]
+                $master set $bitmap_bitfield [binary format H* 00]
+                $master set $string_setbit [binary format H* 80]
+                $master set $string_bitfield [binary format H* 80]
+                $master set $replay_string_setbit [binary format H* 80]
+                $master set $replay_string_bitfield [binary format H* 80]
+                $master set $list_setbit [binary format H* 80]
+                $master set $list_bitfield [binary format H* 80]
+                $master set $bitop_source [binary format H* f0]
+                wait_for_ofs_sync $master $replica
+
+                # Put the shared base state in the replica's rewritten AOF;
+                # the transitions below must remain correctly ordered in its
+                # incremental file despite synchronous module writes.
+                # Replication may finish while the replica's initial AOF
+                # rewrite is still scheduled or running.
+                wait_for_condition 100 50 {
+                    [status $replica aof_rewrite_scheduled] eq 0 &&
+                    [status $replica aof_rewrite_in_progress] eq 0
+                } else {
+                    fail "Replica initial AOF rewrite did not finish"
+                }
+                $replica bgrewriteaof
+                waitForBgrewriteaof $replica
+
+                $master config set bitmap-default-roaring yes
+                assert_equal 0 [$master setbit $type_setbit 2 1]
+                assert_equal {0} [$master bitfield $type_bitfield SET u4 4 15]
+                assert_equal 0 [$master setbit $bitmap_setbit 0 1]
+                assert_equal {0} [$master bitfield $bitmap_bitfield SET u8 0 255]
+                assert_equal 0 [$master setbit $string_setbit 0 1]
+                assert_equal {0} [$master bitfield $string_bitfield SET u4 4 15]
+                assert_equal 0 [$master setbit $replay_string_setbit 0 1]
+                assert_equal {0} [$master bitfield $replay_string_bitfield SET u4 4 15]
+                assert_error {WRONGTYPE*} {$master setbit $list_setbit 0 1}
+                assert_error {WRONGTYPE*} {$master bitfield $list_bitfield SET u8 0 255}
+                assert_equal 1 [$master bitop or $bitop_dest $bitop_source]
+                wait_for_ofs_sync $master $replica
+
+                foreach client [list $master $replica] {
+                    foreach {key raw} [list \
+                        $type_setbit 20 $type_bitfield 0f \
+                        $string_setbit a0 $string_bitfield 2f \
+                        $replay_string_setbit a0 $replay_string_bitfield 2f] {
+                        assert_equal string [$client type $key]
+                        assert_equal [binary format H* $raw] [$client get $key]
+                    }
+                    foreach key [list $list_setbit $list_bitfield] {
+                        assert_equal list [$client type $key]
+                        assert_equal replacement [$client lindex $key 0]
+                    }
+                    assert_equal bitmap [$client type $bitop_dest]
+                    assert_equal [binary format H* f0] \
+                        [$client debug bitmap-raw $bitop_dest]
+                    assert_equal 0 [$client exists $bitmap_setbit $bitmap_bitfield]
+                }
+                set replica_digest [$replica debug digest]
+
+                # Reload only the replica's local AOF. A transient BITOP
+                # type-change callback would replace its native result with
+                # a string, and misordered callback DELs could resurrect keys.
+                $replica replicaof no one
+                $replica debug loadaof
+                assert_equal $replica_digest [$replica debug digest]
+                foreach {key raw} [list \
+                    $type_setbit 20 $type_bitfield 0f \
+                    $string_setbit a0 $string_bitfield 2f \
+                    $replay_string_setbit a0 $replay_string_bitfield 2f] {
+                    assert_equal string [$replica type $key]
+                    assert_equal [binary format H* $raw] [$replica get $key]
+                }
+                foreach key [list $list_setbit $list_bitfield] {
+                    assert_equal list [$replica type $key]
+                    assert_equal replacement [$replica lindex $key 0]
+                }
+                assert_equal bitmap [$replica type $bitop_dest]
+                assert_equal [binary format H* f0] \
+                    [$replica debug bitmap-raw $bitop_dest]
+                assert_equal 0 [$replica exists $bitmap_setbit $bitmap_bitfield]
+            }
+        }
+    }
+
+    # A dictEntryLink taken by a command must not be used after something that
+    # may look up keys: each lookup may run an incremental rehash step on the
+    # keyspace dict, and during a shrink that step pushes other entries in front
+    # of the one the link points to. keyspace.lookup_probes makes the module
+    # open the notified key from its 'new'/'overwritten' callback.
+    #
+    # Whether a round hits the bad case depends on where the keys hash to, and
+    # the hash seed is fixed per server process. So every round uses new key
+    # names to get a new layout, and the tests run enough rounds to hit it.
+    start_server [list overrides [list loadmodule "$testmodule" enable-debug-command yes]] {
+        r select 0 ;# DEBUG HTSTATS below inspects db 0
+
+        # Leave the keyspace dict in the middle of a shrink rehash: grow it, then
+        # delete down to the 1:8 fill ratio so the shrink starts. Active
+        # rehashing is off, so from here on only key lookups advance the rehash.
+        # Keys left: <prefix>:0 up to <prefix>:511, with values value:0 up to
+        # value:511.
+        proc lookup_probes_start_shrink {prefix} {
+            r flushall
+            r config set activerehashing no
+            r debug populate 4096 $prefix
+            set dels {}
+            for {set i 512} {$i < 4096} {incr i} {
+                lappend dels $prefix:$i
+            }
+            r del {*}$dels
+            assert_match {*rehashing target*} [r debug htstats 0 full]
+        }
+
+        proc lookup_probes_expires {} {
+            scan [regexp -inline {expires=(\d+)} [r info keyspace]] expires=%d
+        }
+
+        # About 25% of the rounds hit the bad case without the fix.
+        test {SET EX on existing keys keeps the TTL on the right key while KSN callbacks do lookups} {
+            for {set round 0} {$round < 40} {incr round} {
+                lookup_probes_start_shrink r$round
+                r keyspace.lookup_probes 1
+                for {set i 0} {$i < 512} {incr i} {
+                    r set r$round:$i v2 EX 1000
+                    assert_range [r ttl r$round:$i] 1 1000
+                }
+                r keyspace.lookup_probes 0
+                # No key the SETs didn't touch got a TTL.
+                assert_equal 512 [lookup_probes_expires]
+            }
+        }
+
+        # About 30% of the rounds hit the bad case without the fix.
+        test {SET EX on new keys keeps the TTL on the right key while KSN callbacks do lookups} {
+            for {set round 0} {$round < 40} {incr round} {
+                lookup_probes_start_shrink r$round
+                r keyspace.lookup_probes 1
+                for {set i 0} {$i < 512} {incr i} {
+                    r set n$round:$i v EX 1000
+                    assert_range [r ttl n$round:$i] 1 1000
+                }
+                r keyspace.lookup_probes 0
+                assert_equal 512 [lookup_probes_expires]
+            }
+        }
+
+        # No KSN lookups needed: SET IFEQ must not look the key up twice. A
+        # stale link overwrites another key, which then goes missing. About half
+        # the rounds hit the bad case without the fix.
+        test {SET IFEQ updates the right key while the keyspace dict is shrinking} {
+            for {set round 0} {$round < 40} {incr round} {
+                lookup_probes_start_shrink r$round
+                for {set i 0} {$i < 512} {incr i} {
+                    assert_equal OK [r set r$round:$i v2 IFEQ value:$i]
+                }
+                for {set i 0} {$i < 512} {incr i} {
+                    assert_equal v2 [r get r$round:$i]
+                }
+                assert_equal 512 [r dbsize]
+            }
+        }
+    }
+
+    start_server {} {
+        test {OnLoad failure will handle un-registration} {
+            catch {r module load $testmodule noload}
+            r set x 1
+            r hset y f v
+            r lpush z 1 2 3
+            r sadd p 1 2 3
+            r zadd t 1 f1 2 f2
+            r xadd s * f v
+            r ping
+        }
+    }
+}

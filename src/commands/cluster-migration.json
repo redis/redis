@@ -1,0 +1,179 @@
+{
+    "MIGRATION": {
+        "summary": "Start, monitor and cancel slot migration.",
+        "complexity": "O(N) where N is the total number of the slots between the start slot and end slot arguments.",
+        "group": "cluster",
+        "since": "8.4.0",
+        "arity": -4,
+        "container": "CLUSTER",
+        "function": "clusterCommand",
+        "command_flags": [
+            "NO_ASYNC_LOADING",
+            "ADMIN",
+            "STALE"
+        ],
+        "arguments": [
+            {
+                "name": "subcommand",
+                "type": "oneof",
+                "arguments": [
+                    {
+                        "name": "import",
+                        "token": "IMPORT",
+                        "type": "block",
+                        "multiple": true,
+                        "arguments": [
+                            {
+                                "name": "start-slot",
+                                "type": "integer"
+                            },
+                            {
+                                "name": "end-slot",
+                                "type": "integer"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "cancel",
+                        "token": "CANCEL",
+                        "type": "oneof",
+                        "arguments": [
+                            {
+                                "token": "ID",
+                                "name": "task-id",
+                                "type": "string"
+                            },
+                            {
+                                "name": "all",
+                                "token": "ALL",
+                                "type": "pure-token"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "status",
+                        "token": "STATUS",
+                        "type": "oneof",
+                        "arguments": [
+                            {
+                                "token": "ID",
+                                "name": "task-id",
+                                "type": "string",
+                                "optional": true
+                            },
+                            {
+                                "name": "all",
+                                "token": "ALL",
+                                "type": "pure-token",
+                                "optional": true
+                            }
+                        ]
+                    }
+                ]
+            }
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "Reply to CLUSTER MIGRATION IMPORT, returns the task ID.",
+                    "type": "string"
+                },
+                {
+                    "description": "Reply to CLUSTER MIGRATION CANCEL, number of cancelled migration operations.",
+                    "type": "integer"
+                },
+                {
+                    "description": "Reply to CLUSTER MIGRATION STATUS, array of migration operation details.",
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                            "id": {
+                                "type": "string"
+                            },
+                            "slots": {
+                                "type": "string"
+                            },
+                            "source": {
+                                "type": "string"
+                            },
+                            "dest": {
+                                "type": "string"
+                            },
+                            "operation": {
+                                "oneOf": [
+                                    {
+                                        "const": "import"
+                                    },
+                                    {
+                                        "const": "migrate"
+                                    }
+                                ]
+                            },
+                            "state": {
+                                "type": "string"
+                            },
+                            "last_error": {
+                                "type": "string"
+                            },
+                            "retries": {
+                                "type": "integer"
+                            },
+                            "create_time": {
+                                "type": "integer"
+                            },
+                            "start_time": {
+                                "type": "integer"
+                            },
+                            "end_time": {
+                                "type": "integer"
+                            },
+                            "write_pause_ms": {
+                                "type": "integer"
+                            },
+                            "phase": {
+                                "description": "Current or last transfer phase of this attempt. Terminal outcome is reported by state.",
+                                "oneOf": [
+                                    {
+                                        "const": "snapshot"
+                                    },
+                                    {
+                                        "const": "incremental"
+                                    }
+                                ]
+                            },
+                            "snapshot_progress_perc": {
+                                "description": "Snapshot progress percentage from 0 to 100.",
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 100
+                            },
+                            "incremental_progress_perc": {
+                                "description": "Incremental progress percentage from 0 to 100.",
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 100
+                            },
+                            "snapshot_total_keys": {
+                                "description": "Total keys in the migrating slots at fork time, or 0 if the snapshot total is not yet known.",
+                                "type": "integer",
+                                "minimum": 0
+                            },
+                            "snapshot_processed_keys": {
+                                "description": "Estimated snapshot keys processed: the latest child-info count on the source, or the current importing-slot key count on the destination.",
+                                "type": "integer",
+                                "minimum": 0
+                            },
+                            "incremental_lag_bytes": {
+                                "description": "Nonnegative incremental byte lag: generated minus acknowledged bytes on the source, or received minus applied bytes on the destination.",
+                                "type": "integer",
+                                "minimum": 0
+                            }
+                        }
+                    }
+                }
+            ]
+        }
+    }
+}

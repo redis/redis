@@ -1,0 +1,64 @@
+{
+    "SLAVEOF": {
+        "summary": "Sets a Redis server as a replica of another, or promotes it to being a master.",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "1.0.0",
+        "arity": 3,
+        "function": "replicaofCommand",
+        "deprecated_since": "5.0.0",
+        "replaced_by": "`REPLICAOF`",
+        "doc_flags": [
+            "DEPRECATED"
+        ],
+        "command_flags": [
+            "NO_ASYNC_LOADING",
+            "ADMIN",
+            "NOSCRIPT",
+            "STALE"
+        ],
+        "arguments": [
+            {
+                "name": "args",
+                "type": "oneof",
+                "arguments": [
+                    {
+                        "name": "host-port",
+                        "type": "block",
+                        "arguments": [
+                            {
+                                "name": "host",
+                                "type": "string"
+                            },
+                            {
+                                "name": "port",
+                                "type": "integer"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "no-one",
+                        "type": "block",
+                        "arguments": [
+                            {
+                                "name": "no",
+                                "type": "pure-token",
+                                "token": "NO"
+                            },
+                            {
+                                "name": "one",
+                                "type": "pure-token",
+                                "token": "ONE"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ],
+        "reply_schema": {
+            "description": "slaveOf status",
+            "type": "string",
+            "pattern": "OK*"
+        }
+    }
+}

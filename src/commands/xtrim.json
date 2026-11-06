@@ -1,0 +1,134 @@
+{
+    "XTRIM": {
+        "summary": "Deletes messages from the beginning of a stream.",
+        "complexity": "O(N), with N being the number of evicted entries. Constant times are very small however, since entries are organized in macro nodes containing multiple entries that can be released with a single deallocation.",
+        "group": "stream",
+        "since": "5.0.0",
+        "arity": -4,
+        "function": "xtrimCommand",
+        "history": [
+            [
+                "6.2.0",
+                "Added the `MINID` trimming strategy and the `LIMIT` option."
+            ],
+            [
+                "8.2.0",
+                "Added the `KEEPREF`, `DELREF` and `ACKED` options."
+            ]
+        ],
+        "command_flags": [
+            "WRITE"
+        ],
+        "acl_categories": [
+            "STREAM"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "DELETE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "trim",
+                "type": "block",
+                "arguments": [
+                    {
+                        "name": "strategy",
+                        "type": "oneof",
+                        "arguments": [
+                            {
+                                "name": "maxlen",
+                                "type": "pure-token",
+                                "token": "MAXLEN"
+                            },
+                            {
+                                "name": "minid",
+                                "type": "pure-token",
+                                "token": "MINID",
+                                "since": "6.2.0"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "operator",
+                        "type": "oneof",
+                        "optional": true,
+                        "arguments": [
+                            {
+                                "name": "equal",
+                                "type": "pure-token",
+                                "token": "="
+                            },
+                            {
+                                "name": "approximately",
+                                "type": "pure-token",
+                                "token": "~"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "threshold",
+                        "type": "string"
+                    },
+                    {
+                        "token": "LIMIT",
+                        "name": "count",
+                        "type": "integer",
+                        "optional": true,
+                        "since": "6.2.0"
+                    },
+                    {
+                        "name": "condition",
+                        "type": "oneof",
+                        "optional": true,
+                        "arguments": [
+                            {
+                                "name": "keepref",
+                                "type": "pure-token",
+                                "token": "KEEPREF"
+                            },
+                            {
+                                "name": "delref",
+                                "type": "pure-token",
+                                "token": "DELREF"
+                            },
+                            {
+                                "name": "acked",
+                                "type": "pure-token",
+                                "token": "ACKED"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ],
+        "reply_schema": {
+            "description": "The number of entries deleted from the stream.",
+            "type": "integer",
+            "minimum": 0
+        }
+    }
+}

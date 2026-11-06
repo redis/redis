@@ -1,0 +1,52 @@
+{
+    "WAITAOF": {
+        "summary": "Blocks until all of the preceding write commands sent by the connection are written to the append-only file of the master and/or replicas.",
+        "complexity": "O(1)",
+        "group": "generic",
+        "since": "7.2.0",
+        "arity": 4,
+        "function": "waitaofCommand",
+        "command_flags": [
+            "BLOCKING"
+        ],
+        "acl_categories": [
+            "CONNECTION"
+        ],
+        "command_tips": [
+            "REQUEST_POLICY:ALL_SHARDS",
+            "RESPONSE_POLICY:AGG_MIN"
+        ],
+        "reply_schema": {
+            "type": "array",
+            "description": "Number of local and remote AOF files in sync.",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": [
+                {
+                    "description": "Number of local AOF files.",
+                    "type": "integer",
+                    "minimum": 0
+                },
+                {
+                    "description": "Number of replica AOF files.",
+                    "type": "number",
+                    "minimum": 0
+                }
+            ]
+        },
+        "arguments": [
+            {
+                "name": "numlocal",
+                "type": "integer"
+            },
+            {
+                "name": "numreplicas",
+                "type": "integer"
+            },
+            {
+                "name": "timeout",
+                "type": "integer"
+            }
+        ]
+    }
+}

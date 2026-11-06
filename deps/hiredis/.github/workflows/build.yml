@@ -1,0 +1,177 @@
+name: Build and test
+on: [push, pull_request]
+
+jobs:
+  ubuntu:
+    name: Ubuntu
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install dependencies
+        run: |
+          curl -fsSL https://packages.redis.io/gpg | sudo gpg --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/redis.list
+          sudo apt-get update
+          sudo apt-get install -y redis-server valgrind libevent-dev
+
+      - name: Build using cmake
+        env:
+          EXTRA_CMAKE_OPTS: -DENABLE_EXAMPLES:BOOL=ON -DENABLE_SSL:BOOL=ON -DENABLE_SSL_TESTS:BOOL=ON -DENABLE_ASYNC_TESTS:BOOL=ON
+          CFLAGS: -Werror
+          CXXFLAGS: -Werror
+        run: mkdir build && cd build && cmake .. && make
+
+      - name: Build using makefile
+        run: USE_SSL=1 TEST_ASYNC=1 make
+
+      - name: Run tests
+        env:
+          SKIPS_AS_FAILS: 1
+          TEST_SSL: 1
+        run: $GITHUB_WORKSPACE/test.sh
+
+      #      - name: Run tests under valgrind
+      #        env:
+      #          SKIPS_AS_FAILS: 1
+      #          TEST_PREFIX: valgrind --error-exitcode=99 --track-origins=yes --leak-check=full
+      #        run: $GITHUB_WORKSPACE/test.sh
+
+  centos7:
+    name: CentOS 7
+    runs-on: ubuntu-latest
+    container: centos:7
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install dependencies
+        run: |
+          yum -y install http://rpms.remirepo.net/enterprise/remi-release-7.rpm
+          yum -y --enablerepo=remi install redis
+          yum -y install gcc gcc-c++ make openssl openssl-devel cmake3 valgrind libevent-devel
+
+      - name: Build using cmake
+        env:
+          EXTRA_CMAKE_OPTS: -DENABLE_EXAMPLES:BOOL=ON -DENABLE_SSL:BOOL=ON -DENABLE_SSL_TESTS:BOOL=ON -DENABLE_ASYNC_TESTS:BOOL=ON
+          CFLAGS: -Werror
+          CXXFLAGS: -Werror
+        run: mkdir build && cd build && cmake3 .. && make
+
+      - name: Build using Makefile
+        run: USE_SSL=1 TEST_ASYNC=1 make
+
+      - name: Run tests
+        env:
+          SKIPS_AS_FAILS: 1
+          TEST_SSL: 1
+        run: $GITHUB_WORKSPACE/test.sh
+
+      - name: Run tests under valgrind
+        env:
+          SKIPS_AS_FAILS: 1
+          TEST_SSL: 1
+          TEST_PREFIX: valgrind --error-exitcode=99 --track-origins=yes --leak-check=full
+        run: $GITHUB_WORKSPACE/test.sh
+
+  centos8:
+    name: RockyLinux 8
+    runs-on: ubuntu-latest
+    container: rockylinux:8
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install dependencies
+        run: |
+          dnf -y upgrade --refresh
+          dnf -y install https://rpms.remirepo.net/enterprise/remi-release-8.rpm
+          dnf -y module install redis:remi-6.0
+          dnf -y group install "Development Tools"
+          dnf -y install openssl-devel cmake valgrind libevent-devel
+
+      - name: Build using cmake
+        env:
+          EXTRA_CMAKE_OPTS: -DENABLE_EXAMPLES:BOOL=ON -DENABLE_SSL:BOOL=ON -DENABLE_SSL_TESTS:BOOL=ON -DENABLE_ASYNC_TESTS:BOOL=ON
+          CFLAGS: -Werror
+          CXXFLAGS: -Werror
+        run: mkdir build && cd build && cmake .. && make
+
+      - name: Build using Makefile
+        run: USE_SSL=1 TEST_ASYNC=1 make
+
+      - name: Run tests
+        env:
+          SKIPS_AS_FAILS: 1
+          TEST_SSL: 1
+        run: $GITHUB_WORKSPACE/test.sh
+
+      - name: Run tests under valgrind
+        env:
+          SKIPS_AS_FAILS: 1
+          TEST_SSL: 1
+          TEST_PREFIX: valgrind --error-exitcode=99 --track-origins=yes --leak-check=full
+        run: $GITHUB_WORKSPACE/test.sh
+
+  freebsd:
+    runs-on: macos-12
+    name:  FreeBSD
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Build in FreeBSD
+        uses: vmactions/freebsd-vm@v0
+        with:
+          prepare: pkg install -y gmake cmake
+          run: |
+            mkdir build && cd build && cmake .. && make && cd ..
+            gmake
+
+  macos:
+    name: macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install dependencies
+        run: |
+          brew install openssl redis@7.0
+          brew link redis@7.0 --force
+
+      - name: Build hiredis
+        run: USE_SSL=1 make
+
+      - name: Run tests
+        env:
+          TEST_SSL: 1
+        run: $GITHUB_WORKSPACE/test.sh
+
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install dependencies
+        run: |
+          choco install -y ninja memurai-developer
+
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Build hiredis
+        run: |
+          mkdir build && cd build
+          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_EXAMPLES=ON
+          ninja -v
+
+      - name: Run tests
+        run: |
+          ./build/hiredis-test.exe
+
+      - name: Install Cygwin Action
+        uses: cygwin/cygwin-install-action@v2
+        with:
+          packages: make git gcc-core
+
+      - name: Build in cygwin
+        env:
+          HIREDIS_PATH: ${{ github.workspace }}
+        run: |
+          make clean && make

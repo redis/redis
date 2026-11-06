@@ -1,0 +1,167 @@
+This directory contains all Redis dependencies, except for the libc that
+should be provided by the operating system.
+
+* **Jemalloc** is our memory allocator, used as replacement for libc malloc on Linux by default. It has good performances and excellent fragmentation behavior. This component is upgraded from time to time.
+* **hiredis** is the official C client library for Redis. It is used by redis-cli, redis-benchmark and Redis Sentinel. It is part of the Redis official ecosystem but is developed externally from the Redis repository, so we just upgrade it as needed.
+* **linenoise** is a readline replacement. It is developed by the same authors of Redis but is managed as a separated project and updated as needed.
+* **lua** is Lua 5.1 with minor changes for security and additional libraries.
+* **hdr_histogram** Used for per-command latency tracking histograms.
+* **CRoaring** is the C implementation of Roaring bitmaps used by native Redis
+  bitmap encodings. Redis vendors the C headers and source from upstream and
+  builds it only through the Redis dependency Makefile.
+
+How to upgrade the above dependencies
+===
+
+Jemalloc
+---
+
+Jemalloc is modified with changes that allow us to implement the Redis
+active defragmentation logic. However this feature of Redis is not mandatory
+and Redis is able to understand if the Jemalloc version it is compiled
+against supports such Redis-specific modifications. So in theory, if you
+are not interested in the active defragmentation, you can replace Jemalloc
+just following these steps:
+
+1. Remove the jemalloc directory.
+2. Substitute it with the new jemalloc source tree.
+3. Edit the Makefile located in the same directory as the README you are
+   reading, and change the --with-version in the Jemalloc configure script
+   options with the version you are using. This is required because otherwise
+   Jemalloc configuration script is broken and will not work nested in another
+   git repository.
+
+However note that we change Jemalloc settings via the `configure` script of Jemalloc using the `--with-lg-quantum` option, setting it to the value of 3 instead of 4. This provides us with more size classes that better suit the Redis data structures, in order to gain memory efficiency.
+
+If you want to upgrade Jemalloc while also providing support for
+active defragmentation, in addition to the above steps you need to perform
+the following additional steps:
+
+5. In Jemalloc tree, file `include/jemalloc/jemalloc_macros.h.in`, make sure
+   to add `#define JEMALLOC_FRAG_HINT`.
+6. Implement the function `je_get_defrag_hint()` inside `src/jemalloc.c`. You
+   can see how it is implemented in the current Jemalloc source tree shipped
+   with Redis, and rewrite it according to the new Jemalloc internals, if they
+   changed, otherwise you could just copy the old implementation if you are
+   upgrading just to a similar version of Jemalloc.
+
+#### Updating/upgrading jemalloc
+
+The jemalloc directory is pulled as a subtree from the upstream jemalloc github repo. To update it you should run from the project root:
+
+1. `git subtree pull --prefix deps/jemalloc https://github.com/jemalloc/jemalloc.git <version-tag> --squash`<br>
+This should hopefully merge the local changes into the new version.
+2. In case any conflicts arise (due to our changes) you'll need to resolve them and commit.
+3. Reconfigure jemalloc:<br>
+```sh
+rm deps/jemalloc/VERSION deps/jemalloc/configure
+cd deps/jemalloc
+./autogen.sh --with-version=<version-tag>-0-g0
+```
+4. Update jemalloc's version in `deps/Makefile`: search for "`--with-version=<old-version-tag>-0-g0`" and update it accordingly.
+5. Commit the changes (VERSION,configure,Makefile).
+
+Hiredis
+---
+
+Hiredis is used by Sentinel, `redis-cli` and `redis-benchmark`. Like Redis, uses the SDS string library, but not necessarily the same version. In order to avoid conflicts, this version has all SDS identifiers prefixed by `hi`.
+
+1. `git subtree pull --prefix deps/hiredis https://github.com/redis/hiredis.git <version-tag> --squash`<br>
+This should hopefully merge the local changes into the new version.
+2. Conflicts will arise (due to our changes) you'll need to resolve them and commit.
+
+Linenoise
+---
+
+Linenoise is rarely upgraded as needed. The upgrade process is trivial since
+Redis uses a non modified version of linenoise, so to upgrade just do the
+following:
+
+1. Remove the linenoise directory.
+2. Substitute it with the new linenoise source tree.
+
+Lua
+---
+
+We use Lua 5.1 and no upgrade is planned currently, since we don't want to break
+Lua scripts for new Lua features: in the context of Redis Lua scripts the
+capabilities of 5.1 are usually more than enough, the release is rock solid,
+and we definitely don't want to break old scripts.
+
+So upgrading of Lua is up to the Redis project maintainers and should be a
+manual procedure performed by taking a diff between the different versions.
+
+Currently we have at least the following differences between official Lua 5.1
+and our version:
+
+1. Makefile is modified to allow a different compiler than GCC.
+2. We have the implementation source code, and directly link to the following external libraries: `lua_cjson.o`, `lua_struct.o`, `lua_cmsgpack.o` and `lua_bit.o`.
+3. There is a security fix in `ldo.c`, line 498: The check for `LUA_SIGNATURE[0]` is removed in order to avoid direct bytecode execution.
+
+Hdr_Histogram
+---
+
+We vendor the core amalgamation of [HdrHistogram_c 0.12.1](https://github.com/HdrHistogram/HdrHistogram_c/commit/30e9ce6ef5dcdc60f9270e1ca03c0966eaaf71d0)
+(release commit `30e9ce6ef5dcdc60f9270e1ca03c0966eaaf71d0`). It is used for per-command
+latency tracking, redis-cli, and redis-benchmark. Only the core is included; the
+log codec, packed histogram, interval recorder, and phaser are not vendored.
+
+To upgrade, check out the desired upstream release and run its amalgamation
+script, replacing `/path/to/redis` with the Redis checkout:
+
+```sh
+git clone https://github.com/HdrHistogram/HdrHistogram_c.git
+cd HdrHistogram_c
+git checkout 30e9ce6ef5dcdc60f9270e1ca03c0966eaaf71d0
+python3 script/amalgamate.py --output /path/to/redis/deps/hdr_histogram \
+    --malloc-include hdr_redis_malloc.h
+cp LICENSE.txt COPYING.txt /path/to/redis/deps/hdr_histogram/
+```
+
+`hdr_histogram.c` and `hdr_histogram.h` are generated files; do not edit them by
+hand. The private `hdr_atomic.h` and `hdr_tests.h` headers are inlined by the
+script and are no longer separate files. Keep Redis's `Makefile` and
+`hdr_redis_malloc.h`, which routes allocations through the Redis allocator. The
+existing `HDR_MALLOC_INCLUDE` build flag is compatible with the generated default.
+The Makefile uses `-O3` and selects upstream's scalar percentile fallback for
+GCC 4.8, whose intrinsic headers cannot support the runtime AVX2 dispatch.
+
+The former local iterator extension, `hdr_iter_linear_set_value_units_per_bucket`,
+is now provided upstream. `INFO latencystats` sorts configured percentiles for the
+upstream batch API once per INFO section, using stack storage for up to 16
+percentiles and heap storage above that. Version 0.12.1 provides consistent p0
+and empty-histogram results in the scalar and batch APIs, so no caller
+workarounds or local library patches are needed.
+
+After upgrading, update the version and release commit here and in
+`hdr_histogram/README.md`. Rebuild Redis from a clean tree and run the INFO,
+latency-monitor, redis-cli, and redis-benchmark tests.
+
+CRoaring
+---
+
+Updated source can be found here: https://github.com/RoaringBitmap/CRoaring
+We currently vendor v4.7.2 with a few local patches, each marked with a
+`Local Redis patch` comment at the patch site.
+
+1. Replace `deps/croaring/include` and `deps/croaring/src` with the upstream
+   `include` and `src` trees (C sources and headers only; Redis does not use
+   the upstream CMake build), and refresh `LICENSE`, `AUTHORS`, `README.md`
+   and `SECURITY.md`.
+2. If upstream added, removed or renamed C sources, mirror the change in the
+   source list of `deps/croaring/Makefile`. The Makefile itself is fully
+   Redis-authored (hidden symbol visibility, portable implementation only,
+   flag-change rebuild tracking, refcount regression test) and is kept as is.
+3. Re-apply the local patches unless upstream has independently fixed them.
+   Run `git grep 'Local Redis patch' deps/croaring` before replacing the
+   tree to enumerate them. Currently:
+   * `include/roaring/portability.h`: portability fixes for platforms and
+     toolchains upstream does not exercise the same way (endianness
+     detection, a `__sync`-builtin atomics fallback, a `__has_include`
+     polyfill, an unaligned-access gate, a non-atomic refcount fix).
+   * `include/roaring/roaring64_internal.h` (Redis-added file) and
+     `src/roaring64.c`: expose the private 64-bit bitmap layout so
+     `src/bitroar.c` can walk every allocation for MEMORY USAGE accounting,
+     fork-child page dismissal and active defragmentation.
+4. Run `make -C deps/croaring test` and the bitmap test suites under
+   `tests/` (`bitroar`, `bitops`).
