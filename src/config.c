@@ -405,6 +405,28 @@ int yesnotoi(char *s) {
  * rules are replayed; runtime CONFIG SET replaces the list with persistable rules. */
 static int saveparamslen_to_rewrite;
 
+static sds getConfigSaveOption(standardConfig *config);
+
+static sds getSaveParamsValue(int unsigned_changes) {
+    sds buf = sdsempty();
+    int j;
+
+    for (j = 0; j < server.saveparamslen; j++) {
+        if (unsigned_changes)
+            buf = sdscatprintf(buf,"%jd %u",
+                               (intmax_t)server.saveparams[j].seconds,
+                               (unsigned int)server.saveparams[j].changes);
+        else
+            buf = sdscatprintf(buf,"%jd %d",
+                               (intmax_t)server.saveparams[j].seconds,
+                               server.saveparams[j].changes);
+        if (j != server.saveparamslen-1)
+            buf = sdscatlen(buf," ",1);
+    }
+
+    return buf;
+}
+
 void appendServerSaveParams(time_t seconds, int changes) {
     server.saveparams = zrealloc(server.saveparams,sizeof(struct saveparam)*(server.saveparamslen+1));
     server.saveparams[server.saveparamslen].seconds = seconds;
@@ -1099,8 +1121,11 @@ void configSetCommand(client *c) {
     if (invalid_args) goto err;
 
     /* Backup old values before setting new ones */
-    for (i = 0; i < config_count; i++)
-        old_values[i] = set_configs[i]->interface.get(set_configs[i]);
+    for (i = 0; i < config_count; i++) {
+        /* Narrowed save counts need a nonnegative spelling for the setter. */
+        old_values[i] = set_configs[i]->interface.get == getConfigSaveOption ?
+                        getSaveParamsValue(1) : set_configs[i]->interface.get(set_configs[i]);
+    }
 
     /* Set all new values (don't apply yet) */
     for (i = 0; i < config_count; i++) {
@@ -3913,18 +3938,7 @@ static int setConfigSaveOption(standardConfig *config, sds *argv, int argc, cons
 
 static sds getConfigSaveOption(standardConfig *config) {
     UNUSED(config);
-    sds buf = sdsempty();
-    int j;
-
-    for (j = 0; j < server.saveparamslen; j++) {
-        buf = sdscatprintf(buf,"%jd %d",
-                           (intmax_t)server.saveparams[j].seconds,
-                           server.saveparams[j].changes);
-        if (j != server.saveparamslen-1)
-            buf = sdscatlen(buf," ",1);
-    }
-
-    return buf;
+    return getSaveParamsValue(0);
 }
 
 static int setConfigClientOutputBufferLimitOption(standardConfig *config, sds *argv, int argc, const char **err) {
