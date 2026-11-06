@@ -832,6 +832,19 @@ start_server {tags {"zset"}} {
             assert_equal 0 [r exists zset]
         }
 
+        test "ZREMRANGEBYSCORE empty ranges - $encoding" {
+            create_zset zset {1 a 2 b 3 c 4 d 5 e}
+            foreach {min max} {
+                3 (3   (3 3   (3 (3   (2 (3   2.1 2.9
+                6 10   (5 +inf   -10 0   -inf (1   -inf -0
+                4 2   +inf -inf   +inf +inf   -inf -inf
+            } {
+                assert_equal 0 [r zremrangebyscore zset $min $max]
+            }
+            assert_equal {a b c d e} [r zrange zset 0 -1]
+            assert_encoding $encoding zset
+        }
+
         test "ZREMRANGEBYSCORE with non-value min or max - $encoding" {
             assert_error "*not*float*" {r zremrangebyscore fooz str 1}
             assert_error "*not*float*" {r zremrangebyscore fooz 1 str}
@@ -908,6 +921,20 @@ start_server {tags {"zset"}} {
             assert_equal 9 [remrangebylex - +]
             assert_equal 0 [r zcard zset]
             assert_equal 0 [r exists zset]
+        }
+
+        test "ZREMRANGEBYLEX empty ranges - $encoding" {
+            create_default_lex_zset
+            foreach {min max} {
+                {[cool} {(cool}   {(cool} {[cool}   {(cool} {(cool}
+                {(cool} {(down}   {[coola} {[coolz}   {(omega} +
+                {[p} +   - {(alpha}   - {[a}   {[down} {[bar}
+                + -   - -   + +
+            } {
+                assert_equal 0 [r zremrangebylex zset $min $max]
+            }
+            assert_equal {alpha bar cool down elephant foo great hill omega} [r zrange zset 0 -1]
+            assert_encoding $encoding zset
         }
 
         test "ZUNIONSTORE against non-existing key doesn't set destination - $encoding" {
@@ -1393,6 +1420,118 @@ start_server {tags {"zset"}} {
 
     basics listpack
     basics btree
+
+    # Empty and edge score / lex ranges on a B+ tree that spans many leaves,
+    # so equal scores and range bounds fall across leaf and inner node
+    # boundaries. Expectations are computed here from the inserted pairs.
+    proc zrem_range_check {cmd min max members inrange} {
+        r copy zsrc{t} zset{t} replace
+        set expected_left {}
+        set expected_count 0
+        foreach m $members {
+            if {[{*}$inrange $m $min $max]} {
+                incr expected_count
+            } else {
+                lappend expected_left $m
+            }
+        }
+        assert_equal $expected_count [r $cmd zset{t} $min $max]
+        assert_equal [lsort $expected_left] [lsort [r zrange zset{t} 0 -1]]
+    }
+
+    proc zrem_bound_ok {value bound side} {
+        # Returns whether $value is on the inside of a score bound.
+        if {[string index $bound 0] eq "("} {
+            set b [string range $bound 1 end]
+            set ex 1
+        } else {
+            set b $bound
+            set ex 0
+        }
+        if {$b eq "+inf"} {set b Inf}
+        if {$b eq "-inf"} {set b -Inf}
+        if {$side eq "min"} {
+            return [expr {$ex ? $value > $b : $value >= $b}]
+        }
+        return [expr {$ex ? $value < $b : $value <= $b}]
+    }
+
+    proc zrem_score_in {scores m min max} {
+        set s [dict get $scores $m]
+        return [expr {[zrem_bound_ok $s $min min] &&
+                      [zrem_bound_ok $s $max max]}]
+    }
+
+    proc zrem_lex_in {m min max} {
+        set inmin [expr {$min eq "-" ? 1 : $min eq "+" ? 0 :
+            [string index $min 0] eq "(" ?
+                [string compare $m [string range $min 1 end]] > 0 :
+                [string compare $m [string range $min 1 end]] >= 0}]
+        set inmax [expr {$max eq "+" ? 1 : $max eq "-" ? 0 :
+            [string index $max 0] eq "(" ?
+                [string compare $m [string range $max 1 end]] < 0 :
+                [string compare $m [string range $max 1 end]] <= 0}]
+        return [expr {$inmin && $inmax}]
+    }
+
+    test {ZREMRANGEBYSCORE empty and edge ranges on a multi-leaf B+ tree} {
+        set original_max [lindex [r config get zset-max-listpack-entries] 1]
+        r config set zset-max-listpack-entries 0
+        r del zsrc{t}
+        # Ten scores, 400 members each. Half of the score 0 members use -0.
+        set members {}
+        set args {}
+        set scores {}
+        for {set i 0} {$i < 4000} {incr i} {
+            set m [format m%04d $i]
+            set s [expr {$i / 400}]
+            if {$s == 0 && $i % 2} {set s -0}
+            dict set scores $m $s
+            lappend members $m
+            lappend args $s $m
+        }
+        r zadd zsrc{t} {*}$args
+        assert_encoding btree zsrc{t}
+
+        foreach {min max} {
+            5 (5   (5 5   (5 (5   5 5   (5 (6   5.5 5.9
+            10 20   (9 +inf   9 +inf   -10 -1   -inf (0   -inf (-0
+            -inf 0   0 -0   (0 -0   -0 (0   9 1   +inf -inf
+            +inf +inf   -inf -inf   -inf +inf   (4 (6
+        } {
+            zrem_range_check zremrangebyscore $min $max $members \
+                [list zrem_score_in $scores]
+        }
+        r del zsrc{t} zset{t}
+        r config set zset-max-listpack-entries $original_max
+    }
+
+    test {ZREMRANGEBYLEX empty and edge ranges on a multi-leaf B+ tree} {
+        set original_max [lindex [r config get zset-max-listpack-entries] 1]
+        r config set zset-max-listpack-entries 0
+        r del zsrc{t}
+        set members {}
+        set args {}
+        for {set i 0} {$i < 4000} {incr i} {
+            set m [format m%04d $i]
+            lappend members $m
+            lappend args [expr {$i % 2 ? "-0" : "0"}] $m
+        }
+        r zadd zsrc{t} {*}$args
+        assert_encoding btree zsrc{t}
+
+        foreach {min max} {
+            {[m1000} {(m1000}   {(m1000} {[m1000}   {(m1000} {(m1000}
+            {[m1000} {[m1000}   {(m1000} {(m1001}   {[m1000a} {[m1000z}
+            {(m3999} +   {[n} +   - {(m0000}   - {[a}
+            {[m2000} {[m1000}   + -   - -   + +   - +
+            {[m0999} {[m1001}   {(m0095} {[m0096}
+        } {
+            zrem_range_check zremrangebylex $min $max $members zrem_lex_in
+        }
+        r del zsrc{t} zset{t}
+        r config set zset-max-listpack-entries $original_max
+    }
 
     test {ZSET with a large member stays in the B+ tree encoding} {
         set original_max [lindex [r config get zset-max-listpack-entries] 1]
