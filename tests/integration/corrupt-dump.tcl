@@ -75,7 +75,7 @@ test {Zset listpack scores are validated before loading or conversion} {
     }
 }
 
-test {Zset listpack duplicate members are rejected before conversion} {
+test {Zset listpack duplicate members are rejected by sanitization and assert on conversion} {
     start_server [list overrides [list use-exit-on-panic yes crash-memcheck-enabled no]] {
         r zadd dup-source 1 alpha 2 bravo
         assert_encoding listpack dup-source
