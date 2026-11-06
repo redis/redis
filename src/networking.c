@@ -5799,7 +5799,7 @@ void processEventsWhileBlocked(void) {
 
     /* Update our cached time since it is used to create and update the last
      * interaction time with clients and for other important things. */
-    updateCachedTime(0);
+    updateCachedTime();
 
     /* For the few commands that are allowed during busy scripts, we rather
      * provide a fresher time than the one from when the script started (they
