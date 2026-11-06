@@ -200,6 +200,17 @@ foreach command {SORT SORT_RO} {
                 assert_equal {} [r $command zset by nosort limit 5 10]
                 assert_encoding $enc zset
             }
+
+            # Members that look like integers are stored as integers in a listpack.
+            r del zset
+            r zadd zset 1 10 5 3 2 2 10 -1 3 100
+            assert_encoding $enc zset
+            foreach command {SORT SORT_RO} {
+                assert_equal {-1 2 3 10 100} [r $command zset]
+                assert_equal {100 10 3 2 -1} [r $command zset desc]
+                assert_equal {10 2 100 3 -1} [r $command zset by nosort asc]
+                assert_encoding $enc zset
+            }
             r config set zset-max-listpack-entries $orig
         }
     }
