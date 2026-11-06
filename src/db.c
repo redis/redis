@@ -1112,7 +1112,7 @@ long long emptyData(int dbnum, int flags, void(callback)(dict*)) {
          * task. As this is not a common operation, the next ASM retry will
          * succeed. Trim jobs are canceled too, since there is no data left to
          * trim. */
-        clusterAsmCancel(NULL, "flush");
+        clusterAsmForceCancel(NULL, "flush");
         asmCancelTrimJobs();
     }
 
