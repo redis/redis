@@ -2948,10 +2948,11 @@ static inline int _writeToClientSlave(client *c, ssize_t *nwritten) {
     return C_OK;
 }
 
-/* Write data in output buffers to client. Return C_OK if the client
- * is still valid after the call, C_ERR if it was freed because of some
- * error.  If handler_installed is set, it will attempt to clear the
- * write event.
+/* Write data in output buffers to client. Return C_OK on success, or C_ERR
+ * when the caller must stop handling writes. C_ERR does not mean the client
+ * has already been freed: cleanup may be queued, or may wait for the replica
+ * to finish applying buffered commands. If handler_installed is set, clear
+ * the write event when no output remains.
  *
  * This function is called by threads, but always with handler_installed
  * set to 0. So when handler_installed is set to 0 the function must be
@@ -3009,7 +3010,27 @@ int writeToClient(client *c, int handler_installed) {
         if (connGetState(c->conn) != CONN_STATE_CONNECTED) {
             serverLog(LL_VERBOSE,
                 "Error writing to client: %s", connGetLastError(c->conn));
-            freeClientAsync(c);
+            /* An ACK write can fail while the replica is applying buffered
+             * commands during full sync. Keep its upstream client alive so the
+             * application loop can finish. Closing it now would discard received
+             * commands and make PSYNC request them again from an older offset.
+             * If that history has left the primary's backlog, another full sync
+             * would be required. */
+            if (c->running_tid == IOTHREAD_MAIN_THREAD_ID &&
+                c == server.master &&
+                (server.repl_main_ch_state & REPL_MAIN_CH_STREAMING_BUF))
+            {
+                /* Disable read and write callbacks while buffered commands are applied. */
+                connSetWriteHandler(c->conn, NULL);
+                connSetReadHandler(c->conn, NULL);
+                /* Unlike CLIENT_CLOSE_ASAP, this flag lets buffer application
+                 * continue. Once it finishes, rdbChannelStreamReplDataToDb()
+                 * calls freeClient() to close the connection, cache the applied
+                 * offset and reconnect for PSYNC. */
+                server.repl_main_ch_state |= REPL_MAIN_CH_CLOSE_ASAP;
+            } else {
+                freeClientAsync(c);
+            }
             return C_ERR;
         }
     }
