@@ -1,0 +1,152 @@
+{
+    "ZMOVE": {
+        "summary": "Moves a highest- or lowest-scoring member, or a score range of members, from one sorted set to another, preserving scores. Deletes the source sorted set if the last member was moved.",
+        "complexity": "O(log(N) + K*(log(N)+log(M))) where N and M are the source and destination sizes and K is the number of moved members.",
+        "group": "sorted_set",
+        "since": "8.12.0",
+        "arity": -4,
+        "function": "zmoveCommand",
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "SORTEDSET"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "ACCESS",
+                    "DELETE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            },
+            {
+                "flags": [
+                    "RW",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 2
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "With MIN or MAX, the source key does not exist, or source and destination are the same sorted set.",
+                    "type": "null"
+                },
+                {
+                    "description": "With MIN or MAX, the moved member and its score.",
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": [
+                        {
+                            "description": "Member",
+                            "type": "string"
+                        },
+                        {
+                            "description": "Score",
+                            "type": "number"
+                        }
+                    ]
+                },
+                {
+                    "description": "With BYSCORE, moved member and score pairs in ascending score order, or an empty array if nothing was moved.",
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "items": [
+                            {
+                                "type": "string",
+                                "description": "Member"
+                            },
+                            {
+                                "type": "number",
+                                "description": "Score"
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+        "arguments": [
+            {
+                "name": "source",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "destination",
+                "type": "key",
+                "key_spec_index": 1
+            },
+            {
+                "name": "selection",
+                "type": "oneof",
+                "arguments": [
+                    {
+                        "name": "min",
+                        "type": "pure-token",
+                        "token": "MIN"
+                    },
+                    {
+                        "name": "max",
+                        "type": "pure-token",
+                        "token": "MAX"
+                    },
+                    {
+                        "name": "score-range",
+                        "type": "block",
+                        "arguments": [
+                            {
+                                "name": "byscore",
+                                "type": "pure-token",
+                                "token": "BYSCORE"
+                            },
+                            {
+                                "name": "score-min",
+                                "type": "double"
+                            },
+                            {
+                                "name": "score-max",
+                                "type": "double"
+                            },
+                            {
+                                "name": "count",
+                                "type": "integer",
+                                "token": "LIMIT",
+                                "optional": true
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+}
