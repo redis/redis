@@ -934,6 +934,131 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         } {} {needs:debug}
     }
 
+    test {SET overwriting a small string leaves the same object as a new key} {
+        # A value that fits the allocation of the old one may be written in place:
+        # the key must end up exactly as if it was created with the new value.
+        # The lengths cross the jemalloc size classes and the embedded limit.
+        set jemalloc [string match {*jemalloc*} [s mem_allocator]]
+        set key key:inplace
+        set t1 4000000000000
+        set t2 4100000000000
+        # Sends the queries of the state of the key, returns their replies
+        # (nothing on a deferring client).
+        proc key_state {client key jemalloc} {
+            set state [list [$client object encoding $key] [$client get $key] [$client pexpiretime $key]]
+            if {$jemalloc} { lappend state [$client memory usage $key] [$client debug sdslen $key] }
+            return $state
+        }
+        set rd [redis_deferring_client]
+        for {set newlen 0} {$newlen <= 44} {incr newlen} {
+            set new [string repeat b $newlen]
+            # mode: TTL of the old value, options of the SET, expected TTL
+            set modes [list 0 {} -1  $t1 {keepttl} $t1  $t1 "pxat $t2" $t2  $t1 {} -1  persist {keepttl} -1]
+            foreach {oldttl opts newttl} $modes {
+                r del $key
+                r set $key $new
+                if {$newttl != -1} { r pexpireat $key $newttl }
+                set expected [key_state r $key $jemalloc]
+                # Pipeline the overwrites from every old length, then check the replies.
+                for {set oldlen 0} {$oldlen <= 44} {incr oldlen} {
+                    $rd del $key
+                    $rd set $key [string repeat a $oldlen]
+                    if {$oldttl eq "persist"} {
+                        $rd pexpireat $key $t1
+                        $rd persist $key
+                    } elseif {$oldttl} {
+                        $rd pexpireat $key $oldttl
+                    }
+                    $rd set $key $new {*}$opts
+                    key_state $rd $key $jemalloc
+                }
+                set setup [expr {$oldttl eq "persist" ? 5 : ($oldttl ? 4 : 3)}]
+                for {set oldlen 0} {$oldlen <= 44} {incr oldlen} {
+                    for {set i 0} {$i < $setup} {incr i} { $rd read }
+                    set state {}
+                    foreach _ $expected { lappend state [$rd read] }
+                    assert_equal $expected $state "old length $oldlen, SET $newlen $opts"
+                }
+            }
+        }
+        $rd close
+        r set $key 12345
+        assert_encoding int $key
+    } {} {needs:debug}
+
+    if {[string match {*jemalloc*} [s mem_allocator]]} {
+        test {SET writes a small value in place when the allocation size is the same} {
+            proc value_address {key} {
+                regexp {Value at:(0x[0-9a-f]+)} [r debug object $key] -> addr
+                return $addr
+            }
+            r del foo
+            r set foo aaaa
+            set addr [value_address foo]
+            r set foo bbbb
+            assert_equal $addr [value_address foo]
+            r set foo cc ;# same jemalloc size class
+            assert_equal $addr [value_address foo]
+            assert_equal cc [r get foo]
+            r set foo [string repeat d 30] ;# larger size class
+            assert_not_equal $addr [value_address foo]
+
+            # SET EX and KEEPTTL keep the TTL, so they keep the object too
+            r set foo eeee ex 100
+            set addr [value_address foo]
+            r set foo ffff ex 200
+            assert_equal $addr [value_address foo]
+            assert_range [r ttl foo] 190 200
+            r set foo gggg keepttl
+            assert_equal $addr [value_address foo]
+            assert_range [r ttl foo] 190 200
+            r set foo hhhh
+            assert_equal -1 [r ttl foo]
+        } {} {needs:debug}
+    }
+
+    test {SET KEEPTTL of a small value keeps the key in the expires dict} {
+        r flushdb
+        r set foo aaaa px 100
+        r set foo bbbb keepttl
+        assert_equal 1 [r dbsize]
+        wait_for_condition 50 100 {
+            [r dbsize] == 0
+        } else {
+            fail "key not actively expired"
+        }
+    }
+
+    test {SORT BY ALPHA reads a value overwritten by a shorter one up to its end} {
+        # SORT BY ALPHA compares the values as C strings: the terminator must move.
+        r del mylist w_1 w_2
+        r rpush mylist 1 2
+        r set w_1 abczzz
+        r set w_2 abcd
+        r set w_1 abc
+        r sort mylist by w_* alpha
+    } {1 2} {cluster:skip}
+
+    test {SET does not write in place a value that is still to be propagated} {
+        # INCRBYFLOAT propagates a SET of the object stored in the keyspace, which
+        # stays referenced until EXEC ends: the SET after it must not change it.
+        r del foo
+        r set foo 1.5
+        set repl [attach_to_replication_stream]
+        r multi
+        r incrbyfloat foo 1
+        r set foo 3.5
+        r exec
+        assert_replication_stream $repl {
+            {multi}
+            {select *}
+            {set foo 2.5 KEEPTTL}
+            {set foo 3.5}
+            {exec}
+        }
+        close_replication_stream $repl
+    } {} {needs:repl}
+
     test {DIGEST basic usage with plain string} {
         r set mykey "hello world"
         set digest [r digest mykey]
