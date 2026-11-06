@@ -182,7 +182,7 @@ void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
 {
     if (fd >= eventLoop->setsize) return;
     aeFileEvent *fe = &eventLoop->events[fd];
-    if (fe->mask == AE_NONE) return;
+    if (unlikely(fe->mask == AE_NONE)) return;
 
     /* We want to always remove AE_BARRIER if set when AE_WRITABLE
      * is removed. */
