@@ -1257,12 +1257,18 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
  * - The specified command is already busy.
  * - The command name contains some chars that are not allowed.
  * - A set of invalid flags were passed.
+ * - The "no-cluster" flag was passed while cluster mode is enabled.
+ *
+ * On error the errno is set to:
+ * - EINVAL if called outside RedisModule_OnLoad, or the name or flags are invalid.
+ * - EBUSY if the command name is already registered.
+ * - ENOTSUP if "no-cluster" is used while cluster mode is enabled.
  *
  * Otherwise REDISMODULE_OK is returned and the new command is registered.
  *
  * This function must be called during the initialization of the module
- * inside the RedisModule_OnLoad() function. Calling this function outside
- * of the initialization function is not defined.
+ * inside the RedisModule_OnLoad() function. Calling it outside initialization
+ * returns REDISMODULE_ERR and sets errno to EINVAL.
  *
  * The command function type is the following:
  *
@@ -1350,24 +1356,35 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
  * RedisModule_SetCommandInfo to set key specs using a more advanced scheme and use
  * RedisModule_SetCommandACLCategories to set Redis ACL categories of the commands. */
 int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) {
-    if (!ctx->module->onload)
+    if (!ctx->module->onload) {
+        errno = EINVAL;
         return REDISMODULE_ERR;
+    }
     int64_t flags = strflags ? commandFlagsFromString((char*)strflags) : 0;
-    if (flags == -1) return REDISMODULE_ERR;
-    if ((flags & CMD_MODULE_NO_CLUSTER) && server.cluster_enabled)
+    if (flags == -1) {
+        errno = EINVAL;
         return REDISMODULE_ERR;
+    }
+    if ((flags & CMD_MODULE_NO_CLUSTER) && server.cluster_enabled) {
+        errno = ENOTSUP;
+        return REDISMODULE_ERR;
+    }
 
     /* We will encounter an error as above if cluster is enable */
     if (flags & CMD_MODULE_NO_CLUSTER)
         server.stat_cluster_incompatible_ops++;
 
     /* Check if the command name is valid. */
-    if (!isCommandNameValid(name))
+    if (!isCommandNameValid(name)) {
+        errno = EINVAL;
         return REDISMODULE_ERR;
+    }
 
     /* Check if the command name is busy. */
-    if (lookupCommandByCString(name) != NULL)
+    if (lookupCommandByCString(name) != NULL) {
+        errno = EBUSY;
         return REDISMODULE_ERR;
+    }
 
     sds declared_name = sdsnew(name);
     RedisModuleCommand *cp = moduleCreateCommandProxy(ctx->module, declared_name, sdsdup(declared_name), cmdfunc, flags, firstkey, lastkey, keystep);
@@ -7739,11 +7756,18 @@ robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj
  *
  * If RedisModule_CreateDataType() is called outside of RedisModule_OnLoad() function,
  * there is already a module registering a type with the same name,
- * or if the module name or encver is invalid, NULL is returned.
+ * or if the type name or encver is invalid or the methods version is zero,
+ * NULL is returned.
  * Otherwise the new type is registered into Redis, and a reference of
  * type RedisModuleType is returned: the caller of the function should store
  * this reference into a global variable to make future use of it in the
  * modules type API, since a single module may register multiple types.
+ *
+ * On error the errno is set to:
+ * - EINVAL if called outside RedisModule_OnLoad, the name or encver is invalid,
+ *   or the methods version is zero.
+ * - EBUSY if the type name is already registered by a loaded module.
+ *
  * Example code fragment:
  *
  *      static RedisModuleType *BalancedTreeType;
@@ -7754,14 +7778,25 @@ robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj
  *      }
  */
 moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver, void *typemethods_ptr) {
-    if (!ctx->module->onload)
+    if (!ctx->module->onload) {
+        errno = EINVAL;
         return NULL;
+    }
     uint64_t id = moduleTypeEncodeId(name,encver);
-    if (id == 0) return NULL;
-    if (moduleTypeLookupModuleByName(name) != NULL) return NULL;
+    if (id == 0) {
+        errno = EINVAL;
+        return NULL;
+    }
+    if (moduleTypeLookupModuleByName(name) != NULL) {
+        errno = EBUSY;
+        return NULL;
+    }
 
     long typemethods_version = ((long*)typemethods_ptr)[0];
-    if (typemethods_version == 0) return NULL;
+    if (typemethods_version == 0) {
+        errno = EINVAL;
+        return NULL;
+    }
 
     struct typemethods {
         uint64_t version;
