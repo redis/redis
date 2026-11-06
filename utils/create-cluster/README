@@ -10,18 +10,41 @@ Redis Cluster in order to experiment a bit with the system.
 USAGE
 ---
 
-To create a cluster, follow these steps:
+To start a temporary Redis Cluster:
 
-1. Edit create-cluster and change the start / end port, depending on the
-number of instances you want to create.
-2. Use "./create-cluster start" in order to run the instances.
-3. Use "./create-cluster create" in order to execute redis-cli --cluster create, so that
-an actual Redis cluster will be created. (If you're accessing your setup via a local container, ensure that the CLUSTER_HOST value is changed to your local IP)
-4. Now you are ready to play with the cluster. AOF files and logs for each instances are created in the current directory.
+1. Build redis-server and redis-cli (run "make" in the repository root).
+   Optionally override settings such as PORT and NODES in config.sh in the
+   current directory. The defaults use six nodes on ports 30001-30006
+   (cluster bus ports 40001-40006).
+2. Run "./create-cluster start-and-create".
 
-In order to stop a cluster:
+This starts the Redis instances, waits for them to become ready, and creates
+the cluster automatically without prompting for confirmation.
 
-1. Use "./create-cluster stop" to stop all the instances. After you stopped the instances you can use "./create-cluster start" to restart them if you change your mind.
-2. Use "./create-cluster clean" to remove all the AOF / log files to restart with a clean environment.
+The command stays running until Ctrl+C is pressed. It then stops the instances
+and removes the temporary data, configuration files, and logs. SIGTERM and
+startup or cluster creation failures also trigger cleanup. Temporary files
+are placed under TMPDIR (or /tmp). Cluster creation has a 60-second deadline.
+Cleanup force-stops unresponsive child processes after a short grace period.
+If cleanup fails, it returns an error and may leave temporary files behind.
+
+ADDITIONAL_OPTIONS in config.sh accepts space-separated Redis options, as with
+the manual commands. The temporary command always manages the node ports,
+data paths, and foreground process lifetime itself. Options requiring client
+authentication or TLS are not supported by its automatic readiness checks.
+
+(If you're accessing your setup via a local container, ensure that the
+CLUSTER_HOST value is changed to your local IP.)
+
+Alternatively, you can manage the cluster manually:
+
+1. Use "./create-cluster start" to start the instances.
+2. Use "./create-cluster create" to create the cluster. Add "-f" to skip
+   the confirmation prompt.
+3. Use "./create-cluster stop" to stop the instances.
+4. Use "./create-cluster clean" to remove the generated data and logs.
+
+The manual commands preserve the instances' files in the current directory,
+allowing the cluster to be stopped and restarted without losing its data.
 
 Use the command "./create-cluster help" to get the full list of features.
