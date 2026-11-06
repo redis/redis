@@ -401,6 +401,10 @@ int yesnotoi(char *s) {
     else return -1;
 }
 
+/* Number of leading save rules loaded from files, excluding replayed CLI/stdin
+ * rules. Runtime CONFIG SET replaces the entire list with file-persistable rules. */
+static int saveparams_from_file;
+
 void appendServerSaveParams(time_t seconds, int changes) {
     server.saveparams = zrealloc(server.saveparams,sizeof(struct saveparam)*(server.saveparamslen+1));
     server.saveparams[server.saveparamslen].seconds = seconds;
@@ -412,6 +416,7 @@ void resetServerSaveParams(void) {
     zfree(server.saveparams);
     server.saveparams = NULL;
     server.saveparamslen = 0;
+    saveparams_from_file = 0;
 }
 
 void queueLoadModule(sds path, sds *argv, int argc, configSource source) {
@@ -619,6 +624,8 @@ static void loadServerConfigFromString(char *config, int cli_start_line, configS
             }
 
             configSetSource(config, source);
+            if (source != CONFIG_SOURCE_CLI && !strcmp(config->name, "save"))
+                saveparams_from_file = server.saveparamslen;
             sdsfreesplitres(argv,argc);
             argv = NULL;
             continue;
@@ -974,7 +981,7 @@ static int configIsSameConfig(standardConfig *a, standardConfig *b) {
     return !strcasecmp(configGetPrimaryName(a), configGetPrimaryName(b));
 }
 
-static void restoreBackupConfig(standardConfig **set_configs, sds *old_values, int count) {
+static void restoreBackupConfig(standardConfig **set_configs, sds *old_values, int count, int old_saveparams_from_file) {
     int i;
     const char *errstr = "unknown error";
     /* Set all backup values */
@@ -982,6 +989,8 @@ static void restoreBackupConfig(standardConfig **set_configs, sds *old_values, i
         if (!performInterfaceSet(set_configs[i], old_values[i], &errstr))
             serverLog(LL_WARNING, "Failed restoring failed CONFIG SET command. Error setting %s to '%s': %s",
                       set_configs[i]->name, old_values[i], errstr);
+        else if (!strcmp(set_configs[i]->name, "save"))
+            saveparams_from_file = old_saveparams_from_file;
     }
  
     for (i = 0; i < count; i++) {
@@ -1014,6 +1023,7 @@ void configSetCommand(client *c) {
     int config_count, i, j;
     int invalid_args = 0, deny_loading_error = 0;
     int *config_changed;
+    int old_saveparams_from_file = saveparams_from_file;
 
     /* Make sure we have an even number of arguments: conf-val pairs */
     if (c->argc & 1) {
@@ -1092,7 +1102,7 @@ void configSetCommand(client *c) {
     for (i = 0; i < config_count; i++) {
         int res = performInterfaceSet(set_configs[i], new_values[i], &errstr);
         if (!res) {
-            restoreBackupConfig(set_configs, old_values, i+1);
+            restoreBackupConfig(set_configs, old_values, i+1, old_saveparams_from_file);
             err_arg_name = set_configs[i]->name;
             goto err;
         }
@@ -1115,7 +1125,7 @@ void configSetCommand(client *c) {
             res = set_configs[i]->interface.apply(&errstr);
         
         if (!res) {
-            restoreBackupConfig(set_configs, old_values, config_count);
+            restoreBackupConfig(set_configs, old_values, config_count, old_saveparams_from_file);
             err_arg_name = set_configs[i]->name;
             goto err;
         }
@@ -1629,8 +1639,8 @@ void rewriteConfigEnumOption(struct rewriteConfigState *state, const char *optio
 
 /* Rewrite the save option. */
 void rewriteConfigSaveOption(standardConfig *config, const char *name, struct rewriteConfigState *state) {
-    UNUSED(config);
     int j;
+    int saveparamslen = server.saveparamslen;
     sds line;
 
     /* In Sentinel mode we don't need to rewrite the save parameters */
@@ -1645,20 +1655,25 @@ void rewriteConfigSaveOption(standardConfig *config, const char *name, struct re
     if (dictFind(state->option_to_line, include)) state->append_after_include = 1;
     sdsfree(include);
 
+    /* CLI/stdin rules follow file rules and will be replayed on restart.
+     * Leave them out of the after-includes block, unless forced to write all. */
+    if (state->append_after_include && config->source == CONFIG_SOURCE_CLI && !state->force_write)
+        saveparamslen = saveparams_from_file;
+
     /* Save rules accumulate across directives. When appending after includes,
      * clear the included rules before writing the current non-empty rule set.
      * An empty current rule set is handled by the branch below. */
-    if (state->append_after_include && server.saveparamslen) {
+    if (state->append_after_include && saveparamslen) {
         rewriteConfigRewriteLine(state, name, sdsnew("save \"\""), 1);
     }
 
     /* Rewrite save parameters, or an empty 'save ""' line to avoid the
      * defaults from being used.
      */
-    if (!server.saveparamslen) {
+    if (!saveparamslen) {
         rewriteConfigRewriteLine(state,name,sdsnew("save \"\""),1);
     } else {
-        for (j = 0; j < server.saveparamslen; j++) {
+        for (j = 0; j < saveparamslen; j++) {
             /* Recreate counts narrowed from accepted nonnegative input. */
             line = sdscatprintf(sdsempty(),"save %ld %u",
                 (long) server.saveparams[j].seconds, (unsigned int) server.saveparams[j].changes);
@@ -3887,6 +3902,7 @@ static int setConfigSaveOption(standardConfig *config, sds *argv, int argc, cons
         changes = strtoll(argv[j+1],NULL,10);
         appendServerSaveParams(seconds, changes);
     }
+    if (!reading_config_file) saveparams_from_file = server.saveparamslen;
 
     return 1;
 }
@@ -4767,7 +4783,7 @@ static int configApply(standardConfig *config, sds old_value, const char **err) 
 
     /* Apply failed - restore old value and apply it again since we don't know
      * the side effects of the failed apply. */
-    restoreBackupConfig(&config, &old_value, 1);
+    restoreBackupConfig(&config, &old_value, 1, saveparams_from_file);
 
     return res;
 }
@@ -4786,7 +4802,7 @@ int moduleSetBoolConfig(client *c, sds name, int val, const char **err) {
     /* We can't be sure if value was changed but setting still failed so we need
      * to restore the old value */
     if (!res)
-        restoreBackupConfig(&config, &old_value, 1);
+        restoreBackupConfig(&config, &old_value, 1, saveparams_from_file);
     else
         res = configApply(config, old_value, err);
 
@@ -4813,7 +4829,7 @@ int moduleSetStringConfig(client *c, sds name, const char *val, const char **err
     /* We can't be sure if value was changed but setting still failed so we need
      * to restore the old value */
     if (!res)
-        restoreBackupConfig(&config, &old_value, 1);
+        restoreBackupConfig(&config, &old_value, 1, saveparams_from_file);
     else
         res = configApply(config, old_value, err);
  
@@ -4833,7 +4849,7 @@ int moduleSetEnumConfig(client *c, sds name, sds *vals, int vals_cnt, const char
     /* We can't be sure if value was changed but setting still failed so we need
      * to restore the old value */
     if (!res)
-        restoreBackupConfig(&config, &old_value, 1);
+        restoreBackupConfig(&config, &old_value, 1, saveparams_from_file);
     else
         res = configApply(config, old_value, err);
 
@@ -4853,7 +4869,7 @@ int moduleSetNumericConfig(client *c, sds name, long long val, const char **err)
     /* We can't be sure if value was changed but setting still failed so we need
      * to restore the old value */
     if (!res)
-        restoreBackupConfig(&config, &old_value, 1);
+        restoreBackupConfig(&config, &old_value, 1, saveparams_from_file);
     else
         res = configApply(config, old_value, err);
 

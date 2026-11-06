@@ -1804,6 +1804,69 @@ test {CONFIG REWRITE keeps included save rules stable in default mode} {
     }
 } {} {external:skip}
 
+test {CONFIG REWRITE keeps replayed CLI save rules stable in default mode} {
+    set include_file [file normalize [tmpfile config-save-cli-include.conf]]
+    set fd [open $include_file w]
+    puts $fd {save 100 1}
+    close $fd
+    set config_file [file normalize [tmpfile config-save-cli-main.conf]]
+    set fd [open $config_file w]
+    puts $fd "include \"$include_file\""
+    close $fd
+    set port [find_available_port $::baseport $::portcount]
+    set dir [file normalize [tmpdir config-save-cli]]
+    set log_file [file normalize [tmpfile config-save-cli-server.log]]
+
+    set client ""
+    set test_failed [catch {
+        # Replay the same launch arguments: restart_server does not retain them.
+        set expected {100 1 200 2}
+        for {set cycle 0} {$cycle < 4} {incr cycle} {
+            exec src/redis-server $config_file --port $port --dir $dir --daemonize yes --logfile $log_file --save "200 2"
+            wait_for_condition 100 50 {
+                [count_message_lines $log_file "Ready to accept"] > $cycle
+            } else {
+                fail "Server did not start; log: $log_file"
+            }
+            set client [redis 127.0.0.1 $port 0 0]
+            assert_equal no [lindex [$client config get config-rewrite-source-aware] 1]
+            assert_equal $expected [lindex [$client config get save] 1]
+            if {$cycle == 1} {
+                $client config set save {300 3 400 4}
+                set expected {300 3 400 4 200 2}
+            } elseif {$cycle == 2} {
+                $client config set save ""
+                set expected {200 2}
+            }
+            if {$cycle == 0} {
+                assert_error {*Invalid save parameters*} {$client config set save {0 1}}
+                assert_error {*timeout*} {$client config set save {600 6} timeout -1}
+                assert_equal $expected [lindex [$client config get save] 1]
+            }
+            if {$cycle < 3} {
+                set live [lindex [$client config get save] 1]
+                $client config rewrite
+                assert_equal $live [lindex [$client config get save] 1]
+                assert_equal 0 [regexp -line {^save 200 2$} [read_file $config_file]]
+                assert_equal "save 100 1\n" [read_file $include_file]
+            }
+            catch {$client shutdown nosave}
+            $client close
+            set client ""
+            wait_for_condition 100 50 {
+                [count_message_lines $log_file "Redis is now ready to exit"] > $cycle
+            } else {
+                fail "Server did not stop; log: $log_file"
+            }
+        }
+    } test_error]
+    catch {$client shutdown nosave}
+    catch {$client close}
+    if {$test_failed} {
+        error $test_error
+    }
+} {} {external:skip}
+
 test {CONFIG REWRITE preserves runtime save clears after zero-pair directives} {
     set include_file [file normalize [tmpfile config-save-zero-pairs.conf]]
     set fd [open $include_file w]
