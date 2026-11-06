@@ -157,26 +157,44 @@ start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-
         flushallAndVerifyCleanup
     }
 
-    test {NO-EVICT coexists with all seven module metadata classes} {
-        assert_equal 7 $maxClasses
-        r set blessed value
-        r bless set blessed no-evict
-        setupKeyMeta blessed $maxClasses 0 1
-        assert_equal {NO-EVICT} [r bless get blessed]
-        r debug reload
-        assert_range [r ttl blessed] 9990 10000
-        assert_equal {NO-EVICT} [r bless get blessed]
-        for {set i 1} {$i <= $maxClasses} {incr i} {
-            assert_equal "meta$i" [r keymeta.get [cname $i] blessed]
+    # A module-type value is saved and loaded after the same opcodes as a
+    # string, and an LRU/LFU policy adds an IDLE/FREQ opcode before NO-EVICT.
+    r module load [file normalize tests/modules/datatype.so]
+    foreach policy {noeviction allkeys-lfu} {
+        foreach type {string module} {
+            test "NO-EVICT coexists with all seven module metadata classes ($type key, $policy)" {
+                assert_equal 7 $maxClasses
+                r config set maxmemory-policy $policy
+                if {$type eq "string"} {
+                    r set blessed value
+                } else {
+                    r datatype.set blessed 1 a
+                }
+                r bless set blessed no-evict
+                setupKeyMeta blessed $maxClasses 0 1
+                assert_equal {NO-EVICT} [r bless get blessed]
+                r debug reload
+                if {$type eq "string"} {
+                    assert_equal value [r get blessed]
+                } else {
+                    assert_equal {1 a} [r datatype.get blessed]
+                }
+                assert_range [r ttl blessed] 9990 10000
+                assert_equal {NO-EVICT} [r bless get blessed]
+                for {set i 1} {$i <= $maxClasses} {incr i} {
+                    assert_equal "meta$i" [r keymeta.get [cname $i] blessed]
+                }
+                r set destination old
+                r bless set destination no-evict
+                r restore destination 0 [r dump blessed] replace
+                assert_equal {NO-EVICT} [r bless get destination]
+                for {set i 1} {$i <= $maxClasses} {incr i} {
+                    assert_equal "meta$i" [r keymeta.get [cname $i] destination]
+                }
+                r flushdb
+                r config set maxmemory-policy noeviction
+            }
         }
-        r set destination old
-        r bless set destination no-evict
-        r restore destination 0 [r dump blessed] replace
-        assert_equal {NO-EVICT} [r bless get destination]
-        for {set i 1} {$i <= $maxClasses} {incr i} {
-            assert_equal "meta$i" [r keymeta.get [cname $i] destination]
-        }
-        r flushdb
     }
 
     assert_equal 7 $maxClasses

@@ -3959,6 +3959,21 @@ void genericZrangebyrankCommand(zrange_result_handler *handler,
     rangelen = (end-start)+1;
     result_cardinality = rangelen;
 
+    /* A REV range holds the same elements as the mirrored forward range.
+     * ZRANGESTORE walks it forward when the destination will start as a
+     * B+ tree (zrangeResultBeginStore() calls zsetTypeCreate() with this
+     * length and no value length hint), so it is filled through the append
+     * path. A listpack destination has no append path. */
+    if (reverse && handler->dstkey &&
+        (size_t)rangelen > server.zset_max_listpack_entries)
+    {
+        long tmp = start;
+        start = llen-1-end;
+        end = llen-1-tmp;
+        reverse = 0;
+        zrangeResultHandlerDirectionSet(handler, 0);
+    }
+
     handler->beginResultEmission(handler, rangelen);
     if (zobj->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *zl = zobj->ptr;
