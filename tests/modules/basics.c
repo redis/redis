@@ -934,6 +934,20 @@ fail:
     return REDISMODULE_OK;
 }
 
+/* TEST.FREESTRING_NULL -- Verify that RedisModule_FreeString(ctx, NULL) is a
+ * safe no-op (NULL-safe macro in redismodule.h). */
+int TestFreeStringNull(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
+    /* Passing NULL must not crash. */
+    RedisModule_FreeString(ctx, NULL);
+    RedisModule_FreeString(NULL, NULL);
+
+    RedisModule_ReplyWithSimpleString(ctx,"OK");
+    return REDISMODULE_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -1068,6 +1082,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                                         NotifyCallback);
     if (RedisModule_CreateCommand(ctx,"test.notify",
         TestNotifications,"write deny-oom",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"test.freestring_null",
+        TestFreeStringNull,"readonly",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
