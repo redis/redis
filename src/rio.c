@@ -93,9 +93,38 @@ void rioInitWithBuffer(rio *r, sds s) {
 
 /* --------------------- Stdio file pointer implementation ------------------- */
 
-/* Returns 1 or 0 for success/failure. */
-static size_t rioFileWrite(rio *r, const void *buf, size_t len) {
-    if (!r->io.file.autosync) return fwrite(buf,len,1,r->io.file.fp);
+/* Size of the write buffer of rioInitWithFileSave(). */
+#define RIO_FILE_SAVE_BUFLEN (64*1024)
+
+/* Hands 'len' bytes to the file. A rio with its own write buffer (see
+ * rioInitWithFileSave) writes them with write(2), bypassing stdio, after
+ * folding them into the checksum if RIO_FLAG_CKSUM_AT_SOURCE is set; any
+ * other file rio goes through stdio. Returns 1 or 0 for success/failure. */
+static int rioFilePut(rio *r, const void *buf, size_t len) {
+    if (!r->io.file.write_buf) return fwrite(buf,len,1,r->io.file.fp) == 1;
+
+    const unsigned char *p = buf;
+    if (r->flags & RIO_FLAG_CKSUM_AT_SOURCE) r->cksum = crc64(r->cksum,p,len);
+    while (len) {
+        ssize_t n = write(fileno(r->io.file.fp),p,len);
+        if (n <= 0) {
+            if (n == -1 && errno == EINTR) continue;
+            return 0;
+        }
+        p += n;
+        len -= n;
+    }
+    return 1;
+}
+
+/* Writes 'len' bytes to the file, and with autosync set syncs them every
+ * 'autosync' bytes. Returns 1 or 0 for success/failure. */
+static size_t rioFileWriteThrough(rio *r, const void *buf, size_t len) {
+    if (!r->io.file.autosync) {
+        if (!rioFilePut(r,buf,len)) return 0;
+        r->io.file.write_offset += len;
+        return 1;
+    }
 
     size_t nwritten = 0;
     /* Incrementally write data to the file, avoid a single write larger than
@@ -106,14 +135,14 @@ static size_t rioFileWrite(rio *r, const void *buf, size_t len) {
         size_t nalign = (size_t)(r->io.file.autosync - r->io.file.buffered);
         size_t towrite = nalign > len-nwritten ? len-nwritten : nalign;
 
-        if (fwrite((char*)buf+nwritten,towrite,1,r->io.file.fp) == 0) return 0;
+        if (!rioFilePut(r,(char*)buf+nwritten,towrite)) return 0;
         nwritten += towrite;
         r->io.file.buffered += towrite;
 
         if (r->io.file.buffered >= r->io.file.autosync) {
             fflush(r->io.file.fp);
 
-            size_t processed = r->processed_bytes + nwritten;
+            size_t processed = r->io.file.write_offset + nwritten;
             serverAssert(processed % r->io.file.autosync == 0);
             serverAssert(r->io.file.buffered == r->io.file.autosync);
 
@@ -150,6 +179,31 @@ static size_t rioFileWrite(rio *r, const void *buf, size_t len) {
             r->io.file.buffered = 0;
         }
     }
+    r->io.file.write_offset += len;
+    return 1;
+}
+
+/* Writes out what the write buffer holds, if any. Returns 1 or 0 for
+ * success/failure. */
+static int rioFileFlushWriteBuf(rio *r) {
+    size_t used = r->io.file.write_buf_used;
+    r->io.file.write_buf_used = 0;
+    return used == 0 || rioFileWriteThrough(r,r->io.file.write_buf,used);
+}
+
+/* Returns 1 or 0 for success/failure. With a write buffer (see
+ * rioInitWithFileSave), a write that fits is only copied into it, and the
+ * file receives one full buffer at a time. */
+static size_t rioFileWrite(rio *r, const void *buf, size_t len) {
+    if (!r->io.file.write_buf) return rioFileWriteThrough(r,buf,len);
+
+    if (len > RIO_FILE_SAVE_BUFLEN - r->io.file.write_buf_used) {
+        if (!rioFileFlushWriteBuf(r)) return 0;
+        /* A write at least as large as the buffer skips the copy. */
+        if (len >= RIO_FILE_SAVE_BUFLEN) return rioFileWriteThrough(r,buf,len);
+    }
+    memcpy(r->io.file.write_buf + r->io.file.write_buf_used,buf,len);
+    r->io.file.write_buf_used += len;
     return 1;
 }
 
@@ -158,14 +212,17 @@ static size_t rioFileRead(rio *r, void *buf, size_t len) {
     return fread(buf,len,1,r->io.file.fp);
 }
 
-/* Returns read/write position in file. */
+/* Returns read/write position in file, counting the bytes still in the
+ * write buffer. */
 static off_t rioFileTell(rio *r) {
-    return ftello(r->io.file.fp);
+    off_t pos = ftello(r->io.file.fp);
+    return pos == -1 ? -1 : pos + (off_t)r->io.file.write_buf_used;
 }
 
 /* Flushes any buffer to target device if applicable. Returns 1 on success
  * and 0 on failures. */
 static int rioFileFlush(rio *r) {
+    if (!rioFileFlushWriteBuf(r)) return 0;
     return (fflush(r->io.file.fp) == 0) ? 1 : 0;
 }
 
@@ -188,6 +245,9 @@ void rioInitWithFile(rio *r, FILE *fp) {
     r->io.file.buffered = 0;
     r->io.file.autosync = 0;
     r->io.file.reclaim_cache = 0;
+    r->io.file.write_buf = NULL;
+    r->io.file.write_buf_used = 0;
+    r->io.file.write_offset = 0;
 }
 
 /* Buffered read used by rioInitWithFileLoad(): reads directly from the
@@ -276,6 +336,28 @@ void rioInitWithFileLoad(rio *r, FILE *fp, off_t filesize, int compute_checksum)
 void rioFreeFileLoad(rio *r) {
     zfree(r->io.file.read_buf);
     r->io.file.read_buf = NULL;
+}
+
+/* Create an RIO for writing a new file from its start (an RDB, an AOF base
+ * file). Small writes are batched in a RIO_FILE_SAVE_BUFLEN buffer that
+ * reaches the file with write(2), so the file must be written only through
+ * this rio, and rioFlush() must be called before fsync()/fclose(). With
+ * compute_checksum the checksum is computed one block at a time as blocks
+ * leave the buffer (see rioFilePut): callers that otherwise checksum every
+ * rioWrite() must check RIO_FLAG_CKSUM_AT_SOURCE, skip their own checksum
+ * step, and call rioFlush() before reading r->cksum. */
+void rioInitWithFileSave(rio *r, FILE *fp, int compute_checksum) {
+    rioInitWithFile(r, fp);
+    if (compute_checksum) r->flags |= RIO_FLAG_CKSUM_AT_SOURCE;
+    r->io.file.write_buf = zmalloc(RIO_FILE_SAVE_BUFLEN);
+}
+
+/* Release the write buffer of rioInitWithFileSave(), dropping any bytes that
+ * were not flushed. */
+void rioFreeFileSave(rio *r) {
+    zfree(r->io.file.write_buf);
+    r->io.file.write_buf = NULL;
+    r->io.file.write_buf_used = 0;
 }
 
 /* ------------------- Connection implementation -------------------
