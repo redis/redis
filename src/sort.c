@@ -174,6 +174,13 @@ int sortCompare(const void *s1, const void *s2) {
     return server.sort_desc ? -cmp : cmp;
 }
 
+/* Create a sort vector element from a value read in place: the 'len' bytes
+ * at 'str', or the integer 'll' when 'str' is NULL. */
+static robj *createSortElement(const char *str, size_t len, long long ll) {
+    if (str) return createStringObject(str,len);
+    return createStringObjectFromLongLong(ll);
+}
+
 /* The SORT command is the most complex command in Redis. Warning: this code
  * is optimized for speed and a bit less for readability */
 void sortCommandGeneric(client *c, int readonly) {
@@ -439,10 +446,7 @@ void sortCommandGeneric(client *c, int readonly) {
         int64_t llele;
         setTypeInitIterator(&si, sortval, SET_ITER_SKIP_EXPIRED);
         while(setTypeNext(&si, &str, &len, &llele) != -1) {
-            if (str)
-                vector[j].obj = createStringObject(str,len);
-            else
-                vector[j].obj = createStringObjectFromLongLong(llele);
+            vector[j].obj = createSortElement(str,len,llele);
             vector[j].u.score = 0;
             vector[j].u.cmpobj = NULL;
             j++;
@@ -472,10 +476,7 @@ void sortCommandGeneric(client *c, int readonly) {
             while (rangelen--) {
                 serverAssertWithInfo(c,sortval,eptr != NULL);
                 vstr = lpGetValue(eptr,&vlen,&vlong);
-                if (vstr)
-                    vector[j].obj = createStringObject((char *)vstr,vlen);
-                else
-                    vector[j].obj = createStringObjectFromLongLong(vlong);
+                vector[j].obj = createSortElement((char *)vstr,vlen,vlong);
                 vector[j].u.score = 0;
                 vector[j].u.cmpobj = NULL;
                 j++;
@@ -496,10 +497,7 @@ void sortCommandGeneric(client *c, int readonly) {
             serverAssertWithInfo(c,sortval,sptr != NULL);
             while (eptr) {
                 vstr = lpGetValue(eptr,&vlen,&vlong);
-                if (vstr)
-                    vector[j].obj = createStringObject((char *)vstr,vlen);
-                else
-                    vector[j].obj = createStringObjectFromLongLong(vlong);
+                vector[j].obj = createSortElement((char *)vstr,vlen,vlong);
                 vector[j].u.score = 0;
                 vector[j].u.cmpobj = NULL;
                 j++;
