@@ -448,11 +448,14 @@ static void streamLagGroupTouched(redisDb *db, stream *s, streamCG *cg) {
  * policy uniform across the rows.
  *
  * Nothing to do for a group that is not a member, or whose stamp is from an
- * old generation: its in-heap bit and slot mean nothing then. A member of the
- * current generation always has a heap to be in, because the heap is freed
- * in only two places: when the stream moves to a new generation, which makes
- * every in-heap bit stale, and in streamUpdateStreamSamples(), which clears
- * the bits before it rebuilds. Hence the assertion. */
+ * old generation: its in-heap bit and slot mean nothing then. While stats
+ * are on, a member of the current generation always has a heap to be in,
+ * because the heap is freed in three places: when the stream moves to a new
+ * generation, which makes every in-heap bit stale; in
+ * streamUpdateStreamSamples(), which clears the bits before it rebuilds; and
+ * in streamLagGroupLeaving() with stats off, which leaves the bits set but
+ * in a generation that ends before stats are on again. Hence the assertion,
+ * here and in streamLagGroupTouched(). */
 static void streamLagMemberMoved(redisDb *db, stream *s, streamCG *cg) {
     streamLagState *ls = streamLagStateOf(s);
     streamDistribStamp *st = streamCGStamp(cg);
@@ -461,27 +464,35 @@ static void streamLagMemberMoved(redisDb *db, stream *s, streamCG *cg) {
     iheapUpdate(ls->heap, streamStampSlot(st), streamLagKey(cg));
 }
 
-/* XGROUP DESTROY: take a member out before the group is freed, so that the
- * heap never holds a freed group. Runs whether or not stats are on. While
- * off it could be skipped, since DESTROY sets stream_stats_needs_reset and
- * the next enable starts a new generation, which frees the heap before any
- * item is read from it. It runs anyway so that this one function keeps the
- * invariant in every state, rather than every other path having to reason
- * about it; the cost is an epoch compare on a rare command.
+/* XGROUP DESTROY: a freed group must not stay in the heap.
  *
- * A stamp from an old generation says nothing about the heap the stream
- * holds now. If the stream was touched since, that heap was freed and maybe
- * rebuilt, and the stale slot could point at an unrelated entry. If it was
- * not, the heap is the stale one the group may still sit in; it is never
- * read for its items, and the stream's next stamp refresh frees it (with
- * stats on, the one a few lines below in DESTROY). Either way the group is
- * left alone. The epoch check matters with stats off, when nothing
- * refreshes stamps; with stats on, streamRemoveCGStat() has just refreshed
- * a stale stamp and cleared its bits, so it is the bit check that returns. */
+ * With stats off the heap is already dead. streamRemoveCGStat(), a few lines
+ * earlier in DESTROY, set stream_stats_needs_reset (asserted below), and the
+ * one thing that clears that flag is applyStreamStats(), after it has
+ * started a new generation in every db. So nothing of this generation,
+ * heap or in-heap bit, is ever read again, and keeping the heap exact one
+ * member at a time would be wasted work: free it, which also returns its
+ * memory now rather than at the stream's first touch after the enable. The
+ * surviving members keep an in-heap bit with no heap behind it; every
+ * reader of that bit runs with stats on, and the enable that turns them on
+ * makes the bit stale first. This is the one place a heap is freed without
+ * first invalidating its members' bits; see streamLagMemberMoved().
+ *
+ * With stats on the group's stamp is current, since streamRemoveCGStat() has
+ * just refreshed it, clearing the bits if it was stale. A set bit is a live
+ * member: take it out, and streamLagChanged() re-enters the stream's sample
+ * after the destroy. */
 static void streamLagGroupLeaving(redisDb *db, stream *s, streamCG *cg) {
     streamLagState *ls = streamLagStateOf(s);
+    if (!server.stream_stats) {
+        /* The free is safe only because this generation is condemned. */
+        serverAssert(server.stream_stats_needs_reset);
+        streamLagFreeHeap(s);
+        return;
+    }
     streamDistribStamp *st = streamCGStamp(cg);
-    if (st->epoch != streamStatsEpochOf(db) || !(st->counted & STREAM_CG_IN_LAG_HEAP)) return;
+    serverAssert(st->epoch == streamStatsEpochOf(db));
+    if (!(st->counted & STREAM_CG_IN_LAG_HEAP)) return;
     debugServerAssert(ls->heap != NULL); /* see streamLagMemberMoved() */
     iheapRemove(ls->heap, streamStampSlot(st));
     st->counted &= ~STREAM_CG_IN_LAG_HEAP;

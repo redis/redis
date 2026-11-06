@@ -983,4 +983,49 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         r config set stream-stats no
         assert_equal "" [get_info_stream_stripped r]
     }
+
+    test "STREAM-STATS - XGROUP DESTROY while off frees the lag heap, the survivor re-enrols" {
+        r config set stream-stats yes
+        r FLUSHALL
+        seed_stream r st 8
+        r xgroup create st g1 0
+        r xgroup create st g2 0
+        r xreadgroup group g1 c count 8 streams st >
+        assert_equal "db0_stream_distrib_streams_max_lag:0=1" [get_info_stream_field r stream_distrib_streams_max_lag]
+        r xreadgroup group g2 c count 4 streams st >
+        assert_equal "db0_stream_distrib_streams_max_lag:4=1" [get_info_stream_field r stream_distrib_streams_max_lag]
+
+        # Disabling keeps the rows and the heap. A DESTROY while off sets
+        # stream_stats_needs_reset, which condemns this generation, so it frees
+        # the heap outright rather than taking g2 out of it; g1 is left with a
+        # stale in-heap bit and no heap behind it.
+        r config set stream-stats no
+        assert_equal 1 [r xgroup destroy st g2]
+
+        # Unarmed (see above), so the enable takes production's lazy path and
+        # g1's stale bit is what the next commands meet.
+        r config set stream-stats yes
+        assert_equal "" [get_info_stream_stripped r]
+
+        # XADD stamps the stream into the new generation and finds no heap to
+        # free; the group is still uncounted.
+        r xadd st 9-1 f v
+        assert_equal "" [get_info_stream_field r stream_distrib_streams_max_lag]
+        # The read refreshes g1's stamp, clearing the stale bit, and enrols it
+        # in a fresh heap. It has read everything: lag 0.
+        r xreadgroup group g1 c count 1 streams st >
+        assert_equal "db0_stream_distrib_streams_max_lag:0=1" [get_info_stream_field r stream_distrib_streams_max_lag]
+        r xadd st 10-1 f v
+        assert_equal "db0_stream_distrib_streams_max_lag:1=1" [get_info_stream_field r stream_distrib_streams_max_lag]
+
+        # A second member with a known, smaller lag: g3 reads all ten entries.
+        # The row still shows g1, the worst.
+        r xgroup create st g3 0
+        r xreadgroup group g3 c count 10 streams st >
+        assert_equal "db0_stream_distrib_streams_max_lag:1=1" [get_info_stream_field r stream_distrib_streams_max_lag]
+        # With stats on, DESTROY takes g1 out of the live heap. g3 becomes the
+        # sample with no further group command, so the heap was not wiped.
+        assert_equal 1 [r xgroup destroy st g1]
+        assert_equal "db0_stream_distrib_streams_max_lag:0=1" [get_info_stream_field r stream_distrib_streams_max_lag]
+    }
 }
