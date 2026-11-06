@@ -592,6 +592,16 @@ start_server {tags {"scripting"}} {
         } 0
     } {d3ffffff0000000000}
 
+    test {EVAL - cmsgpack can unpack negative int32 and int64?} {
+        run_script {local i32 = cmsgpack.unpack(string.char(0xd2, 0x80, 0, 0, 0))
+                local i64 = cmsgpack.unpack(string.char(0xd3, 0x80, 0, 0, 0, 0, 0, 0, 0))
+                if i32 == -2147483648 and i64 == -9223372036854775808 then
+                    return 1
+                end
+                return 0
+        } 0
+    } {1}
+
     test {EVAL - cmsgpack pack/unpack smoke test} {
         run_script {
                 local str_lt_32 = string.rep("x", 30)
