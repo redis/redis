@@ -51,6 +51,7 @@ static const char *tre_error_messages[] =
     gettext_noop("Out of memory"),						/* REG_ESPACE */
     gettext_noop("Invalid use of repetition operators"),			/* REG_BADRPT */
     gettext_noop("Maximum repetition in {} larger than " xstr(RE_DUP_MAX)),	/* REG_BADMAX */
+    gettext_noop("Regexp too complex"),						/* REG_ETOOBIG */
   };
 
 size_t
