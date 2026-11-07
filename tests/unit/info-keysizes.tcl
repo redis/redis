@@ -1086,17 +1086,11 @@ start_server {tags {external:skip needs:debug} overrides {key-memory-histograms 
             assert_equal 0 [r EXISTS z]
         } result opts]
 
-        set cleanup_code [catch {
-            r DEL z z2
-            r CONFIG SET zset-max-listpack-entries $orig
-            r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
-        } cleanup_result cleanup_opts]
-        # Report the original test failure before any cleanup failure.
+        r DEL z z2
+        r CONFIG SET zset-max-listpack-entries $orig
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
         if {$code != 0} {
             return -options $opts $result
-        }
-        if {$cleanup_code != 0} {
-            return -options $cleanup_opts $cleanup_result
         }
         verify_keymem_empty r
     }
