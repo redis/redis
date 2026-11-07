@@ -1086,6 +1086,39 @@ start_server {tags {"external:skip needs:debug"} overrides {key-memory-histogram
         assert_equal [r dbsize] 0
         r debug set-active-expire 1
     }
+
+    test "SME lazy expiration of the last member keeps the allocation size accounting exact ($enc)" {
+        r debug set-active-expire 0
+        r flushall
+
+        r sadd s a
+        sme_make_expired r s {a}
+        assert_equal [r sismember s a] 0
+        assert_equal [r exists s] 0
+
+        r sadd s a
+        sme_make_expired r s {a}
+        assert_equal [r smismember s a] 0
+        assert_equal [r exists s] 0
+
+        # SMOVE: the expired source member is the last one, the source is deleted.
+        r sadd src x
+        sme_make_expired r src {x}
+        assert_equal [r smove src dst x] 0
+        assert_equal [r exists src] 0
+
+        # SMOVE: the destination already exists.
+        r sadd dst y
+        r sadd src x
+        sme_make_expired r src {x}
+        assert_equal [r smove src dst x] 0
+        assert_equal [r exists src] 0
+        assert_equal [r smembers dst] {y}
+
+        r del dst
+        assert_equal [r dbsize] 0
+        r debug set-active-expire 1
+    }
     }
 }
 

@@ -817,14 +817,14 @@ static int setLazyDeletable(void) {
 
 /* Removes a member that was found logically expired: removes it, propagates the
  * SREM, and does the bookkeeping, as per the flags. Deletes the key if the set
- * became empty, unless SET_LAZY_AVOID_SET_DEL. Returns 1 if the key was deleted. */
-static int setLazyDeleteExpiredMember(redisDb *db, kvobj *set, sds member, int flags) {
-    size_t oldsize = 0;
+ * became empty, unless SET_LAZY_AVOID_SET_DEL. Returns 1 if the key was deleted.
+ * The allocation size is updated, before the key is deleted, from 'oldsize': the
+ * size of the set before the caller's read, which is unused if the update is
+ * suppressed. */
+static int setLazyDeleteExpiredMember(redisDb *db, kvobj *set, sds member, int flags, size_t oldsize) {
     sds key = kvobjGetKey(set);
     int64_t oldlen = (int64_t)setTypeSize(set);
 
-    if (server.memory_tracking_enabled && !(flags & SET_LAZY_NO_UPDATE_ALLOCSIZES))
-        oldsize = kvobjAllocSize(set);
     serverAssert(setTypeRemove(set, member) == 1);
     if (server.memory_tracking_enabled && !(flags & SET_LAZY_NO_UPDATE_ALLOCSIZES))
         updateSlotAllocSize(db, getKeySlot(key), set, oldsize, kvobjAllocSize(set));
@@ -876,11 +876,7 @@ int setTypeIsMemberLazy(redisDb *db, kvobj *set, sds member, int flags, int *set
     }
 
     if (remove) {
-        int deleted = setLazyDeleteExpiredMember(db, set, member,
-                                                 flags | SET_LAZY_NO_UPDATE_ALLOCSIZES);
-        /* The accounting is updated before the key is deleted, if it is. */
-        if (track && !deleted)
-            updateSlotAllocSize(db, getKeySlot(kvobjGetKey(set)), set, oldsize, kvobjAllocSize(set));
+        int deleted = setLazyDeleteExpiredMember(db, set, member, flags, oldsize);
         if (setDeleted) *setDeleted = deleted;
         return 0;
     }
