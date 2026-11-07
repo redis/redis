@@ -1054,44 +1054,39 @@ start_server {tags {external:skip needs:debug} overrides {key-memory-histograms 
     }
 
     test "KEY-MEMORY-STATS - ZRANGESTORE with the destination as the source" {
+        r FLUSHALL
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 1
         set orig [lindex [r CONFIG GET zset-max-listpack-entries] 1]
-        set code [catch {
-            r FLUSHALL
-            r DEBUG ALLOCSIZE-SLOTS-ASSERT 1
-            foreach {encoding max} {listpack 128 btree 0} {
-                r CONFIG SET zset-max-listpack-entries $max
-                r ZADD z 1 a 2 b 3 c
-                assert_encoding $encoding z
-                assert_equal 0 [r ZRANGESTORE z z 5 10 BYSCORE]
-                assert_equal 0 [r EXISTS z]
-                r ZADD z 1 a 2 b 3 c
-                assert_equal 1 [r ZRANGESTORE z z 0 0]
-                assert_equal {a} [r ZRANGE z 0 -1]
-                r DEL z
-            }
-            # Large REV rank stores, into another key and into the source.
-            r CONFIG SET zset-max-listpack-entries 128
-            set args {}
-            for {set i 0} {$i < 300} {incr i} {lappend args [expr {$i/5}] [format m%03d $i]}
-            r ZADD z {*}$args
-            r ZADD z2 {*}$args
-            set want [r ZRANGE z 100 299 WITHSCORES]
-            assert_equal 200 [r ZRANGESTORE z2 z 0 199 REV]
-            assert_encoding btree z2
-            assert_equal $want [r ZRANGE z2 0 -1 WITHSCORES]
-            assert_equal 200 [r ZRANGESTORE z z 0 199 REV]
-            assert_encoding btree z
-            assert_equal $want [r ZRANGE z 0 -1 WITHSCORES]
-            assert_equal 0 [r ZRANGESTORE z z 5 3 REV]
+        foreach {encoding max} {listpack 128 btree 0} {
+            r CONFIG SET zset-max-listpack-entries $max
+            r ZADD z 1 a 2 b 3 c
+            assert_encoding $encoding z
+            assert_equal 0 [r ZRANGESTORE z z 5 10 BYSCORE]
             assert_equal 0 [r EXISTS z]
-        } result opts]
+            r ZADD z 1 a 2 b 3 c
+            assert_equal 1 [r ZRANGESTORE z z 0 0]
+            assert_equal {a} [r ZRANGE z 0 -1]
+            r DEL z
+        }
+        # Large REV rank stores, into another key and into the source.
+        r CONFIG SET zset-max-listpack-entries 128
+        set args {}
+        for {set i 0} {$i < 300} {incr i} {lappend args [expr {$i/5}] [format m%03d $i]}
+        r ZADD z {*}$args
+        r ZADD z2 {*}$args
+        set want [r ZRANGE z 100 299 WITHSCORES]
+        assert_equal 200 [r ZRANGESTORE z2 z 0 199 REV]
+        assert_encoding btree z2
+        assert_equal $want [r ZRANGE z2 0 -1 WITHSCORES]
+        assert_equal 200 [r ZRANGESTORE z z 0 199 REV]
+        assert_encoding btree z
+        assert_equal $want [r ZRANGE z 0 -1 WITHSCORES]
+        assert_equal 0 [r ZRANGESTORE z z 5 3 REV]
+        assert_equal 0 [r EXISTS z]
 
         r DEL z z2
         r CONFIG SET zset-max-listpack-entries $orig
         r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
-        if {$code != 0} {
-            return -options $opts $result
-        }
         verify_keymem_empty r
     }
 
