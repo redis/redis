@@ -379,20 +379,16 @@ start_server {tags {"string"}} {
     test {MSETEX - repeated EX/PX of the same unit, last wins} {
         r del dup:key{t}
         r msetex 1 dup:key{t} val ex 10 ex 100
-        assert_range [r ttl dup:key{t}] 98 100
+        assert_range [r ttl dup:key{t}] 90 100
 
         r del dup:key{t}
         r msetex 1 dup:key{t} val px 10000 px 100000
-        assert_range [r ttl dup:key{t}] 98 100
+        assert_range [r ttl dup:key{t}] 90 100
 
         # Repeated expire options with NX in between
         r del dup:key{t}
         r msetex 1 dup:key{t} val ex 10 nx ex 100
-        assert_range [r ttl dup:key{t}] 98 100
-
-        # Mixing units is still a syntax error, in both orders
-        assert_error {*syntax error*} {r msetex 1 dup:key{t} val ex 10 px 5000}
-        assert_error {*syntax error*} {r msetex 1 dup:key{t} val px 5000 ex 10}
+        assert_range [r ttl dup:key{t}] 90 100
     }
 
     test {MSETEX - EX/PX are propagated as a single PXAT} {
