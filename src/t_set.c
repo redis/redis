@@ -2502,7 +2502,16 @@ void spopWithCountCommand(client *c) {
 
     /* CASE 1:
      * The number of requested elements is greater than or equal to
-     * the number of elements inside the set: simply return the whole set. */
+     * the number of elements inside the set: simply return the whole set.
+     *
+     * 'size' counts the members that are logically expired but not removed, if
+     * the sweep above could not run, and the reply skips them while the key
+     * deletion removes them. This is not a problem: on a master the sweep runs
+     * (a write command cannot run while the expiration actions are paused), and
+     * a replica or an AOF load applies the master's DEL and does not skip any
+     * member. It is only reachable by a user client of a writable replica, which
+     * is not supported, and even then the only effect is that logically expired
+     * members, which are not visible anyway, are removed a little earlier. */
     if (count >= size) {
         /* We just return the entire set */
         sunionDiffGenericCommand(c,c->argv+1,1,NULL,SET_OP_UNION,0,0,0);
