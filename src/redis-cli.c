@@ -405,16 +405,27 @@ void dictListDestructor(dict *d, void *val)
     listRelease((list*)val);
 }
 
+/* Erase the current terminal row and return the cursor to its beginning. */
+static void clearCurrentLine(void) {
+    if (IS_TTY_OR_FAKETTY()) {
+        printf("\033[2K\r");
+    }
+}
+
+/* Erase from the cursor to the end of the terminal screen without moving it. */
+static void clearToEndOfScreen(void) {
+    if (IS_TTY_OR_FAKETTY()) {
+        printf("\033[0J");
+    }
+}
+
 /* Erase the lines before printing, and returns the number of lines printed */
 int cleanPrintfln(char *fmt, ...) {
     va_list args;
     char buf[1024]; /* limitation */
     int char_count, line_count = 0;
 
-    /* Clear the line if in TTY */
-    if (IS_TTY_OR_FAKETTY()) {
-        printf("\033[2K\r");
-    }
+    clearCurrentLine();
 
     va_start(args, fmt);
     char_count = vsnprintf(buf, sizeof(buf), fmt, args);
@@ -456,6 +467,10 @@ typedef struct {
 static helpEntry *helpEntries = NULL;
 static int helpEntriesLen = 0;
 
+/* Reasonable bounds for COMMAND replies, far above any real values. */
+#define CLI_LEGACY_COMMAND_ARITY_LIMIT 1024
+#define CLI_LEGACY_COMMAND_MAX_ENTRIES 4096
+
 /* For backwards compatibility with pre-7.0 servers.
  * cliLegacyInitHelp() sets up the helpEntries array with the command and group
  * names from the commands.c file. However the Redis instance we are connecting
@@ -474,12 +489,21 @@ static void cliLegacyIntegrateHelp(void) {
 
     /* Scan the array reported by COMMAND and fill only the entries that
      * don't already match what we have. */
-    for (size_t j = 0; j < reply->elements; j++) {
+    for (size_t j = 0; j < reply->elements && j < CLI_LEGACY_COMMAND_MAX_ENTRIES; j++) {
         redisReply *entry = reply->element[j];
         if (entry->type != REDIS_REPLY_ARRAY || entry->elements < 4 ||
             entry->element[0]->type != REDIS_REPLY_STRING ||
             entry->element[1]->type != REDIS_REPLY_INTEGER ||
             entry->element[3]->type != REDIS_REPLY_INTEGER) break;
+
+        long long arity = entry->element[1]->integer;
+        int firstkey = entry->element[3]->integer == 1;
+        /* Bound each generated params string before taking the absolute value
+         * or narrowing the server-reported arity to int. */
+        if (arity > CLI_LEGACY_COMMAND_ARITY_LIMIT || arity < -CLI_LEGACY_COMMAND_ARITY_LIMIT)
+            continue;
+        int args = (int)(arity < 0 ? -arity : arity) - 1;
+
         char *cmdname = entry->element[0]->str;
         int i;
 
@@ -505,14 +529,12 @@ static void cliLegacyIntegrateHelp(void) {
         new->docs.args = NULL;
         new->docs.numargs = 0;
         new->docs.params = sdsempty();
-        int args = llabs(entry->element[1]->integer);
-        args--; /* Remove the command name itself. */
-        if (entry->element[3]->integer == 1) {
+        if (firstkey) {
             new->docs.params = sdscat(new->docs.params,"key ");
             args--;
         }
         while(args-- > 0) new->docs.params = sdscat(new->docs.params,"arg ");
-        if (entry->element[1]->integer < 0)
+        if (arity < 0)
             new->docs.params = sdscat(new->docs.params,"...options...");
         new->docs.summary = "Help not available";
         new->docs.since = "Not known";
@@ -1752,7 +1774,11 @@ static int cliConnect(int flags) {
         if (!context->err && config.tls) {
             const char *err = NULL;
             if (cliSecureConnection(context, config.sslconfig, &err) == REDIS_ERR && err) {
-                fprintf(stderr, "Could not negotiate a TLS connection: %s\n", err);
+                /* Honor CC_QUIET like the generic failure path below: probe
+                 * connections would otherwise report the same failure that the
+                 * real connection attempt reports right after. */
+                if (!(flags & CC_QUIET))
+                    fprintf(stderr, "Could not negotiate a TLS connection: %s\n", err);
                 redisFree(context);
                 context = NULL;
                 return REDIS_ERR;
@@ -3091,6 +3117,10 @@ static int parseOptions(int argc, char **argv) {
             config.sslconfig.ciphers = argv[++i];
         } else if (!strcmp(argv[i],"--insecure")) {
             config.sslconfig.skip_cert_verify = 1;
+        } else if (!strcmp(argv[i],"--no-verify-hostname")) {
+            config.sslconfig.skip_hostname_verify = 1;
+        } else if (!strcmp(argv[i],"--tls-expected-peer-name") && !lastarg) {
+            config.sslconfig.expected_peer_name = argv[++i];
         #ifdef TLS1_3_VERSION
         } else if (!strcmp(argv[i],"--tls-ciphersuites") && !lastarg) {
             config.sslconfig.ciphersuites = argv[++i];
@@ -3178,6 +3208,35 @@ static int parseOptions(int argc, char **argv) {
         exit(1);
     }
 
+    /* Identity verification options. --no-verify-hostname drops to chain-only
+     * validation, so it contradicts an explicit expected identity; --insecure
+     * verifies nothing at all, so an expected identity could never be checked. */
+    if (config.sslconfig.expected_peer_name) {
+        if (config.sslconfig.skip_hostname_verify) {
+            fprintf(stderr, "Options --tls-expected-peer-name and --no-verify-hostname "
+                            "are mutually exclusive.\n");
+            exit(1);
+        }
+        if (config.sslconfig.skip_cert_verify) {
+            fprintf(stderr, "Option --insecure cannot be combined with "
+                            "--tls-expected-peer-name.\n");
+            exit(1);
+        }
+        int parent_domains = 0;
+        const char *name_err = cliValidateExpectedPeerNames(config.sslconfig.expected_peer_name,
+                                                            &parent_domains);
+        if (name_err) {
+            fprintf(stderr, "Invalid --tls-expected-peer-name: %s.\n", name_err);
+            exit(1);
+        }
+        if (parent_domains) {
+            fprintf(stderr, "Warning: --tls-expected-peer-name has %d entr%s beginning "
+                            "with a dot; such an entry is a parent-domain pattern that "
+                            "matches any subdomain at any depth, not a single host.\n",
+                            parent_domains, parent_domains == 1 ? "y" : "ies");
+        }
+    }
+
     return i;
 }
 
@@ -3199,13 +3258,24 @@ static void usage(int err) {
     FILE *target = err ? stderr: stdout;
     const char *tls_usage =
 #ifdef USE_OPENSSL
-"  --tls              Establish a secure TLS connection.\n"
-"  --sni <host>       Server name indication for TLS.\n"
+"  --tls              Establish a secure TLS connection. The server certificate\n"
+"                     must chain to the trusted CA and carry the expected\n"
+"                     identity: the name given to --sni, or else the host that\n"
+"                     was dialed (as an IP or DNS SAN).\n"
+"  --sni <host>       Server name indication for TLS. Also the identity the\n"
+"                     server certificate is verified against.\n"
 "  --cacert <file>    CA Certificate file to verify with.\n"
 "  --cacertdir <dir>  Directory where trusted CA certificates are stored.\n"
 "                     If neither cacert nor cacertdir are specified, the default\n"
 "                     system-wide trusted root certs configuration will apply.\n"
 "  --insecure         Allow insecure TLS connection by skipping cert validation.\n"
+"  --no-verify-hostname\n"
+"                     Verify only that the server certificate chains to the\n"
+"                     trusted CA, not that it carries the expected identity.\n"
+"  --tls-expected-peer-name <names>\n"
+"                     Verify the server certificate against these identities\n"
+"                     instead of the dialed host or SNI: a space-separated list\n"
+"                     of DNS names (any match succeeds) or a single IP address.\n"
 "  --cert <file>      Client certificate to authenticate with.\n"
 "  --key <file>       Private key file to authenticate with.\n"
 "  --tls-ciphers <list> Sets the list of preferred ciphers (TLSv1.2 and below)\n"
@@ -11160,6 +11230,13 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
     list *top_sizes;
     long long refresh_time = mstime();
 
+    /* Skip setup and scanning when the selected database is empty. */
+    total_keys = getDbSize();
+    if (total_keys == 0) {
+        printf("The database is empty.\n");
+        exit(0);
+    }
+
     if (cursor != 0) {
         it = cursor;
     }
@@ -11212,9 +11289,6 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
     }
 
     signal(SIGINT, longStatLoopModeStop);
-
-    /* Total keys pre scanning */
-    total_keys = getDbSize();
 
     /* Status message */
     printf("\n# Scanning the entire keyspace to find the biggest keys and distribution information.\n");
@@ -11296,22 +11370,45 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
         freeReplyObject(reply);
     } while(force_cancel_loop == 0 && it != 0);
 
-    displayKeyStats(sampled, total_keys, total_size, memkeys_types_dict, bigkeys_types_dict, top_sizes,
-                    top_sizes_limit, 0);
+    /* With a pattern, an empty sample means nothing matched: replace the empty
+     * report with an explanation. Without a pattern, keep the report even when
+     * nothing was sampled (keys expired or deleted mid-scan, or an empty
+     * resumed portion of the keyspace). */
+    int no_match = config.pattern && sampled == 0;
 
-    /* Additional data at the end of the SCAN loop.
-     * Using cleanPrintfln in case we want to print during the SCAN loop. */
-    cleanPrintfln("");
-    displayKeyStatsSizeDist(keysize_histogram);
-    cleanPrintfln("");
-    displayKeyStatsLengthDist(&key_length_dist);
-    cleanPrintfln("");
-    displayKeyStatsType(sampled, memkeys_types_dict, bigkeys_types_dict);
+    if (no_match) {
+        /* Clear leftover rows when replacing the live stats with a shorter message. */
+        clearToEndOfScreen();
+        
+        if (it != 0) {
+            cleanPrintfln("Scan interrupted: no keys matched the specified pattern in the scanned portion.");
+        } else if (cursor != 0) {
+            cleanPrintfln("No keys matched the specified pattern in the scanned portion of the keyspace.");
+        } else {
+            cleanPrintfln("No keys matched the specified pattern.");
+        }
+    } else {
+        displayKeyStats(sampled, total_keys, total_size, memkeys_types_dict, bigkeys_types_dict, top_sizes,
+                        top_sizes_limit, 0);
+
+        /* Additional data, only printed once the SCAN loop is done. It lands
+         * below the live report, so it needs no clearing; cleanPrintfln keeps
+         * it ready to be added to the live refresh. */
+        cleanPrintfln("");
+        displayKeyStatsSizeDist(keysize_histogram);
+        cleanPrintfln("");
+        displayKeyStatsLengthDist(&key_length_dist);
+        cleanPrintfln("");
+        displayKeyStatsType(sampled, memkeys_types_dict, bigkeys_types_dict);
+        
+        if (it != 0) {
+            cleanPrintfln("");
+            cleanPrintfln("Scan interrupted.");
+        }
+    }
 
     if (it != 0) {
-        printf("\n");
-        printf("Scan interrupted:\n");
-        printf("Use 'redis-cli --keystats --cursor %llu' to restart from the last cursor.\n", it);
+        cleanPrintfln("Use 'redis-cli --keystats --cursor %llu' to restart from the last cursor.", it);
     }
 
     if (memkeys_types) zfree(memkeys_types);

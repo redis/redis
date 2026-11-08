@@ -61,6 +61,11 @@ typedef enum bitroarOp {
  * Reports one maximal run of set bits as [start, end) bit offsets. */
 typedef void bitroarRangeCallback(uint64_t start, uint64_t end, void *privdata);
 
+/* Visits an ascending batch of set-bit offsets. Return nonzero to continue or
+ * zero to stop. The values are valid only during the callback; the callback
+ * must not modify the bitmap being visited. */
+typedef int bitroarValuesCallback(const uint64_t *values, size_t count, void *privdata);
+
 /* Initialization (once at server startup: plugs zmalloc into CRoaring) */
 void bitroarInit(void);
 
@@ -84,6 +89,8 @@ uint64_t bitroarLen(const robj *o);
 uint64_t bitroarCardinality(const robj *o);
 uint64_t bitroarRangeCardinality(const robj *o, uint64_t start, uint64_t end);
 void bitroarVisitSetBitRanges(const robj *o, bitroarRangeCallback *callback, void *privdata);
+void bitroarVisitBits(const robj *o, int bit, uint64_t start, uint64_t end,
+                      bitroarValuesCallback *callback, void *privdata);
 long long bitroarBitpos(const robj *o, int bit, uint64_t start, uint64_t end, int end_given);
 int bitroarCanRepresentBit(uint64_t bitoffset);
 int bitroarGetBit(const robj *o, uint64_t bitoffset);

@@ -210,7 +210,8 @@ void createReplicationBacklogIfNeeded(void);
 void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int flags, size_t size_hint);
 /* cluster_asm.c */
 static void asmStartImportTask(asmTask *task);
-static void asmTaskCancel(asmTask *task, const char *reason);
+static int asmTaskCancel(asmTask *task, const char *reason);
+static int asmCanFailTask(asmTask *task);
 static void asmSyncBufferReadFromConn(connection *conn);
 static void propagateTrimSlots(slotRangeArray *slots);
 void asmTrimJobSchedule(slotRangeArray *slots);
@@ -978,6 +979,14 @@ static void clusterMigrationCommandCancel(client *c) {
         return;
     }
 
+    if (listLength(asmManager->tasks)) {
+        asmTask *task = listNodeValue(listFirst(asmManager->tasks));
+        if ((!task_id || !strcmp(task->id, task_id)) && !asmCanFailTask(task)) {
+            addReplyError(c, "Slot migration is in handoff, only the cluster implementation can cancel it");
+            return;
+        }
+    }
+
     num_cancelled = clusterAsmCancel(task_id, "user request");
     addReplyLongLong(c, num_cancelled);
 }
@@ -1284,6 +1293,9 @@ void asmMigrateSetFailed(asmTask *task) {
      * to make asmTaskReset work properly after migrate task failed  */
     replDataBufClear(&task->sync_buffer);
 
+    /* Resume writes if they were paused for the handoff. */
+    unpauseActions(PAUSE_DURING_SLOT_HANDOFF);
+
     /* Mark the task as failed and notify the cluster */
     task->state = ASM_FAILED;
     asmNotifyStateChange(task, ASM_EVENT_MIGRATE_FAILED);
@@ -1335,12 +1347,57 @@ void asmTaskFinalize(asmTask *task) {
     listLinkNodeHead(asmManager->archived_tasks, ln);
 }
 
-static void asmTaskCancel(asmTask *task, const char *reason) {
-    if (task->state == ASM_CANCELED) return;
+/* Returns 1 if the task sent or received STREAM-EOF and waits for the cluster
+ * implementation to update the slot configuration. */
+static int asmTaskInHandoff(asmTask *task) {
+    return (task->operation == ASM_MIGRATE && task->state == ASM_STREAM_EOF) ||
+           (task->operation == ASM_IMPORT && task->state == ASM_TAKEOVER);
+}
+
+/* May Redis fail this task on its own, on write pause timeout or cancel?
+ * Returns 1 if it can, 0 if it must keep the task and wait for the cluster
+ * implementation.
+ *
+ * After STREAM-EOF, the cluster implementation may give the slots to the
+ * destination at any moment, and neither node knows when. If the source fails
+ * the task now and resumes writes, the destination never sees those writes. If
+ * the destination fails the import, it trims the imported data.
+ *
+ * When this returns 0, Redis keeps the task and ignores every cancel except
+ * ASM_EVENT_CANCEL from the cluster implementation. The cluster implementation
+ * ends the migration with ASM_EVENT_DONE if the slots moved, or
+ * ASM_EVENT_CANCEL if they stayed.
+ *
+ * The legacy cluster always returns 1. Returning 0 is for alternative cluster
+ * implementations that cannot let Redis fail the task after STREAM-EOF. */
+static int asmCanFailTask(asmTask *task) {
+    UNUSED(task);
+    return 1; /* Safe to fail the task. */
+}
+
+/* Returns 1 if the task sent or received STREAM-EOF and waits for the cluster
+ * implementation to update the slot configuration. */
+int asmHandoffInProgress(void) {
+    if (!asmManager || listLength(asmManager->tasks) == 0) return 0;
+
+    asmTask *task = listNodeValue(listFirst(asmManager->tasks));
+    return asmTaskInHandoff(task);
+}
+
+/* See clusterAsmForceCancel() for 'force'. Returns 1 if the task was cancelled. */
+static int asmTaskCancelGeneric(asmTask *task, const char *reason, int force) {
+    if (task->state == ASM_CANCELED) return 0;
+    if (!force && !asmCanFailTask(task)) return 0;
 
     asmTaskSetFailed(task, "Cancelled due to %s", reason);
     task->state = ASM_CANCELED;
     asmTaskFinalize(task);
+    return 1;
+}
+
+/* Returns 1 if the task was cancelled. */
+static int asmTaskCancel(asmTask *task, const char *reason) {
+    return asmTaskCancelGeneric(task, reason, 0);
 }
 
 void asmImportTakeover(asmTask *task) {
@@ -2546,6 +2603,7 @@ int slotSnapshotSaveRio(int req, rio *rdb, int *error) {
                 int send_slot_info = 0;
 
                 kvstoreInitDictIterator(&kvs_di, server.db->keys, k);
+                kvstoreDictIteratorEnablePrefetch(&kvs_di);
                 while ((de = kvstoreDictIteratorNext(&kvs_di)) != NULL) {
                     /* Send slot info before the first key in the slot */
                     if (!send_slot_info) {
@@ -2613,6 +2671,8 @@ static void asmReadSyncBufferErrorHandler(connection *conn) {
 
     if (task->state == ASM_STREAMING_BUF) {
         freeClient(connGetPrivateData(conn));
+    } else if (connGetState(conn) == CONN_STATE_CLOSED) {
+        asmTaskSetFailed(task, "Main channel - Connection closed by source node");
     } else {
         asmTaskSetFailed(task, "Main channel - Read error: %s", connGetLastError(conn));
     }
@@ -2921,8 +2981,12 @@ void asmCron(void) {
              * destination node becomes the winner, since it bumps its config 
              * epoch before taking over slot ownership. During this window, 
              * writes accepted by the source will not be replicated to the
-             * destination and those writes will be lost.*/
-            if (server.mstime - task->paused_time >= server.asm_write_pause_timeout) {
+             * destination and those writes will be lost. A cluster
+             * implementation may not allow this failure, then writes stay
+             * paused after STREAM-EOF, see asmCanFailTask(). */
+            if (asmCanFailTask(task) &&
+                server.mstime - task->paused_time >= server.asm_write_pause_timeout)
+            {
                 asmTaskSetFailed(task, "Write pause timeout during slot handoff: destination did not take ownership within %lld ms.",
                                  server.asm_write_pause_timeout);
                 return;
@@ -2938,16 +3002,14 @@ void asmCron(void) {
     }
 }
 
-/* Cancel a specific task if ID is provided, otherwise cancel all tasks. */
-int clusterAsmCancel(const char *task_id, const char *reason) {
+static int clusterAsmCancelGeneric(const char *task_id, const char *reason, int force) {
     if (asmManager == NULL) return 0;
 
     if (task_id) {
         asmTask *task = asmLookupTaskById(task_id);
         if (!task) return 0; /* Not found */
 
-        asmTaskCancel(task, reason);
-        return 1;
+        return asmTaskCancelGeneric(task, reason, force);
     } else {
         int num_cancelled = 0;
         listIter li;
@@ -2956,11 +3018,23 @@ int clusterAsmCancel(const char *task_id, const char *reason) {
         listRewind(asmManager->tasks, &li);
         while ((ln = listNext(&li)) != NULL) {
             asmTask *task = listNodeValue(ln);
-            asmTaskCancel(task, reason);
-            num_cancelled++;
+            num_cancelled += asmTaskCancelGeneric(task, reason, force);
         }
         return num_cancelled;
     }
+}
+
+/* Cancel a specific task if ID is provided, otherwise cancel all tasks.
+ * Returns the number of tasks cancelled. */
+int clusterAsmCancel(const char *task_id, const char *reason) {
+    return clusterAsmCancelGeneric(task_id, reason, 0);
+}
+
+/* Same as clusterAsmCancel(), but also cancels the task in ASM_STREAM_EOF
+ * state on the source or in ASM_TAKEOVER state on the destination, where a
+ * cancel is otherwise ignored, see asmCanFailTask(). */
+int clusterAsmForceCancel(const char *task_id, const char *reason) {
+    return clusterAsmCancelGeneric(task_id, reason, 1);
 }
 
 /* Cancel all tasks that overlap with the given slot ranges.
@@ -2974,10 +3048,8 @@ int clusterAsmCancelBySlotRangeArray(struct slotRangeArray *slots, const char *r
     listRewind(asmManager->tasks, &li);
     while ((ln = listNext(&li)) != NULL) {
         asmTask *task = listNodeValue(ln);
-        if (!slots || slotRangeArraysOverlap(task->slots, slots)) {
-            asmTaskCancel(task, reason);
-            num_cancelled++;
-        }
+        if (!slots || slotRangeArraysOverlap(task->slots, slots))
+            num_cancelled += asmTaskCancel(task, reason);
     }
     return num_cancelled;
 }
@@ -2989,9 +3061,9 @@ int clusterAsmCancelBySlot(int slot, const char *reason) {
 
     /* Cancel it if found. */
     asmTask *task = lookupAsmTaskBySlotRange(&req);
-    if (task) asmTaskCancel(task, reason);
+    if (!task) return 0;
 
-    return task ? 1 : 0;
+    return asmTaskCancel(task, reason);
 }
 
 /* Cancel all tasks if this node is no longer a primary, and cancel tasks
@@ -3011,10 +3083,8 @@ int clusterAsmCancelInvalidTasks(void) {
         clusterNode *source = clusterLookupNode(task->source, CLUSTER_NAMELEN);
         clusterNode *dest = clusterLookupNode(task->dest, CLUSTER_NAMELEN);
 
-        if (!source || !dest) {
-            asmTaskCancel(task, "node deleted");
-            num_cancelled++;
-        }
+        if (!source || !dest)
+            num_cancelled += asmTaskCancel(task, "node deleted");
     }
     return num_cancelled;
 }
@@ -3074,6 +3144,7 @@ int clusterAsmHandoff(const char *task_id, sds *err) {
 
     task->state = ASM_HANDOFF;
     task->paused_time = server.mstime;
+    pauseActions(PAUSE_DURING_SLOT_HANDOFF, LLONG_MAX, PAUSE_ACTIONS_CLIENT_WRITE_SET);
 
     /* Now that writes are paused and no more user commands will be fed to the
      * main channel, give modules a chance to propagate commands at the end of
@@ -3094,18 +3165,15 @@ int clusterAsmDone(const char *task_id, sds *err) {
         return C_ERR;
     }
 
-    int event = -1;
-    if (task->operation == ASM_IMPORT && task->state == ASM_TAKEOVER) {
-        event = ASM_EVENT_IMPORT_COMPLETED;
-    } else if (task->operation == ASM_MIGRATE && task->state == ASM_STREAM_EOF) {
-        event = ASM_EVENT_MIGRATE_COMPLETED;
-    } else {
+    if (!asmTaskInHandoff(task)) {
         *err = sdscatprintf(sdsempty(),
                             "ASM task is not in the correct state for config update: %s",
                             asmTaskStateToString(task->state));
         asmTaskCancel(task, "slots configuration updated");
         return C_ERR;
     }
+    int event = task->operation == ASM_IMPORT ? ASM_EVENT_IMPORT_COMPLETED :
+                                                ASM_EVENT_MIGRATE_COMPLETED;
 
     /* Clear error message if successful. */
     sdsfree(task->error);
@@ -3115,9 +3183,11 @@ int clusterAsmDone(const char *task_id, sds *err) {
     asmNotifyStateChange(task, event);
     asmTaskFinalize(task);
 
-    /* Trim the slots after the migrate task is completed. */
-    if (event == ASM_EVENT_MIGRATE_COMPLETED)
+    /* The migrate task is completed, resume writes and trim the slots. */
+    if (event == ASM_EVENT_MIGRATE_COMPLETED) {
+        unpauseActions(PAUSE_DURING_SLOT_HANDOFF);
         asmTrimJobSchedule(task->slots);
+    }
 
     return C_OK;
 }
@@ -3142,7 +3212,7 @@ int clusterAsmProcess(const char *task_id, int event, void *arg, char **err) {
             break;
         }
         case ASM_EVENT_CANCEL: {
-            num_cancelled = clusterAsmCancel(task_id, "user request");
+            num_cancelled = clusterAsmForceCancel(task_id, "user request");
             if (arg) *((int *)arg) = num_cancelled;
             ret = C_OK;
             break;

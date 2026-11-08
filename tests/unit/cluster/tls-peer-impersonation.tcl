@@ -20,6 +20,14 @@
 # but has no SAN.
 
 if {$::tls} {
+    # Node $idx's view of the member with node ID $id, or {} if unknown.
+    proc cluster_node_view {idx id} {
+        foreach n [get_cluster_nodes $idx] {
+            if {[dict get $n id] eq $id} { return $n }
+        }
+        return {}
+    }
+
     set san_crt [format "%s/tests/tls/san.crt" [pwd]]
     set san_key [format "%s/tests/tls/san.key" [pwd]]
 
@@ -86,19 +94,58 @@ if {$::tls} {
             # was refused before any packet could be handled.
             wait_for_log_messages 0 {"*Error accepting cluster node connection*certificate verify failed*"} 0 50 100
 
-            # The forged FAIL must not have been processed.
+            # The forged FAIL must not have been processed. The next test is the
+            # positive control for this line: the same packet, sent through a
+            # certificate carrying the SAN, does produce it.
             assert_equal 0 [count_log_message 0 "FAIL message received"]
 
             # Node 2 must not be flagged failed in node 0's view.
-            set node2 {}
-            foreach n [get_cluster_nodes 0] {
-                if {[dict get $n id] eq $failed_target} { set node2 $n; break }
-            }
+            set node2 [cluster_node_view 0 $failed_target]
             assert {$node2 ne {}}
             assert_equal 0 [cluster_has_flag $node2 fail]
 
             # The victim remains responsive.
             assert_equal [R 0 PING] {PONG}
+        }
+
+        test "The same forged FAIL is processed when the cert carries the SAN (positive control)" {
+            # Positive control for the previous test: it proves the forged packet is
+            # well-formed and acted upon, and that "FAIL message received" is the
+            # line logged when it is, so the absence asserted above is meaningful.
+            # The packet is replayed byte for byte; only the certificate differs:
+            # san.crt carries redis.local, so the accept-side check passes and the
+            # forged FAIL about node 2 is processed exactly as the threat model
+            # describes.
+            #
+            # Node 2 is a master with slots, so node 0 would keep the FAIL flag for
+            # twice cluster-node-timeout (6 s here) before trusting it again. Lower
+            # the timeout on node 0 alone for the duration of this test so the
+            # cluster is restored well within a second. Node 0 by itself cannot
+            # reach the quorum needed to fail anyone for real, so the other nodes,
+            # which keep their timeout, are unaffected.
+            set old_timeout [lindex [R 0 CONFIG GET cluster-node-timeout] 1]
+            R 0 CONFIG SET cluster-node-timeout 300
+
+            # Keep the socket open until the packet has been handled, so the close
+            # cannot race the read.
+            set fd [::tls::socket \
+                -cafile "$::tlsdir/ca.crt" \
+                -certfile "$::tlsdir/san.crt" \
+                -keyfile "$::tlsdir/san.key" \
+                $target_host $target_bus_port]
+            fconfigure $fd -translation binary -buffering full
+            puts -nonewline $fd $packet
+            flush $fd
+            wait_for_log_messages 0 \
+                [list "*FAIL message received from ${spoofed_sender}*about ${failed_target}*"] 0 50 100
+            close $fd
+
+            # Node 0 flagged node 2 as failed on that line; wait for it to clear the
+            # flag again, then leave the cluster as we found it.
+            wait_for_log_messages 0 [list "*Clear FAIL state for node ${failed_target}*"] 0 50 100
+            R 0 CONFIG SET cluster-node-timeout $old_timeout
+            assert_equal 0 [cluster_has_flag [cluster_node_view 0 $failed_target] fail]
+            wait_for_cluster_state ok
         }
     }
 }

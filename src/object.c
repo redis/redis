@@ -744,14 +744,20 @@ void dismissSetObject(robj *o, size_t size_hint) {
             dictEntry *de;
             dictIterator di;
             dictInitIterator(&di, set);
+            const int with_expire = setHashtableHasExpire(o);
             while ((de = dictNext(&di)) != NULL) {
-                dismissSds(dictGetKey(de));
+                if (with_expire)
+                    sEntryDismissMemory(dictGetKey(de));
+                else
+                    dismissSds(dictGetKey(de));
             }
             dictResetIterator(&di);
         }
 
         /* Dismiss hash table memory. */
         dismissDictBucketsMemory(set);
+    } else if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
+        dismissMemory(setListpackExGetLp(o), lpBytes(setListpackExGetLp(o)));
     } else if (o->encoding == OBJ_ENCODING_INTSET) {
         dismissMemory(o->ptr, intsetBlobLen((intset*)o->ptr));
     } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
@@ -801,7 +807,7 @@ void dismissHashObject(robj *o, size_t size_hint) {
             dictIterator di;
             dictInitIterator(&di, d);
             while ((de = dictNext(&di)) != NULL) {
-                entryDismissMemory((Entry *) dictGetKey(de));
+                hEntryDismissMemory((HashEntry *) dictGetKey(de));
             }
             dictResetIterator(&di);
         }
@@ -1521,9 +1527,10 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     /* Computing the memory used by the clients would be O(N) if done
      * here online. We use our values computed incrementally by
      * updateClientMemoryUsage(). */
-    mh->clients_normal = server.stat_clients_type_memory[CLIENT_TYPE_MASTER]+
-                         server.stat_clients_type_memory[CLIENT_TYPE_PUBSUB]+
-                         server.stat_clients_type_memory[CLIENT_TYPE_NORMAL];
+    mh->clients_normal = subtractClientsWatchPubsubOvercount(
+                             server.stat_clients_type_memory[CLIENT_TYPE_MASTER]+
+                             server.stat_clients_type_memory[CLIENT_TYPE_PUBSUB]+
+                             server.stat_clients_type_memory[CLIENT_TYPE_NORMAL]);
     mem_total += mh->clients_normal;
 
     mh->cluster_links = server.stat_cluster_links_memory;

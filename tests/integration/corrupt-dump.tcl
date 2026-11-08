@@ -75,6 +75,36 @@ test {Zset listpack scores are validated before loading or conversion} {
     }
 }
 
+test {Zset listpack duplicate members are rejected by sanitization and assert on conversion} {
+    start_server [list overrides [list use-exit-on-panic yes crash-memcheck-enabled no]] {
+        r zadd dup-source 1 alpha 2 bravo
+        assert_encoding listpack dup-source
+        # Both pairs stay ordered by (score, member), so only a uniqueness
+        # check can catch the duplicate.
+        set payload [string map {bravo alpha} [r dump dup-source]]
+        r debug set-skip-checksum-validation 1
+        r config set sanitize-dump-payload yes
+        foreach {limit} {128 1} {
+            r config set zset-max-listpack-entries $limit
+            assert_error {*Bad data format*} {r restore dup 0 $payload}
+            assert_equal 0 [r exists dup]
+            assert_equal PONG [r ping]
+        }
+
+        # Without sanitization loading does not look for duplicates, whether
+        # the listpack stays one or is converted. A conversion must still not
+        # publish both copies, so it asserts, as the skiplist one did.
+        r config set sanitize-dump-payload no
+        r config set zset-max-listpack-entries 128
+        r restore dup 0 $payload
+        assert_encoding listpack dup
+        r config set zset-max-listpack-entries 2
+        catch {r zadd dup 3 charlie}
+        assert_equal [count_log_message 0 "crashed by signal"] 0
+        assert_equal [count_log_message 0 "ASSERTION FAILED"] 1
+    }
+}
+
 test {corrupt payload: #7445 - with sanitize} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload yes

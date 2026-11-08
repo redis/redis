@@ -456,6 +456,34 @@ if {$::tls} {
             }
         }
 
+        test {TLS: tls-expected-peer-name honors a full-label wildcard SAN but not a partial one} {
+            # Wildcards are matched from the certificate, not from the option: the
+            # cert's "*.wild.local" matches the concrete name node.wild.local, ...
+            start_server [list overrides [list tls-expected-peer-name "node.wild.local"]] {
+                set replica [srv 0 client]
+                $replica replicaof $master_host $master_port
+                wait_for_condition 50 100 {
+                    [string match {*master_link_status:up*} [$replica info replication]]
+                } else {
+                    fail "Replication link did not come up through the certificate's full-label wildcard"
+                }
+            }
+            # ... while its partial-label "f*.partial.local" never matches, although
+            # OpenSSL would accept foo.partial.local without
+            # X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS.
+            start_server [list overrides [list tls-expected-peer-name "foo.partial.local"]] {
+                set replica [srv 0 client]
+                $replica replicaof $master_host $master_port
+                wait_for_condition 50 100 {
+                    [string match {*master_link_status:up*} [$replica info replication]] ||
+                    [count_log_message 0 "certificate verify failed"] > 0
+                } else {
+                    fail "Replica never resolved its connection attempt (neither up nor errored)"
+                }
+                assert_no_match {*master_link_status:up*} [$replica info replication]
+            }
+        }
+
         test {TLS: tls-expected-peer-name matches any of multiple listed names} {
             # Start with a single non-matching name so the link stays down; then set a
             # space-separated list via CONFIG SET (a single argument, so it is not split)
@@ -634,6 +662,168 @@ if {$::tls} {
             r config set tls-expected-peer-name node.cluster.local
             assert_equal {node.cluster.local} [lindex [r config get tls-expected-peer-name] 1]
             r config set tls-expected-peer-name ""
+        }
+
+        test {TLS: tls-expected-peer-name rejects IP addresses} {
+            # The option takes DNS names only. An IP address is refused at config
+            # time -- alone or mixed with names, IPv4 or IPv6 -- rather than being
+            # accepted and failing the handshake.
+            foreach val {"127.0.0.1" "10.0.0.1 redis.local" "redis.local ::1"} {
+                catch {r config set tls-expected-peer-name $val} e
+                assert_match {*DNS names only*} $e
+            }
+            assert_equal {} [lindex [r config get tls-expected-peer-name] 1]
+        }
+    }
+}
+
+# redis-cli / redis-benchmark verify the server certificate's identity by default
+# ("verify-full"): besides chaining to the trusted CA, the certificate must carry
+# the name given to --sni, or else the host that was dialed (an IP or DNS name).
+# --no-verify-hostname drops back to chain-only validation ("verify-ca"),
+# --insecure to none, and --tls-expected-peer-name verifies an explicit identity
+# instead of the dialed host / SNI.
+#
+# Fixtures: the harness's default server certificate (tests/tls/server.crt)
+# carries IP:127.0.0.1, IP:::1 and DNS:localhost; tests/tls/san.crt carries only
+# DNS names (redis.local, cluster.local); tests/tls/redis.crt carries no SAN at
+# all. All three chain to the same test CA, so without identity verification the
+# tools would accept any of them for any address.
+if {$::tls} {
+    source tests/support/cli.tcl
+    source tests/support/benchmark.tcl
+
+    set redis_crt [format "%s/tests/tls/redis.crt" [pwd]]
+    set redis_key [format "%s/tests/tls/redis.key" [pwd]]
+    set san_crt [format "%s/tests/tls/san.crt" [pwd]]
+    set san_key [format "%s/tests/tls/san.key" [pwd]]
+
+    start_server {tags {"tls" "cli"}} {
+        set host [srv 0 host]
+        set port [srv 0 port]
+
+        test {TLS: redis-cli verifies the dialed IP against the certificate by default} {
+            exec {*}[rediscli $host $port] PING
+        } {PONG}
+
+        test {TLS: redis-cli verifies the dialed DNS name against the certificate by default} {
+            exec {*}[rediscli localhost $port] PING
+        } {PONG}
+
+        test {TLS: redis-cli verifies the name given to --sni} {
+            # server.crt does not carry redis.local, so declaring that name fails
+            # the handshake even though the dialed IP is in the certificate.
+            catch {exec {*}[rediscli $host $port {--sni redis.local}] PING} e
+            assert_match {*does not carry the expected identity 'redis.local'*} $e
+            assert_match {*--no-verify-hostname*} $e
+
+            exec {*}[rediscli $host $port {--sni redis.local --no-verify-hostname}] PING
+        } {PONG}
+
+        test {TLS: redis-cli rejects contradictory identity options} {
+            catch {exec {*}[rediscli $host $port {--tls-expected-peer-name redis.local --no-verify-hostname}] PING} e
+            assert_match {*mutually exclusive*} $e
+            catch {exec {*}[rediscli $host $port {--insecure --tls-expected-peer-name redis.local}] PING} e
+            assert_match {*--insecure cannot be combined*} $e
+        }
+
+        test {TLS: redis-cli validates --tls-expected-peer-name values} {
+            catch {exec {*}[rediscli $host $port [list --tls-expected-peer-name "   "]] PING} e
+            assert_match {*no usable name*} $e
+            catch {exec {*}[rediscli $host $port [list --tls-expected-peer-name "redis.local\tcluster.local"]] PING} e
+            assert_match {*whitespace*} $e
+            # An IP address must be the only name: OpenSSL requires both the IP
+            # and a DNS name to match when the two kinds are combined.
+            catch {exec {*}[rediscli $host $port [list --tls-expected-peer-name "127.0.0.1 redis.local"]] PING} e
+            assert_match {*only expected peer name*} $e
+        }
+
+        test {TLS: redis-benchmark verifies the server identity by default} {
+            set out [exec {*}[redisbenchmark $host $port {-t ping -n 1 -c 1 -q}]]
+            assert_match {*PING*} $out
+        }
+
+        # A trusted certificate that carries no identity at all.
+        start_server [list overrides [list tls-cert-file $redis_crt tls-key-file $redis_key]] {
+            set chost [srv 0 host]
+            set cport [srv 0 port]
+
+            test {TLS: redis-cli rejects a trusted certificate lacking the dialed address} {
+                catch {exec {*}[rediscli $chost $cport] PING} e
+                assert_match "*does not carry the expected identity '$chost'*" $e
+                assert_match {*--no-verify-hostname*} $e
+            }
+
+            test {TLS: --no-verify-hostname and --insecure accept a certificate lacking the address} {
+                assert_equal PONG [exec {*}[rediscli $chost $cport {--no-verify-hostname}] PING]
+                assert_equal PONG [exec {*}[rediscli $chost $cport {--insecure}] PING]
+                # --insecure already implies no identity check; combining is harmless.
+                assert_equal PONG [exec {*}[rediscli $chost $cport {--insecure --no-verify-hostname}] PING]
+            }
+
+            test {TLS: the identity is verified before AUTH is sent} {
+                r config set requirepass secret
+                r acl log reset
+                # Mismatch: the handshake fails, so the password never leaves the
+                # client and the server records no authentication attempt.
+                catch {exec {*}[rediscli $chost $cport {-a wrongpass --no-auth-warning}] PING} e
+                assert_match {*does not carry the expected identity*} $e
+                assert_equal 0 [llength [r acl log]]
+                # The same client with identity verification off does send AUTH.
+                catch {exec {*}[rediscli $chost $cport {--no-verify-hostname -a wrongpass --no-auth-warning}] PING} e
+                assert_match {*WRONGPASS*} $e
+                assert_equal 1 [llength [r acl log]]
+                r config set requirepass ""
+            }
+
+            test {TLS: redis-benchmark rejects a trusted certificate lacking the dialed address} {
+                catch {exec {*}[redisbenchmark $chost $cport {-t ping -n 1 -c 1 -q}]} e
+                assert_match {*does not carry the expected identity*} $e
+                set out [exec {*}[redisbenchmark $chost $cport {--no-verify-hostname -t ping -n 1 -c 1 -q}]]
+                assert_match {*PING*} $out
+            }
+        }
+
+        # A trusted certificate carrying DNS names but not the dialed IP.
+        start_server [list overrides [list tls-cert-file $san_crt tls-key-file $san_key]] {
+            set bhost [srv 0 host]
+            set bport [srv 0 port]
+
+            test {TLS: a certificate without the dialed IP is accepted when --sni names it} {
+                catch {exec {*}[rediscli $bhost $bport] PING} e
+                assert_match "*does not carry the expected identity '$bhost'*" $e
+                assert_equal PONG [exec {*}[rediscli $bhost $bport {--sni redis.local}] PING]
+                catch {exec {*}[rediscli $bhost $bport {--sni wrong.local}] PING} e
+                assert_match {*does not carry the expected identity 'wrong.local'*} $e
+            }
+
+            test {TLS: --tls-expected-peer-name overrides the dialed host and SNI} {
+                assert_equal PONG [exec {*}[rediscli $bhost $bport {--tls-expected-peer-name cluster.local}] PING]
+                # The explicit identity wins over a non-matching SNI.
+                assert_equal PONG [exec {*}[rediscli $bhost $bport {--sni wrong.local --tls-expected-peer-name cluster.local}] PING]
+                # Any listed name may match.
+                assert_equal PONG [exec {*}[rediscli $bhost $bport [list --tls-expected-peer-name "absent.local cluster.local"]] PING]
+                catch {exec {*}[rediscli $bhost $bport {--tls-expected-peer-name absent.local}] PING} e
+                assert_match {*does not carry the expected identity 'absent.local'*} $e
+            }
+
+            test {TLS: --tls-expected-peer-name honors a full-label wildcard SAN but not a partial one} {
+                # Same wildcard rules as the server's option, through the shared
+                # helper: "*.wild.local" in the cert matches node.wild.local, the
+                # partial-label "f*.partial.local" does not match foo.partial.local.
+                assert_equal PONG [exec {*}[rediscli $bhost $bport {--tls-expected-peer-name node.wild.local}] PING]
+                catch {exec {*}[rediscli $bhost $bport {--tls-expected-peer-name foo.partial.local}] PING} e
+                assert_match {*does not carry the expected identity 'foo.partial.local'*} $e
+            }
+
+            test {TLS: --tls-expected-peer-name warns about parent-domain entries} {
+                # A leading dot is OpenSSL's parent-domain pattern: it matches any
+                # subdomain at any depth (here redis.local), so its scope is
+                # surfaced rather than left silent, like the server does.
+                set out [exec {*}[rediscli $bhost $bport {--tls-expected-peer-name .local}] PING 2>@1]
+                assert_match {*beginning with a dot*} $out
+                assert_match {*PONG*} $out
+            }
         }
     }
 }

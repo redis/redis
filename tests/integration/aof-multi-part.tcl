@@ -1536,3 +1536,52 @@ tags {"external:skip"} {
         }
     }
 }
+
+start_server {tags {"external:skip"} overrides {appendonly yes appendfsync everysec auto-aof-rewrite-percentage 0}} {
+    test {AOF rewrite is refused while the AOF buffer can't be written} {
+        # Use DB 0, a replayed command that lost its SELECT lands there.
+        r select 0
+        r set counter 0
+        set old_incr [get_last_incr_aof_path r]
+
+        # Leave the command in aof_buf, then fail every flush, so the forced
+        # flush at rewrite start can't write it to the current INCR file.
+        r debug aof-flush-force stall 1
+        r incr counter
+        r debug aof-flush-force error 1
+        wait_for_condition 100 20 {
+            [s aof_last_write_status] eq {err}
+        } else {
+            fail "simulated AOF write error was not raised"
+        }
+
+        # Starting a rewrite now would snapshot the INCR in BASE and later
+        # append the buffered INCR to the new INCR file as well, so it would
+        # be replayed twice on load.
+        catch {r bgrewriteaof} err
+        waitForBgrewriteaof r
+
+        # Once the error is resolved, the buffer goes to the current INCR file.
+        # Load the AOF before any further rewrite, which would rebuild BASE
+        # from memory and hide a duplicate.
+        r debug aof-flush-force error 0
+        r debug aof-flush-force stall 0
+        wait_for_condition 100 20 {
+            [s aof_last_write_status] eq {ok}
+        } else {
+            fail "AOF write error did not clear"
+        }
+        r debug loadaof
+        assert_equal 1 [r get counter]
+        assert_match {*Can't execute an AOF background rewriting*} $err
+        assert_equal $old_incr [get_last_incr_aof_path r]
+
+        # And a rewrite can run again.
+        r bgrewriteaof
+        waitForBgrewriteaof r
+        assert {[get_last_incr_aof_path r] ne $old_incr}
+        r debug loadaof
+        assert_equal 1 [r get counter]
+        r select 9
+    }
+}

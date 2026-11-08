@@ -27,6 +27,35 @@ struct _estore {
     fenwickTree *buckets_sizes; /* Binary indexed tree (BIT) that describes cumulative key frequencies */
 };
 
+/* Returns 1 if the object currently has an ExpireMeta attached, so it can be
+ * registered in (and removed from) the expiration store. Dispatches by type so
+ * that the types that own the check do not need to know about each other. */
+static int subexpiryEligible(const kvobj *kv) {
+    switch (kv->type) {
+        case OBJ_HASH: return hashHasSubexpiry(kv);
+        case OBJ_SET:  return setHasSubexpiry(kv);
+        default:       return 0;
+    }
+}
+
+/* Get the ExpireMeta attached to an object registered in db->subexpires. */
+static ExpireMeta *subexpiresGetExpireMeta(const eItem item) {
+    const kvobj *kv = (const kvobj *)item;
+    switch (kv->type) {
+        case OBJ_HASH: return hashGetExpireMeta(item);
+        case OBJ_SET:  return setGetExpireMeta(item);
+        default: serverPanic("Unexpected type in subexpires: %d", kv->type);
+    }
+}
+
+/* ebuckets type of db->subexpires: objects (hashes, sets) that have members or
+ * fields with an expiration time, keyed by the earliest of those times. */
+EbucketsType subexpiresBucketsType = {
+    .onDeleteItem = NULL,
+    .getExpireMeta = subexpiresGetExpireMeta,
+    .itemsAddrAreOdd = 0,                 /* Addresses of kvobj are even */
+};
+
 /* Get the appropriate bucket for a given eidx */
 ebuckets *estoreGetBuckets(estore *es, int eidx) {
     debugAssert(eidx < es->num_buckets);
@@ -129,10 +158,8 @@ void estoreActiveExpire(estore *es, int eidx, ExpireInfo *info) {
 void estoreAdd(estore *es, int eidx, eItem item, uint64_t when) {
     debugAssert(es != NULL && item != NULL);
 
-    /* currently only used by hash field expiration. Verify it has expireMeta */
-    debugAssert((((robj *)item)->encoding == OBJ_ENCODING_LISTPACK_EX) ||
-                ((((robj *)item)->encoding == OBJ_ENCODING_HT) &&
-                 ((dict *) ((robj *)item)->ptr)->type == &entryHashDictTypeWithHFE));
+    /* Verify the object has an ExpireMeta attached */
+    debugAssert(subexpiryEligible((kvobj *)item));
 
     ebuckets *bucket = estoreGetBuckets(es, eidx);
     if (ebAdd(bucket, es->bucket_type, item, when) == 0) {
@@ -146,13 +173,9 @@ uint64_t estoreRemove(estore *es, int eidx, eItem item) {
     uint64_t expireTime;
     debugAssert(es != NULL && item != NULL);
 
-    /* Currently only used by hash field expiration. gracefully ignore otherwise */
-    kvobj *kv = (kvobj *) item;
-    if ( (kv->type != OBJ_HASH) ||
-         (kv->encoding == OBJ_ENCODING_LISTPACK) ||
-         (kv->encoding == OBJ_ENCODING_TMPL_LP) ||
-         (kv->encoding == OBJ_ENCODING_TMPL_ARRAY) ||
-         ((kv->encoding == OBJ_ENCODING_HT) && (((dict *)kv->ptr)->type != &entryHashDictTypeWithHFE)))
+    /* Gracefully ignore objects that have no ExpireMeta attached (anything
+     * that is not a hash or set with member expiration). */
+    if (!subexpiryEligible((kvobj *) item))
         return EB_EXPIRE_TIME_INVALID;
 
     /* If (ExpireMeta of kv) marked as trash, then it is already removed */
@@ -171,10 +194,8 @@ uint64_t estoreRemove(estore *es, int eidx, eItem item) {
 void estoreUpdate(estore *es, int eidx, eItem item, uint64_t when) {
     debugAssert(es != NULL && item != NULL);
 
-    /* currently only used by hash field expiration. Verify it has expireMeta */
-    debugAssert((((robj *)item)->encoding == OBJ_ENCODING_LISTPACK_EX) ||
-                ((((robj *)item)->encoding == OBJ_ENCODING_HT) &&
-                 ((dict *) ((robj *)item)->ptr)->type == &entryHashDictTypeWithHFE));
+    /* Verify the object has an ExpireMeta attached */
+    debugAssert(subexpiryEligible((kvobj *)item));
 
     debugAssert(ebGetExpireTime(es->bucket_type, item) != EB_EXPIRE_TIME_INVALID);
 
