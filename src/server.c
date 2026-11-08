@@ -2425,6 +2425,7 @@ void initServerConfig(void) {
     char *default_bindaddr[CONFIG_DEFAULT_BINDADDR_COUNT] = CONFIG_DEFAULT_BINDADDR;
 
     initConfigValues();
+    server.bf_error_rate = 0.01;
     updateCachedTime(1);
     server.cmd_time_snapshot = server.mstime;
     getRandomHexChars(server.runid,CONFIG_RUN_ID_SIZE);
@@ -8309,6 +8310,9 @@ int iAmMaster(void) {
 #ifdef REDIS_TEST
 #include "testhelp.h"
 #include "intset.h"  /* Compact integer set structure */
+#include "murmurhash.h"
+#include "sb.h"
+#include "t_bloom.h"
 
 int __failed_tests = 0;
 int __test_num = 0;
@@ -8336,6 +8340,9 @@ struct redisTest {
     {"util", utilTest},
     {"endianconv", endianconvTest},
     {"crc64", crc64Test},
+    {"murmurhash", murmurhashTest},
+    {"bloom", bloomTest},
+    {"bloom-object", bloomObjectTest},
     {"zmalloc", zmalloc_test},
     {"sds", sdsTest},
     {"mstr", mstrTest},

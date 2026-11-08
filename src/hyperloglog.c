@@ -16,6 +16,7 @@
 
 #include "server.h"
 #include "hyperloglog.h"
+#include "murmurhash.h"
 
 #include <stdint.h>
 #include <math.h>
@@ -406,62 +407,6 @@ static int simd_enabled = 1;
 
 /* ========================= HyperLogLog algorithm  ========================= */
 
-/* Our hash function is MurmurHash2, 64 bit version.
- * It was modified for Redis in order to provide the same result in
- * big and little endian archs (endian neutral). */
-REDIS_NO_SANITIZE("alignment")
-uint64_t MurmurHash64A (const void * key, size_t len, unsigned int seed) {
-    const uint64_t m = 0xc6a4a7935bd1e995;
-    const int r = 47;
-    uint64_t h = seed ^ (len * m);
-    const uint8_t *data = (const uint8_t *)key;
-    const uint8_t *end = data + (len-(len&7));
-
-    while(data != end) {
-        uint64_t k;
-
-#if (BYTE_ORDER == LITTLE_ENDIAN)
-    #ifdef USE_ALIGNED_ACCESS
-        memcpy(&k,data,sizeof(uint64_t));
-    #else
-        k = *((uint64_t*)data);
-    #endif
-#else
-        k = (uint64_t) data[0];
-        k |= (uint64_t) data[1] << 8;
-        k |= (uint64_t) data[2] << 16;
-        k |= (uint64_t) data[3] << 24;
-        k |= (uint64_t) data[4] << 32;
-        k |= (uint64_t) data[5] << 40;
-        k |= (uint64_t) data[6] << 48;
-        k |= (uint64_t) data[7] << 56;
-#endif
-
-        k *= m;
-        k ^= k >> r;
-        k *= m;
-        h ^= k;
-        h *= m;
-        data += 8;
-    }
-
-    switch(len & 7) {
-    case 7: h ^= (uint64_t)data[6] << 48; /* fall-thru */
-    case 6: h ^= (uint64_t)data[5] << 40; /* fall-thru */
-    case 5: h ^= (uint64_t)data[4] << 32; /* fall-thru */
-    case 4: h ^= (uint64_t)data[3] << 24; /* fall-thru */
-    case 3: h ^= (uint64_t)data[2] << 16; /* fall-thru */
-    case 2: h ^= (uint64_t)data[1] << 8; /* fall-thru */
-    case 1: h ^= (uint64_t)data[0];
-            h *= m; /* fall-thru */
-    };
-
-    h ^= h >> r;
-    h *= m;
-    h ^= h >> r;
-    return h;
-}
-
 /* Given a string element to add to the HyperLogLog, returns the length
  * of the pattern 000..1 of the element hash. As a side effect 'regp' is
  * set to the register index this element hashes to. */
@@ -477,7 +422,7 @@ int hllPatLen(unsigned char *ele, size_t elesize, long *regp) {
      * included in the count, so if we find "001" the count is 3, and
      * the smallest count possible is no zeroes at all, just a 1 bit
      * at the first position, that is a count of 1. */
-    hash = MurmurHash64A(ele,elesize,0xadc83b19ULL);
+    hash = MurmurHash64A(ele,elesize,0xadc83b19ULL,LITTLE_ENDIAN);
     index = hash & HLL_P_MASK; /* Register index. */
     hash >>= HLL_P; /* Remove bits used to address the register. */
     hash |= ((uint64_t)1<<HLL_Q); /* Make sure the loop terminates

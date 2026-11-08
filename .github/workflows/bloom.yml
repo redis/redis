@@ -1,0 +1,43 @@
+name: Bloom
+
+on:
+  push:
+    paths:
+      - 'src/probabilistic/bloom/**'
+      - 'src/probabilistic/utils/**'
+  pull_request:
+    paths:
+      - 'src/probabilistic/bloom/**'
+      - 'src/probabilistic/utils/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-bloom:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Install test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tcl8.6 tclx
+          python -m pip install -r tests/bloom/requirements.txt
+      - name: Build
+        run: make -j"$(nproc)" REDIS_CFLAGS='-Werror -DREDIS_TEST'
+      - name: C unit tests
+        run: |
+          src/redis-server test murmurhash --accurate
+          src/redis-server test bloom --accurate
+          src/redis-server test bloom-object --accurate
+      - name: Core integration tests
+        run: ./runtest --single unit/bloom --single unit/hyperloglog --verbose --dump-logs
+      - name: Bloom Python tests
+        run: ./runtest-bloom
