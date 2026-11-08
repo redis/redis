@@ -1,0 +1,3 @@
+RLTest @ git+https://github.com/RedisLabsModules/RLTest@b6277948f262562a486d7c5efca032d69bba7f75
+redis==5.0.8
+setuptools<81

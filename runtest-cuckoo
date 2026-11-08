@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+REDIS_SERVER=${REDIS_SERVER:-$ROOT/src/redis-server}
+# Reuse the Bloom RLTest setup and dependencies.
+export PYTHONPATH="$ROOT/tests/bloom${PYTHONPATH:+:$PYTHONPATH}"
+cd "$ROOT/tests/cuckoo"
+exec "${PYTHON:-python3}" -u -m RLTest --oss-redis-path "$REDIS_SERVER" \
+    --randomize-ports --enable-debug-command --enable-protected-configs "$@"

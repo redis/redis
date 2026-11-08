@@ -14,6 +14,7 @@
  */
 
 #include "server.h"
+#include "t_cuckoo.h"
 #include "cluster.h"
 #include "connection.h"
 #include "bio.h"
@@ -3964,6 +3965,32 @@ static sds getConfigOOMScoreAdjValuesOption(standardConfig *config) {
     return buf;
 }
 
+static int setConfigBloomErrorRateOption(standardConfig *config, sds *argv, int argc, const char **err) {
+    UNUSED(config);
+    double value;
+    if (argc != 1 || !string2d(argv[0],sdslen(argv[0]),&value) || !(value > 0 && value < 1)) {
+        *err = "bf-error-rate must be in the range (0, 1)";
+        return 0;
+    }
+    if (value > 0.25) value = 0.25;
+    if (value == server.bf_error_rate) return 2;
+    server.bf_error_rate = value;
+    return 1;
+}
+
+static sds getConfigBloomErrorRateOption(standardConfig *config) {
+    UNUSED(config);
+    char buf[MAX_D2STRING_CHARS];
+    int len = d2string(buf,sizeof(buf),server.bf_error_rate);
+    return sdsnewlen(buf,len);
+}
+
+static void rewriteConfigBloomErrorRateOption(standardConfig *config, const char *name, struct rewriteConfigState *state) {
+    sds value = getConfigBloomErrorRateOption(config);
+    rewriteConfigStringOption(state,name,value,"0.01");
+    sdsfree(value);
+}
+
 static int setConfigNotifyKeyspaceEventsOption(standardConfig *config, sds *argv, int argc, const char **err) {
     UNUSED(config);
     if (argc != 1) {
@@ -4402,6 +4429,14 @@ standardConfig static_configs[] = {
     createSizeTConfig("hash-max-listpack-value", "hash-max-ziplist-value", MODIFIABLE_CONFIG, 0, LONG_MAX, server.hash_max_listpack_value, 64, MEMORY_CONFIG, NULL, NULL),
     createSizeTConfig("stream-node-max-bytes", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.stream_node_max_bytes, 4096, MEMORY_CONFIG, NULL, NULL),
     createSizeTConfig("zset-max-listpack-value", "zset-max-ziplist-value", MODIFIABLE_CONFIG, 0, LONG_MAX, server.zset_max_listpack_value, 64, MEMORY_CONFIG, NULL, NULL),
+    createSpecialConfig("bf-error-rate", NULL, MODIFIABLE_CONFIG, setConfigBloomErrorRateOption, getConfigBloomErrorRateOption, rewriteConfigBloomErrorRateOption, NULL),
+    createLongLongConfig("bf-initial-size", NULL, MODIFIABLE_CONFIG, 1, 1LL<<30, server.bf_initial_size, 100, INTEGER_CONFIG, NULL, NULL),
+    createLongLongConfig("bf-expansion-factor", NULL, MODIFIABLE_CONFIG, 0, 32768, server.bf_expansion_factor, 2, INTEGER_CONFIG, NULL, NULL),
+    createLongLongConfig("cf-bucket-size", NULL, MODIFIABLE_CONFIG, 1, 255, server.cf_bucket_size, 2, INTEGER_CONFIG, cuckooValidateBucketSize, NULL),
+    createLongLongConfig("cf-initial-size", NULL, MODIFIABLE_CONFIG, 2, 1LL<<30, server.cf_initial_size, 1024, INTEGER_CONFIG, cuckooValidateInitialSize, NULL),
+    createLongLongConfig("cf-max-expansions", NULL, MODIFIABLE_CONFIG, 1, 65536, server.cf_max_expansions, 32, INTEGER_CONFIG, NULL, NULL),
+    createLongLongConfig("cf-max-iterations", NULL, MODIFIABLE_CONFIG, 1, 65535, server.cf_max_iterations, 20, INTEGER_CONFIG, NULL, NULL),
+    createLongLongConfig("cf-expansion-factor", NULL, MODIFIABLE_CONFIG, 0, 32768, server.cf_expansion_factor, 1, INTEGER_CONFIG, NULL, NULL),
     createSizeTConfig("hll-sparse-max-bytes", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hll_sparse_max_bytes, 3000, MEMORY_CONFIG, NULL, NULL),
     createSizeTConfig("tracking-table-max-keys", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.tracking_table_max_keys, 1000000, INTEGER_CONFIG, NULL, NULL), /* Default: 1 million keys max. */
     createSizeTConfig("client-query-buffer-limit", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, 1024*1024, LONG_MAX, server.client_max_querybuf_len, 1024*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Default: 1GB max query buffer. */

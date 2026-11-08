@@ -13,6 +13,8 @@
  */
 
 #include "server.h"
+#include "t_bloom.h"
+#include "t_cuckoo.h"
 #include "bitroar.h"
 #include "lzf.h"    /* LZF compression library */
 #include "zipmap.h"
@@ -763,6 +765,10 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
         return rdbSaveType(rdb,RDB_TYPE_ARRAY);
     case OBJ_BITMAP:
         return rdbSaveType(rdb,RDB_TYPE_BITMAP);
+    case OBJ_BLOOM:
+        return rdbSaveType(rdb,RDB_TYPE_BLOOM);
+    case OBJ_CUCKOO:
+        return rdbSaveType(rdb,RDB_TYPE_CUCKOO);
     default:
         serverPanic("Unknown object type");
     }
@@ -1208,6 +1214,32 @@ toolarge:
     rdbReportCorruptRDB("Bitmap byte length %llu too large",
         (unsigned long long)byte_len);
     return NULL;
+}
+
+/* Native Bloom fields use RDB integers and endian-neutral binary doubles.
+ * The module's packed SCANDUMP header is deliberately not used here. */
+static ssize_t rdbSaveBloomObject(rio *rdb, const robj *o) {
+    const SBChain *sb = o->ptr;
+    ssize_t n, total = 0;
+#define SAVE_BLOOM(expr) do { if ((n = (expr)) == -1) return -1; total += n; } while (0)
+    SAVE_BLOOM(rdbSaveLen(rdb, sb->size));
+    SAVE_BLOOM(rdbSaveLen(rdb, sb->nfilters));
+    SAVE_BLOOM(rdbSaveLen(rdb, sb->options));
+    SAVE_BLOOM(rdbSaveLen(rdb, sb->growth));
+    for (size_t i = 0; i < sb->nfilters; i++) {
+        const SBLink *link = &sb->filters[i];
+        const struct bloom *b = &link->inner;
+        SAVE_BLOOM(rdbSaveLen(rdb, b->entries));
+        SAVE_BLOOM(rdbSaveBinaryDoubleValue(rdb, b->error));
+        SAVE_BLOOM(rdbSaveLen(rdb, b->hashes));
+        SAVE_BLOOM(rdbSaveBinaryDoubleValue(rdb, b->bpe));
+        SAVE_BLOOM(rdbSaveLen(rdb, b->bits));
+        SAVE_BLOOM(rdbSaveLen(rdb, b->n2));
+        SAVE_BLOOM(rdbSaveRawString(rdb, b->bf, b->bytes));
+        SAVE_BLOOM(rdbSaveLen(rdb, link->size));
+    }
+#undef SAVE_BLOOM
+    return total;
 }
 
 ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
@@ -1789,6 +1821,12 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                 nwritten += n;
             }
         }
+    } else if (o->type == OBJ_BLOOM) {
+        if ((n = rdbSaveBloomObject(rdb, o)) == -1) return -1;
+        nwritten += n;
+    } else if (o->type == OBJ_CUCKOO) {
+        if ((n = rdbSaveCuckooObject(rdb, o)) == -1) return -1;
+        nwritten += n;
     } else if (o->type == OBJ_BITMAP) {
         if ((n = rdbSaveBitmapObject(rdb, o)) == -1) return -1;
         nwritten += n;
@@ -4593,6 +4631,20 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbver, int *e
             rdbReportReadError("Short read module id");
             return NULL;
         }
+        if (bloomIsLegacyRdbType(moduleid)) {
+            int is_corrupt;
+            o = rdbLoadBloomObject(rdb,moduleid,&is_corrupt);
+            if (is_corrupt) rdbReportCorruptRDB("Invalid Bloom RDB payload");
+            if (o && error) *error = 0;
+            return o;
+        }
+        if (cuckooIsLegacyRdbType(moduleid)) {
+            int is_corrupt;
+            o = rdbLoadCuckooObject(rdb,moduleid,&is_corrupt);
+            if (is_corrupt) rdbReportCorruptRDB("Invalid Cuckoo RDB payload");
+            if (o && error) *error = 0;
+            return o;
+        }
         moduleType *mt = moduleTypeLookupModuleByID(moduleid);
 
         if (rdbCheckMode) {
@@ -4752,6 +4804,16 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbver, int *e
 
             arSet(ar, idx, v);
         }
+    } else if (rdbtype == RDB_TYPE_CUCKOO) {
+        int is_corrupt;
+        o = rdbLoadCuckooObject(rdb,CUCKOO_RDB_NATIVE_ID,&is_corrupt);
+        if (is_corrupt) rdbReportCorruptRDB("Invalid Cuckoo RDB payload");
+        if (o == NULL) return NULL;
+    } else if (rdbtype == RDB_TYPE_BLOOM) {
+        int is_corrupt;
+        o = rdbLoadBloomObject(rdb,BLOOM_RDB_NATIVE_ID,&is_corrupt);
+        if (is_corrupt) rdbReportCorruptRDB("Invalid Bloom RDB payload");
+        if (o == NULL) return NULL;
     } else if (rdbtype == RDB_TYPE_BITMAP) {
         if ((o = rdbLoadBitmapObject(rdb)) == NULL) return NULL;
     } else {

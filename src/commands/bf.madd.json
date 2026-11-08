@@ -1,0 +1,64 @@
+{
+    "BF.MADD": {
+        "summary": "Adds one or more items to a Bloom Filter. A filter will be created if it does not exist",
+        "complexity": "O(n * k * f), where n is the number of items, k is the number of hash functions and f is the number of sub-filters.",
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "item",
+                "type": "string",
+                "multiple": true
+            }
+        ],
+        "since": "8.12.0",
+        "group": "bloom",
+        "arity": -3,
+        "function": "bfMAddCommand",
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "BLOOM"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "INSERT"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "type": "array",
+            "items": {
+                "oneOf": [
+                    {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 1
+                    },
+                    {
+                        "type": "boolean"
+                    }
+                ]
+            }
+        }
+    }
+}

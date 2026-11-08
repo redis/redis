@@ -1,4 +1,6 @@
 #include "server.h"
+#include "t_bloom.h"
+#include "t_cuckoo.h"
 #include "bitroar.h"
 #include "bio.h"
 #include "atomicvar.h"
@@ -195,6 +197,10 @@ size_t lazyfreeGetFreeEffort(robj *key, robj *obj, int dbid) {
     } else if (obj->type == OBJ_ARRAY) {
         redisArray *ar = obj->ptr;
         return arCount(ar);
+    } else if (obj->type == OBJ_BLOOM) {
+        return ((SBChain *)obj->ptr)->nfilters + 2;
+    } else if (obj->type == OBJ_CUCKOO) {
+        return cuckooFreeEffort(obj);
     } else if (obj->type == OBJ_BITMAP) {
         /* The caller only compares the returned effort with
          * LAZYFREE_THRESHOLD. Stop at the first container count that exceeds

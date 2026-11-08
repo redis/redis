@@ -91,13 +91,15 @@
 #ifdef ENABLE_GCRA
 #define RDB_TYPE_GCRA 36                      /* GCRA object */
 #endif
+#define RDB_TYPE_BLOOM 37                     /* Native scalable Bloom filter */
+#define RDB_TYPE_CUCKOO 38                    /* Native scalable Cuckoo filter */
 /* NOTE: WHEN ADDING NEW RDB TYPE, UPDATE rdbIsObjectType(), and rdb_type_string[] */
 
 /* Test if a type is an object type. */
 #ifdef ENABLE_GCRA
-#define rdbIsObjectType(t) (((t) >= 0 && (t) <= 7) || ((t) >= 9 && (t) <= 36))
+#define rdbIsObjectType(t) (((t) >= 0 && (t) <= 7) || ((t) >= 9 && (t) <= 38))
 #else
-#define rdbIsObjectType(t) (((t) >= 0 && (t) <= 7) || ((t) >= 9 && (t) <= 35))
+#define rdbIsObjectType(t) (((t) >= 0 && (t) <= 7) || ((t) >= 9 && (t) <= 35) || (t) == RDB_TYPE_BLOOM || (t) == RDB_TYPE_CUCKOO)
 #endif
 
 /* Special RDB opcodes (saved/loaded with rdbSaveType/rdbLoadType). */

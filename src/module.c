@@ -4380,6 +4380,8 @@ int RM_KeyType(RedisModuleKey *key) {
 #endif
     case OBJ_ARRAY: return REDISMODULE_KEYTYPE_ARRAY;
     case OBJ_BITMAP: return REDISMODULE_KEYTYPE_BITMAP;
+    case OBJ_BLOOM: return REDISMODULE_KEYTYPE_BLOOM;
+    case OBJ_CUCKOO: return REDISMODULE_KEYTYPE_CUCKOO;
     default: return REDISMODULE_KEYTYPE_EMPTY;
     }
 }

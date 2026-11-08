@@ -1,0 +1,60 @@
+{
+    "CF.EXISTS": {
+        "summary": "Checks whether an item exists in a Cuckoo filter",
+        "complexity": "O(b * f), where b is the bucket size and f is the number of subfilters.",
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "item",
+                "type": "string"
+            }
+        ],
+        "since": "8.12.0",
+        "group": "cuckoo",
+        "arity": 3,
+        "function": "cfExistsCommand",
+        "command_flags": [
+            "READONLY",
+            "FAST"
+        ],
+        "acl_categories": [
+            "CUCKOO"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1
+                },
+                {
+                    "type": "boolean"
+                }
+            ]
+        }
+    }
+}
