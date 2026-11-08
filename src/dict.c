@@ -1768,13 +1768,29 @@ void dictReleaseIterator(dictIterator *iter)
     zfree(iter);
 }
 
+/* Returns entry `n` (0-based) of the bucket chain of `b`, which must hold
+ * more than `n` entries. */
+static dictEntry *chainEntryAt(dictBucket *b, unsigned long n) {
+    for (; b; b = getChildBucket(b)) {
+        unsigned long here = __builtin_popcount(b->presence);
+        if (n < here) {
+            bucketBits present = b->presence;
+            while (n--) present &= present - 1;
+            return b->slots[__builtin_ctz(present)];
+        }
+        n -= here;
+    }
+    assert(0);
+    return NULL;
+}
+
 /* Return a random entry from the hash table. Useful to
  * implement randomized algorithms */
 dictEntry *dictGetRandomKey(dict *d)
 {
     dictBucket *b;
     unsigned long h;
-    unsigned long listlen, listele;
+    unsigned long listlen;
 
     if (dictSize(d) == 0) return NULL;
     if (dictIsRehashing(d)) _dictRehashStep(d);
@@ -1797,50 +1813,26 @@ dictEntry *dictGetRandomKey(dict *d)
     /* Now we found a non empty bucket, but it may be a chain of buckets
      * and we need to get a random element from the chain. The only sane
      * way to do so is counting the elements and select a random index. */
-    listele = random() % listlen;
-    for (; b; b = getChildBucket(b)) {
-        unsigned long n = __builtin_popcount(b->presence);
-        if (listele < n) {
-            bucketBits present = b->presence;
-            while (listele--) present &= present - 1;
-            return b->slots[__builtin_ctz(present)];
-        }
-        listele -= n;
-    }
-    assert(0);
-    return NULL;
+    return chainEntryAt(b, random() % listlen);
 }
 
-/* This function samples the dictionary to return a few keys from random
- * locations.
- *
- * It does not guarantee to return all the keys specified in 'count', nor
- * it does guarantee to return non-duplicated elements, however it will make
- * some effort to do both things.
- *
- * Returned pointers to hash table entries are stored into 'des' that
- * points to an array of dictEntry pointers. The array must have room for
- * at least 'count' elements, that is the argument we pass to the function
- * to tell how many random elements we need.
- *
- * The function returns the number of items stored into 'des', that may
- * be less than 'count' if the hash table has less than 'count' elements
- * inside, or if not enough elements were found in a reasonable amount of
- * steps.
- *
- * Note that this function is not suitable when you need a good distribution
- * of the returned items, but only when you need to "sample" a given number
- * of continuous elements to run some kind of algorithm or to produce
- * statistics. However the function is much faster than dictGetRandomKey()
- * at producing N elements. */
-unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
+/* Called by dictSampleChains() for each bucket chain that is not empty, in the
+ * order of the walk. Returns non-zero to stop the walk. */
+typedef int dictSampleChainFn(dictBucket *b, void *privdata);
+
+/* The sampling walk shared by dictGetSomeKeys() and dictGetFairRandomKey().
+ * It does rehashing work proportional to 'count', which must not exceed the
+ * size of the dict. Then it calls fn() for the bucket chains of a "linear"
+ * range of the table: from a random bucket, the consecutive chains of both
+ * tables while rehashing, jumping to another random bucket after a run of
+ * empty buckets, for at most count*10 bucket indexes. */
+static inline void dictSampleChains(dict *d, unsigned long count,
+                                    dictSampleChainFn *fn, void *privdata)
+{
     unsigned long j; /* internal hash table id, 0 or 1. */
     unsigned long tables; /* 1 or 2 tables? */
-    unsigned long stored = 0, maxsizemask;
-    unsigned long maxsteps;
-
-    if (dictSize(d) < count) count = dictSize(d);
-    maxsteps = count*10;
+    unsigned long maxsizemask;
+    unsigned long maxsteps = count*10;
 
     /* Try to do a rehashing work proportional to 'count'. */
     for (j = 0; j < count; j++) {
@@ -1858,7 +1850,7 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
     /* Pick a random point inside the larger table. */
     unsigned long i = randomULong() & maxsizemask;
     unsigned long emptylen = 0; /* Continuous empty entries so far. */
-    while(stored < count && maxsteps--) {
+    while(maxsteps--) {
         for (j = 0; j < tables; j++) {
             /* Invariant of the dict.c rehashing: up to the indexes already
              * visited in ht[0] during the rehashing, there are no populated
@@ -1886,34 +1878,72 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
                 }
             } else {
                 emptylen = 0;
-                for (; b; b = getChildBucket(b)) {
-                    bucketBits present = b->presence;
-                    while (present) {
-                        dictEntry *he = b->slots[__builtin_ctz(present)];
-                        present &= present - 1;
-                        /* Collect all the elements of the buckets found non empty while iterating.
-                         * To avoid the issue of being unable to sample the end of a long chain,
-                         * we utilize the Reservoir Sampling algorithm to optimize the sampling process.
-                         * This means that even when the maximum number of samples has been reached,
-                         * we continue sampling until we reach the end of the chain.
-                         * See https://en.wikipedia.org/wiki/Reservoir_sampling. */
-                        if (stored < count) {
-                            des[stored] = he;
-                        } else {
-                            unsigned long r = randomULong() % (stored + 1);
-                            if (r < count) des[r] = he;
-                        }
-                        stored++;
-                    }
-                }
-                if (stored >= count) goto end;
+                if (fn(b, privdata)) return;
             }
         }
         i = (i+1) & maxsizemask;
     }
+}
 
-end:
-    return stored > count ? count : stored;
+typedef struct {
+    dictEntry **des;
+    unsigned long count, stored;
+} someKeysSample;
+
+/* dictSampleChainFn of dictGetSomeKeys(). */
+static inline int someKeysSampleChain(dictBucket *b, void *privdata) {
+    someKeysSample *s = privdata;
+    for (; b; b = getChildBucket(b)) {
+        bucketBits present = b->presence;
+        while (present) {
+            dictEntry *he = b->slots[__builtin_ctz(present)];
+            present &= present - 1;
+            /* Collect all the elements of the buckets found non empty while iterating.
+             * To avoid the issue of being unable to sample the end of a long chain,
+             * we utilize the Reservoir Sampling algorithm to optimize the sampling process.
+             * This means that even when the maximum number of samples has been reached,
+             * we continue sampling until we reach the end of the chain.
+             * See https://en.wikipedia.org/wiki/Reservoir_sampling. */
+            if (s->stored < s->count) {
+                s->des[s->stored] = he;
+            } else {
+                unsigned long r = randomULong() % (s->stored + 1);
+                if (r < s->count) s->des[r] = he;
+            }
+            s->stored++;
+        }
+    }
+    return s->stored >= s->count;
+}
+
+/* This function samples the dictionary to return a few keys from random
+ * locations.
+ *
+ * It does not guarantee to return all the keys specified in 'count', nor
+ * it does guarantee to return non-duplicated elements, however it will make
+ * some effort to do both things.
+ *
+ * Returned pointers to hash table entries are stored into 'des' that
+ * points to an array of dictEntry pointers. The array must have room for
+ * at least 'count' elements, that is the argument we pass to the function
+ * to tell how many random elements we need.
+ *
+ * The function returns the number of items stored into 'des', that may
+ * be less than 'count' if the hash table has less than 'count' elements
+ * inside, or if not enough elements were found in a reasonable amount of
+ * steps.
+ *
+ * Note that this function is not suitable when you need a good distribution
+ * of the returned items, but only when you need to "sample" a given number
+ * of continuous elements to run some kind of algorithm or to produce
+ * statistics. However the function is much faster than dictGetRandomKey()
+ * at producing N elements. */
+unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
+    someKeysSample s = {.des = des, .count = count, .stored = 0};
+
+    if (dictSize(d) < s.count) s.count = dictSize(d);
+    dictSampleChains(d, s.count, someKeysSampleChain, &s);
+    return s.stored > s.count ? s.count : s.stored;
 }
 
 
@@ -1965,18 +1995,54 @@ static void dictDefragBucket(dict *d, dictBucket *b, dictDefragFunctions *defrag
  * this function instead what we do is to consider a "linear" range of the table
  * that may be constituted of N buckets with chains of different lengths
  * appearing one after the other. Then we report a random element in the range.
- * In this way we smooth away the problem of different chain lengths. */
+ * In this way we smooth away the problem of different chain lengths.
+ *
+ * The range is the one dictGetSomeKeys(d, ..., GETFAIR_NUM_ENTRIES) samples,
+ * as both use dictSampleChains(): from a random bucket, consecutive bucket
+ * chains until they hold GETFAIR_NUM_ENTRIES entries. Instead of sampling the
+ * entries and picking one of the sample, this function counts the entries of
+ * the chains of the range and picks one of them, which has the same
+ * distribution without a random number per entry. */
 #define GETFAIR_NUM_ENTRIES 15
+
+typedef struct {
+    dictBucket *chains[GETFAIR_NUM_ENTRIES];
+    unsigned long counts[GETFAIR_NUM_ENTRIES];
+    unsigned long count, nchains, total;
+} fairRange;
+
+/* dictSampleChainFn of dictGetFairRandomKey(). Every chain it stores adds at
+ * least one entry, and it stops at 'count' entries, so at most 'count' (no
+ * more than GETFAIR_NUM_ENTRIES) chains are stored. */
+static inline int fairRangeChain(dictBucket *b, void *privdata) {
+    fairRange *r = privdata;
+    unsigned long n = chainEntries(b);
+    if (n) {
+        r->chains[r->nchains] = b;
+        r->counts[r->nchains++] = n;
+        r->total += n;
+    }
+    return r->total >= r->count;
+}
+
 dictEntry *dictGetFairRandomKey(dict *d) {
-    dictEntry *entries[GETFAIR_NUM_ENTRIES];
-    unsigned int count = dictGetSomeKeys(d,entries,GETFAIR_NUM_ENTRIES);
-    /* Note that dictGetSomeKeys() may return zero elements in an unlucky
-     * run() even if there are actually elements inside the hash table. So
-     * when we get zero, we call the true dictGetRandomKey() that will always
-     * yield the element if the hash table has at least one. */
-    if (count == 0) return dictGetRandomKey(d);
-    unsigned int idx = rand() % count;
-    return entries[idx];
+    fairRange r; /* Not zeroed: only the stored chains are read. */
+    unsigned long j, pick;
+
+    r.count = GETFAIR_NUM_ENTRIES;
+    r.nchains = r.total = 0;
+    if (dictSize(d) < r.count) r.count = dictSize(d);
+    dictSampleChains(d, r.count, fairRangeChain, &r);
+
+    /* Note that the walk may find no entry in an unlucky run even if there
+     * are entries in the hash table. So when we get zero, we call the true
+     * dictGetRandomKey() that will always yield the element if the hash table
+     * has at least one. */
+    if (r.total == 0) return dictGetRandomKey(d);
+
+    pick = randomULong() % r.total;
+    for (j = 0; pick >= r.counts[j]; j++) pick -= r.counts[j];
+    return chainEntryAt(r.chains[j], pick);
 }
 
 /* Function to reverse bits. Algorithm from:
@@ -3697,6 +3763,70 @@ int dictTest(int argc, char **argv, int flags) {
 
     TEST("Randomized operations with very long chains") {
         dictRandomizedTest(&fewBucketsDictType, accurate ? 200 : 20, 1000);
+    }
+
+    TEST("dictGetFairRandomKey() returns present entries, all of them, fairly") {
+        /* 0: plain buckets.
+         * 1: plain buckets, while rehashing to a bigger table.
+         * 2: plain buckets, while rehashing to a smaller table.
+         * 3: a single long bucket chain, so the range is that whole chain. */
+        dictSetResizeEnabled(DICT_RESIZE_ENABLE);
+        for (int t = 0; t < 4; t++) {
+            test_buckets = 0;
+            dict *d = dictCreate(t == 3 ? &chainDictType : &verifyDictType);
+            int n = t == 3 ? 300 : 2000;
+            long draws = (long)n * (accurate ? 1000 : 200);
+            long *hits = zcalloc(sizeof(long) * n);
+            if (t == 2) assert(dictExpand(d, (unsigned long)n * 2) == DICT_OK);
+            for (int i = 0; i < n; i++) assert(dictAdd(d, keyForId(i), NULL) == DICT_OK);
+            drainRehash(d);
+            if (t == 1 || t == 2) {
+                /* Rehash to a table twice or half the size: the more the
+                 * sizes differ, the less even the entries the walk finds,
+                 * and the less often some entries are picked. */
+                if (t == 1)
+                    assert(dictExpand(d, DICTHT_SIZE(d->ht_size_exp[0]) * DICT_BUCKET_SLOTS + 1) == DICT_OK);
+                else
+                    assert(dictShrink(d, n) == DICT_OK);
+                assert(d->ht_size_exp[1] == d->ht_size_exp[0] + (t == 1 ? 1 : -1));
+                /* Move 3/4 of ht[0], so that both tables hold entries and,
+                 * when shrinking, rehashidx is past the end of ht[1] (the
+                 * walk jumps over the indexes between them). Then keep the
+                 * draws from finishing the rehashing. */
+                while ((unsigned long)d->rehashidx < DICTHT_SIZE(d->ht_size_exp[0]) / 4 * 3)
+                    assert(dictRehash(d, 1));
+                assert(t == 1 || (unsigned long)d->rehashidx > DICTHT_SIZE(d->ht_size_exp[1]));
+                assert(d->ht_used[0] > 0 && d->ht_used[1] > 0);
+                dictPauseRehashing(d);
+            }
+            for (long k = 0; k < draws; k++) {
+                dictEntry *de = dictGetFairRandomKey(d);
+                assert(de != NULL);
+                int id = keyId(dictGetKey(de));
+                assert(id >= 0 && id < n);
+                hits[id]++;
+            }
+            if (t == 1 || t == 2) {
+                assert(dictIsRehashing(d));
+                dictResumeRehashing(d);
+            }
+            long mn = LONG_MAX, mx = 0;
+            for (int i = 0; i < n; i++) {
+                if (hits[i] < mn) mn = hits[i];
+                if (hits[i] > mx) mx = hits[i];
+            }
+            assert(mn > 0);
+            /* An entry is picked about in inverse proportion to how many
+             * entries the walk finds around it, which only is even when not
+             * rehashing. When shrinking, every walk that starts between the
+             * end of ht[1] and rehashidx jumps to rehashidx, so the entries
+             * right after it are picked much more often. */
+            if (t == 0 || t == 3) assert(mx < 4 * (draws / n));
+            if (t == 1) assert(mx < 8 * (draws / n));
+            dictVerify(d);
+            zfree(hits);
+            dictRelease(d);
+        }
     }
 
     TEST("Rehash during safe iteration is paused and resumes afterwards") {
