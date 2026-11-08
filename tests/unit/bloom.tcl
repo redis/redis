@@ -39,6 +39,8 @@ start_server {tags {"bloom"}} {
     }
 
     test {Native Bloom survives RDB reload with expiry and digest intact} {
+        set long_items {customer:12345678 customer:abcdefgh customer:12345678901234567890123456789012}
+        r bf.madd long-native {*}$long_items
         r pexpire bloom 60000
         set digest [r debug digest-value bloom]
         r debug reload
@@ -46,6 +48,8 @@ start_server {tags {"bloom"}} {
         assert_match {*RDB looks OK*} [exec src/redis-check-rdb $dump_path]
         assert_equal bloom [r type bloom]
         assert_equal $digest [r debug digest-value bloom]
+        assert_equal {1 1 1} [r bf.mexists long-native {*}$long_items]
+        r del long-native
         assert {[r pttl bloom] > 0}
         r persist bloom
     } {1} {needs:debug}
@@ -565,6 +569,15 @@ foreach version {0 1 2 3 4} {
     puts -nonewline $legacy_file [binary format ca* [string length $key] $key]
     puts -nonewline $legacy_file [string range $payload 1 end-10]
 }
+# Legacy-v4 long-item fixture; module hash word order follows the source host.
+if {$::tcl_platform(byteOrder) eq "littleEndian"} {
+    set long_payload [binary format H* 0201020102050202020a047b14ae47e17a843f02070484168ac58c2b23400240600200050c208800000002000088200000020100]
+} else {
+    set long_payload [binary format H* 0201020102050202020a047b14ae47e17a843f02070484168ac58c2b23400240600200050c200088000002004000100100020100]
+}
+puts -nonewline $legacy_file [binary format ca* 7 "\x0blegacy-long"]
+puts -nonewline $legacy_file [binary format H* 813016e5a289bef804]
+puts -nonewline $legacy_file $long_payload
 puts -nonewline $legacy_file [binary format H* ff0000000000000000]
 close $legacy_file
 
@@ -578,8 +591,12 @@ start_server [list tags {bloom external:skip} overrides [list dir $legacy_dir db
                 assert_equal 1 [r bf.exists legacy-$version [binary format ccc $i 0 -1]]
             }
         }
+        assert_equal 1 [r bf.exists legacy-long customer:12345678]
+        assert_equal 1 [r bf.card legacy-long]
+        r bf.add legacy-long customer:abcdefgh
         r save
         restart_server 0 true false
+        assert_equal {1 1} [r bf.mexists legacy-long customer:12345678 customer:abcdefgh]
         foreach version {0 1 2 3 4} {
             assert_equal bloom [r type legacy-$version]
             assert_equal 20 [r bf.card legacy-$version]

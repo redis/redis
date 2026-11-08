@@ -14,14 +14,13 @@
  */
 
 #include "murmurhash.h"
-#include "config.h"
+#include "endianconv.h"
 #include <string.h>
 
-/* Our hash function is MurmurHash2, 64 bit version.
- * It was modified for Redis in order to provide the same result in
- * big and little endian archs (endian neutral). */
+/* MurmurHash2 with selectable byte order for full words. HLL uses little
+ * endian; Bloom preserves the module's host-order hashing. Tails are unchanged. */
 REDIS_NO_SANITIZE("alignment")
-uint64_t MurmurHash64A (const void * key, size_t len, uint64_t seed) {
+uint64_t MurmurHash64A (const void * key, size_t len, uint64_t seed, int byte_order) {
     const uint64_t m = 0xc6a4a7935bd1e995;
     const int r = 47;
     uint64_t h = seed ^ (len * m);
@@ -31,22 +30,12 @@ uint64_t MurmurHash64A (const void * key, size_t len, uint64_t seed) {
     while(data != end) {
         uint64_t k;
 
-#if (BYTE_ORDER == LITTLE_ENDIAN)
-    #ifdef USE_ALIGNED_ACCESS
+#if defined(USE_ALIGNED_ACCESS) || BYTE_ORDER == BIG_ENDIAN
         memcpy(&k,data,sizeof(uint64_t));
-    #else
-        k = *((uint64_t*)data);
-    #endif
 #else
-        k = (uint64_t) data[0];
-        k |= (uint64_t) data[1] << 8;
-        k |= (uint64_t) data[2] << 16;
-        k |= (uint64_t) data[3] << 24;
-        k |= (uint64_t) data[4] << 32;
-        k |= (uint64_t) data[5] << 40;
-        k |= (uint64_t) data[6] << 48;
-        k |= (uint64_t) data[7] << 56;
+        k = *((uint64_t*)data);
 #endif
+        if (byte_order != BYTE_ORDER) k = REDIS_BSWAP64(k);
 
         k *= m;
         k ^= k >> r;
@@ -109,10 +98,10 @@ int murmurhashTest(int argc, char **argv, int flags) {
         memcpy(storage + offset, input, sizeof(input));
         for (size_t len = 0; len <= sizeof(input); len++) {
             const void *data = storage + offset;
-            uint64_t a = MurmurHash64A(data, len, UINT64_C(0xc6a4a7935bd1e995));
-            hll_ok &= MurmurHash64A(data, len, 0xadc83b19) == expected[len][0];
+            uint64_t a = MurmurHash64A(data, len, UINT64_C(0xc6a4a7935bd1e995), LITTLE_ENDIAN);
+            hll_ok &= MurmurHash64A(data, len, 0xadc83b19, LITTLE_ENDIAN) == expected[len][0];
             bloom_ok &= a == expected[len][1];
-            bloom_ok &= MurmurHash64A(data, len, a) == expected[len][2];
+            bloom_ok &= MurmurHash64A(data, len, a, LITTLE_ENDIAN) == expected[len][2];
         }
     }
     test_cond("MurmurHash64A preserves HLL hashes for all tails and alignments", hll_ok);

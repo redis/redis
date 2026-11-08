@@ -10,6 +10,7 @@
 #ifdef REDIS_TEST
 #include "server.h"
 #include "t_bloom.h"
+#include "murmurhash.h"
 #include "testhelp.h"
 #include <assert.h>
 #include <errno.h>
@@ -460,6 +461,82 @@ static void *bloomTestRelocate(void *ptr) {
     return moved;
 }
 
+/* RedisBloom's original word loads, emulated as big endian; tails stay little endian. */
+static void bloomTestHashByteOrder(void) {
+    static const uint64_t expected[][2] = {
+        {UINT64_C(0x9ab6a67cf1dba25c), UINT64_C(0xc7738b11b901c281)},
+        {UINT64_C(0xc564001653b6113e), UINT64_C(0x25f17e7d3476eab1)},
+        {UINT64_C(0xee8a2c5034719548), UINT64_C(0x847a31b3cc6b2a95)},
+        {UINT64_C(0x9ecc8a66b797e55b), UINT64_C(0xaafe50444fa22a8d)},
+        {UINT64_C(0x64e4c140cc59bfe9), UINT64_C(0x5eaa298629b711bc)},
+        {UINT64_C(0x4da27bd1c60e4f00), UINT64_C(0x27bece5d72415edc)},
+        {UINT64_C(0x5ca37f236f5ecd48), UINT64_C(0x527e6589aca54f5a)},
+        {UINT64_C(0x531f9f1daa2ffd8d), UINT64_C(0x866076fbd8a4e37d)},
+        {UINT64_C(0xef7f0aebf7b73970), UINT64_C(0x4bf510865db5999d)},
+    };
+    unsigned char storage[24];
+    int ok = 1;
+    for (size_t offset = 0; offset < 8; offset++) {
+        for (size_t i = 0; i < 16; i++) storage[offset+i] = (unsigned char)(i * 37);
+        for (size_t len = 8; len <= 16; len++) {
+            uint64_t a = MurmurHash64A(storage+offset, len, UINT64_C(0xc6a4a7935bd1e995), BIG_ENDIAN);
+            uint64_t b = MurmurHash64A(storage+offset, len, a, BIG_ENDIAN);
+            ok &= a == expected[len-8][0] && b == expected[len-8][1];
+        }
+    }
+    test_cond("Bloom preserves big-endian module hashes for full words, tails and alignments", ok);
+}
+
+static void bloomTestLegacyLongItem(void) {
+    /* Legacy-v4 payloads for customer:12345678, using the module's little/big
+     * endian word loads. The payload metadata itself uses RDB byte order. */
+    static const unsigned char little[] = {
+        0x02, 0x01, 0x02, 0x01, 0x02, 0x05, 0x02, 0x02, 0x02, 0x0a, 0x04, 0x7b,
+        0x14, 0xae, 0x47, 0xe1, 0x7a, 0x84, 0x3f, 0x02, 0x07, 0x04, 0x84, 0x16,
+        0x8a, 0xc5, 0x8c, 0x2b, 0x23, 0x40, 0x02, 0x40, 0x60, 0x02, 0x00, 0x05,
+        0x0c, 0x20, 0x88, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x88, 0x20, 0x00,
+        0x00, 0x02, 0x01, 0x00,
+    };
+    static const unsigned char big[] = {
+        0x02, 0x01, 0x02, 0x01, 0x02, 0x05, 0x02, 0x02, 0x02, 0x0a, 0x04, 0x7b,
+        0x14, 0xae, 0x47, 0xe1, 0x7a, 0x84, 0x3f, 0x02, 0x07, 0x04, 0x84, 0x16,
+        0x8a, 0xc5, 0x8c, 0x2b, 0x23, 0x40, 0x02, 0x40, 0x60, 0x02, 0x00, 0x05,
+        0x0c, 0x20, 0x00, 0x88, 0x00, 0x00, 0x02, 0x00, 0x40, 0x00, 0x10, 0x01,
+        0x00, 0x02, 0x01, 0x00,
+    };
+    const int orders[] = {LITTLE_ENDIAN, BIG_ENDIAN};
+    for (size_t i = 0; i < 2; i++) {
+        const unsigned char *payload = orders[i] == LITTLE_ENDIAN ? little : big;
+        bloom_hashval hash;
+        hash.a = MurmurHash64A("customer:12345678", 17, UINT64_C(0xc6a4a7935bd1e995), orders[i]);
+        hash.b = MurmurHash64A("customer:12345678", 17, hash.a, orders[i]);
+        sds encoded = sdsnewlen(payload, sizeof(little));
+        rio in;
+        rioInitWithBuffer(&in, encoded);
+        int corrupt;
+        robj *o = rdbLoadBloomObject(&in, 4, &corrupt);
+        test_cond("Import legacy 64-bit Bloom with a long item in either byte order",
+                  o && !corrupt && bloom_check_h(&((SBChain *)o->ptr)->filters[0].inner, hash) == 1);
+        if (o && orders[i] == BYTE_ORDER)
+            test_cond("Bloom uses host-order hashes for imported long items",
+                      SBChain_Check(o->ptr, "customer:12345678", 17) == 1);
+        sdsfree(encoded);
+        if (!o) return;
+        rio out;
+        rioInitWithBuffer(&out, sdsempty());
+        rdbSaveObjectType(&out, o);
+        rdbSaveObject(&out, o, NULL, 0);
+        rioInitWithBuffer(&in, out.io.buffer.ptr);
+        int type = rdbLoadObjectType(&in), err;
+        robj *copy = rdbLoadObject(type, &in, NULL, 0, RDB_VERSION, &err);
+        test_cond("Native RDB round trip preserves imported long-item membership",
+                  copy && bloom_check_h(&((SBChain *)copy->ptr)->filters[0].inner, hash) == 1);
+        if (copy) decrRefCount(copy);
+        decrRefCount(o);
+        sdsfree(out.io.buffer.ptr);
+    }
+}
+
 int bloomObjectTest(int argc, char **argv, int flags) {
     (void)argc;
     (void)argv;
@@ -467,6 +544,8 @@ int bloomObjectTest(int argc, char **argv, int flags) {
     int before_failed = __failed_tests;
     size_t before_memory = zmalloc_used_memory();
     int err;
+    bloomTestHashByteOrder();
+    bloomTestLegacyLongItem();
     SBChain *sb = SB_NewChain(2, 0.0001, BLOOM_OPT_FORCE64 | BLOOM_OPT_NOROUND, 2, &err);
     test_cond("Create native Bloom object", sb != NULL);
     if (!sb) return 1;
