@@ -88,6 +88,7 @@ typedef struct asmTask {
     client *main_channel_client;            /* Client for the main channel on the source side */
     client *rdb_channel_client;             /* Client for the RDB channel on the source side */
     long long retry_count;                  /* Number of retries for this task */
+    int retry_postponed;                    /* Logged that the retry waits for good replicas */
     mstime_t create_time;                   /* Task creation time */
     mstime_t start_time;                    /* Task start time */
     mstime_t end_time;                      /* Task end time */
@@ -404,6 +405,7 @@ void asmTaskReset(asmTask *task) {
     task->migrated_keys= 0;
     task->stream_eof_during_streaming = 0;
     task->cross_slot_during_propagating = 0;
+    task->retry_postponed = 0;
     replDataBufInit(&task->sync_buffer);
     task->main_channel_client = NULL;
     task->rdb_channel_client = NULL;
@@ -2394,6 +2396,11 @@ void clusterSyncSlotsCommand(client *c) {
                 }
             } else if (!strcasecmp(c->argv[j]->ptr, "capa")) {
                 /* Ignore unrecognized capabilities. This is for future extensions. */
+            } else if (c->flags & CLIENT_MASTER) {
+                /* Tolerate options of a newer source or master, an error
+                 * reply would fail the import task. */
+                serverLog(LL_WARNING, "Unknown CLUSTER SYNCSLOTS CONF option %s",
+                                      (char *)c->argv[j]->ptr);
             } else {
                 addReplyErrorFormat(c, "Unknown option %s", (char *)c->argv[j]->ptr);
             }
@@ -2901,6 +2908,23 @@ void asmBeforeSleep(void) {
     }
 }
 
+/* Restart a failed import task. */
+static void asmImportRetry(asmTask *task) {
+    /* If min-replicas-to-write is not satisfied, this node rejects the
+     * commands of the import stream and the task fails again. Do not
+     * retry until there are enough good replicas, log it once. */
+    if (!checkGoodReplicasStatus()) {
+        if (!task->retry_postponed)
+            serverLog(LL_NOTICE, "Import task %s is not retried, not enough good replicas", task->id);
+        task->retry_postponed = 1;
+        return;
+    }
+    asmTaskReset(task);
+    task->retry_count++;
+    serverAssert(task->state == ASM_NONE);
+    asmStartImportTask(task);
+}
+
 void asmCron(void) {
     static unsigned long long asm_cron_runs = 0;
     asm_cron_runs++;
@@ -2911,12 +2935,7 @@ void asmCron(void) {
     if (task->operation == ASM_IMPORT) {
         if (task->state == ASM_FAILED) {
             /* Retry every 1 second */
-            if (asm_cron_runs % 10 == 0) {
-                asmTaskReset(task);
-                task->retry_count++;
-                serverAssert(task->state == ASM_NONE);
-                asmStartImportTask(task);
-            }
+            if (asm_cron_runs % 10 == 0) asmImportRetry(task);
         } else if (task->state == ASM_WAIT_STREAM_EOF) {
             if (asmImportSendACK(task) == C_ERR) return;
 

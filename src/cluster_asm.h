@@ -26,6 +26,7 @@ void asmSlotSnapshotAndStreamStart(struct asmTask *task);
 void asmSlotSnapshotSucceed(struct asmTask *task);
 void asmSlotSnapshotFailed(struct asmTask *task);
 void asmCallbackOnFreeClient(client *c);
+void asmTaskSetFailed(struct asmTask *task, const char *fmt, ...);
 int asmMigrateInProgress(void);
 int asmImportInProgress(void);
 int asmHandoffInProgress(void);
