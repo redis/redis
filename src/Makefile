@@ -379,7 +379,14 @@ REDIS_LD=$(QUIET_LINK)$(CC) $(FINAL_LDFLAGS)
 # A '+' recipe prefix passes them through, but must not execute the linker in
 # dry-run, touch or query mode. Short flags occupy the first MAKEFLAGS word.
 REDIS_MAKE_SHORT_FLAGS = $(firstword -$(MAKEFLAGS))
-REDIS_LD_RECURSIVE = $(if $(or $(findstring n,$(REDIS_MAKE_SHORT_FLAGS)),$(findstring t,$(REDIS_MAKE_SHORT_FLAGS)),$(findstring q,$(REDIS_MAKE_SHORT_FLAGS))),,+)
+
+REDIS_LD_RECURSIVE = +
+ifneq (,$(or \
+    $(findstring n,$(REDIS_MAKE_SHORT_FLAGS)), \
+    $(findstring t,$(REDIS_MAKE_SHORT_FLAGS)), \
+    $(findstring q,$(REDIS_MAKE_SHORT_FLAGS))))
+REDIS_LD_RECURSIVE =
+endif
 REDIS_INSTALL=$(QUIET_INSTALL)$(INSTALL)
 
 CCCOLOR="\033[34m"
