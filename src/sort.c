@@ -42,8 +42,9 @@ redisSortOperation *createSortOperation(int type, robj *pattern) {
  * when it is non-NULL. */
 robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
     kvobj *kv;
-    char *p, *f, *k;
-    sds spat, ssub;
+    char *p, *f, *k, *ssub;
+    char subbuf[LONG_STR_SIZE];
+    sds spat;
     robj *keyobj, *fieldobj = NULL, *val;
 
     int prefixlen, sublen, postfixlen, fieldlen;
@@ -56,19 +57,20 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
         return subst;
     }
 
-    /* The substitution object may be specially encoded. If so we create
-     * a decoded object on the fly. Otherwise getDecodedObject will just
-     * increment the ref count, that we'll decrement later. */
-    subst = getDecodedObject(subst);
-    ssub = subst->ptr;
+    /* The substitution object may be integer encoded. If so we format it
+     * on the stack, as it is only copied into the key name below. */
+    if (sdsEncodedObject(subst)) {
+        ssub = subst->ptr;
+        sublen = sdslen(ssub);
+    } else {
+        sublen = ll2string(subbuf,sizeof(subbuf),(long)subst->ptr);
+        ssub = subbuf;
+    }
 
     /* If we can't find '*' in the pattern we return NULL as to GET a
      * fixed key does not make sense. */
     p = strchr(spat,'*');
-    if (!p) {
-        decrRefCount(subst);
-        return NULL;
-    }
+    if (!p) return NULL;
 
     /* Find out if we're dealing with a hash dereference. */
     if ((f = strstr(p+1, "->")) != NULL && *(f+2) != '\0') {
@@ -80,14 +82,12 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
 
     /* Perform the '*' substitution. */
     prefixlen = p-spat;
-    sublen = sdslen(ssub);
     postfixlen = sdslen(spat)-(prefixlen+1)-(fieldlen ? fieldlen+2 : 0);
     keyobj = createStringObject(NULL,prefixlen+sublen+postfixlen);
     k = keyobj->ptr;
     memcpy(k,spat,prefixlen);
     memcpy(k+prefixlen,ssub,sublen);
     memcpy(k+prefixlen+sublen,p+1,postfixlen);
-    decrRefCount(subst); /* Incremented by decodeObject() */
 
     /* Lookup substituted key */
     kv = lookupKeyRead(db, keyobj);
