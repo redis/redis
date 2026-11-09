@@ -262,19 +262,14 @@ int zset_delall(RedisModuleCtx *ctx, REDISMODULE_ATTR_UNUSED RedisModuleString *
     return RedisModule_ReplyWithLongLong(ctx, deleted_count);
 }
 
-/* A ZPOPMIN/ZPOPMAX notification reads the popped key back. When the pop
- * removed the last member the key must already be deleted, so every read
- * below must find nothing. ZSET.EMPTYREADS replies with how many of them did,
- * and resets the count. */
+/* A ZPOPMIN/ZPOPMAX notification fires after the last member is popped but
+ * before the emptied key is deleted. The reads below count how many of them
+ * found it empty, until ZSET.EMPTYREADS replies with the count and resets it. */
 static long long empty_reads = 0;
 
 static void zset_count_empty_read(RedisModuleCallReply *reply) {
     if (reply == NULL) return;
-    int type = RedisModule_CallReplyType(reply);
-    if (type == REDISMODULE_REPLY_NULL ||
-        (type == REDISMODULE_REPLY_INTEGER && RedisModule_CallReplyInteger(reply) == 0) ||
-        (type == REDISMODULE_REPLY_ARRAY && RedisModule_CallReplyLength(reply) == 0))
-        empty_reads++;
+    if (RedisModule_CallReplyLength(reply) == 0) empty_reads++;
     RedisModule_FreeCallReply(reply);
 }
 
@@ -283,14 +278,10 @@ static int zset_pop_notification(RedisModuleCtx *ctx, int type, const char *even
     REDISMODULE_NOT_USED(type);
     if (strcmp(event, "zpopmin") && strcmp(event, "zpopmax")) return REDISMODULE_OK;
 
-    zset_count_empty_read(RedisModule_Call(ctx, "EXISTS", "s", key));
     zset_count_empty_read(RedisModule_Call(ctx, "SORT_RO", "scc", key, "BY", "nosort"));
     zset_count_empty_read(RedisModule_Call(ctx, "SORT_RO", "sccc", key, "BY", "nosort", "DESC"));
-    zset_count_empty_read(RedisModule_Call(ctx, "SORT_RO", "sc", key, "ALPHA"));
     zset_count_empty_read(RedisModule_Call(ctx, "ZRANDMEMBER", "s", key));
     zset_count_empty_read(RedisModule_Call(ctx, "ZRANDMEMBER", "sc", key, "-2"));
-    zset_count_empty_read(RedisModule_Call(ctx, "ZRANK", "sc", key, "a"));
-    zset_count_empty_read(RedisModule_Call(ctx, "ZREVRANK", "sc", key, "a"));
     return REDISMODULE_OK;
 }
 

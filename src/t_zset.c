@@ -4983,6 +4983,11 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         if (ele) serverAssertWithInfo(c,zobj,zsetDel(zobj,ele));
         server.dirty++;
 
+        if (result_count == 0) { /* Do this only for the first iteration. */
+            char *events[2] = {"zpopmin","zpopmax"};
+            notifyKeyspaceEvent(NOTIFY_ZSET,events[where],key,c->db->id);
+        }
+
         if (ele) {
             if (use_nested_array) addReplyArrayLen(c,2);
             addReplyBulkCBuffer(c,ele,sdslen(ele));
@@ -4991,9 +4996,9 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         }
         ++result_count;
 
-        /* Read the rest before deleting their rank range, so each B+tree
-         * leaf is edited once instead of shifting its packed arrays for
-         * every item. */
+        /* The first pop above preserves the usual notification point. Read
+         * the rest before deleting their rank range, so each B+tree leaf is
+         * edited once instead of shifting its packed arrays for every item. */
         if (zobj->encoding == OBJ_ENCODING_BTREE && rangelen > 1) {
             zbtreeSet *zs = zobj->ptr;
             long remaining = rangelen - 1;
@@ -5021,24 +5026,17 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
 
     int64_t oldlen = llen, newlen = llen - result_count;
 
-    /* Remove the key, if indeed needed. Delete an emptied key before firing
-     * the pop notification, as ZREM does, so a subscriber reading the key
-     * never sees an existing sorted set with no members. */
-    int keyremoved = 0;
+    /* Remove the key, if indeed needed. */
     if (zsetLength(zobj) == 0) {
         if (deleted) *deleted = 1;
+
         dbDeleteSkipKeysizesUpdate(c->db, key);
-        keyremoved = 1;
-        newlen = -1;
+        notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
+
+        newlen = -1; 
     }
     updateKeysizesHist(c->db, OBJ_ZSET, oldlen, newlen);
-    keyModified(c, c->db, key, keyremoved ? NULL : zobj, 1);
-
-    /* Nothing below may use zobj: it may be freed, and a subscriber may
-     * change the key. */
-    char *events[2] = {"zpopmin","zpopmax"};
-    notifyKeyspaceEvent(NOTIFY_ZSET,events[where],key,c->db->id);
-    if (keyremoved) notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
+    keyModified(c, c->db, key, (newlen > 0) ? zobj : NULL, 1);
 
     if (c->cmd->proc == zmpopCommand) {
         /* Always replicate it as ZPOP[MIN|MAX] with COUNT option instead of ZMPOP. */
@@ -5198,8 +5196,10 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
         uniq = 0;
     }
 
-    /* If count is zero, serve it ASAP to avoid special cases later. */
-    if (count == 0) {
+    /* If count is zero, serve it ASAP to avoid special cases later. The set
+     * can also be empty when a module reads it from the notification of a
+     * pop that removed its last member, before the key is deleted. */
+    if (count == 0 || size == 0) {
         addReply(c,shared.emptyarray);
         return;
     }
@@ -5435,6 +5435,12 @@ void zrandmemberCommand(client *c) {
     /* Handle variant without <count> argument. Reply with simple bulk string */
     if ((zset = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]))== NULL ||
         checkType(c,zset,OBJ_ZSET)) {
+        return;
+    }
+
+    /* See zrandmemberWithCountCommand(). */
+    if (zsetLength(zset) == 0) {
+        addReplyNull(c);
         return;
     }
 
