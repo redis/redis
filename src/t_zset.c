@@ -3874,12 +3874,6 @@ static void zrangeResultHandlerDirectionSet(zrange_result_handler *handler, int 
     handler->reverse = reverse;
 }
 
-/* Records whether the source is a btree, whose (score, member) order the
- * STORE fast path may trust. See zrangeResultEmitCBufferForStore(). */
-static void zrangeResultHandlerSourceSet(zrange_result_handler *handler, robj *zobj) {
-    handler->source_is_btree = zobj->encoding == OBJ_ENCODING_BTREE;
-}
-
 /* This command implements ZRANGE, ZREVRANGE. */
 void genericZrangebyrankCommand(zrange_result_handler *handler,
     robj *zobj, long start, long end, int withscores, int reverse) {
@@ -4619,7 +4613,10 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
     }
 
     if (checkType(c,zobj,OBJ_ZSET)) goto cleanup;
-    zrangeResultHandlerSourceSet(handler, zobj);
+
+    /* Only a btree source is ordered, so only its order may be trusted by
+     * the STORE fast path. See zrangeResultEmitCBufferForStore(). */
+    handler->source_is_btree = zobj->encoding == OBJ_ENCODING_BTREE;
 
     /* Step 4: Pass this to the command-specific handler. The listpack and
      * B+tree range readers never resize zobj (no member index lookup or rehash
