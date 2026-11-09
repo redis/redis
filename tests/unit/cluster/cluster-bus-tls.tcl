@@ -211,5 +211,74 @@ if {$::tls} {
             R 0 config set tls-session-caching $old_caching
             file delete $sess
         }
+
+        test {a client-port session the bus would accept is not resumed on the cluster bus} {
+            # The test above presents a session the bus refuses in a full
+            # handshake anyway, so it cannot tell "not resumed" from "refused".
+            # Here the session is one the bus accepts: issued on the client
+            # port with the suite's client certificate, which chains to the CA
+            # the bus trusts, under tls-auth-clients yes, so that both
+            # listeners verify the same way and tag their sessions alike. A
+            # full handshake on the bus succeeds; what must not happen is a
+            # resumption. The bus accepts with a server context of its own, so
+            # the session is not in its cache and its ticket does not decrypt
+            # there: the bus runs a full handshake, while the same session
+            # still resumes on the client port.
+            set host [srv 0 host]
+            set port [srv 0 port]
+            set bus [expr {$port + 10000}]
+            set sess [file join [pwd] tests/tmp member.[pid].pem]
+            set client [list -cert $::tlsdir/client.crt -key $::tlsdir/client.key]
+            set old_auth [lindex [R 0 config get tls-auth-clients] 1]
+            set old_caching [lindex [R 0 config get tls-session-caching] 1]
+            R 0 config set tls-session-caching yes
+            R 0 config set tls-auth-clients yes
+            set variants {
+                {-tls1_2}            TLSv1.2 ticket
+                {-tls1_2 -no_ticket} TLSv1.2 id
+            }
+            if {[tls13_supported $host $port]} {
+                set variants [concat {{-tls1_3} TLSv1.3 ticket} $variants]
+            }
+            foreach {flags proto by} $variants {
+                # Issue on the client port, holding the connection open: the
+                # server drops the cached session of a connection its peer
+                # closed first.
+                file delete $sess
+                set issuing [openssl_s_client_open $host $port {*}$flags {*}$client -sess_out $sess]
+                wait_for_condition 50 100 {
+                    [file exists $sess] && ![catch {exec openssl sess_id -in $sess -noout}]
+                } else {
+                    fail "no session was saved from the client port"
+                }
+                set saved [exec openssl sess_id -in $sess -noout -text 2>@1]
+                assert_match "*Protocol*: $proto*" $saved
+                if {$by eq "ticket"} {
+                    assert_match {*TLS session ticket:*} $saved
+                } else {
+                    assert_no_match {*TLS session ticket:*} $saved
+                    assert {[regexp {Session-ID: [0-9A-F]+} $saved]}
+                }
+
+                # On the bus: a full handshake, and an accepted one. No alert
+                # reaches the client and no refusal is logged.
+                set rejected [count_log_message 0 "Error accepting cluster node connection"]
+                set out [openssl_s_client $host $bus {*}$flags {*}$client -sess_in $sess]
+                assert_match {*New, TLSv1*} $out
+                assert_no_match {*Reused, TLSv1*} $out
+                assert_no_match {*alert number*} $out
+                assert_equal $rejected [count_log_message 0 "Error accepting cluster node connection"]
+
+                # Positive control: the same session resumes where it was
+                # issued, so the bus saw a session that was live and resumable.
+                set out [openssl_s_client $host $port {*}$flags {*}$client -sess_in $sess]
+                assert_match {*Reused, TLSv1*} $out
+
+                assert_match {*New, TLSv1*} [openssl_s_client_close $issuing]
+            }
+            R 0 config set tls-auth-clients $old_auth
+            R 0 config set tls-session-caching $old_caching
+            file delete $sess
+        }
     }
 }
