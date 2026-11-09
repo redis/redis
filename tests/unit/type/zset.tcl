@@ -2906,6 +2906,21 @@ start_server {tags {"zset"}} {
         $rd close
     }
 
+    test "BZMOVE with wrong destination type while blocked" {
+        set rd [redis_deferring_client]
+        r del source{t} target{t}
+        r set target{t} notzset
+        $rd bzmove source{t} target{t} min 0
+        wait_for_blocked_clients_count 1
+
+        # The destination type is checked before the source is modified.
+        r zadd source{t} 1 a 2 b
+        assert_error "WRONGTYPE*" {$rd read}
+        assert_equal {a 1 b 2} [r zrange source{t} 0 -1 withscores]
+        assert_equal {notzset} [r get target{t}]
+        $rd close
+    }
+
     test {ZSET order consistency when elements are moved} {
         set original_max [lindex [r config get zset-max-ziplist-entries] 1]
         r config set zset-max-ziplist-entries 0
