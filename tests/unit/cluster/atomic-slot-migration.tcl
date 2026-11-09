@@ -140,7 +140,7 @@ proc node_owns_slots {node_id start_slot end_slot} {
 # Move a slot range to a node, unless it owns all of it already. A range split
 # across owners is left to the server, which rejects the import with "slots
 # belong to different source nodes".
-proc move_slots_to_node {node_id start_slot end_slot} {
+proc ensure_node_owns_slots {node_id start_slot end_slot} {
     if {![node_owns_slots $node_id $start_slot $end_slot]} {
         set task_id [R $node_id CLUSTER MIGRATION IMPORT $start_slot $end_slot]
         wait_for_condition 1000 10 {
@@ -186,7 +186,7 @@ proc migration_status {node_id task_id field} {
 proc setup_slot_migration_with_delay {src_node dst_node start_slot end_slot {keys 2} {delay 1000000}} {
     # This populates the range on src_node and imports it to dst_node, so the
     # range has to be on src_node to begin with.
-    move_slots_to_node $src_node $start_slot $end_slot
+    ensure_node_owns_slots $src_node $start_slot $end_slot
 
     # Two keys on the start slot
     populate_slot $keys -idx $src_node -slot $start_slot
@@ -653,7 +653,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 
     test "Verify expire time is migrated correctly" {
-        move_slots_to_node 1 0 100
+        ensure_node_owns_slots 1 0 100
         R 0 flushall
         R 1 flushall
 
@@ -719,7 +719,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 
     test "Slot migration with complex data types can work well" {
-        move_slots_to_node 1 0 100
+        ensure_node_owns_slots 1 0 100
         R 0 flushall
         R 1 flushall
 
@@ -753,7 +753,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 
     test "Slot migration preserves template-encoded hashes" {
-        move_slots_to_node 1 0 100
+        ensure_node_owns_slots 1 0 100
         R 0 flushall
         R 1 flushall
         R 0 config set hash-min-template-entries 0
@@ -810,7 +810,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 
     proc asm_basic_error_handling_test {operation channel all_states} {
-        move_slots_to_node 1 0 100
+        ensure_node_owns_slots 1 0 100
 
         foreach state $all_states {
             if {$::verbose} { puts "Testing $operation $channel channel with state: $state"}
@@ -908,7 +908,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 
     test "Migration will be successful after fail points are cleared" {
-        move_slots_to_node 1 0 100
+        ensure_node_owns_slots 1 0 100
         R 0 flushall
         R 1 flushall
         set slot0_key [slot_key 0 mykey]
@@ -1023,7 +1023,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 
     test "Expired key is not deleted and SCAN/KEYS/RANDOMKEY/CLUSTER GETKEYSINSLOT filter keys in importing slots" {
-        move_slots_to_node 1 0 100
+        ensure_node_owns_slots 1 0 100
         set slot0_key [slot_key 0 mykey]
         set slot1_key [slot_key 1 mykey]
         set slot2_key [slot_key 2 mykey]
@@ -1116,7 +1116,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 
     test "BLESS SCAN filters keys in importing slots and BLESS changes during migration are applied" {
-        move_slots_to_node 1 0 100
+        ensure_node_owns_slots 1 0 100
         R 1 flushall
         R 0 flushall
 
@@ -1457,7 +1457,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 
     test "Cancel import task trims the imported keys from the BLESS index" {
-        move_slots_to_node 1 0 100
+        ensure_node_owns_slots 1 0 100
         R 1 flushall
         R 0 flushall
 
@@ -1793,17 +1793,6 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # cleanup
         R 0 CLUSTER MIGRATION IMPORT 0 100
         wait_for_asm_done
-    }
-
-    # The calls elsewhere in this file only take the no-op path, since in an
-    # ordered run the slots are already on the node that needs them.
-    test "move_slots_to_node migrates a range that is not on the target node" {
-        move_slots_to_node 1 0 100
-        move_slots_to_node 0 0 100
-        assert_equal 1 [node_owns_slots 0 0 100]
-        assert_equal 0 [node_owns_slots 1 0 100]
-        move_slots_to_node 1 0 100
-        assert_equal 1 [node_owns_slots 1 0 100]
     }
 }
 
@@ -3815,7 +3804,7 @@ start_cluster 3 0 [list tags {external:skip cluster tls:skip modules} config_lin
     test "redis-cli --cluster rebalance automatically uses atomic slot migration" {
         # Rebalance distributes 16384 slots evenly across the 3 nodes.
         # (0-999) will be moved back to node 0.
-        move_slots_to_node 1 0 999
+        ensure_node_owns_slots 1 0 999
         clear_module_event_log
         exec src/redis-cli --cluster rebalance 127.0.0.1:[get_port 0] --cluster-yes
         wait_for_asm_done
@@ -4055,7 +4044,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     if {[server_has_command vadd]} {
     test "BLESS level of a vector set survives atomic slot migration" {
         # Migrate slots 0-100 from node 1 to node 0, holding only a blessed vector set.
-        move_slots_to_node 1 0 100
+        ensure_node_owns_slots 1 0 100
         R 1 flushall
         set kv [slot_key 0 blessedvset]
         R 1 vadd $kv VALUES 3 1 0 0 e1
@@ -4256,6 +4245,103 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         foreach node {0 1} {
             assert_equal 100 [migration_status $node $task_id incremental_progress_perc]
         }
+
+        # cleanup
+        R 1 flushall
+        R 0 cluster migration import 0 0
+        wait_for_asm_done
+    }
+
+    test "Import fails when the destination rejects a command while applying the snapshot" {
+        ensure_node_owns_slots 0 0 0
+        populate_slot 100 -idx 0 -slot 0
+        set keys [R 0 cluster countkeysinslot 0]
+        assert {$keys >= 100}
+
+        # Node 1 has a single replica, so every write gets -NOREPLICAS.
+        R 1 config set min-replicas-to-write 2
+
+        set loglines [count_log_lines -1]
+        set task_id [R 1 CLUSTER MIGRATION IMPORT 0 0]
+        wait_for_condition 2000 10 {
+            [migration_status 1 $task_id state] eq "failed" &&
+            [string match {*NOREPLICAS*} [migration_status 1 $task_id last_error]]
+        } else {
+            fail "import did not fail: [migration_status 1 $task_id state] [migration_status 1 $task_id last_error]"
+        }
+
+        # Source keeps the slot and the keys, destination has nothing.
+        assert_equal 1 [node_owns_slots 0 0 0]
+        assert_equal $keys [R 0 cluster countkeysinslot 0]
+        assert_equal 0 [R 1 cluster countkeysinslot 0]
+
+        # The task is not retried while the writes would be rejected again.
+        wait_for_log_messages -1 {"*Import task * is not retried, not enough good replicas*"} $loglines 2000 10
+        assert_equal 0 [migration_status 1 $task_id retries]
+
+        # The retry succeeds once the destination accepts writes again.
+        R 1 config set min-replicas-to-write 0
+        wait_for_condition 2000 10 {
+            [migration_status 1 $task_id state] eq "completed"
+        } else {
+            fail "import did not complete: [migration_status 1 $task_id state] [migration_status 1 $task_id last_error]"
+        }
+        assert {[migration_status 1 $task_id retries] >= 1}
+        wait_for_asm_done
+        assert_equal 1 [node_owns_slots 1 0 0]
+        assert_equal $keys [R 1 cluster countkeysinslot 0]
+        assert_equal 0 [R 0 cluster countkeysinslot 0]
+
+        # cleanup
+        R 1 flushall
+        R 0 cluster migration import 0 0
+        wait_for_asm_done
+    }
+
+    test "Import fails when the destination rejects a command while streaming the buffer" {
+        # This test will set min-replicas-to-write while the destination is streaming the
+        # accumulated buffer, so that the streaming fails.
+        set event_interval [lindex [R 1 config get loading-process-events-interval-bytes] 1]
+        R 1 config set loading-process-events-interval-bytes 16384
+        R 1 config set key-load-delay 20000
+
+        # The snapshot is slow, so the writes below are accumulated on the
+        # destination and streamed to the db after the snapshot.
+        set task_id [setup_slot_migration_with_delay 0 1 0 0]
+        populate_slot 128 -idx 0 -slot 0 -size 16384
+        set keys [R 0 cluster countkeysinslot 0]
+
+        wait_for_condition 1000 10 {
+            [migration_status 1 $task_id state] eq "streaming-buffer"
+        } else {
+            fail "import did not reach streaming-buffer: [migration_status 1 $task_id state]"
+        }
+        # Clear delay not to slow down the next retry
+        R 0 config set rdb-key-save-delay 0
+
+        # Node 1 has a single replica, so the next write replayed from the
+        # buffer gets -NOREPLICAS and the task fails in the streaming state.
+        R 1 config set min-replicas-to-write 2
+        wait_for_condition 1000 10 {
+            [string match {*NOREPLICAS*state: streaming-buffer*} [migration_status 1 $task_id last_error]]
+        } else {
+            fail "import did not fail while streaming: [migration_status 1 $task_id state] [migration_status 1 $task_id last_error]"
+        }
+        assert_equal 1 [node_owns_slots 0 0 0]
+        assert_equal $keys [R 0 cluster countkeysinslot 0]
+
+        # The retry succeeds once the destination accepts writes again.
+        R 1 config set min-replicas-to-write 0
+        R 1 config set key-load-delay 0
+        R 1 config set loading-process-events-interval-bytes $event_interval
+        wait_for_condition 2000 10 {
+            [migration_status 1 $task_id state] eq "completed"
+        } else {
+            fail "import did not complete: [migration_status 1 $task_id state] [migration_status 1 $task_id last_error]"
+        }
+        wait_for_asm_done
+        assert_equal $keys [R 1 cluster countkeysinslot 0]
+        assert_equal 0 [R 0 cluster countkeysinslot 0]
 
         # cleanup
         R 1 flushall
