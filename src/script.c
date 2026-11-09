@@ -36,7 +36,6 @@ static void exitScriptTimedoutMode(scriptRunCtx *run_ctx) {
     serverAssert(run_ctx == curr_run_ctx);
     serverAssert(scriptIsTimedout());
     run_ctx->flags &= ~SCRIPT_TIMEDOUT;
-    atomicSetWithSync(server.script_timedout, 0);
     blockingOperationEnds();
     replicationResumeMasterClient();
 }
@@ -46,7 +45,6 @@ static void enterScriptTimedoutMode(scriptRunCtx *run_ctx) {
     serverAssert(!scriptIsTimedout());
     /* Mark script as timedout */
     run_ctx->flags |= SCRIPT_TIMEDOUT;
-    atomicSetWithSync(server.script_timedout, 1);
     blockingOperationStarts();
 }
 

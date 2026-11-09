@@ -122,23 +122,6 @@ void enqueuePendingClientsToMainThread(client *c, int unbind) {
         clientCompressionPendingRemove(c);
         connUnbindEventLoop(c->conn);
     }
-    /* Move a client that is still owned by the main thread's return queue.
-     * This can happen when a deferred master command was processed by the
-     * main thread while BUSY, then queued back to its IO thread before the
-     * script ended. */
-    if (!c->io_thread_client_list_node && c->running_tid != IOTHREAD_MAIN_THREAD_ID) {
-        list *pending = mainThreadPendingClientsToIOThreads[c->tid];
-        listNode *node = listSearchKey(pending, c);
-        if (node) {
-            listDelNode(pending, node);
-            pthread_mutex_lock(&mainThreadPendingClientsMutexes[c->tid]);
-            listAddNodeTail(mainThreadPendingClients[c->tid], c);
-            pthread_mutex_unlock(&mainThreadPendingClientsMutexes[c->tid]);
-            triggerEventNotifier(mainThreadPendingClientsNotifiers[c->tid]);
-            return;
-        }
-    }
-
     /* Just skip if it already is transferred. */
     if (c->io_thread_client_list_node) {
         IOThread *t = &IOThreads[c->tid];
@@ -334,11 +317,14 @@ int isClientMustHandledByMainThread(client *c) {
     /* If RDB replication is done it's safe to move the master client to an IO thread.
      * Note that we keep the master client in main thread during failover so as
      * not to slow down the failover process by waiting the master replication
-     * cron in IO thread. */
+     * cron in IO thread. Keep it here while BUSY or while a command is
+     * deferred, so that IO threads can continue parsing without checking BUSY. */
     if (c->flags & CLIENT_MASTER &&
         server.repl_state == REPL_STATE_CONNECTED &&
         server.repl_rdb_ch_state == REPL_RDB_CH_STATE_NONE &&
-        server.failover_state == NO_FAILOVER)
+        server.failover_state == NO_FAILOVER &&
+        !isInsideYieldingLongCommand() &&
+        !(c->flags & CLIENT_PENDING_COMMAND))
     {
         return 0;
     }
@@ -701,17 +687,12 @@ int processClientsFromIOThread(IOThread *t) {
         if (runClientCronFromIOThread(c)) continue;
 
         /* Process the pending command and input buffer. */
-        if (!isClientReadErrorFatal(c) &&
-            ((c->io_flags & CLIENT_IO_PENDING_COMMAND) || (c->flags & CLIENT_MASTER))) {
+        if (!isClientReadErrorFatal(c) && c->io_flags & CLIENT_IO_PENDING_COMMAND) {
             /* IO-thread reads may enqueue one-by-one complete commands that are
              * executed in main thread without re-entering processInputBuffer().
              * Account this client as active before processing that handoff path. */
-            /* A master can return with a command deferred during BUSY, or
-             * buffered input explicitly scheduled after BUSY ends. */
-            if (c->io_flags & CLIENT_IO_PENDING_COMMAND)
-                c->flags |= CLIENT_PENDING_COMMAND;
-            if (c->flags & CLIENT_PENDING_COMMAND)
-                statsUpdateActiveClients(c);
+            statsUpdateActiveClients(c);
+            c->flags |= CLIENT_PENDING_COMMAND;
             if (processPendingCommandAndInputBuffer(c) == C_ERR) {
                 /* If the client is no longer valid, it must be freed safely. */
                 continue;

@@ -58,17 +58,21 @@ static void rdbChannelCleanup(void);
  * the instance is configured to have no persistence. */
 int RDBGeneratedByReplication = 0;
 
-/* Reuse the unstable branch recovery path after yielding ends. */
+/* Resume buffered replication after a yielding long command ends. Nested yields
+ * may still be BUSY. Clients owned by an IO thread (including those in transit)
+ * need no recovery: IO threads never stop parsing because of BUSY.
+ *
+ * Use tid, not running_tid: only a main-thread-owned client can safely join
+ * unblocked_clients. Module cleanup can run on a background thread holding the
+ * GIL, like unblockPostponedClients; do not use the IO-thread handoff protocol
+ * here. Queue execution for a safe point in beforeSleep, outside cleanup and
+ * processEventsWhileBlocked. CLIENT_UNBLOCKED keeps the client on the main
+ * thread until then. */
 void replicationResumeMasterClient(void) {
-    if (isInsideYieldingLongCommand() || !server.masterhost || !server.master)
-        return;
-    if (server.master->running_tid == IOTHREAD_MAIN_THREAD_ID) {
-        queueClientForReprocessing(server.master);
-    } else {
-        pauseIOThread(server.master->tid);
-        enqueuePendingClientsToMainThread(server.master, 0);
-        resumeIOThread(server.master->tid);
-    }
+    if (isInsideYieldingLongCommand()) return;
+    if (!server.masterhost || !server.master) return;
+    if (server.master->tid != IOTHREAD_MAIN_THREAD_ID) return;
+    queueClientForReprocessing(server.master);
 }
 
 /* Set the replication compression level. When Redis is built without
