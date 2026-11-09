@@ -1271,6 +1271,44 @@ start_server {tags {external:skip needs:debug} overrides {key-memory-histograms 
             r FLUSHALL
         }
     }
+
+    test "KEY-MEMORY-STATS - ZINTERSTORE with a repeated input key counts it once" {
+        r FLUSHALL
+        assert_equal OK [r DEBUG ALLOCSIZE-SLOTS-ASSERT 1]
+
+        # Leave the set halfway through a rehash: dictFind() on it during the
+        # command finishes the rehash and frees the old table, so its size
+        # changes while the command runs.
+        for {set b 0} {$b < 500} {incr b 100} {
+            set members {}
+            for {set n $b} {$n <= $b + 99} {incr n} {
+                lappend members "n$n"
+            }
+            assert_equal 100 [r SADD ss {*}$members]
+        }
+        set members {}
+        for {set n 500} {$n <= 539} {incr n} {
+            lappend members "n$n"
+        }
+        assert_equal 40 [r SADD ss {*}$members]
+
+        set zargs {}
+        for {set i 0} {$i <= 249} {incr i} {
+            lappend zargs 2 "n$i"
+        }
+        assert_equal 250 [r ZADD zt {*}$zargs]
+
+        # The same key appears twice among the inputs. Recording its size
+        # change once per argument would subtract the freed hash table twice
+        # and leave the tracked total short of a recount.
+        assert_equal 250 [r ZINTERSTORE zdst 3 zt ss ss]
+
+        # The assertion compares the tracked per-slot total against a recount
+        # on the next command, so a double count trips it here.
+        assert_equal PONG [r PING]
+        assert_equal OK [r DEBUG ALLOCSIZE-SLOTS-ASSERT 0]
+        r FLUSHALL
+    }
 }
 
 # Test that key-memory-histograms=no does NOT show key memory histogram

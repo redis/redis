@@ -3528,9 +3528,21 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
         serverPanic("Unknown operator");
     }
     if (server.memory_tracking_enabled) {
+        /* A caller may name the same input key more than once. The size of an
+         * input is recorded once per argument but the object is shared, so
+         * applying every argument's change would count it again each time it
+         * repeats. Only the first occurrence carries the change. */
         for (i = 0; i < setnum; i++) {
             robj *obj = src[i].subject;
+            int repeated = 0;
             if (obj == NULL) continue;
+            for (j = 0; j < i; j++) {
+                if (src[j].subject == obj) {
+                    repeated = 1;
+                    break;
+                }
+            }
+            if (repeated) continue;
             updateSlotAllocSize(c->db, getKeySlot(kvobjGetKey(obj)), obj,
                                 src[i].oldsize, kvobjAllocSize(obj));
         }
