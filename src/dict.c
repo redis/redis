@@ -408,6 +408,28 @@ static inline bucketBits findHashMatches(const uint8_t *hashes, uint8_t tag) {
     return m;
 }
 
+/* Prefetch the entries and the child bucket of bucket `b`, which must be in
+ * cache. An entry is the key itself or the dictEntry that holds it. */
+static inline void prefetchBucketEntries(const dictBucket *b) {
+    bucketBits present = b->presence;
+    while (present) {
+        redis_prefetch_read(b->slots[__builtin_ctz(present)]);
+        present &= present - 1;
+    }
+    if (b->chained) redis_prefetch_read(getChildBucket(b));
+}
+
+/* Prefetch the keys that the dictEntries of bucket `b` point to, in a dict
+ * with values. The entries should be in cache or on their way: nothing here
+ * branches on them, so their cache misses overlap instead of stalling. */
+static inline void prefetchBucketKeys(const dictBucket *b) {
+    bucketBits present = b->presence;
+    while (present) {
+        redis_prefetch_read(b->slots[__builtin_ctz(present)]->key);
+        present &= present - 1;
+    }
+}
+
 /* Child buckets are allocated and freed with these functions, which keep
  * child_buckets[] and the bucketChanged callback (which counts top-level and
  * child buckets) in sync. _dictClear() is the exception, as its callers
@@ -760,12 +782,53 @@ int dictShrink(dict *d, unsigned long size) {
     return _dictResize(d, size, NULL);
 }
 
+/* Prefetch what moving the bucket at `idx` of the old table reads and writes,
+ * except that bucket itself, which must be in cache. Expanding hashes the key
+ * of every entry, so it needs the entries, the child bucket and the buckets
+ * of the new table the entries can move to: those whose index has `idx` in
+ * its low bits, s1/s0 of them (2 when doubling), skipped when more than 4.
+ * Shrinking keeps the hash tags and does not read the entries: it needs the
+ * child bucket and the one bucket of the new table that `idx` masks to. */
+static inline void prefetchBucketRehash(dict *d, unsigned long idx) {
+    const dictBucket *b = &d->ht_table[0][idx];
+    int expanding = d->ht_size_exp[1] > d->ht_size_exp[0];
+    unsigned long s0 = DICTHT_SIZE(d->ht_size_exp[0]);
+    unsigned long s1 = DICTHT_SIZE(d->ht_size_exp[1]);
+
+    if (bucketIsEmpty(b)) return;
+    if (expanding) {
+        prefetchBucketEntries(b);
+        if (s1 / s0 <= 4)
+            for (unsigned long j = idx; j < s1; j += s0) redis_prefetch_write(&d->ht_table[1][j]);
+    } else {
+        if (b->chained) redis_prefetch_read(getChildBucket(b));
+        redis_prefetch_write(&d->ht_table[1][idx & (s1 - 1)]);
+    }
+}
+
 /* Helper function for `dictRehash` and `_dictBucketRehash` which rehashes all the keys
- * in the bucket chain at index `idx` from the old to the new hash HT. */
-static void rehashEntriesInBucketAtIndex(dict *d, uint64_t idx) {
+ * in the bucket chain at index `idx` from the old to the new hash HT.
+ * `prefetched` is 1 if prefetchBucketRehash() already ran on the bucket. */
+static void rehashEntriesInBucketAtIndex(dict *d, uint64_t idx, int prefetched) {
     dictBucket *root = &d->ht_table[0][idx];
+    int expanding = d->ht_size_exp[1] > d->ht_size_exp[0];
+
+    /* When expanding, a prefetch issued only now still pays off: the cache
+     * misses of the entries, and of the buckets they move to, overlap instead
+     * of being taken one entry at a time. A shrink reads its bucket of the new
+     * table right away, so prefetching it here would hide nothing. */
+    if (expanding && !prefetched) prefetchBucketRehash(d, idx);
+
     for (dictBucket *b = root; b; b = getChildBucket(b)) {
         bucketBits present = b->presence;
+        if (expanding) {
+            /* The entries of the root are prefetched above or by dictRehash(),
+             * those of a child bucket once it is in cache, which is now. */
+            if (b != root) prefetchBucketEntries(b);
+            /* In a dict with values, hashing also reads the key that each
+             * dictEntry points to. */
+            if (!d->type->no_value) prefetchBucketKeys(b);
+        }
         while (present) {
             int pos = __builtin_ctz(present);
             present &= present - 1;
@@ -773,7 +836,7 @@ static void rehashEntriesInBucketAtIndex(dict *d, uint64_t idx) {
             uint64_t h;
             uint8_t tag;
             /* Get the hash bits that locate the bucket in the new hash table */
-            if (d->ht_size_exp[1] > d->ht_size_exp[0]) {
+            if (expanding) {
                 const void *key = dictStoredKey2Key(d, dictGetKey(de));
                 h = dictGetHash(d, key);
                 tag = hashTag(h);
@@ -856,6 +919,14 @@ int dictRehash(dict *d, int n) {
         return 0;
     }
 
+    /* While a bucket moves, the next ones are prefetched in two steps, as in
+     * dictIteratorPrefetchAhead(): the bucket 2 ahead, then once it is 1
+     * ahead and in cache, what moving it needs (prefetchBucketRehash()). A step
+     * is skipped when this call would not get to move that bucket. The second
+     * one is also skipped when the bucket 1 ahead was not prefetched 2 ahead,
+     * which happens on the first pass and after skipping empty buckets. */
+    long fetched = -1;  /* The bucket of ht[0] prefetched last. */
+    long prepared = -1; /* The bucket prefetchBucketRehash() ran on last. */
     while(n-- && !tableIsEmpty(d, 0)) {
         /* Note that rehashidx can't overflow as we are sure there are more
          * entries or child buckets in ht[0] */
@@ -864,8 +935,19 @@ int dictRehash(dict *d, int n) {
             d->rehashidx++;
             if (--empty_visits == 0) return 1;
         }
+        long idx = d->rehashidx;
+        /* `n` is now the number of buckets left to move after this one. */
+        if (n >= 1 && idx + 1 == fetched) {
+            prefetchBucketRehash(d, fetched);
+            prepared = fetched;
+        }
+        if (n >= 2 && (unsigned long)idx + 2 < s0) {
+            fetched = idx + 2;
+            /* Moving the bucket clears it, so prefetch it for writing. */
+            redis_prefetch_write(&d->ht_table[0][fetched]);
+        }
         /* Move all the keys in this bucket from the old to the new hash HT */
-        rehashEntriesInBucketAtIndex(d, d->rehashidx);
+        rehashEntriesInBucketAtIndex(d, idx, idx == prepared);
         d->rehashidx++;
     }
 
@@ -929,7 +1011,7 @@ int _dictBucketRehash(dict *d, uint64_t idx) {
     {
         return 0;
     }
-    rehashEntriesInBucketAtIndex(d, idx);
+    rehashEntriesInBucketAtIndex(d, idx, 0);
     dictCheckRehashingCompleted(d);
     return 1;
 }
@@ -1623,17 +1705,6 @@ dictIterator *dictGetSafeIterator(dict *d) {
 }
 
 #define DICT_ITER_PREFETCH_AHEAD 16
-
-/* Prefetch the entries and the child bucket of bucket `b`, which must be in
- * cache. An entry is the key itself or the dictEntry that holds it. */
-static inline void prefetchBucketEntries(const dictBucket *b) {
-    bucketBits present = b->presence;
-    while (present) {
-        redis_prefetch_read(b->slots[__builtin_ctz(present)]);
-        present &= present - 1;
-    }
-    if (b->chained) redis_prefetch_read(getChildBucket(b));
-}
 
 /* Prefetch the values of the entries of bucket `b`, whose entries must be in
  * cache. */
