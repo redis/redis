@@ -3757,16 +3757,12 @@ static void zrangeResultEmitCBufferForStore(zrange_result_handler *handler,
      * destination may start as LISTPACK and convert mid-stream) and flushed
      * once in zrangeResultFinalizeStore().
      *
-     * Only a btree source is ordered by construction. A listpack source can
-     * be a restored payload that passed validation without being sorted, so
-     * appending its physical order could publish an unordered tree. A
-     * listpack feeds a btree destination only when the limits were lowered
-     * after it was built, so checked insertion costs nothing in practice.
-     *
-     * Checked insertion places every element by (score, member), so order
-     * never depends on the source. Without deep sanitization a restored
-     * listpack may also repeat a member, which no zset can hold. zsetAdd()
-     * would silently merge it, so assert that every element was new. */
+     * Only a btree source is sorted by construction. A listpack source may be
+     * a restored payload that validation accepted unsorted or, without deep
+     * sanitization, with a repeated member. It takes the checked path, which
+     * places each element by (score, member) and asserts that each one was
+     * new. That costs nothing in practice: a listpack source feeds a btree
+     * destination only when the limits were lowered after it was built. */
     if (!handler->reverse && handler->source_is_btree &&
         handler->dstobj->encoding == OBJ_ENCODING_BTREE)
     {
