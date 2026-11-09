@@ -315,6 +315,12 @@ void sortCommandGeneric(client *c, int readonly) {
         return;
     }
 
+    /* A module may sort a sorted set that was just emptied, e.g. from the
+     * notification fired by a ZPOP of its last member, before the key itself
+     * is deleted. Treat it as a missing key. */
+    if (sortval && sortval->type == OBJ_ZSET && zsetLength(sortval) == 0)
+        sortval = NULL;
+
     /* Now we need to protect sortval incrementing its count, in the future
      * SORT may have options able to overwrite/delete keys during the sorting
      * and the sorted key itself may get destroyed */
