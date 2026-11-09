@@ -1166,13 +1166,16 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 0 flushall
         R 1 flushall
 
-        # Nobody expires "a" by itself: not the source (it would stream an SREM)
-        # and not the destination once the import is done.
+        # Nobody expires "a" by itself, so only the import stream could.
         foreach id {0 1 3} { R $id debug set-active-expire 0 }
 
-        # A slow snapshot of another key, so that the commands below are only
-        # buffered on the destination until the snapshot is loaded, by which
-        # time member "a" is logically expired there.
+        # "a" has a TTL that has not elapsed on the source yet.
+        R 1 sadd $key a b
+        R 1 spexpire $key 3000 MEMBERS 1 a
+
+        # A slow snapshot, so that the commands below are only buffered on the
+        # destination until the snapshot is loaded, by which time the TTL of "a"
+        # in the snapshot has elapsed there.
         R 1 set [slot_key 0 other] x
         R 1 config set rdb-key-save-delay 3000000
         set task_id [R 0 CLUSTER MIGRATION IMPORT 0 100]
@@ -1182,32 +1185,28 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             fail "ASM task did not start"
         }
 
-        R 1 sadd $key a b
-        R 1 spexpire $key 1000 MEMBERS 1 a
-        after 1500
-
-        # The source is told not to expire "a", so the stream carries only the
-        # SADD. The destination must not expire "a" and propagate an SREM for it
-        # that the source never sent: the import client is a master client,
-        # although the destination is not a replica.
-        R 1 debug set-allow-access-expired 1
+        # On the source "a" has not expired yet, so it is still persisted. The
+        # stream carries the SADD and the SPERSIST.
         R 1 sadd $key c
+        assert_equal {1} [R 1 spersist $key MEMBERS 1 a]
+        after 3500
         R 1 config set rdb-key-save-delay 0
 
+        # The destination replays the SADD when the TTL of "a" in the snapshot
+        # has elapsed. It must not expire "a" (and propagate an SREM for it that
+        # the source never sent), or the SPERSIST that follows cannot restore it:
+        # the import client is a master client, although the destination is not
+        # a replica.
         wait_for_asm_done
         wait_for_ofs_sync [Rn 0] [Rn 3]
 
-        # "a" is still in the set on the destination and its replica, as it is
-        # on the source (they hide it, but did not remove it).
         R 3 readonly
         foreach id {0 3} {
-            R $id debug set-allow-access-expired 1
             assert_equal {a b c} [lsort [R $id smembers $key]]
-            R $id debug set-allow-access-expired 0
+            assert_equal {-1} [R $id sttl $key MEMBERS 1 a]
         }
 
         foreach id {0 1 3} { R $id debug set-active-expire 1 }
-        R 1 debug set-allow-access-expired 0
     }
 
     test "Eviction does not evict keys in importing slots" {
