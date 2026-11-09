@@ -597,20 +597,19 @@ void moduleUpdateAllocationLimit(void) {
  * rejects individual allocations larger than maxmemory, except during loading,
  * RESTORE, or on replicas configured to ignore maxmemory. */
 void *RM_TryCalloc(size_t nmemb, size_t size) {
-    unsigned long long limit = 0;
-    client *c = NULL;
-    /* Workers retain the original allocation behavior and must not read client state. */
-    if (pthread_equal(server.main_thread_id, pthread_self())) {
-        atomicGet(moduleAllocationLimit, limit);
-        c = server.executing_client;
-    }
-    /* Check overflow before multiplying; preserve loading and RESTORE compatibility. */
-    if (unlikely((size && nmemb > SIZE_MAX / size) ||
-                 (limit && nmemb * size > limit &&
-                  (!c || !c->cmd || c->cmd->proc != restoreCommand))))
-        return NULL;
+    if (unlikely(size && nmemb > SIZE_MAX / size)) return NULL;
+    size_t bytes = nmemb * size;
+    unsigned long long limit;
+    atomicGet(moduleAllocationLimit, limit);
 
-    return ztrycalloc_usable(nmemb * size,NULL);
+    if (unlikely(limit && bytes > limit) &&
+        pthread_equal(server.main_thread_id, pthread_self())) {
+        /* Workers retain the original behavior without reading client state. */
+        client *c = server.executing_client;
+        if (!c || !c->cmd || c->cmd->proc != restoreCommand) return NULL;
+    }
+
+    return ztrycalloc_usable(bytes,NULL);
 }
 
 /* Use like realloc() for memory obtained with RedisModule_Alloc(). */
