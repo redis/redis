@@ -5790,7 +5790,7 @@ void zmoveCommand(client *c) {
 /* BZMOVE <source> <destination> MIN|MAX <timeout> */
 void bzmoveCommand(client *c) {
     uint64_t timeout;
-    int where;
+    int where; /* ZSET_MIN or ZSET_MAX. */
 
     if (zsetGetPositionOrReply(c, c->argv[3], &where) != C_OK)
         return;
@@ -5804,6 +5804,8 @@ void bzmoveCommand(client *c) {
         if (c->flags & CLIENT_DENY_BLOCKING || equalStringObjects(c->argv[1], c->argv[2])) {
             addReplyNullArray(c);
         } else {
+            /* Block on the source only. Like BLMOVE, the destination type is
+             * checked when the command is re-executed, before the source is modified. */
             blockForKeys(c, BLOCKED_ZSET, c->argv + 1, 1, timeout, 0);
         }
     } else {
