@@ -3655,7 +3655,7 @@ struct zrange_result_handler {
     void                                *userdata;
     int                                  withscores;
     int                                  reverse;
-    int                                  source_is_btree;
+    int                                  source_encoding;
     int                                  should_emit_array_length;
     zbtreeAppendBatch                   *append_batch;
     zrangeResultBeginFunction            beginResultEmission;
@@ -3763,7 +3763,7 @@ static void zrangeResultEmitCBufferForStore(zrange_result_handler *handler,
      * places each element by (score, member) and asserts that each one was
      * new. That costs nothing in practice: a listpack source feeds a btree
      * destination only when the limits were lowered after it was built. */
-    if (!handler->reverse && handler->source_is_btree &&
+    if (!handler->reverse && handler->source_encoding == OBJ_ENCODING_BTREE &&
         handler->dstobj->encoding == OBJ_ENCODING_BTREE)
     {
         if (!handler->append_batch)
@@ -3786,7 +3786,7 @@ static void zrangeResultEmitLongLongForStore(zrange_result_handler *handler,
      * the integer member directly into a stack buffer instead of an sds --
      * zbtreeAppendBatchAdd() copies the bytes out synchronously, so the
      * stack buffer doesn't need to outlive this call. */
-    if (!handler->reverse && handler->source_is_btree &&
+    if (!handler->reverse && handler->source_encoding == OBJ_ENCODING_BTREE &&
         handler->dstobj->encoding == OBJ_ENCODING_BTREE)
     {
         char buf[LONG_STR_SIZE];
@@ -4610,9 +4610,9 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
 
     if (checkType(c,zobj,OBJ_ZSET)) goto cleanup;
 
-    /* Only a btree source is ordered, so only its order may be trusted by
-     * the STORE fast path. See zrangeResultEmitCBufferForStore(). */
-    handler->source_is_btree = zobj->encoding == OBJ_ENCODING_BTREE;
+    /* The STORE fast path trusts the order of a btree source only.
+     * See zrangeResultEmitCBufferForStore(). */
+    handler->source_encoding = zobj->encoding;
 
     /* Step 4: Pass this to the command-specific handler. The listpack and
      * B+tree range readers never resize zobj (no member index lookup or rehash
