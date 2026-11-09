@@ -189,8 +189,8 @@ start_server {tags {"modules external:skip"}} {
                 r zadd k 1 $member
                 assert_encoding $encoding k
                 assert_equal [list $member 1] [r $pop k]
-                # All four reads saw the emptied key before it was deleted.
-                assert_equal 4 [r zset.emptyreads]
+                # All the reads saw the emptied key before it was deleted.
+                assert_equal 7 [r zset.emptyreads]
                 assert_equal 0 [r exists k]
             }
         }

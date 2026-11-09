@@ -315,6 +315,12 @@ void sortCommandGeneric(client *c, int readonly) {
         return;
     }
 
+    /* A module may sort a sorted set that was just emptied, e.g. from the
+     * notification fired by a ZPOP of its last member, before the key itself
+     * is deleted. Treat it as a missing key. */
+    if (sortval && sortval->type == OBJ_ZSET && zsetLength(sortval) == 0)
+        sortval = NULL;
+
     /* Now we need to protect sortval incrementing its count, in the future
      * SORT may have options able to overwrite/delete keys during the sorting
      * and the sorted key itself may get destroyed */
@@ -503,24 +509,20 @@ void sortCommandGeneric(client *c, int readonly) {
 
         int rangelen = vectorlen;
         if (sortval->encoding == OBJ_ENCODING_BTREE) {
-            /* A module may sort a key that was just emptied, e.g. from the
-             * notification fired by a ZPOP of its last member, before the
-             * key itself is deleted. There is no rank to seek then. */
-            if (rangelen > 0) {
-                zbtreeIterator iter;
-                const unsigned char *ele;
-                size_t len;
-                unsigned long rank =
-                    desc ? zsetLength(sortval) - (unsigned long)start - 1 :
-                           (unsigned long)start;
-                serverAssert(zbtreeIteratorSeekRank(sortval->ptr, rank, &iter));
-                while(rangelen--) {
-                    serverAssert(zbtreeIteratorNext(&iter, desc, &ele, &len, NULL));
-                    vector[j].obj = createStringObject((char *)ele,len);
-                    vector[j].u.score = 0;
-                    vector[j].u.cmpobj = NULL;
-                    j++;
-                }
+            serverAssert(zsetLength(sortval) > 0);
+            zbtreeIterator iter;
+            const unsigned char *ele;
+            size_t len;
+            unsigned long rank =
+                desc ? zsetLength(sortval) - (unsigned long)start - 1 :
+                       (unsigned long)start;
+            serverAssert(zbtreeIteratorSeekRank(sortval->ptr, rank, &iter));
+            while(rangelen--) {
+                serverAssert(zbtreeIteratorNext(&iter, desc, &ele, &len, NULL));
+                vector[j].obj = createStringObject((char *)ele,len);
+                vector[j].u.score = 0;
+                vector[j].u.cmpobj = NULL;
+                j++;
             }
         } else {
             zset *zs = sortval->ptr;

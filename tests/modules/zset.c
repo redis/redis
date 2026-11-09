@@ -282,6 +282,11 @@ static int zset_pop_notification(RedisModuleCtx *ctx, int type, const char *even
     zset_count_empty_read(RedisModule_Call(ctx, "SORT_RO", "sccc", key, "BY", "nosort", "DESC"));
     zset_count_empty_read(RedisModule_Call(ctx, "ZRANDMEMBER", "s", key));
     zset_count_empty_read(RedisModule_Call(ctx, "ZRANDMEMBER", "sc", key, "-2"));
+    zset_count_empty_read(RedisModule_Call(ctx, "SORT_RO", "sc", key, "ALPHA"));
+    zset_count_empty_read(RedisModule_Call(ctx, "ZRANK", "sc", key, "a"));
+    zset_count_empty_read(RedisModule_Call(ctx, "ZREVRANK", "scc", key, "a", "WITHSCORE"));
+    RedisModule_FreeCallReply(RedisModule_Call(ctx, "DEBUG", "cs", "DIGEST-VALUE", key));
+    RedisModule_FreeCallReply(RedisModule_Call(ctx, "DEBUG", "c", "DIGEST"));
     return REDISMODULE_OK;
 }
 

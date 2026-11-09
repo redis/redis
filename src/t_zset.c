@@ -4798,6 +4798,12 @@ void zrankGenericCommand(client *c, int reverse) {
     if ((zobj = lookupKeyReadOrReply(c, key, reply)) == NULL || checkType(c, zobj, OBJ_ZSET)) {
         return;
     }
+    /* A module may read a zset emptied by ZPOP from its notification,
+     * before the key is deleted. Reply as if the member is missing. */
+    if (zsetLength(zobj) == 0) {
+        addReply(c, reply);
+        return;
+    }
     if (server.memory_tracking_enabled)
         oldsize = kvobjAllocSize(zobj);
     serverAssertWithInfo(c, ele, sdsEncodedObject(ele));
