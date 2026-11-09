@@ -182,15 +182,15 @@ start_server {tags {"modules external:skip"}} {
         close_replication_stream $repl
     } {} {needs:repl}
 
-    test {Module reads a sorted set emptied by a pop from its notification} {
+    test {A pop that empties a sorted set deletes it before notifying} {
         r del k
         foreach member [list a [string repeat x 80]] encoding {listpack btree} {
             foreach pop {zpopmin zpopmax} {
                 r zadd k 1 $member
                 assert_encoding $encoding k
                 assert_equal [list $member 1] [r $pop k]
-                # All four reads saw the emptied key before it was deleted.
-                assert_equal 4 [r zset.emptyreads]
+                # All eight reads found the key already deleted.
+                assert_equal 8 [r zset.emptyreads]
                 assert_equal 0 [r exists k]
             }
         }
