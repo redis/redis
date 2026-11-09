@@ -583,14 +583,30 @@ void *RM_Calloc(size_t nmemb, size_t size) {
     return zcalloc_usable(nmemb*size,NULL);
 }
 
+static redisAtomic unsigned long long moduleAllocationLimit = 0;
+
+/* Called on the main thread when configuration, loading or replication state changes. */
+void moduleUpdateAllocationLimit(void) {
+    unsigned long long limit = server.loading ||
+        (server.masterhost && server.repl_slave_ignore_maxmemory) ? 0 : server.maxmemory;
+    atomicSet(moduleAllocationLimit, limit);
+}
+
 /* Similar to RM_Calloc, but returns NULL in case of allocation failure, instead
- * of panicking. Also rejects size overflow and individual allocations larger
- * than maxmemory, except during loading or RESTORE. */
+ * of panicking. Also rejects size overflow on all threads. On the main thread,
+ * rejects individual allocations larger than maxmemory, except during loading,
+ * RESTORE, or on replicas configured to ignore maxmemory. */
 void *RM_TryCalloc(size_t nmemb, size_t size) {
-    client *c = server.executing_client;
+    unsigned long long limit = 0;
+    client *c = NULL;
+    /* Workers retain the original allocation behavior and must not read client state. */
+    if (pthread_equal(server.main_thread_id, pthread_self())) {
+        atomicGet(moduleAllocationLimit, limit);
+        c = server.executing_client;
+    }
     /* Check overflow before multiplying; preserve loading and RESTORE compatibility. */
     if (unlikely((size && nmemb > SIZE_MAX / size) ||
-                 (server.maxmemory && nmemb * size > server.maxmemory && !server.loading &&
+                 (limit && nmemb * size > limit &&
                   (!c || !c->cmd || c->cmd->proc != restoreCommand))))
         return NULL;
 
@@ -13697,11 +13713,11 @@ int moduleRegisterApi(const char *funcname, void *funcptr) {
 /* Global initialization at Redis startup. */
 void moduleRegisterCoreAPI(void);
 
-/* Currently, this function is just a placeholder for the module system
- * initialization steps that need to be run after server initialization.
+/* Module system initialization steps that need to run after server initialization.
  * A previous issue, selectDb() in createClient() requires that server.db has
  * been initialized, see #7323. */
 void moduleInitModulesSystemLast(void) {
+    moduleUpdateAllocationLimit();
 }
 
 

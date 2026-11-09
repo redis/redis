@@ -4778,6 +4778,7 @@ void startLoading(size_t size, int rdbflags, int async) {
 void loadingSetFlags(char *filename, size_t size, int async) {
     rdbFileBeingLoaded = filename;
     server.loading = 1;
+    moduleUpdateAllocationLimit();
     if (async == 1) server.async_loading = 1;
     server.loading_start_time = time(NULL);
     server.loading_loaded_bytes = 0;
@@ -4828,6 +4829,7 @@ void updateLoadingFileName(char* filename) {
 /* Loading finished */
 void stopLoading(int success) {
     server.loading = 0;
+    moduleUpdateAllocationLimit();
     server.async_loading = 0;
     server.loading_skip_checksum = 0;
     blockingOperationEnds();

@@ -3646,6 +3646,7 @@ void replicationSetMaster(char *ip, int port) {
      * replicationHandleMasterDisconnection which can trigger a re-connect
      * directly from within that call. */
     server.masterhost = sdsnew(ip);
+    moduleUpdateAllocationLimit();
     server.masterport = port;
 
     /* Update oom_score_adj */
@@ -3698,6 +3699,7 @@ void replicationUnsetMaster(void) {
      * replicationHandleMasterDisconnection which can attempt to re-connect. */
     sdsfree(server.masterhost);
     server.masterhost = NULL;
+    moduleUpdateAllocationLimit();
     if (server.master) freeClient(server.master);
     replicationDiscardCachedMaster();
     cancelReplicationHandshake(0);

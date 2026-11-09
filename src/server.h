@@ -3354,6 +3354,7 @@ void populateCommandLegacyRangeSpec(struct redisCommand *c);
 /* Modules */
 void moduleInitModulesSystem(void);
 void moduleInitModulesSystemLast(void);
+void moduleUpdateAllocationLimit(void);
 void modulesCron(void);
 int moduleOnLoad(int (*onload)(void *, void **, int), const char *path, void *handle, void **module_argv, int module_argc, int is_loadex, configSource source);
 int moduleLoad(const char *path, void **argv, int argc, int is_loadex, configSource source);
