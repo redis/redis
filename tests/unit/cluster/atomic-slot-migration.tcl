@@ -1161,7 +1161,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 
     test "Set member expiration is not applied by the ASM import stream" {
-        move_slots_to_node 1 0 100
+        ensure_node_owns_slots 1 0 100
         set key [slot_key 0 myset]
         R 0 flushall
         R 1 flushall
