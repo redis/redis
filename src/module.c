@@ -584,9 +584,17 @@ void *RM_Calloc(size_t nmemb, size_t size) {
 }
 
 /* Similar to RM_Calloc, but returns NULL in case of allocation failure, instead
- * of panicking. */
+ * of panicking. Also rejects size overflow and individual allocations larger
+ * than maxmemory, except during loading or RESTORE. */
 void *RM_TryCalloc(size_t nmemb, size_t size) {
-    return ztrycalloc_usable(nmemb*size,NULL);
+    client *c = server.executing_client;
+    /* Check overflow before multiplying; preserve loading and RESTORE compatibility. */
+    if (unlikely((size && nmemb > SIZE_MAX / size) ||
+                 (server.maxmemory && nmemb * size > server.maxmemory && !server.loading &&
+                  (!c || !c->cmd || c->cmd->proc != restoreCommand))))
+        return NULL;
+
+    return ztrycalloc_usable(nmemb * size,NULL);
 }
 
 /* Use like realloc() for memory obtained with RedisModule_Alloc(). */
