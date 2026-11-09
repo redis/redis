@@ -5526,6 +5526,39 @@ void bzmpopCommand(client *c) {
     zmpopGenericCommand(c, 2, 1);
 }
 
+/* Complete source bookkeeping after members have been removed. The size
+ * snapshot must precede member/rank lookups, which can finish a B+tree rehash. */
+static void zmoveUpdateSource(client *c, robj *key, kvobj *obj, size_t oldsize,
+                              int64_t oldlen, unsigned long moved, const char *event) {
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(c->db, getKeySlot(key->ptr), obj, oldsize, kvobjAllocSize(obj));
+    notifyKeyspaceEvent(NOTIFY_ZSET, event, key, c->db->id);
+    int64_t newlen = oldlen - moved;
+    if (newlen == 0) {
+        dbDeleteSkipKeysizesUpdate(c->db, key);
+        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, c->db->id);
+        newlen = -1;
+    }
+    updateKeysizesHist(c->db, OBJ_ZSET, oldlen, newlen);
+    keyModified(c, c->db, key, newlen > 0 ? obj : NULL, 1);
+    server.dirty += moved;
+}
+
+/* A destination can allocate memory without changing its logical contents.
+ * Only added or score-updated members invalidate WATCH and emit zadd. */
+static void zmoveUpdateDestination(client *c, robj *key, kvobj *obj, size_t oldsize,
+                                   int64_t oldlen, unsigned long added, unsigned long updated) {
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(c->db, getKeySlot(key->ptr), obj, oldsize, kvobjAllocSize(obj));
+    if (added)
+        updateKeysizesHist(c->db, OBJ_ZSET, oldlen, oldlen + added);
+    if (added || updated) {
+        keyModified(c, c->db, key, obj, 1);
+        notifyKeyspaceEvent(NOTIFY_ZSET, "zadd", key, c->db->id);
+        server.dirty += added + updated;
+    }
+}
+
 static void zmoveGenericCommand(client *c, robj *srckey, robj *dstkey, int where, robj *member) {
     kvobj *sobj = lookupKeyWriteOrReply(c, srckey, shared.nullarray[c->resp]);
     if (sobj == NULL || checkType(c, sobj, OBJ_ZSET)) return;
@@ -5569,25 +5602,8 @@ static void zmoveGenericCommand(client *c, robj *srckey, robj *dstkey, int where
 
     int64_t src_old_len = (int64_t)zsetLength(sobj);
     serverAssertWithInfo(c, sobj, zsetDel(sobj, ele));
-    if (server.memory_tracking_enabled)
-        updateSlotAllocSize(c->db, getKeySlot(srckey->ptr), sobj, src_old_size, kvobjAllocSize(sobj));
-
-    if (member) {
-        notifyKeyspaceEvent(NOTIFY_ZSET, "zrem", srckey, c->db->id);
-    } else {
-        char *events[2] = {"zpopmin", "zpopmax"};
-        notifyKeyspaceEvent(NOTIFY_ZSET, events[where], srckey, c->db->id);
-    }
-
-    int64_t src_new_len = src_old_len - 1;
-    if (src_new_len == 0) {
-        dbDeleteSkipKeysizesUpdate(c->db, srckey);
-        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", srckey, c->db->id);
-        src_new_len = -1;
-    }
-    updateKeysizesHist(c->db, OBJ_ZSET, src_old_len, src_new_len);
-    keyModified(c, c->db, srckey, src_new_len > 0 ? sobj : NULL, 1);
-    server.dirty++;
+    const char *event = member ? "zrem" : (where == ZSET_MIN ? "zpopmin" : "zpopmax");
+    zmoveUpdateSource(c, srckey, sobj, src_old_size, src_old_len, 1, event);
 
     int64_t dst_old_len = 0;
     if (!dobj) {
@@ -5604,17 +5620,8 @@ static void zmoveGenericCommand(client *c, robj *srckey, robj *dstkey, int where
     int retval = zsetAdd(dobj, score, ele, ZADD_IN_NONE, &retflags, NULL);
     serverAssert(retval);
 
-    if (server.memory_tracking_enabled)
-        updateSlotAllocSize(c->db, getKeySlot(dstkey->ptr), dobj, dst_old_size, kvobjAllocSize(dobj));
-
-    if (retflags & ZADD_OUT_ADDED) {
-        updateKeysizesHist(c->db, OBJ_ZSET, dst_old_len, dst_old_len + 1);
-    }
-    if (retflags & (ZADD_OUT_ADDED | ZADD_OUT_UPDATED)) {
-        keyModified(c, c->db, dstkey, dobj, 1);
-        notifyKeyspaceEvent(NOTIFY_ZSET, "zadd", dstkey, c->db->id);
-        server.dirty++;
-    }
+    zmoveUpdateDestination(c, dstkey, dobj, dst_old_size, dst_old_len,
+                           !!(retflags & ZADD_OUT_ADDED), !!(retflags & ZADD_OUT_UPDATED));
 
     addReplyArrayLen(c, 2);
     addReplyBulkCBuffer(c, ele, sdslen(ele));
@@ -5722,27 +5729,9 @@ static void zmoveRangeCommand(client *c, zrangespec *range, long limit) {
         serverPanic("Unknown sorted set encoding");
     }
     serverAssert(deleted == state.moved);
-    if (server.memory_tracking_enabled) {
-        updateSlotAllocSize(c->db, getKeySlot(srckey->ptr), sobj, src_old_size, kvobjAllocSize(sobj));
-        updateSlotAllocSize(c->db, getKeySlot(dstkey->ptr), state.dstobj,
-                            state.dst_old_size, kvobjAllocSize(state.dstobj));
-    }
-    int64_t src_new_len = src_old_len - state.moved;
-    notifyKeyspaceEvent(NOTIFY_ZSET, "zrem", srckey, c->db->id);
-    if (src_new_len == 0) {
-        dbDeleteSkipKeysizesUpdate(c->db, srckey);
-        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", srckey, c->db->id);
-        src_new_len = -1;
-    }
-    updateKeysizesHist(c->db, OBJ_ZSET, src_old_len, src_new_len);
-    keyModified(c, c->db, srckey, src_new_len > 0 ? sobj : NULL, 1);
-    if (state.added)
-        updateKeysizesHist(c->db, OBJ_ZSET, dst_old_len, dst_old_len + state.added);
-    if (state.added || state.updated) {
-        keyModified(c, c->db, dstkey, state.dstobj, 1);
-        notifyKeyspaceEvent(NOTIFY_ZSET, "zadd", dstkey, c->db->id);
-    }
-    server.dirty += state.moved + state.added + state.updated;
+    zmoveUpdateSource(c, srckey, sobj, src_old_size, src_old_len, state.moved, "zrem");
+    zmoveUpdateDestination(c, dstkey, state.dstobj, state.dst_old_size, dst_old_len,
+                           state.added, state.updated);
 }
 
 /* ZMOVEMEMBER <source> <destination> <member> */
