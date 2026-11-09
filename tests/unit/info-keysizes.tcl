@@ -1298,10 +1298,10 @@ start_server {tags {external:skip needs:debug} overrides {key-memory-histograms 
         }
         assert_equal 250 [r ZADD zt {*}$zargs]
 
-        # The same key appears twice among the inputs. Recording its size
-        # change once per argument would subtract the freed hash table twice
-        # and leave the tracked total short of a recount.
-        assert_equal 250 [r ZINTERSTORE zdst 3 zt ss ss]
+        # Both keys appear twice in non-adjacent positions. Recording a size
+        # change once per argument would subtract the set's freed hash table
+        # twice and leave the tracked total short of a recount.
+        assert_equal 250 [r ZINTERSTORE zdst 4 zt ss zt ss]
 
         # The assertion compares the tracked per-slot total against a recount
         # on the next command, so a double count trips it here.
