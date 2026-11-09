@@ -3768,7 +3768,8 @@ static void zrangeResultEmitCBufferForStore(zrange_result_handler *handler,
      * listpack may also repeat a member, which no zset can hold. zsetAdd()
      * would silently merge it, so assert that every element was new. */
     if (!handler->reverse && handler->source_is_btree &&
-        handler->dstobj->encoding == OBJ_ENCODING_BTREE) {
+        handler->dstobj->encoding == OBJ_ENCODING_BTREE)
+    {
         if (!handler->append_batch)
             handler->append_batch = zbtreeAppendBatchCreate(handler->dstobj->ptr);
         zbtreeAppendBatchAdd(handler->append_batch, score, value, value_length_in_bytes);
@@ -3790,7 +3791,8 @@ static void zrangeResultEmitLongLongForStore(zrange_result_handler *handler,
      * zbtreeAppendBatchAdd() copies the bytes out synchronously, so the
      * stack buffer doesn't need to outlive this call. */
     if (!handler->reverse && handler->source_is_btree &&
-        handler->dstobj->encoding == OBJ_ENCODING_BTREE) {
+        handler->dstobj->encoding == OBJ_ENCODING_BTREE)
+    {
         char buf[LONG_STR_SIZE];
         size_t len = ll2string(buf, sizeof(buf), value);
         if (!handler->append_batch)
