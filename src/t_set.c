@@ -2909,61 +2909,10 @@ void srandmemberWithCountCommand(client *c) {
     /* For CASE 3 and CASE 4 we need an auxiliary dictionary. */
     d = dictCreate(&sdsReplyDictType);
 
-    /* Hashtable fast path (covers CASE 3 and CASE 4): for a hashtable-encoded
-     * set the members are live SDS, so we BORROW the member pointers into the
-     * dedup dict (no per-element sdsnewlen) and emit them with addReplyBulkCBuffer
-     * (copies into the reply buffer, takes no ownership). Saves up to `size`
-     * (CASE 3) / `count` (CASE 4) sds alloc+free per call.
-     *
-     * This borrow is safe on two invariants that MUST hold:
-     *  1. The source set is not mutated for the lifetime of the borrowed pointers:
-     *     the logically expired members (if any) were already removed above,
-     *     and nothing below adds or deletes members. A member that has an
-     *     expiration is a SetEntry, whose pointer is the member sds as well.
-     *  2. `sdsReplyDictType` has a NULL key destructor, so neither the CASE 3
-     *     removals (dictUnlink + dictFreeUnlinkedEntry, no sdsfree) nor the final
-     *     dictRelease ever free the borrowed member SDS (still owned by the set).
-     * intset/listpack/listpackex members are not borrowable (integers / not
-     * live SDS) and keep the allocating path below. */
-    if (set->encoding == OBJ_ENCODING_HT) {
-        if (count*SRANDMEMBER_SUB_STRATEGY_MUL > size) {
-            /* CASE 3: add all members (borrowed), then remove random to count. */
-            setTypeIterator si;
-            setTypeInitIterator(&si, set, SET_ITER_RAW);
-            dictExpand(d, size);
-            while (setTypeNext(&si, &str, &len, &llele) != -1)
-                serverAssert(dictAdd(d, (sds)str, NULL) == DICT_OK);
-            setTypeResetIterator(&si);
-            serverAssert(dictSize(d) == size);
-            while (size > count) {
-                dictEntry *de = dictGetFairRandomKey(d);
-                dictUnlink(d, dictGetKey(de));
-                dictFreeUnlinkedEntry(d, de); /* borrowed key: no sdsfree */
-                size--;
-            }
-        } else {
-            /* CASE 4: sample random members (borrowed) until count unique. */
-            unsigned long added = 0;
-            dictExpand(d, count);
-            while (added < count) {
-                setTypeRandomElement(set, &str, &len, &llele);
-                if (dictAdd(d, (sds)str, NULL) == DICT_OK)
-                    added++;
-            }
-        }
-        /* Emit the borrowed members (copied into the reply, not owned). */
-        dictIterator di;
-        dictEntry *de;
-        addReplyArrayLen(c, count);
-        dictInitIterator(&di, d);
-        while ((de = dictNext(&di)) != NULL) {
-            sds ele = dictGetKey(de);
-            addReplyBulkCBuffer(c, ele, sdslen(ele));
-        }
-        dictResetIterator(&di);
-        dictRelease(d);
-        return;
-    }
+    /* Borrow hashtable members: expired members were removed above, and the set
+     * is unchanged during sampling. Other encodings need SDS copies.
+     * sdsReplyDictType has no key destructor; explicitly free only copies. */
+    int copy_members = set->encoding != OBJ_ENCODING_HT;
 
     /* CASE 3:
      * The number of elements inside the set is not greater than
@@ -2983,7 +2932,9 @@ void srandmemberWithCountCommand(client *c) {
         while (setTypeNext(&si, &str, &len, &llele) != -1) {
             int retval = DICT_ERR;
 
-            if (str == NULL) {
+            if (!copy_members) {
+                retval = dictAdd(d, (sds)str, NULL);
+            } else if (str == NULL) {
                 retval = dictAdd(d,sdsfromlonglong(llele),NULL);
             } else {
                 retval = dictAdd(d, sdsnewlen(str, len), NULL);
@@ -2998,7 +2949,7 @@ void srandmemberWithCountCommand(client *c) {
             dictEntry *de;
             de = dictGetFairRandomKey(d);
             dictUnlink(d,dictGetKey(de));
-            sdsfree(dictGetKey(de));
+            if (copy_members) sdsfree(dictGetKey(de));
             dictFreeUnlinkedEntry(d,de);
             size--;
         }
@@ -3015,7 +2966,9 @@ void srandmemberWithCountCommand(client *c) {
         dictExpand(d, count);
         while (added < count) {
             setTypeRandomElement(set, &str, &len, &llele);
-            if (str == NULL) {
+            if (!copy_members) {
+                sdsele = (sds)str;
+            } else if (str == NULL) {
                 sdsele = sdsfromlonglong(llele);
             } else {
                 sdsele = sdsnewlen(str, len);
@@ -3025,7 +2978,7 @@ void srandmemberWithCountCommand(client *c) {
              * in the result dictionary. */
             if (dictAdd(d,sdsele,NULL) == DICT_OK)
                 added++;
-            else
+            else if (copy_members)
                 sdsfree(sdsele);
         }
     }
@@ -3037,8 +2990,13 @@ void srandmemberWithCountCommand(client *c) {
 
         addReplyArrayLen(c,count);
         dictInitIterator(&di, d);
-        while((de = dictNext(&di)) != NULL)
-            addReplyBulkSds(c,dictGetKey(de));
+        while((de = dictNext(&di)) != NULL) {
+            sds ele = dictGetKey(de);
+            if (copy_members)
+                addReplyBulkSds(c, ele);
+            else
+                addReplyBulkCBuffer(c, ele, sdslen(ele));
+        }
         dictResetIterator(&di);
         dictRelease(d);
     }
