@@ -1362,6 +1362,25 @@ start_cluster 1 0 {tags {external:skip cluster needs:debug} overrides {cluster-s
         r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
     }
 
+    test "SLOT-ALLOCSIZE - HGETDEL miss refreshes slot alloc after rehash" {
+        # Missing-field HGETDEL must still account for a rehash shrink from
+        # the lookup path that skips per-call allocsize updates.
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+        r FLUSHALL
+
+        r DEL "h{t}"
+        for {set i 0} {$i < 265} {incr i} {
+            r HSET "h{t}" "f-$i" [string repeat x 20]
+        }
+        assert_encoding hashtable "h{t}"
+
+        for {set i 0} {$i < 400} {incr i} {
+            r HGETDEL "h{t}" FIELDS 1 missing
+        }
+
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
+    }
+
     test "SLOT-ALLOCSIZE - SUNION/SDIFF family keep slot alloc tracking across rehash" {
         # Every command routed through sunionDiffGenericCommand() is exercised
         # against a source set that is mid-rehash. The DIFF commands dictFind()

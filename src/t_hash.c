@@ -5297,8 +5297,13 @@ void hgetdelCommand(client *c) {
         }
     }
 
-    /* Return if no modification has been made. */
+    /* Return if no modification has been made. Lookups above suppress
+     * per-call allocsize updates (HFE_LAZY_NO_UPDATE_ALLOCSIZES), so a
+     * completed incremental rehash still needs a single refresh here. */
     if (vecSize(vexpired) == 0 && vecSize(vdeleted) == 0) {
+        if (o && server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o,
+                                oldsize, kvobjAllocSize(o));
         vecRelease(vexpired);
         vecRelease(vdeleted);
         return;
