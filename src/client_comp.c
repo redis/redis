@@ -374,10 +374,15 @@ int clientCompressAndWrite(client *c, int *tot_written, int force_flush) {
         state->input.consumed = 0;
     }
 
-    if (state->output.written < state->output.size) {
+    int input_pending = state->input.written > state->input.consumed;
+    int compressor_has_work = input_pending ||
+                              state->write_flush_pending ||
+                              (force_flush && state->frame_open);
+    if (state->output.written < state->output.size && compressor_has_work) {
         /* Force flush when requested or after `compression_max_latency` ms have
          * passed. Note, this only makes sense when we have enough space for
-         * compressing data. */
+         * compressing data. Do not call the compressor with no input and no
+         * open frame, since ending that state would create an empty frame. */
         int flush = force_flush ||
                     mstime() - state->last_write >= server.compression_max_latency;
         if (state->type->compress(state, flush) == -1) {
@@ -392,7 +397,7 @@ int clientCompressAndWrite(client *c, int *tot_written, int force_flush) {
     /* Try to write all the data available in the compressed buffer. */
     *tot_written = 0;
     int towrite = state->output.written - state->output.consumed;
-    do {
+    while (towrite > 0) {
         int written = connWrite(
             c->conn, state->output.data + state->output.consumed, towrite);
         if (written < 0) {
@@ -411,7 +416,7 @@ int clientCompressAndWrite(client *c, int *tot_written, int force_flush) {
             state->output.written = 0;
             state->output.consumed = 0;
         }
-    } while (towrite > 0);
+    }
 
     if (*tot_written > 0)
         state->last_write = mstime();
@@ -429,8 +434,15 @@ int clientFlushCompressedData(client *c) {
     compressionState *state = c->compression_state;
     if (state == NULL || state->dir != COMPRESS) return 0;
 
-    /* Nothing is buffered in the compressor, so there is nothing to flush. */
-    if (!state->frame_open && !state->write_flush_pending) return 0;
+    /* Nothing is queued in the compression pipeline, so there is nothing to
+     * flush or retry. Pending input/output is included because a full socket
+     * may leave data on either side of the compressor even after a frame ends. */
+    if (state->input.written == state->input.consumed &&
+        state->output.written == state->output.consumed &&
+        !state->frame_open && !state->write_flush_pending)
+    {
+        return 0;
+    }
 
     int written = 0;
     if (clientCompressAndWrite(c, &written, 1) != 0) return -1;
@@ -538,16 +550,19 @@ int clientReadBufAndDecompress(client *c, char *input_buf, size_t input_len,
     return tot_decompressed;
 }
 
-/* Check if we need to flush compressed data. Compression library may wait for
- * a lot of compressed data before it finishes a frame and gives it back to user.
- * While this gives the best compression ratio it introduces a lot of latency so
- * we make a compromise and flush periodically. */
+/* Check if the compression pipeline needs an IO thread. Pending input/output
+ * and an in-progress flush need immediate attention. The latency check also
+ * remains a scheduling backstop for replica clients; clientCompressAndWrite
+ * avoids invoking the compressor when the pipeline itself has no work. */
 int clientHasPendingCompressionFlush(client *c) {
     compressionState *state = c->compression_state;
     if (!state) return 0;
     if (state->dir != COMPRESS) return 0;
 
-    return state->write_flush_pending || (mstime() - state->last_write >= server.compression_max_latency);
+    return state->input.written > state->input.consumed ||
+           state->output.written > state->output.consumed ||
+           state->write_flush_pending ||
+           mstime() - state->last_write >= server.compression_max_latency;
 }
 
 /* Check if we still have pending compressed data. This may mean that either the

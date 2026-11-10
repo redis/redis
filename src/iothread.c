@@ -950,11 +950,10 @@ void IOThreadCompressionCron(IOThread *t) {
         if (c->io_flags & CLIENT_IO_CLOSE_ASAP) continue;
         serverAssert(c->compression_state);
 
-        /* Backstop flush. Data is normally flushed as soon as a replica catches
-         * up (see _writeToClientSlaveInIOThread), but this bounds latency for
-         * anything still buffered (including compressed output left unwritten by
-         * a full socket) once compression_max_latency ms have passed, or drives
-         * an in-progress flush to completion. */
+        /* Backstop compression work. Data is normally flushed as soon as a
+         * replica catches up (see _writeToClientSlaveInIOThread), but this
+         * bounds latency for an open frame and retries input/output left in the
+         * compression pipeline by a full socket. */
         if (clientHasPendingCompressionFlush(c)) {
             /* Only master/replica clients support client compression for now. */
             serverAssert(c->flags & CLIENT_SLAVE);
