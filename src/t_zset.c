@@ -5760,16 +5760,17 @@ void zmovememberCommand(client *c) {
         addReplyErrorArity(c);
         return;
     }
+
+    /* Members are argv[4..end-1]; options follow the last member. */
     int end = 4 + num;
     int condition = ZADD_IN_NONE;
-    if (c->argc != end) {
-        if (c->argc != end + 1) {
-            addReplyErrorObject(c, shared.syntaxerr);
-            return;
-        }
-        if (!strcasecmp(c->argv[end]->ptr, "NX")) condition = ZADD_IN_NX;
-        else if (!strcasecmp(c->argv[end]->ptr, "XX")) condition = ZADD_IN_XX;
-        else {
+    for (int j = end; j < c->argc; j++) {
+        char *opt = c->argv[j]->ptr;
+        if (condition == ZADD_IN_NONE && !strcasecmp(opt, "NX")) {
+            condition = ZADD_IN_NX;
+        } else if (condition == ZADD_IN_NONE && !strcasecmp(opt, "XX")) {
+            condition = ZADD_IN_XX;
+        } else {
             addReplyErrorObject(c, shared.syntaxerr);
             return;
         }
