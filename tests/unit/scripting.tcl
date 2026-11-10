@@ -1986,6 +1986,132 @@ start_server {tags {"scripting external:skip"}} {
     }
 }
 
+start_server {tags {"scripting external:skip"}} {
+    proc large_script {id} {
+        return "return '$id' --[string repeat x 30000]"
+    }
+
+    proc script_sha {body} {
+        r eval {return redis.sha1hex(ARGV[1])} 0 $body
+    }
+
+    proc reset_scripts {} {
+        r config set maxmemory-eval-scripts 0
+        r script flush
+        r config resetstat
+    }
+
+    test {maxmemory-eval-scripts evicts large EVAL scripts in LRU order} {
+        set shas {}
+        for {set j 1} {$j <= 10} {incr j} {
+            lappend shas [script_sha [large_script $j]]
+        }
+        reset_scripts
+        r config set maxmemory-eval-scripts 100kb
+
+        for {set j 1} {$j <= 10} {incr j} {
+            assert_equal $j [r eval [large_script $j] 0]
+        }
+
+        set cached [s number_of_cached_scripts]
+        assert_range $cached 1 3
+        assert_equal [s evicted_scripts] [expr {10 - $cached}]
+        assert_error {NOSCRIPT*} {r evalsha [lindex $shas 0] 0}
+        assert_equal 10 [r evalsha [lindex $shas 9] 0]
+        r config set maxmemory-eval-scripts 0
+    }
+
+    test {EVAL script larger than maxmemory-eval-scripts is still cached} {
+        set big "return 'big' --[string repeat x 200000]"
+        set sha [script_sha $big]
+        reset_scripts
+        r eval [large_script 1] 0
+        r config set maxmemory-eval-scripts 100kb
+
+        assert_equal big [r eval $big 0]
+        assert_equal big [r evalsha $sha 0]
+        assert_equal [s number_of_cached_scripts] 1
+        assert_equal [s evicted_scripts] 1
+        r config set maxmemory-eval-scripts 0
+    }
+
+    test {Script count limit is enforced independently of maxmemory-eval-scripts} {
+        reset_scripts
+        r config set maxmemory-eval-scripts 1gb
+
+        for {set j 1} {$j <= 600} {incr j} {
+            r eval "return $j" 0
+        }
+        assert_equal [s number_of_cached_scripts] 500
+        assert_equal [s evicted_scripts] 100
+        r config set maxmemory-eval-scripts 0
+    }
+
+    test {Lowering maxmemory-eval-scripts evicts EVAL scripts immediately} {
+        set last [script_sha [large_script 10]]
+        reset_scripts
+
+        for {set j 1} {$j <= 10} {incr j} {
+            r eval [large_script $j] 0
+        }
+        assert_equal [s number_of_cached_scripts] 10
+        assert_equal [s evicted_scripts] 0
+
+        r config set maxmemory-eval-scripts 100kb
+        set cached [s number_of_cached_scripts]
+        assert_range $cached 1 3
+        assert_equal [s evicted_scripts] [expr {10 - $cached}]
+        assert_equal 10 [r evalsha $last 0]
+        r config set maxmemory-eval-scripts 0
+    }
+
+    test {maxmemory-eval-scripts does not evict SCRIPT LOAD scripts} {
+        reset_scripts
+        r config set maxmemory-eval-scripts 100kb
+
+        set loaded {}
+        for {set j 1} {$j <= 5} {incr j} {
+            lappend loaded [r script load [large_script "load_$j"]]
+        }
+        for {set j 1} {$j <= 10} {incr j} {
+            r eval [large_script $j] 0
+        }
+
+        assert_equal {1 1 1 1 1} [r script exists {*}$loaded]
+        assert_equal load_1 [r evalsha [lindex $loaded 0] 0]
+        assert_morethan [s evicted_scripts] 0
+        r config set maxmemory-eval-scripts 0
+    }
+
+    test {SCRIPT LOAD of a cached EVAL script protects it from eviction} {
+        reset_scripts
+        r config set maxmemory-eval-scripts 100kb
+
+        r eval [large_script promoted] 0
+        set sha [r script load [large_script promoted]]
+        for {set j 1} {$j <= 10} {incr j} {
+            r eval [large_script $j] 0
+        }
+
+        assert_equal 1 [r script exists $sha]
+        assert_equal promoted [r evalsha $sha 0]
+        assert_morethan [s evicted_scripts] 0
+        r config set maxmemory-eval-scripts 0
+    }
+
+    test {SCRIPT LOAD is rejected when over maxmemory with noeviction} {
+        reset_scripts
+        r config set maxmemory-policy noeviction
+        r config set maxmemory 1
+
+        assert_error {OOM*} {r script load "return 1"}
+        assert_equal 0 [s number_of_cached_scripts]
+
+        r config set maxmemory 0
+        assert_equal 1 [r evalsha [r script load "return 1"] 0]
+    }
+}
+
 } ;# is_eval
 
 start_server {tags {"scripting needs:debug"}} {

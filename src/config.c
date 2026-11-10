@@ -3409,6 +3409,12 @@ void rewriteConfigLatencyTrackingInfoPercentilesOutputOption(standardConfig *con
     rewriteConfigRewriteLine(state,name,line,1);
 }
 
+static int applyMaxmemoryEvalScripts(const char **err) {
+    UNUSED(err);
+    evalScriptsEnforceMemoryLimit(NULL, 0);
+    return 1;
+}
+
 static int applyClientMaxMemoryUsage(const char **err) {
     UNUSED(err);
     listIter li;
@@ -3664,6 +3670,7 @@ standardConfig static_configs[] = {
 
     /* Unsigned Long Long configs */
     createULongLongConfig("maxmemory", NULL, MODIFIABLE_CONFIG, 0, ULLONG_MAX, server.maxmemory, 0, MEMORY_CONFIG, NULL, updateMaxmemory),
+    createULongLongConfig("maxmemory-eval-scripts", NULL, MODIFIABLE_CONFIG, 0, ULLONG_MAX, server.maxmemory_eval_scripts, 0, MEMORY_CONFIG, NULL, applyMaxmemoryEvalScripts),
     createULongLongConfig("cluster-link-sendbuf-limit", NULL, MODIFIABLE_CONFIG, 0, ULLONG_MAX, server.cluster_link_msg_queue_limit_bytes, 0, MEMORY_CONFIG, NULL, NULL),
 
     /* Size_t configs */
