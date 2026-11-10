@@ -198,7 +198,7 @@ start_server {tags {"repl external:skip"}} {
                 wait_for_ofs_sync $B $A
                 assert_equal [$A debug digest] [$B debug digest]
                 assert_match {*calls=1,*} [cmdrstat zmove $A]
-                assert_equal [$rd read] {a 0}
+                assert_equal [$rd read] {{a 0}}
                 $rd close
             }
 
@@ -217,7 +217,7 @@ start_server {tags {"repl external:skip"}} {
             r del z1 z2
             r zadd z1 1 a 1 b 1 c 2 d
             r zadd z2 99 a 100 retained
-            assert_equal {{a 1} {b 1}} [r zmove z1 z2 BYSCORE 1 1 LIMIT 2]
+            assert_equal {{a 1} {b 1}} [r zmove z1 z2 BYSCORE 1 1 COUNT 2]
             assert_equal {{d 2}} [r zmove z1 z2 BYSCORE (1 +inf]
             wait_for_ofs_sync $B $A
             assert_equal [$A debug digest] [$B debug digest]

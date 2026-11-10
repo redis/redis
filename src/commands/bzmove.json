@@ -1,10 +1,10 @@
 {
     "BZMOVE": {
-        "summary": "Returns a highest- or lowest-scoring member after moving it from one sorted set to another. Blocks until a member is available otherwise. Deletes the source sorted set if the last member was moved.",
-        "complexity": "O(log(N)+log(M)) with N being the number of elements in the source sorted set and M being the number of elements in the destination sorted set.",
+        "summary": "Moves highest- or lowest-scoring members from one sorted set to another, preserving scores. Blocks until a member is available otherwise. Deletes the source sorted set if the last member was moved.",
+        "complexity": "O(K*(log(N)+log(M))) where K is the number of moved members and N and M are the source and destination sizes.",
         "group": "sorted_set",
         "since": "8.12.0",
-        "arity": 5,
+        "arity": -5,
         "function": "bzmoveCommand",
         "command_flags": [
             "WRITE",
@@ -56,24 +56,28 @@
         "reply_schema": {
             "oneOf": [
                 {
-                    "description": "Timeout reached and no member was moved, blocking was denied, or source and destination are the same sorted set.",
+                    "description": "No members were moved: the timeout expired, blocking was denied and the source was empty, source and destination are the same sorted set, or COUNT is zero.",
                     "type": "null"
                 },
                 {
-                    "description": "The moved member and its score.",
+                    "description": "Moved member and score pairs, nested even for one member. MIN uses ascending score order; MAX uses descending score order. Equal scores use the corresponding lexicographical member order.",
                     "type": "array",
-                    "minItems": 2,
-                    "maxItems": 2,
-                    "items": [
-                        {
-                            "description": "Member",
-                            "type": "string"
-                        },
-                        {
-                            "description": "Score",
-                            "type": "number"
-                        }
-                    ]
+                    "minItems": 1,
+                    "items": {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "items": [
+                            {
+                                "description": "Member",
+                                "type": "string"
+                            },
+                            {
+                                "description": "Score",
+                                "type": "number"
+                            }
+                        ]
+                    }
                 }
             ]
         },
@@ -107,6 +111,12 @@
             {
                 "name": "timeout",
                 "type": "double"
+            },
+            {
+                "name": "count",
+                "type": "integer",
+                "token": "COUNT",
+                "optional": true
             }
         ]
     }

@@ -5559,65 +5559,55 @@ static void zmoveUpdateDestination(client *c, robj *key, kvobj *obj, size_t olds
     }
 }
 
-static void zmoveGenericCommand(client *c, robj *srckey, robj *dstkey, int where) {
+static void zmoveGenericCommand(client *c, robj *srckey, robj *dstkey, int where, long count) {
     kvobj *sobj = lookupKeyWriteOrReply(c, srckey, shared.nullarray[c->resp]);
     if (sobj == NULL || checkType(c, sobj, OBJ_ZSET)) return;
-
     kvobj *dobj = lookupKeyWrite(c->db, dstkey);
     if (checkType(c, dobj, OBJ_ZSET)) return;
 
-    /* ZMOVE is a no-op when source and destination are the same object. */
-    if (sobj == dobj) {
+    /* Equal keys and COUNT 0 are no-ops; neither requires member lookups. */
+    if (sobj == dobj || count == 0 || zsetLength(sobj) == 0) {
         addReplyNullArray(c);
         return;
     }
 
-    /* Empty sorted sets are normally deleted, but keep this defensive guard for
-     * modules or future internal callers that may create one transiently. */
-    if (zsetLength(sobj) == 0) {
-        addReplyNullArray(c);
-        return;
+    int64_t src_old_len = zsetLength(sobj);
+    int64_t dst_old_len = dobj ? (int64_t)zsetLength(dobj) : 0;
+    size_t src_old_size = server.memory_tracking_enabled ? kvobjAllocSize(sobj) : 0;
+    size_t dst_old_size = server.memory_tracking_enabled && dobj ? kvobjAllocSize(dobj) : 0;
+    unsigned long moved = min((unsigned long)count, (unsigned long)src_old_len);
+    unsigned long added = 0, updated = 0;
+    addReplyArrayLen(c, moved);
+    for (unsigned long i = 0; i < moved; i++) {
+        sds ele;
+        double score;
+        zsetGetMinMax(c, sobj, &ele, &score, where);
+        serverAssertWithInfo(c, sobj, zsetDel(sobj, ele));
+        if (!dobj) {
+            robj *newobj = zsetTypeCreate(1, sdslen(ele));
+            dobj = dbAdd(c->db, dstkey, &newobj);
+            if (server.memory_tracking_enabled) dst_old_size = kvobjAllocSize(dobj);
+        }
+        int flags = 0;
+        serverAssert(zsetAdd(dobj, score, ele, ZADD_IN_NONE, &flags, NULL));
+        if (flags & ZADD_OUT_ADDED) added++;
+        if (flags & ZADD_OUT_UPDATED) updated++;
+        addReplyArrayLen(c, 2);
+        addReplyBulkCBuffer(c, ele, sdslen(ele));
+        addReplyDouble(c, score);
+        sdsfree(ele);
     }
-
-    /* Member lookups can complete a B+tree index rehash and free memory. */
-    size_t src_old_size = 0, dst_old_size = 0;
-    if (server.memory_tracking_enabled)
-        src_old_size = kvobjAllocSize(sobj);
-
-    sds ele;
-    double score;
-    zsetGetMinMax(c, sobj, &ele, &score, where);
-
-    int64_t src_old_len = (int64_t)zsetLength(sobj);
-    serverAssertWithInfo(c, sobj, zsetDel(sobj, ele));
     const char *event = where == ZSET_MIN ? "zpopmin" : "zpopmax";
-    zmoveUpdateSource(c, srckey, sobj, src_old_size, src_old_len, 1, event);
+    zmoveUpdateSource(c, srckey, sobj, src_old_size, src_old_len, moved, event);
+    zmoveUpdateDestination(c, dstkey, dobj, dst_old_size, dst_old_len, added, updated);
 
-    int64_t dst_old_len = 0;
-    if (!dobj) {
-        robj *newobj = zsetTypeCreate(1, sdslen(ele));
-        dobj = dbAdd(c->db, dstkey, &newobj);
-    } else {
-        dst_old_len = (int64_t)zsetLength(dobj);
-    }
-
-    if (server.memory_tracking_enabled)
-        dst_old_size = kvobjAllocSize(dobj);
-
-    int retflags = 0;
-    int retval = zsetAdd(dobj, score, ele, ZADD_IN_NONE, &retflags, NULL);
-    serverAssert(retval);
-
-    zmoveUpdateDestination(c, dstkey, dobj, dst_old_size, dst_old_len,
-                           !!(retflags & ZADD_OUT_ADDED), !!(retflags & ZADD_OUT_UPDATED));
-
-    addReplyArrayLen(c, 2);
-    addReplyBulkCBuffer(c, ele, sdslen(ele));
-    addReplyDouble(c, score);
-    sdsfree(ele);
-
+    /* Propagate the non-blocking operation, retaining its explicit batch cap. */
     if (c->cmd->proc == bzmoveCommand) {
-        rewriteClientCommandVector(c, 4, shared.zmove, c->argv[1], c->argv[2], c->argv[3]);
+        if (c->argc == 7)
+            rewriteClientCommandVector(c, 6, shared.zmove, c->argv[1], c->argv[2],
+                                       c->argv[3], c->argv[5], c->argv[6]);
+        else
+            rewriteClientCommandVector(c, 4, shared.zmove, c->argv[1], c->argv[2], c->argv[3]);
     }
 }
 
@@ -5635,8 +5625,7 @@ typedef struct {
 
 static void zmoveRangeBegin(zrange_result_handler *handler, long length) {
     UNUSED(length);
-    zmoveRangeState *state = handler->userdata;
-    state->replylen = addReplyDeferredLen(handler->client);
+    UNUSED(handler);
 }
 
 static void zmoveRangeEmit(zrange_result_handler *handler, const void *value,
@@ -5644,7 +5633,10 @@ static void zmoveRangeEmit(zrange_result_handler *handler, const void *value,
     zmoveRangeState *state = handler->userdata;
     client *c = handler->client;
     sds ele = sdsnewlen(value, len);
-    if (!state->first) state->first = sdsdup(ele);
+    if (!state->first) {
+        state->first = sdsdup(ele);
+        state->replylen = addReplyDeferredLen(c);
+    }
     if (!state->dstobj) {
         robj *newobj = zsetTypeCreate(1, len);
         state->dstobj = dbAdd(c->db, state->dstkey, &newobj);
@@ -5671,17 +5663,20 @@ static void zmoveRangeEmitLongLong(zrange_result_handler *handler, long long val
 static void zmoveRangeFinalize(zrange_result_handler *handler, size_t count) {
     zmoveRangeState *state = handler->userdata;
     state->moved = count;
-    setDeferredArrayLen(handler->client, state->replylen, count);
+    if (count)
+        setDeferredArrayLen(handler->client, state->replylen, count);
+    else
+        addReplyNullArray(handler->client);
 }
 
 static void zmoveRangeCommand(client *c, zrangespec *range, long limit) {
     robj *srckey = c->argv[1], *dstkey = c->argv[2];
-    kvobj *sobj = lookupKeyWriteOrReply(c, srckey, shared.emptyarray);
+    kvobj *sobj = lookupKeyWriteOrReply(c, srckey, shared.nullarray[c->resp]);
     if (sobj == NULL || checkType(c, sobj, OBJ_ZSET)) return;
     kvobj *dobj = lookupKeyWrite(c->db, dstkey);
     if (checkType(c, dobj, OBJ_ZSET)) return;
     if (sobj == dobj || limit == 0 || zsetLength(sobj) == 0) {
-        addReply(c, shared.emptyarray);
+        addReplyNullArray(c);
         return;
     }
 
@@ -5703,7 +5698,7 @@ static void zmoveRangeCommand(client *c, zrangespec *range, long limit) {
     if (!state.moved) return;
 
     /* Rank lookup can finish a B+tree index rehash; src_old_size includes it.
-     * Deleting by rank also handles LIMIT cutting through equal-score ties. */
+     * Deleting by rank also handles COUNT cutting through equal-score ties. */
     long first = zsetRank(sobj, state.first, 0, NULL);
     sdsfree(state.first);
     serverAssert(first >= 0);
@@ -5722,85 +5717,112 @@ static void zmoveRangeCommand(client *c, zrangespec *range, long limit) {
                            state.added, state.updated);
 }
 
-/* ZMOVEMEMBER source destination member [member ...]
- * Moves the given members that exist in the source, preserving their scores.
- * Missing members are skipped and duplicates are moved once. Replies with the
- * moved [member, score] pairs in request order, or nil if nothing was moved. */
+/* ZMOVEMEMBER source destination num-members member [member ...] [NX | XX]
+ * The counted member vector leaves trailing options unambiguous even when a
+ * member is literally named NX or XX. Conditions refer to the destination;
+ * members that fail a condition remain in the source. */
 void zmovememberCommand(client *c) {
+    long num;
+    if (getRangeLongFromObjectOrReply(c, c->argv[3], 1, INT_MAX, &num,
+                                      "num-members must be a positive integer") != C_OK) return;
+    if (num > c->argc - 4) {
+        addReplyErrorArity(c);
+        return;
+    }
+    int end = 4 + num;
+    int condition = ZADD_IN_NONE;
+    if (c->argc != end) {
+        if (c->argc != end + 1) {
+            addReplyErrorObject(c, shared.syntaxerr);
+            return;
+        }
+        if (!strcasecmp(c->argv[end]->ptr, "NX")) condition = ZADD_IN_NX;
+        else if (!strcasecmp(c->argv[end]->ptr, "XX")) condition = ZADD_IN_XX;
+        else {
+            addReplyErrorObject(c, shared.syntaxerr);
+            return;
+        }
+    }
+
     robj *srckey = c->argv[1], *dstkey = c->argv[2];
     kvobj *sobj = lookupKeyWriteOrReply(c, srckey, shared.nullarray[c->resp]);
     if (sobj == NULL || checkType(c, sobj, OBJ_ZSET)) return;
-
     kvobj *dobj = lookupKeyWrite(c->db, dstkey);
     if (checkType(c, dobj, OBJ_ZSET)) return;
-
-    /* Nothing can move between a sorted set and itself, so skip member lookups. */
     if (sobj == dobj || zsetLength(sobj) == 0) {
         addReplyNullArray(c);
         return;
     }
 
-    /* Member lookups can complete a B+tree index rehash and free memory,
-     * including when the requested member does not exist. */
-    size_t src_old_size = 0, dst_old_size = 0;
-    if (server.memory_tracking_enabled)
-        src_old_size = kvobjAllocSize(sobj);
-
-    /* Find the first existing member, so a request in which no member exists
-     * replies nil without touching the destination. */
-    int j;
-    double score;
-    for (j = 3; j < c->argc; j++) {
-        if (zsetScore(sobj, c->argv[j]->ptr, &score) == C_OK) break;
-    }
-    if (j == c->argc) {
-        if (server.memory_tracking_enabled)
-            updateSlotAllocSize(c->db, getKeySlot(srckey->ptr), sobj, src_old_size, kvobjAllocSize(sobj));
-        addReplyNullArray(c);
-        return;
-    }
-
-    int64_t src_old_len = (int64_t)zsetLength(sobj);
-    int64_t dst_old_len = 0;
-    if (!dobj) {
-        robj *newobj = zsetTypeCreate(c->argc - j, sdslen(c->argv[j]->ptr));
-        dobj = dbAdd(c->db, dstkey, &newobj);
-    } else {
-        dst_old_len = (int64_t)zsetLength(dobj);
-    }
-    if (server.memory_tracking_enabled)
-        dst_old_size = kvobjAllocSize(dobj);
-
-    /* Each member is deleted from the source as it moves, so a later duplicate
-     * is no longer found and is skipped. */
+    /* Both source and destination lookups may complete a B+tree index rehash,
+     * even if every requested member is missing or fails its condition. */
+    size_t src_old_size = server.memory_tracking_enabled ? kvobjAllocSize(sobj) : 0;
+    size_t dst_old_size = server.memory_tracking_enabled && dobj ? kvobjAllocSize(dobj) : 0;
+    int64_t src_old_len = zsetLength(sobj);
+    int64_t dst_old_len = dobj ? (int64_t)zsetLength(dobj) : 0;
     unsigned long moved = 0, added = 0, updated = 0;
-    void *replylen = addReplyDeferredLen(c);
-    for (; j < c->argc; j++) {
+    void *replylen = NULL;
+    for (int j = 4; j < end; j++) {
         sds ele = c->argv[j]->ptr;
-        if (moved && zsetScore(sobj, ele, &score) == C_ERR) continue;
+        double score, dstscore;
+        if (zsetScore(sobj, ele, &score) == C_ERR) continue;
+        if (condition != ZADD_IN_NONE) {
+            int exists = dobj && zsetScore(dobj, ele, &dstscore) == C_OK;
+            if ((condition == ZADD_IN_NX && exists) ||
+                (condition == ZADD_IN_XX && !exists)) continue;
+        }
+        if (!dobj) {
+            robj *newobj = zsetTypeCreate(1, sdslen(ele));
+            dobj = dbAdd(c->db, dstkey, &newobj);
+            if (server.memory_tracking_enabled) dst_old_size = kvobjAllocSize(dobj);
+        }
+        int flags = 0;
+        serverAssert(zsetAdd(dobj, score, ele, ZADD_IN_NONE, &flags, NULL));
+        if (flags & ZADD_OUT_ADDED) added++;
+        if (flags & ZADD_OUT_UPDATED) updated++;
+        /* Deleting each moved member also suppresses later duplicates. */
         serverAssertWithInfo(c, sobj, zsetDel(sobj, ele));
-        int retflags = 0;
-        serverAssert(zsetAdd(dobj, score, ele, ZADD_IN_NONE, &retflags, NULL));
-        if (retflags & ZADD_OUT_ADDED) added++;
-        if (retflags & ZADD_OUT_UPDATED) updated++;
+        if (!moved) replylen = addReplyDeferredLen(c);
         addReplyArrayLen(c, 2);
         addReplyBulkCBuffer(c, ele, sdslen(ele));
         addReplyDouble(c, score);
         moved++;
     }
-    setDeferredArrayLen(c, replylen, moved);
-
-    zmoveUpdateSource(c, srckey, sobj, src_old_size, src_old_len, moved, "zrem");
-    zmoveUpdateDestination(c, dstkey, dobj, dst_old_size, dst_old_len, added, updated);
+    if (moved) {
+        setDeferredArrayLen(c, replylen, moved);
+        zmoveUpdateSource(c, srckey, sobj, src_old_size, src_old_len, moved, "zrem");
+        zmoveUpdateDestination(c, dstkey, dobj, dst_old_size, dst_old_len, added, updated);
+    } else {
+        if (server.memory_tracking_enabled) {
+            updateSlotAllocSize(c->db, getKeySlot(srckey->ptr), sobj, src_old_size, kvobjAllocSize(sobj));
+            if (dobj)
+                updateSlotAllocSize(c->db, getKeySlot(dstkey->ptr), dobj, dst_old_size, kvobjAllocSize(dobj));
+        }
+        addReplyNullArray(c);
+    }
 }
 
-/* ZMOVE source destination <MIN | MAX | BYSCORE score-min score-max [LIMIT count]>
- * MIN/MAX moves one extremal member. BYSCORE atomically claims an eligible
- * score range, optionally bounded by count, without a client-side score-check
- * race against concurrent writers. */
+/* Parse a trailing COUNT. Zero is an immediate no-op, including for BZMOVE. */
+static int zmoveParseCount(client *c, int index, long default_count, long *count) {
+    *count = default_count;
+    if (c->argc == index) return C_OK;
+    if (c->argc != index + 2) {
+        addReplyErrorArity(c);
+        return C_ERR;
+    }
+    if (strcasecmp(c->argv[index]->ptr, "COUNT")) {
+        addReplyErrorObject(c, shared.syntaxerr);
+        return C_ERR;
+    }
+    return getRangeLongFromObjectOrReply(c, c->argv[index + 1], 0, LONG_MAX, count,
+                                         "COUNT must be a non-negative integer");
+}
+
+/* ZMOVE source destination <MIN | MAX | BYSCORE score-min score-max> [COUNT count] */
 void zmoveCommand(client *c) {
+    long count;
     if (!strcasecmp(c->argv[3]->ptr, "BYSCORE")) {
-        if (c->argc != 6 && c->argc != 8) {
+        if (c->argc < 6) {
             addReplyErrorArity(c);
             return;
         }
@@ -5809,51 +5831,39 @@ void zmoveCommand(client *c) {
             addReplyError(c, "min or max is not a float");
             return;
         }
-        long limit = -1;
-        if (c->argc == 8) {
-            if (strcasecmp(c->argv[6]->ptr, "LIMIT")) {
-                addReplyErrorObject(c, shared.syntaxerr);
-                return;
-            }
-            if (getRangeLongFromObjectOrReply(c, c->argv[7], 0, LONG_MAX, &limit,
-                                              "LIMIT must be a non-negative integer") != C_OK) return;
-        }
-        zmoveRangeCommand(c, &range, limit);
-        return;
+        if (zmoveParseCount(c, 6, -1, &count) != C_OK) return;
+        zmoveRangeCommand(c, &range, count);
+    } else {
+        int where;
+        if (zsetGetPositionOrReply(c, c->argv[3], &where) != C_OK) return;
+        if (zmoveParseCount(c, 4, 1, &count) != C_OK) return;
+        zmoveGenericCommand(c, c->argv[1], c->argv[2], where, count);
     }
-    if (c->argc != 4) {
-        addReplyErrorArity(c);
-        return;
-    }
-    int where;
-    if (zsetGetPositionOrReply(c, c->argv[3], &where) != C_OK)
-        return;
-    zmoveGenericCommand(c, c->argv[1], c->argv[2], where);
 }
 
-/* BZMOVE source destination <MIN | MAX> timeout */
+/* BZMOVE source destination <MIN | MAX> timeout [COUNT count] */
 void bzmoveCommand(client *c) {
     uint64_t timeout;
-    int where; /* ZSET_MIN or ZSET_MAX. */
-
-    if (zsetGetPositionOrReply(c, c->argv[3], &where) != C_OK)
-        return;
-    if (getMonotonicTimeoutFromObjectOrReply(c, c->argv[4], &timeout, UNIT_SECONDS) != C_OK)
-        return;
+    int where;
+    long count;
+    if (zsetGetPositionOrReply(c, c->argv[3], &where) != C_OK) return;
+    if (getMonotonicTimeoutFromObjectOrReply(c, c->argv[4], &timeout, UNIT_SECONDS) != C_OK) return;
+    if (zmoveParseCount(c, 5, 1, &count) != C_OK) return;
 
     robj *key = lookupKeyWrite(c->db, c->argv[1]);
     if (checkType(c, key, OBJ_ZSET)) return;
-
-    if (key == NULL || zsetLength(key) == 0) {
-        if (c->flags & CLIENT_DENY_BLOCKING || equalStringObjects(c->argv[1], c->argv[2])) {
+    if (count == 0 || equalStringObjects(c->argv[1], c->argv[2])) {
+        addReplyNullArray(c);
+    } else if (key == NULL || zsetLength(key) == 0) {
+        if (c->flags & CLIENT_DENY_BLOCKING) {
             addReplyNullArray(c);
         } else {
-            /* Block on the source only. Like BLMOVE, the destination type is
-             * checked when the command is re-executed, before the source is modified. */
+            /* Wait for at least one member, then move up to COUNT. Destination
+             * type is checked on re-execution, before any source mutation. */
             blockForKeys(c, BLOCKED_ZSET, c->argv + 1, 1, timeout, 0);
         }
     } else {
-        zmoveGenericCommand(c, c->argv[1], c->argv[2], where);
+        zmoveGenericCommand(c, c->argv[1], c->argv[2], where, count);
     }
 }
 

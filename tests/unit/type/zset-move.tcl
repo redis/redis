@@ -1,5 +1,9 @@
 # Sorted-set moves: single members, blocking moves and score-range batches.
-start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
+# Memory tracking must be enabled at startup. External-server runs still cover
+# command behavior, while local servers also assert allocation accounting.
+set move_memory_overrides {}
+if {!$::external} {set move_memory_overrides {key-memory-histograms yes}}
+start_server [list tags {zset needs:debug} overrides $move_memory_overrides] {
     proc create_move_zset {key items} {
         r del $key
         foreach {score entry} $items {
@@ -20,7 +24,7 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
         }
     }
 
-    r debug allocsize-slots-assert 1
+    if {!$::external} {r debug allocsize-slots-assert 1}
     foreach encoding {listpack btree} {
         r config set zset-max-listpack-entries [expr {$encoding eq "listpack" ? 128 : 0}]
         r config set zset-max-listpack-value [expr {$encoding eq "listpack" ? 64 : 0}]
@@ -30,11 +34,11 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
                 create_move_zset zset{t} {-1 a 1 b 2 c 3 d}
 
                 if {$position eq "min"} {
-                    assert_equal {a -1} [r zmove zset{t} target{t} $position]
+                    assert_equal {{a -1}} [r zmove zset{t} target{t} $position]
                     assert_equal {b c d} [r zrange zset{t} 0 -1]
                     assert_equal {a -1} [r zrange target{t} 0 -1 withscores]
                 } else {
-                    assert_equal {d 3} [r zmove zset{t} target{t} $position]
+                    assert_equal {{d 3}} [r zmove zset{t} target{t} $position]
                     assert_equal {a b c} [r zrange zset{t} 0 -1]
                     assert_equal {d 3} [r zrange target{t} 0 -1 withscores]
                 }
@@ -45,11 +49,11 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
                 create_move_zset zset{t} {-1 a 1 b 2 c 3 d}
 
                 if {$position eq "min"} {
-                    assert_equal {a -1} [r bzmove zset{t} target{t} $position 1]
+                    assert_equal {{a -1}} [r bzmove zset{t} target{t} $position 1]
                     assert_equal {b c d} [r zrange zset{t} 0 -1]
                     assert_equal {a -1} [r zrange target{t} 0 -1 withscores]
                 } else {
-                    assert_equal {d 3} [r bzmove zset{t} target{t} $position 1]
+                    assert_equal {{d 3}} [r bzmove zset{t} target{t} $position 1]
                     assert_equal {a b c} [r zrange zset{t} 0 -1]
                     assert_equal {d 3} [r zrange target{t} 0 -1 withscores]
                 }
@@ -66,7 +70,7 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
             r del target{t}
             create_move_zset zset{t} {-1 a 1 b 2 c 3 d}
 
-            assert_equal {{b 1}} [r zmovemember zset{t} target{t} b]
+            assert_equal {{b 1}} [r zmovemember zset{t} target{t} 1 b]
             assert_equal {b 1} [r zrange target{t} 0 -1 withscores]
             assert_equal {a c d} [r zrange zset{t} 0 -1]
         }
@@ -75,10 +79,10 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
             r del target{t}
             create_move_zset zset{t} {-1 a 1 b 2 c 3 d}
 
-            assert_equal {{d 3} {a -1}} [r zmovemember zset{t} target{t} missing d a d missing]
+            assert_equal {{d 3} {a -1}} [r zmovemember zset{t} target{t} 5 missing d a d missing]
             assert_equal {a -1 d 3} [r zrange target{t} 0 -1 withscores]
             assert_equal {b c} [r zrange zset{t} 0 -1]
-            assert_equal {{c 2} {b 1}} [r zmovemember zset{t} target{t} c b]
+            assert_equal {{c 2} {b 1}} [r zmovemember zset{t} target{t} 2 c b]
             assert_equal 0 [r exists zset{t}]
             assert_equal {a -1 b 1 c 2 d 3} [r zrange target{t} 0 -1 withscores]
         }
@@ -88,7 +92,7 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
             r del target{t}
             r zadd target{t} 42 b
 
-            assert_equal {{b 1}} [r zmovemember zset{t} target{t} b]
+            assert_equal {{b 1}} [r zmovemember zset{t} target{t} 1 b]
             assert_equal {b 1} [r zrange target{t} 0 -1 withscores]
             assert_equal {a c d} [r zrange zset{t} 0 -1]
         }
@@ -98,7 +102,7 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
             r del zset{t} target{t}
             r zadd zset{t} -1 $member
             assert_encoding btree zset{t}
-            assert_equal [list $member -1] [r zmove zset{t} target{t} min]
+            assert_equal [list [list $member -1]] [r zmove zset{t} target{t} min]
             assert_equal 0 [r exists zset{t}]
             assert_equal [list $member -1] [r zrange target{t} 0 -1 withscores]
         }
@@ -107,10 +111,10 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
             create_move_zset zset{t} {-1 a 1 b 2 c 3 d}
             r del target{t}
 
-            assert_equal {} [r zmovemember zset{t} target{t} missing]
-            assert_equal {} [r zmovemember zset{t} target{t} missing1 missing2]
-            assert_equal {} [r zmovemember zset{t} zset{t} a]
-            assert_equal {} [r zmovemember zset{t} zset{t} a b]
+            assert_equal {} [r zmovemember zset{t} target{t} 1 missing]
+            assert_equal {} [r zmovemember zset{t} target{t} 2 missing1 missing2]
+            assert_equal {} [r zmovemember zset{t} zset{t} 1 a]
+            assert_equal {} [r zmovemember zset{t} zset{t} 2 a b]
             assert_equal {a b c d} [r zrange zset{t} 0 -1]
             assert_equal 0 [r exists target{t}]
         }
@@ -118,11 +122,141 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
     r config set zset-max-listpack-entries 128
     r config set zset-max-listpack-value 64
 
+    foreach src_encoding {listpack btree} {
+        foreach dst_encoding {listpack btree} {
+            foreach flag {{} NX XX} {
+                test "ZMOVEMEMBER conditional moves preserve ineligible members - $src_encoding/$dst_encoding/$flag" {
+                    r del src{t} dst{t}
+                    r config set zset-max-listpack-entries [expr {$src_encoding eq "listpack" ? 128 : 0}]
+                    set binary "a\x00\x62 member"
+                    r zadd src{t} 1 new 2 existing 3 same 4 NX 5 XX 6 COUNT 7 123 8 $binary
+                    assert_encoding $src_encoding src{t}
+                    r config set zset-max-listpack-entries [expr {$dst_encoding eq "listpack" ? 128 : 0}]
+                    r zadd dst{t} 99 existing 3 same 99 NX 100 retained
+                    assert_encoding $dst_encoding dst{t}
+                    set members [list missing existing new existing same NX XX COUNT 123 $binary]
+                    set options {}
+                    if {$flag ne {}} {lappend options $flag}
+                    if {$flag eq "NX"} {
+                        set expected [list {new 1} {XX 5} {COUNT 6} {123 7} [list $binary 8]]
+                        set remaining {existing 2 same 3 NX 4}
+                        set destination [list new 1 same 3 XX 5 COUNT 6 123 7 $binary 8 NX 99 existing 99 retained 100]
+                    } elseif {$flag eq "XX"} {
+                        set expected {{existing 2} {same 3} {NX 4}}
+                        set remaining [list new 1 XX 5 COUNT 6 123 7 $binary 8]
+                        set destination {existing 2 same 3 NX 4 retained 100}
+                    } else {
+                        set expected [list {existing 2} {new 1} {same 3} {NX 4} {XX 5} {COUNT 6} {123 7} [list $binary 8]]
+                        set remaining {}
+                        set destination [list new 1 existing 2 same 3 NX 4 XX 5 COUNT 6 123 7 $binary 8 retained 100]
+                    }
+                    assert_equal $expected [r zmovemember src{t} dst{t} [llength $members] {*}$members {*}$options]
+                    assert_equal $remaining [r zrange src{t} 0 -1 withscores]
+                    assert_equal $destination [r zrange dst{t} 0 -1 withscores]
+                    assert_equal [expr {$flag ne {}}] [r exists src{t}]
+                }
+            }
+        }
+    }
+
+    test {ZMOVEMEMBER XX with no destination and NX with collisions do not mutate logical keys} {
+        r del src{t} dst{t}
+        r zadd src{t} 1 a 2 b
+        set watcher [redis_client]
+        $watcher watch src{t} dst{t}
+        assert_equal {} [r zmovemember src{t} dst{t} 3 missing a a XX]
+        assert_equal 0 [r exists dst{t}]
+        assert_equal {a 1 b 2} [r zrange src{t} 0 -1 withscores]
+        $watcher multi
+        $watcher ping
+        assert_equal PONG [$watcher exec]
+        r zadd dst{t} 99 a 100 b
+        $watcher watch src{t} dst{t}
+        assert_equal {} [r zmovemember src{t} dst{t} 3 a b a NX]
+        assert_equal {a 1 b 2} [r zrange src{t} 0 -1 withscores]
+        assert_equal {a 99 b 100} [r zrange dst{t} 0 -1 withscores]
+        $watcher multi
+        $watcher ping
+        assert_equal PONG [$watcher exec]
+        $watcher close
+    }
+
+    test {ZMOVEMEMBER XX with an unchanged destination score only invalidates the source} {
+        r del src{t} dst{t}
+        r zadd src{t} 1 a
+        r zadd dst{t} 1 a
+        set watcher [redis_client]
+        $watcher watch dst{t}
+        assert_equal {{a 1}} [r zmovemember src{t} dst{t} 1 a XX]
+        assert_equal 0 [r exists src{t}]
+        $watcher multi
+        $watcher ping
+        assert_equal PONG [$watcher exec]
+        $watcher close
+    }
+
+    test {ZMOVEMEMBER validates explicit member count and suffix options before mutation} {
+        r del src{t} dst{t}
+        r zadd src{t} 1 a 2 b
+        set before [r dump src{t}]
+        foreach count {0 -1 bogus 1.5 9223372036854775808} {
+            assert_error {*num-members*} {r zmovemember src{t} dst{t} $count a}
+        }
+        foreach args {{2 a} {1 a b} {1 a NX XX} {1 a NX NX} {1 a unknown}} {
+            assert_error {ERR*} {r zmovemember src{t} dst{t} {*}$args}
+        }
+        assert_equal $before [r dump src{t}]
+        assert_equal 0 [r exists dst{t}]
+    }
+
+    foreach encoding {listpack btree} {
+        foreach command {zmove bzmove} {
+            foreach position {min max} {
+                test "$command $position COUNT batches retain then delete the source - $encoding" {
+                    r config set zset-max-listpack-entries [expr {$encoding eq "listpack" ? 128 : 0}]
+                    r del src{t} dst{t}
+                    r zadd src{t} 1 a 1 b 1 c 2 d 3 e
+                    r zadd dst{t} 99 b 100 retained
+                    assert_encoding $encoding src{t}
+                    set options [list $position]
+                    if {$command eq "bzmove"} {lappend options 0}
+                    assert_equal {} [r $command src{t} dst{t} {*}$options COUNT 0]
+                    if {$position eq "min"} {
+                        assert_equal {{a 1} {b 1}} [r $command src{t} dst{t} {*}$options COUNT 2]
+                        assert_equal {c 1 d 2 e 3} [r zrange src{t} 0 -1 withscores]
+                        assert_equal {{c 1} {d 2} {e 3}} [r $command src{t} dst{t} {*}$options COUNT 99]
+                    } else {
+                        assert_equal {{e 3} {d 2}} [r $command src{t} dst{t} {*}$options COUNT 2]
+                        assert_equal {a 1 b 1 c 1} [r zrange src{t} 0 -1 withscores]
+                        assert_equal {{c 1} {b 1} {a 1}} [r $command src{t} dst{t} {*}$options COUNT 99]
+                    }
+                    assert_equal 0 [r exists src{t}]
+                    assert_equal {a 1 b 1 c 1 d 2 e 3 retained 100} [r zrange dst{t} 0 -1 withscores]
+                }
+            }
+        }
+    }
+    r config set zset-max-listpack-entries 128
+
+    test {ZMOVE and BZMOVE validate COUNT before moving members} {
+        r del src{t} dst{t}
+        r zadd src{t} 1 a
+        foreach command {zmove bzmove} {
+            foreach count {-1 1.5 invalid 9223372036854775808} {
+                set args {min}
+                if {$command eq "bzmove"} {lappend args 0}
+                assert_error {*COUNT must be a non-negative integer*} {r $command src{t} dst{t} {*}$args COUNT $count}
+            }
+        }
+        assert_equal {a 1} [r zrange src{t} 0 -1 withscores]
+        assert_equal 0 [r exists dst{t}]
+    }
+
     test {ZMOVE/BZMOVE/ZMOVEMEMBER reject wrong types and invalid arguments} {
         r del source{t} target{t} wrong{t}
         r set wrong{t} string
         r zadd source{t} 1 a
-        foreach args {{zmove min} {bzmove max 1} {zmovemember a}} {
+        foreach args {{zmove min} {bzmove max 1} {zmovemember 1 a}} {
             set command [lindex $args 0]
             set selection [lrange $args 1 end]
             assert_error {*WRONGTYPE*} {r $command wrong{t} target{t} {*}$selection}
@@ -151,14 +285,20 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
             $rd readraw 1
 
             verify_move_nil_response $resp [r zmove missing{t} target{t} min]
-            verify_move_nil_response $resp [r zmovemember missing{t} target{t} a]
+            verify_move_nil_response $resp [r zmove missing{t} target{t} BYSCORE -inf +inf]
+            verify_move_nil_response $resp [r zmove zset2{t} zset2{t} min COUNT 2]
+            verify_move_nil_response $resp [r zmove zset2{t} target{t} BYSCORE 100 +inf]
+            verify_move_nil_response $resp [r zmovemember zset2{t} target{t} 1 missing]
+            verify_move_nil_response $resp [r bzmove missing{t} target{t} min 0 COUNT 0]
+            verify_move_nil_response $resp [r zmovemember missing{t} target{t} 1 a]
 
-            assert_equal {*2} [r zmove zset2{t} target{t} min]
+            assert_equal {*1} [r zmove zset2{t} target{t} min]
+            assert_equal [r read] {*2}
             assert_equal [r read] {$1}
             assert_equal [r read] {a}
             verify_move_score_response r $resp 1
 
-            assert_equal {*1} [r zmovemember zset2{t} target{t} b]
+            assert_equal {*1} [r zmovemember zset2{t} target{t} 1 b]
             assert_equal [r read] {*2}
             assert_equal [r read] {$1}
             assert_equal [r read] {b}
@@ -168,6 +308,7 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
             verify_move_nil_response $resp [$rd read]
 
             $rd bzmove zset2{t} target{t} max 0.01
+            assert_equal [$rd read] {*1}
             assert_equal [$rd read] {*2}
             assert_equal [$rd read] {$1}
             assert_equal [$rd read] {e}
@@ -206,7 +347,7 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
             $rd bzmove zset{t} target{t} $position 0
             wait_for_blocked_client
             r zadd zset{t} 0 foo
-            assert_equal {foo 0} [$rd read]
+            assert_equal {{foo 0}} [$rd read]
             assert_equal {foo 0} [r zrange target{t} 0 -1 withscores]
             $rd close
         }
@@ -227,19 +368,47 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
             r zadd zset{t} -1 a 1 b 2 c 3 d
 
             if {$position eq "min"} {
-                assert_equal {a -1} [$rd1 read]
-                assert_equal {b 1} [$rd2 read]
-                assert_equal {c 2} [$rd3 read]
+                assert_equal {{a -1}} [$rd1 read]
+                assert_equal {{b 1}} [$rd2 read]
+                assert_equal {{c 2}} [$rd3 read]
             } else {
-                assert_equal {d 3} [$rd1 read]
-                assert_equal {c 2} [$rd2 read]
-                assert_equal {b 1} [$rd3 read]
+                assert_equal {{d 3}} [$rd1 read]
+                assert_equal {{c 2}} [$rd2 read]
+                assert_equal {{b 1}} [$rd3 read]
             }
 
             $rd1 close
             $rd2 close
             $rd3 close
         }
+    }
+
+    foreach position {min max} {
+        test "BZMOVE $position COUNT wakes for an available partial batch" {
+            r del src{t} dst{t}
+            set rd [redis_deferring_client]
+            $rd bzmove src{t} dst{t} $position 0 COUNT 5
+            wait_for_blocked_client
+            r zadd src{t} 1 a 2 b
+            if {$position eq "min"} {
+                assert_equal {{a 1} {b 2}} [$rd read]
+            } else {
+                assert_equal {{b 2} {a 1}} [$rd read]
+            }
+            assert_equal 0 [r exists src{t}]
+            assert_equal {a 1 b 2} [r zrange dst{t} 0 -1 withscores]
+            $rd close
+        }
+    }
+
+    test {BZMOVE COUNT zero and same-key batches never block} {
+        r del src{t} dst{t}
+        set start [clock milliseconds]
+        assert_equal {} [r bzmove src{t} dst{t} min 0 COUNT 0]
+        assert_equal {} [r bzmove src{t} src{t} max 0 COUNT 5]
+        assert_lessthan [expr {[clock milliseconds] - $start}] 1000
+        assert_equal 0 [s blocked_clients]
+        assert_equal 0 [r exists dst{t}]
     }
 
     test "BZMOVE with the same source and destination should not block" {
@@ -272,7 +441,7 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
         wait_for_blocked_client
 
         r zadd source{t} 2 source_member
-        assert_equal {source_member 2} [$rd read]
+        assert_equal {{source_member 2}} [$rd read]
         assert_equal {target_member 1 source_member 2} [r zrange target{t} 0 -1 withscores]
         $rd close
     }
@@ -284,7 +453,7 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
         wait_for_blocked_client
 
         r zadd source{t} 1 member
-        assert_equal {member 1} [$rd read]
+        assert_equal {{member 1}} [$rd read]
         assert_equal {member 1} [r zrange SOURCE{t} 0 -1 withscores]
         $rd close
     }
@@ -306,11 +475,11 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
 
 }
 
-start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
-    r debug allocsize-slots-assert 1
+start_server [list tags {zset needs:debug} overrides $move_memory_overrides] {
+    if {!$::external} {r debug allocsize-slots-assert 1}
     foreach src_encoding {listpack btree} {
         foreach dst_encoding {listpack btree} {
-            test "ZMOVE BYSCORE bounds, ties, LIMIT and destination merge - $src_encoding/$dst_encoding" {
+            test "ZMOVE BYSCORE bounds, ties, COUNT and destination merge - $src_encoding/$dst_encoding" {
                 r del src{t} dst{t}
                 r config set zset-max-listpack-entries [expr {$src_encoding eq "listpack" ? 128 : 0}]
                 r zadd src{t} -inf low 0 zero 1 a 1 b 1 c 2 two 3 three +inf high
@@ -323,16 +492,16 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
                 set src_expiry [r pexpiretime src{t}]
                 set dst_expiry [r pexpiretime dst{t}]
 
-                # The limit cuts through score ties, ordered lexicographically.
-                assert_equal {{a 1} {b 1}} [r zmove src{t} dst{t} byscore (0 2 limit 2]
+                # The count cuts through score ties, ordered lexicographically.
+                assert_equal {{a 1} {b 1}} [r zmove src{t} dst{t} byscore (0 2 count 2]
                 assert_equal {low -inf zero 0 c 1 two 2 three 3 high inf} [r zrange src{t} 0 -1 withscores]
                 assert_equal {a 1 b 1 retained 100} [r zrange dst{t} 0 -1 withscores]
                 assert_equal $src_expiry [r pexpiretime src{t}]
                 assert_equal $dst_expiry [r pexpiretime dst{t}]
                 assert_equal {{c 1}} [r zmove src{t} dst{t} BYSCORE 1 (2]
-                assert_equal {} [r zmove src{t} dst{t} BYSCORE 2 3 LIMIT 0]
-                assert_equal {{two 2} {three 3}} [r zmove src{t} dst{t} BYSCORE 2 3 LIMIT 2147483647]
-                assert_equal {{low -inf}} [r zmove src{t} dst{t} BYSCORE -inf +inf LIMIT 1]
+                assert_equal {} [r zmove src{t} dst{t} BYSCORE 2 3 COUNT 0]
+                assert_equal {{two 2} {three 3}} [r zmove src{t} dst{t} BYSCORE 2 3 COUNT 2147483647]
+                assert_equal {{low -inf}} [r zmove src{t} dst{t} BYSCORE -inf +inf COUNT 1]
                 assert_equal {{zero 0} {high inf}} [r zmove src{t} dst{t} BYSCORE -inf +inf]
                 assert_equal 0 [r exists src{t}]
                 assert_equal $dst_expiry [r pexpiretime dst{t}]
@@ -359,7 +528,7 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
                 r zadd dst{t} 99 $moved 100 retained
                 set args [list $position]
                 if {$command eq "bzmove"} {lappend args 0}
-                assert_equal [list $moved 1] [r $command src{t} dst{t} {*}$args]
+                assert_equal [list [list $moved 1]] [r $command src{t} dst{t} {*}$args]
                 assert_equal [list $remaining 1] [r zrange src{t} 0 -1 withscores]
                 assert_equal [list $moved 1 retained 100] [r zrange dst{t} 0 -1 withscores]
             }
@@ -378,7 +547,7 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
             assert_encoding $dst_encoding dst{t}
             set expected {}
             foreach member [lsort -ascii $members] {lappend expected [list $member 1]}
-            assert_equal [lrange $expected 0 2] [r zmove src{t} dst{t} BYSCORE 1 1 LIMIT 3]
+            assert_equal [lrange $expected 0 2] [r zmove src{t} dst{t} BYSCORE 1 1 COUNT 3]
             set remaining {}
             foreach pair [lrange $expected 3 end] {lappend remaining {*}$pair}
             assert_equal $remaining [r zrange src{t} 0 -1 withscores]
@@ -390,6 +559,20 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
         }
     }
 
+    foreach encoding {listpack btree} {
+        test "ZMOVE BYSCORE checks destination type for existing sources - $encoding" {
+            r config set zset-max-listpack-entries [expr {$encoding eq "listpack" ? 128 : 0}]
+            r del src{t} dst{t}
+            r zadd src{t} 1 a 2 b
+            r set dst{t} wrong-type
+            foreach bounds {{-inf +inf} {99 +inf}} {
+                assert_error {*WRONGTYPE*} {r zmove src{t} dst{t} BYSCORE {*}$bounds COUNT 1}
+                assert_equal {a 1 b 2} [r zrange src{t} 0 -1 withscores]
+                assert_equal wrong-type [r get dst{t}]
+            }
+        }
+    }
+
     test {ZMOVE BYSCORE empty ranges, missing keys and same-key moves have no effects} {
         r del src{t} dst{t} missing{t}
         r zadd src{t} 1 a 2 b
@@ -398,7 +581,7 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
             lassign $bounds min max
             assert_equal {} [r zmove src{t} dst{t} BYSCORE $min $max]
         }
-        assert_equal {} [r zmove src{t} dst{t} BYSCORE -inf +inf LIMIT 0]
+        assert_equal {} [r zmove src{t} dst{t} BYSCORE -inf +inf COUNT 0]
         assert_equal {} [r zmove src{t} src{t} BYSCORE -inf +inf]
         assert_equal {} [r zmove missing{t} dst{t} BYSCORE -inf +inf]
         assert_equal $before [r dump src{t}]
@@ -411,10 +594,10 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
         r set wrong{t} string
         set before [r dump src{t}]
         foreach args {
-            {BYSCORE} {BYSCORE 1} {BYSCORE 1 2 LIMIT}
-            {BYSCORE 1 2 LIMIT 1 extra} {MIN extra} {MAX LIMIT 1}
+            {BYSCORE} {BYSCORE 1} {BYSCORE 1 2 COUNT}
+            {BYSCORE 1 2 COUNT 1 extra} {MIN extra} {MAX extra count 1}
         } {
-            assert_error {*wrong number of arguments*} {r zmove src{t} dst{t} {*}$args}
+            assert_error {ERR*} {r zmove src{t} dst{t} {*}$args}
         }
         foreach args {
             {BYSCORE nan 2} {BYSCORE 1 nan} {BYSCORE invalid 2} {BYSCORE 1 (invalid}
@@ -422,9 +605,9 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
             assert_error {*min or max is not a float*} {r zmove src{t} dst{t} {*}$args}
         }
         foreach count {-1 1.5 bogus 9223372036854775808} {
-            assert_error {*LIMIT must be a non-negative integer*} {r zmove src{t} dst{t} BYSCORE 1 2 LIMIT $count}
+            assert_error {*COUNT must be a non-negative integer*} {r zmove src{t} dst{t} BYSCORE 1 2 COUNT $count}
         }
-        assert_error {*syntax error*} {r zmove src{t} dst{t} BYSCORE 1 2 COUNT 1}
+        assert_error {*syntax error*} {r zmove src{t} dst{t} BYSCORE 1 2 LIMIT 1}
         assert_error {*WRONGTYPE*} {r zmove wrong{t} dst{t} BYSCORE 1 2}
         assert_error {*WRONGTYPE*} {r zmove src{t} wrong{t} BYSCORE 1 2}
         assert_equal $before [r dump src{t}]
@@ -462,7 +645,7 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
             } else {
                 assert_equal ,2 [r read]
             }
-            assert_equal {*0} [r zmove src{t} dst{t} BYSCORE -inf +inf]
+            verify_move_nil_response $resp [r zmove src{t} dst{t} BYSCORE -inf +inf]
             r readraw 0
             r hello 2
             assert_equal [list 42 1 $binary 2] [r zrange dst{t} 0 -1 withscores]
@@ -480,7 +663,7 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
         set expected [r zrange src{t} 0 -1 withscores]
         set moved {}
         while {[r zcard src{t}] > 0} {
-            set batch [r zmove src{t} dst{t} BYSCORE -inf +inf LIMIT 17]
+            set batch [r zmove src{t} dst{t} BYSCORE -inf +inf COUNT 17]
             assert {[llength $batch] > 0 && [llength $batch] <= 17}
             foreach pair $batch { lappend moved {*}$pair }
         }
@@ -513,16 +696,16 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
         r del src{t} dst{t}
         set repl [attach_to_replication_stream]
         r zadd src{t} 1 a 1 b 2 c
-        r zmove src{t} dst{t} BYSCORE 1 2 LIMIT 2
+        r zmove src{t} dst{t} BYSCORE 1 2 COUNT 2
         r zmove src{t} dst{t} BYSCORE 9 +inf
-        r zmove src{t} dst{t} BYSCORE -inf +inf LIMIT 0
+        r zmove src{t} dst{t} BYSCORE -inf +inf COUNT 0
         r zmove src{t} dst{t} BYSCORE -inf +inf
         r zmove src{t} dst{t} BYSCORE -inf +inf
         r set marker{t} done
         assert_replication_stream $repl {
             {select *}
             {zadd src{t} 1 a 1 b 2 c}
-            {zmove src{t} dst{t} BYSCORE 1 2 LIMIT 2}
+            {zmove src{t} dst{t} BYSCORE 1 2 COUNT 2}
             {zmove src{t} dst{t} BYSCORE -inf +inf}
             {set marker{t} done}
         }
@@ -533,7 +716,7 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
         r flushdb
         r zadd src{t} 1 a 1 b 1 c 1 d
         r zadd dst{t} 99 a 99 b
-        r zmove src{t} dst{t} BYSCORE 1 1 LIMIT 2
+        r zmove src{t} dst{t} BYSCORE 1 1 COUNT 2
         assert_match {*db*_distrib_zsets_items:2=2*} [r info keysizes]
         r zmove src{t} dst{t} BYSCORE -inf +inf
         assert_match {*db*_distrib_zsets_items:4=1*} [r info keysizes]
@@ -542,7 +725,7 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
     test {ZMOVE BYSCORE preserves writer updates after a batch is claimed} {
         r del src{t} dst{t}
         r zadd src{t} 100 bookmark
-        assert_equal {{bookmark 100}} [r zmove src{t} dst{t} BYSCORE -inf (101 LIMIT 10]
+        assert_equal {{bookmark 100}} [r zmove src{t} dst{t} BYSCORE -inf (101 COUNT 10]
         r zadd src{t} 200 bookmark
         r del dst{t}
         assert_equal 200 [r zscore src{t} bookmark]
@@ -572,6 +755,27 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
         $rd close
     }
 
+    foreach selection {{MIN COUNT 2} {MAX COUNT 2}} {
+        test "ZMOVE $selection emits one pop event and preserves destination no-op accounting" {
+            r del src{t} dst{t}
+            r zadd src{t} 1 a 2 b 3 c
+            r zadd dst{t} 1 a 2 b 3 c
+            set dirty_before [s rdb_changes_since_last_save]
+            r config set notify-keyspace-events Kzg
+            set rd [redis_deferring_client]
+            assert_equal 1 [psubscribe $rd __keyspace@*]
+            r zmove src{t} dst{t} {*}$selection
+            set msg [$rd read]
+            assert_match "__keyspace@*:src{t}" [lindex $msg 2]
+            assert_equal [expr {[lindex $selection 0] eq "MIN" ? "zpopmin" : "zpopmax"}] [lindex $msg 3]
+            assert_equal 1 [r zcard src{t}]
+            assert_equal 3 [r zcard dst{t}]
+            assert_equal [expr {$dirty_before + 2}] [s rdb_changes_since_last_save]
+            $rd close
+            r config set notify-keyspace-events {}
+        }
+    }
+
     test {ZMOVE BYSCORE emits source removal, deletion and destination addition events} {
         r del src{t} dst{t}
         r zadd src{t} 1 a 2 b
@@ -588,18 +792,33 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
         r config set notify-keyspace-events {}
     }
 
-    test {ZMOVEMEMBER with multiple members propagates verbatim only when something moved} {
+    test {BZMOVE COUNT propagates the equivalent ZMOVE batch} {
         r del src{t} dst{t}
         set repl [attach_to_replication_stream]
         r zadd src{t} 1 a 2 b 3 c
-        r zmovemember src{t} dst{t} missing1 missing2
-        r zmovemember src{t} dst{t} c missing a
-        r zmovemember src{t} src{t} b
+        assert_equal {{c 3} {b 2}} [r bzmove src{t} dst{t} MAX 0 COUNT 2]
         r set marker{t} done
         assert_replication_stream $repl {
             {select *}
             {zadd src{t} 1 a 2 b 3 c}
-            {zmovemember src{t} dst{t} c missing a}
+            {zmove src{t} dst{t} MAX COUNT 2}
+            {set marker{t} done}
+        }
+        close_replication_stream $repl
+    } {} {needs:repl}
+
+    test {ZMOVEMEMBER with multiple members propagates verbatim only when something moved} {
+        r del src{t} dst{t}
+        set repl [attach_to_replication_stream]
+        r zadd src{t} 1 a 2 b 3 c
+        r zmovemember src{t} dst{t} 2 missing1 missing2
+        r zmovemember src{t} dst{t} 3 c missing a
+        r zmovemember src{t} src{t} 1 b
+        r set marker{t} done
+        assert_replication_stream $repl {
+            {select *}
+            {zadd src{t} 1 a 2 b 3 c}
+            {zmovemember src{t} dst{t} 3 c missing a}
             {set marker{t} done}
         }
         close_replication_stream $repl
@@ -610,7 +829,7 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
         r config set zset-max-listpack-entries 4
         r zadd src{t} 1 a 2 b 3 c 4 d
         r zadd dst{t} 5 e 6 f
-        assert_equal {{d 4} {c 3} {b 2} {a 1}} [r zmovemember src{t} dst{t} d c b a]
+        assert_equal {{d 4} {c 3} {b 2} {a 1}} [r zmovemember src{t} dst{t} 4 d c b a]
         assert_encoding btree dst{t}
         assert_equal {a 1 b 2 c 3 d 4 e 5 f 6} [r zrange dst{t} 0 -1 withscores]
         r config set zset-max-listpack-entries 128
@@ -622,7 +841,7 @@ start_server {tags {"zset needs:debug external:skip"} overrides {appendonly yes 
         r config set zset-max-listpack-entries 0
         r zadd src{t} 1 a 1 b 1 c 2 d
         r zadd dst{t} 99 a 100 retained
-        r zmove src{t} dst{t} BYSCORE 1 1 LIMIT 2
+        r zmove src{t} dst{t} BYSCORE 1 1 COUNT 2
         r zmove src{t} dst{t} BYSCORE (1 +inf
         set digest [r debug digest]
         r debug loadaof
@@ -632,17 +851,17 @@ start_server {tags {"zset needs:debug external:skip"} overrides {appendonly yes 
     }
 }
 
-start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes zset-max-listpack-entries 0}} {
+start_server {tags {"zset needs:debug external:skip"} overrides {key-memory-histograms yes zset-max-listpack-entries 0}} {
     test {ZMOVEMEMBER tracks memory during B+tree index rehash} {
-        r debug allocsize-slots-assert 1
+        if {!$::external} {r debug allocsize-slots-assert 1}
         for {set i 0} {$i < 100} {incr i} {
             r zadd source{t} $i m$i
         }
         assert_encoding btree source{t}
         for {set i 0} {$i < 100} {incr i} {
             # Both successful and missing-member lookups may finish a rehash.
-            assert_equal {} [r zmovemember source{t} target{t} missing]
-            assert_equal [list [list m$i $i]] [r zmovemember source{t} target{t} m$i missing]
+            assert_equal {} [r zmovemember source{t} target{t} 1 missing]
+            assert_equal [list [list m$i $i]] [r zmovemember source{t} target{t} 2 m$i missing]
         }
         assert_equal 0 [r exists source{t}]
         assert_equal 100 [r zcard target{t}]
