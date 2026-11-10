@@ -897,10 +897,12 @@ run_solo {defrag} {
             assert_morethan [s allocator_frag_ratio] 1.2
 
             # The heap is consistent before defrag: the armed validator walks
-            # every group and the heap after each command from here on.
+            # every group and the heap after each command from here on. The
+            # digest covers the entries only, so the groups are captured too.
             r debug stream-stats-assert 1
             assert_equal 100 [r xlen st]
             set digest [debug_digest]
+            set groups [r xinfo groups st]
 
             catch {r config set activedefrag yes} e
             if {[r config get activedefrag] eq "activedefrag yes"} {
@@ -937,9 +939,11 @@ run_solo {defrag} {
             # its slot says: XREADGROUP's member check compares the heap entry
             # with the group, and the validator checks all of them after each.
             assert_equal $digest [debug_digest]
+            assert_equal $groups [r xinfo groups st]
             for {set j 0} {$j < $n} {incr j 2000} {
                 r xreadgroup group g$j c count 1 streams st >
             }
+            r save ;# saving an rdb iterates over all the data / pointers
             r debug stream-stats-assert 0
             r config set stream-stats no
         } {OK}
