@@ -2802,19 +2802,13 @@ void srandmemberWithCountCommand(client *c) {
     size_t oldsize = 0;
     if (setTypeHasExpireSupport(set)) {
         /* Remove the members that are logically expired first. If they were all
-         * expired, the key is gone. */
-        if (server.memory_tracking_enabled)
-            oldsize = kvobjAllocSize(set);
+         * expired, the key is gone. setTypeExpire already refreshes slot
+         * allocation accounting (and may free the object under sync deletion),
+         * so do not wrap it in another updateSlotAllocSize. */
         if (setTypeExpireIfNeeded(c->db, set)) {
-            if (server.memory_tracking_enabled)
-                updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), set,
-                                    oldsize, kvobjAllocSize(set));
             addReply(c,shared.emptyarray);
             return;
         }
-        if (server.memory_tracking_enabled)
-            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), set,
-                                oldsize, kvobjAllocSize(set));
     }
     if (server.memory_tracking_enabled)
         oldsize = kvobjAllocSize(set);
