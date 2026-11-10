@@ -2305,10 +2305,18 @@ void smoveCommand(client *c) {
     if (checkType(c,srcset,OBJ_SET) ||
         checkType(c,dstset,OBJ_SET)) return;
 
-    /* If srcset and dstset are equal, SMOVE is a no-op */
+    /* If srcset and dstset are equal, SMOVE is a no-op.
+     * Membership may finish an incremental rehash and free the old hash
+     * table, so refresh slot alloc tracking the same way the mutating path
+     * does. */
     if (srcset == dstset) {
-        addReply(c,setTypeIsMemberLazy(c->db, srcset, ele->ptr, 0, NULL) ?
-            shared.cone : shared.czero);
+        if (server.memory_tracking_enabled)
+            oldSrcAllocSize = kvobjAllocSize(srcset);
+        int ismember = setTypeIsMemberLazy(c->db, srcset, ele->ptr, 0, NULL);
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), srcset,
+                                oldSrcAllocSize, kvobjAllocSize(srcset));
+        addReply(c, ismember ? shared.cone : shared.czero);
         return;
     }
 
