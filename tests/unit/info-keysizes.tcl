@@ -1365,6 +1365,9 @@ start_cluster 1 0 {tags {external:skip cluster needs:debug} overrides {cluster-s
     test "SLOT-ALLOCSIZE - list reads refresh slot alloc after recompress" {
         # Writes can leave a quicklist node uncompressed; a later LRANGE /
         # LINDEX recompresses it on iterator reset and must update tracking.
+        # LPOP COUNT / LMPOP also reply via the range helper before deleting;
+        # recompress during the reply must not double-count on removal, and
+        # LMPOP must track the selected key (not argv[1]=numkeys).
         r DEBUG ALLOCSIZE-SLOTS-ASSERT 1
         r FLUSHALL
         r config set list-max-listpack-size 3
@@ -1378,6 +1381,14 @@ start_cluster 1 0 {tags {external:skip cluster needs:debug} overrides {cluster-s
         r LINSERT "k{t}" AFTER 1 [string repeat w 50]
         r LRANGE "k{t}" 0 -1
         r LINDEX "k{t}" 7
+        r LPOP "k{t}" 3
+
+        r DEL "a{t}" "b{t}"
+        r RPUSH "a{t}" e00 e01x e02 e03 e04$x20 e05$x20 e06 e07 e08$x20$x20 e09 e10x e11 e12 e13 e14$x20 e15 e16 e17$x20 e18 e19x e20 e21$x20 e22 e23 e24 e25$x20$x20 e26 e27 e28
+        r LREM "a{t}" 0 e04$x20
+        r LSET "a{t}" 4 1
+        r LINSERT "a{t}" AFTER 1 [string repeat w 50]
+        r LMPOP 2 "a{t}" "b{t}" LEFT COUNT 2
 
         r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
     }
