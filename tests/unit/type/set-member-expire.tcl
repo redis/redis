@@ -868,6 +868,52 @@ start_server {tags {"external:skip needs:debug"}} {
             r debug set-active-expire 1
         }
 
+        test "SPOP with a count that leaves few members is propagated as DEL and SADD/SADDEX ($enc)" {
+            r flushall
+            r debug set-active-expire 0
+            r config set lazyfree-lazy-server-del no
+
+            # CASE 3 (the move strategy): nothing is propagated per popped member,
+            # the set is deleted and the 2 members that remain are added back, in
+            # one transaction.
+            for {set i 0} {$i < 20} {incr i} {r sadd myset m$i}
+            set repl [attach_to_replication_stream]
+            assert_equal 18 [llength [r spop myset 18]]
+            assert_equal 2 [r scard myset]
+            assert_replication_stream $repl {
+                {multi}
+                {select *}
+                {del myset}
+                {sadd myset * *}
+                {exec}
+            }
+            close_replication_stream $repl
+
+            # The remaining members keep their expirations: each one is added
+            # with SADDEX and its absolute time.
+            r del myset
+            for {set i 0} {$i < 20} {incr i} {r sadd myset m$i}
+            for {set i 0} {$i < 20} {incr i} {r spexpireat myset [expr {[clock milliseconds] + 100000 + $i}] MEMBERS 1 m$i}
+            r config set lazyfree-lazy-server-del yes
+            set repl [attach_to_replication_stream]
+            assert_equal 18 [llength [r spop myset 18]]
+            assert_replication_stream $repl {
+                {multi}
+                {select *}
+                {unlink myset}
+                {saddex myset PXAT * MEMBERS 1 *}
+                {saddex myset PXAT * MEMBERS 1 *}
+                {exec}
+            }
+            close_replication_stream $repl
+            foreach m [r smembers myset] {
+                assert {[r sttl myset MEMBERS 1 $m] > 0}
+            }
+
+            r config set lazyfree-lazy-server-del no
+            r debug set-active-expire 1
+        } {OK} {needs:repl}
+
         test "SRANDMEMBER - Never returns an expired member, in every form ($enc)" {
             r flushall
             sme_mixed_set r
