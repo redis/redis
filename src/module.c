@@ -895,7 +895,8 @@ void modulePostExecutionUnitOperations(void) {
 void moduleFreeContext(RedisModuleCtx *ctx) {
     /* See comment in moduleCreateContext */
     if (!(ctx->flags & (REDISMODULE_CTX_THREAD_SAFE|REDISMODULE_CTX_COMMAND|
-                        REDISMODULE_CTX_KEYS_POS_REQUEST|REDISMODULE_CTX_CHANNELS_POS_REQUEST))) {
+                        REDISMODULE_CTX_KEYS_POS_REQUEST|REDISMODULE_CTX_CHANNELS_POS_REQUEST)))
+    {
         exitExecutionUnit();
         postExecutionUnitOperationsEx(moduleTakeUnaccountedBackgroundDuration(ctx));
     }
