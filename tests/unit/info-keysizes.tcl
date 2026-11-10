@@ -1367,6 +1367,8 @@ start_cluster 1 0 {tags {external:skip cluster needs:debug} overrides {cluster-s
         # the lookup path that skips per-call allocsize updates.
         r DEBUG ALLOCSIZE-SLOTS-ASSERT 1
         r FLUSHALL
+        # Force hashtable encoding; default hash-max-listpack-entries is 512.
+        r config set hash-max-listpack-entries 64
 
         r DEL "h{t}"
         for {set i 0} {$i < 265} {incr i} {
