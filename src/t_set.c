@@ -3217,12 +3217,20 @@ void sinterGenericCommand(client *c, robj **setkeys,
     setTypeResetIterator(&si);
 
     if (server.memory_tracking_enabled) {
+        /* A caller may name the same input key more than once. The size of an
+         * input is recorded once per argument but the object is shared, so
+         * applying every argument's change would count it again each time it
+         * repeats. Use object identity to settle each distinct input once,
+         * without a quadratic scan of the preceding arguments. */
+        dictType seenDictType = { .hashFunction = dictPtrHash };
+        dict *seen = dictCreate(&seenDictType);
         for (j = 0; j < setnum; j++) {
             robj *obj = sets[j].set;
-            if (!obj) continue;
+            if (obj == NULL || dictAdd(seen, obj, NULL) != DICT_OK) continue;
             updateSlotAllocSize(c->db, getKeySlot(setkeys[j]->ptr), obj,
                                 sets[j].oldsize, kvobjAllocSize(obj));
         }
+        dictRelease(seen);
     }
 
     if (cardinality_only) {
@@ -3596,12 +3604,17 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         }
     }
     if (must_track_memory) {
+        /* See the comment in sinterGenericCommand(): a repeated input key must
+         * settle its allocation change only once. */
+        dictType seenDictType = { .hashFunction = dictPtrHash };
+        dict *seen = dictCreate(&seenDictType);
         for (j = 0; j < setnum; j++) {
             robj *obj = sets[j].set;
-            if (!obj) continue;
+            if (obj == NULL || dictAdd(seen, obj, NULL) != DICT_OK) continue;
             updateSlotAllocSize(c->db, getKeySlot(setkeys[j]->ptr), obj,
                                 sets[j].oldsize, kvobjAllocSize(obj));
         }
+        dictRelease(seen);
     }
 
     /* Output the content of the resulting set, if not in STORE mode */
