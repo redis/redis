@@ -167,15 +167,25 @@ static_assert(STREAM_DISTRIB_MAX <= 8, "distrib_counted holds one bit per metric
  * max-lag row (streamLagState) are declared in stream.h, since defrag.c
  * follows them. */
 
+/* Set for the life of the process once the generation counter has wrapped.
+ * Read only by streamLagIsMember() on a path that is otherwise a bug, so it is
+ * kept out of struct redisServer, where it would shift the hot fields behind
+ * it for nothing. */
+static int stream_stats_wrapped = 0;
+
 /* Zero the stream histograms in 'meta' and start a new generation: every
  * stream and group stamped with the old one is uncounted again, and a slot-trim
  * delta captured against it is discarded on completion. Generations come from
  * one server-wide counter, so a stamp carried into another db by MOVE while
  * stats were off cannot match there; the counter skips 0, the value of fresh
- * metadata, and the never-counted sentinel. */
+ * metadata, and the never-counted sentinel. A wrap is recorded for the life
+ * of the process: from then on a stamp untouched for 2^32 generations can
+ * pass as current, which streamLagIsMember() otherwise treats as a bug. */
 void streamStatsResetMeta(kvstoreMetadata *meta) {
-    if (++server.stream_stats_generation == STREAM_DISTRIB_NEVER_COUNTED)
+    if (++server.stream_stats_generation == STREAM_DISTRIB_NEVER_COUNTED) {
         server.stream_stats_generation = 1;
+        stream_stats_wrapped = 1;
+    }
     meta->stream_stats_epoch = server.stream_stats_generation;
     memset(meta->stream_hist, 0, sizeof(meta->stream_hist));
 }
@@ -369,15 +379,17 @@ static inline int streamLagHeldAt(const iheap *h, uint32_t slot, const streamCG 
  * is, if the group's slot holds it. A disagreement is a bookkeeping bug,
  * except after an epoch wrap: the epoch is 32 bits and moves once per
  * emptied db and per reset, so a stamp untouched for 2^32 generations can
- * pass as current while its bit and slot describe a heap long gone. Hence
- * asserted in debug builds and handled in production, where the bit is
- * cleared and the group is not a member. Acting on the slot regardless would
- * re-key or remove whatever group sits there now, or dereference a heap that
- * was freed. */
+ * pass as current while its bit and slot describe a heap long gone. The
+ * wrap is recorded (streamStatsResetMeta()), so until one has happened a
+ * disagreement is asserted, and after one it is handled: the bit is cleared
+ * and the group is not a member. Acting on the slot regardless would re-key
+ * or remove whatever group sits there now, or dereference a heap that was
+ * freed. */
 static inline int streamLagIsMember(streamLagState *ls, streamDistribStamp *st, streamCG *cg) {
     if (!(st->counted & STREAM_CG_IN_LAG_HEAP)) return 0;
     if (streamLagHeldAt(ls->heap, streamStampSlot(st), cg)) return 1;
-    debugServerAssert(0 && "a member's slot does not hold it");
+    /* Without a wrap this is a bookkeeping bug. */
+    serverAssert(stream_stats_wrapped);
     st->counted &= ~STREAM_CG_IN_LAG_HEAP;
     return 0;
 }
