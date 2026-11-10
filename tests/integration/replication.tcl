@@ -1962,6 +1962,8 @@ foreach type {script function} {
             test "Fullsync should not free scripting engine on a replica while a $type is running" {
                 $master config set repl-diskless-sync yes
                 $master config set repl-diskless-sync-delay 0
+                # Keep the backlog small, replica obuf limits are raised to repl-backlog-size
+                $master config set repl-backlog-size 16k
                 # Set small client output buffer limit to trigger fullsync quickly
                 $master config set client-output-buffer-limit "replica 1k 1k 0"
                 $replica config set busy-reply-threshold 1 ;# script timeout in 1 ms

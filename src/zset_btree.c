@@ -2882,6 +2882,18 @@ int zbtreeTryReserve(zbtreeSet *zs, uint64_t count) {
     return zbtIndexReserve(zs, count, 1);
 }
 
+/* Shrink a member index that a reservation left mostly empty, for example
+ * one presized for a ZADD whose pairs repeated members. The copy finishes
+ * at once: the table is at most an eighth full, so the few members it holds
+ * are cheap to copy, and an unfinished resize would keep the large table
+ * until later lookups advance it. A resize that is already running is left
+ * to those lookups. */
+void zbtreeShrinkToFit(zbtreeSet *zs) {
+    if (zs->member_rehash) return;
+    zbtIndexShrinkIfNeeded(zs);
+    while (zs->member_rehash) zbtIndexRehashStep(zs, 64);
+}
+
 /* Copy a score tree while repairing every pointer between its pages. Leaves
  * are visited in score order, which also rebuilds their linked list and the
  * leaf ID table. Inline records can be copied unchanged. External members

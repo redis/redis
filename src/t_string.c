@@ -888,11 +888,23 @@ void msetexCommand(client *c) {
 
     /* Handle replication rewriting for relative expiration times */
     if (args.expire && !(args.flags & OBJ_PXAT) && !(args.flags & OBJ_EXAT) && args.expire_pos != -1) {
-        /* Convert EX/PX (relative) to PXAT (absolute) for consistent replication */
+        /* Convert EX/PX (relative) to PXAT (absolute) for consistent replication.
+         * Keep everything before the options (MSETEX, numkeys and the key-value
+         * pairs), rewrite the option slots as [NX|XX] PXAT <ms>, and drop the
+         * remaining tail. This also removes repeated EX/PX (last one wins). */
+        int pos = kv_count * 2 + 2; /* First option slot. */
+        if (args.flags & (OBJ_SET_NX|OBJ_SET_XX)) {
+            robj *cond_obj = createStringObject((args.flags & OBJ_SET_NX) ? "NX" : "XX", 2);
+            rewriteClientCommandArgument(c, pos++, cond_obj);
+            decrRefCount(cond_obj);
+        }
         robj *milliseconds_obj = createStringObjectFromLongLong(milliseconds);
-        rewriteClientCommandArgument(c, args.expire_pos, shared.pxat);
-        rewriteClientCommandArgument(c, args.expire_pos + 1, milliseconds_obj);
+        rewriteClientCommandArgument(c, pos++, shared.pxat);
+        rewriteClientCommandArgument(c, pos++, milliseconds_obj);
         decrRefCount(milliseconds_obj);
+        /* Remove from the tail so no arguments need to be shifted. */
+        while (c->argc > pos)
+            rewriteClientCommandArgument(c, c->argc - 1, NULL);
     }
 
     server.dirty += kv_count;

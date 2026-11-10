@@ -1627,6 +1627,10 @@ typedef struct client {
                                buffer or object being sent. */
     time_t ctime;           /* Client creation time. */
     long duration;          /* Current command duration. Used for measuring latency of blocking/non-blocking cmds */
+    long cpu_duration;      /* CPU time (usec) of the current command; measured only off the
+                               main thread. Accumulates/resets with duration. */
+    long cpu_nvcsw;         /* Voluntary context switches, same rule. */
+    long cpu_nivcsw;        /* Involuntary context switches, same rule. */
     int slot;               /* The slot the client is executing against. Set to -1 if no slot is being used */
     int cluster_compatibility_check_slot; /* The slot the client is executing against for cluster compatibility check.
                                            * -2 means we don't need to check slot violation, or we already found
@@ -1680,12 +1684,14 @@ typedef struct client {
     blockingState bstate;     /* blocking state */
     long long woff;         /* Last write global replication offset. */
     list *watched_keys;     /* Keys WATCHED for MULTI/EXEC CAS */
+    size_t watched_keys_mem; /* Memory of the watched key objects, see multiStateMemOverhead() */
     dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE). The dict value
                              * holds the subscription's originating ACL user*: NULL means
                              * "owned by whoever c->user is now", a non-NULL user* is a
                              * provenance stamp frozen when the client switched identity. */
     dict *pubsub_patterns;  /* patterns a client is interested in (PSUBSCRIBE); value as above */
     dict *pubsubshard_channels;  /* shard level channels (SSUBSCRIBE); value as above */
+    size_t pubsub_names_mem; /* Memory of the channel/pattern name objects, see pubsubMemOverhead() */
     sds peerid;             /* Cached peer ID. */
     sds sockname;           /* Cached connection target address. */
     listNode *client_list_node; /* list node in client list */
@@ -1724,6 +1730,7 @@ typedef struct client {
      * client, and in which category the client was, in order to remove it
      * before adding it the new value. */
     size_t last_memory_usage;
+    size_t last_watch_pubsub_mem; /* WATCH key and Pub/Sub name memory included in last_memory_usage. */
     int last_memory_type;
     size_t last_memory_shared;
     size_t last_memory_unshared;
@@ -1779,6 +1786,15 @@ typedef struct client {
     size_t stat_avg_pipeline_length_cnt; /* Count of pipeline length samples */
     void *himport_fieldsets;      /* Session-local HIMPORT fieldsets */
 } client;
+
+/* Clear the current command's timing, wall-clock and CPU, in one place so no
+ * field is missed. */
+static inline void resetClientCommandDuration(client *c) {
+    c->duration = 0;
+    c->cpu_duration = 0;
+    c->cpu_nvcsw = 0;
+    c->cpu_nivcsw = 0;
+}
 
 typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) {
     uint8_t id;                                 /* The unique ID assigned, if IO_THREADS_MAX_NUM is more
@@ -2139,6 +2155,14 @@ typedef enum childInfoType {
 
 typedef struct hotkeyStats hotkeyStats;
 
+/* A thread sample (wall clock, CPU time, context switches), for diffing. */
+typedef struct cpuSample {
+    monotime wall;
+    ustime_t cpu_us;    /* user+sys */
+    long nvcsw;
+    long nivcsw;
+} cpuSample;
+
 struct redisServer {
     /* General */
     pid_t pid;                  /* Main process pid. */
@@ -2316,6 +2340,11 @@ struct redisServer {
     long long stat_slowlog_count;          /* Total slowlog entries ever pushed */
     long long stat_slowlog_time_us_sum;    /* Sum of all slowlog entry durations (usec) */
     long long stat_slowlog_time_us_max;    /* Max slowlog entry duration (usec) */
+    long long stat_slow_command_off_cpu_events; /* Slowlog entries reported as off-CPU */
+    long long stat_eventloop_off_cpu_events;     /* Event-loop cycles reported as off-CPU */
+    cpuSample cpu_checkpoint;   /* Start of the main thread's CPU window. */
+    cpuSample el_cpu_start;     /* Sample at the start of the event-loop cycle; never
+                                   moved by commands. */
     struct malloc_stats cron_malloc_stats; /* sampled in serverCron(). */
     struct defragFragCache defrag_frag_cache; /* see struct defragFragCache. */
     redisAtomic long long stat_net_input_bytes; /* Bytes read from network. */
@@ -2336,6 +2365,7 @@ struct redisServer {
     size_t stat_clients_type_memory[CLIENT_TYPE_COUNT];/* Mem usage by type */
     size_t stat_clients_shared_memory;   /* Sum of clients' reply_bytes_shared */
     size_t stat_clients_unshared_memory; /* Sum of clients' reply_bytes_unshared */
+    size_t stat_clients_watch_pubsub_shared_overcount; /* Extra charges of WATCH key and Pub/Sub names held by more than one client */
     size_t stat_cluster_links_memory; /* Mem usage by cluster links */
     long long stat_unexpected_error_replies; /* Number of unexpected (aof-loading, replica to master, etc.) error replies */
     long long stat_total_error_replies; /* Total number of issued error replies ( command + rejected errors ) */
@@ -2408,6 +2438,7 @@ struct redisServer {
     int pause_cron;                 /* Don't run cron tasks (debug) */
     int dict_resizing;              /* Whether to allow main dict and expired dict to be resized (debug) */
     int latency_tracking_enabled;   /* 1 if extended latency tracking is enabled, 0 otherwise. */
+    int off_cpu_tracking;           /* Sample CPU time to report off-CPU commands and cycles. */
     double *latency_tracking_info_percentiles; /* Extended latency tracking info output percentile list configuration. */
     int latency_tracking_info_percentiles_len;
     int memory_tracking_enabled;    /* Account used memory per slot */
@@ -2431,6 +2462,8 @@ struct redisServer {
     off_t aof_last_incr_fsync_offset; /* AOF offset which is already requested to be synced to disk.
                                        * Compare with the aof_last_incr_size. */
     int aof_flush_sleep;            /* Micros to sleep before flush. (used by tests) */
+    int aof_flush_force_stall;      /* Skip flush so the durable offset stalls. (used by tests) */
+    int aof_flush_force_error;      /* Force flushAppendOnlyFile to fail. (used by tests) */
     int aof_rewrite_scheduled;      /* Rewrite once BGSAVE terminates. */
     sds aof_buf;      /* AOF buffer, written before entering the event loop */
     int aof_fd;       /* File descriptor of currently selected AOF file */
@@ -3407,6 +3440,7 @@ int moduleDefragValue(robj *key, robj *obj, int dbid);
 int moduleLateDefrag(robj *key, robj *value, unsigned long *cursor, monotime endtime, int dbid);
 void moduleDefragStart(void);
 void moduleDefragEnd(void);
+void moduleUpdateMaxmemorySnapshot(void);
 void *moduleGetHandleByName(char *modulename);
 int moduleIsModuleCommand(void *module_handle, struct redisCommand *cmd);
 int moduleHasSubscribersForKeyspaceEvent(int type);
@@ -3524,6 +3558,7 @@ void deferredAfterErrorReply(client *c, list *errors);
 unsigned int formatBulkStrRefPrefix(bulkStrRef *str_ref);
 size_t sdsZmallocSize(sds s);
 size_t getStringObjectSdsUsedMemory(robj *o);
+size_t getStringObjectMemory(robj *o);
 void freeClientReplyValue(void *o);
 void *dupClientReplyValue(void *o);
 char *getClientPeerId(client *client);
@@ -3548,6 +3583,8 @@ void flushSlavesOutputBuffers(void);
 void flushSlavesOutputBuffersIfNeeded(void);
 void disconnectSlaves(void);
 void evictClients(void);
+size_t subtractClientsWatchPubsubOvercount(size_t mem);
+void updateClientWatchPubsubMemoryUsage(client *c);
 int listenToPort(connListener *fds);
 void pauseActions(pause_purpose purpose, mstime_t end, uint32_t actions_bitmask);
 void unpauseActions(pause_purpose purpose);
@@ -4003,7 +4040,9 @@ void forceCommandPropagation(client *c, int flags);
 void preventCommandPropagation(client *c);
 void preventCommandAOF(client *c);
 void preventCommandReplication(client *c);
-void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t duration);
+void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t duration, const cpuSample *cpu_start);
+void cpuSampleTake(cpuSample *s);
+void offCpuCheckEventLoopCycle(ustime_t excluded_us);
 void updateCommandLatencyHistogram(struct hdr_histogram** latency_histogram, int64_t duration_hist);
 int prepareForShutdown(int flags);
 void replyToClientsBlockedOnShutdown(void);
