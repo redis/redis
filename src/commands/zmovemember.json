@@ -1,10 +1,10 @@
 {
     "ZMOVEMEMBER": {
-        "summary": "Returns a member and its score after moving the member from one sorted set to another. Deletes the source sorted set if the last member was moved.",
-        "complexity": "O(log(N)+log(M)) with N being the number of elements in the source sorted set and M being the number of elements in the destination sorted set.",
+        "summary": "Moves one or more members from one sorted set to another, preserving their scores. Deletes the source sorted set if the last member was moved.",
+        "complexity": "O(K*(log(N)+log(M))) where K is the number of given members and N and M are the source and destination sizes.",
         "group": "sorted_set",
         "since": "8.12.0",
-        "arity": 4,
+        "arity": -4,
         "function": "zmovememberCommand",
         "command_flags": [
             "WRITE",
@@ -55,24 +55,28 @@
         "reply_schema": {
             "oneOf": [
                 {
-                    "description": "The source key does not exist, the member does not exist in the source key, or source and destination are the same sorted set.",
+                    "description": "The source key does not exist, none of the given members exists in the source key, or source and destination are the same sorted set.",
                     "type": "null"
                 },
                 {
-                    "description": "The moved member and its score.",
+                    "description": "Moved member and score pairs, in the order the members were given.",
                     "type": "array",
-                    "minItems": 2,
-                    "maxItems": 2,
-                    "items": [
-                        {
-                            "description": "Member",
-                            "type": "string"
-                        },
-                        {
-                            "description": "Score",
-                            "type": "number"
-                        }
-                    ]
+                    "minItems": 1,
+                    "items": {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "items": [
+                            {
+                                "description": "Member",
+                                "type": "string"
+                            },
+                            {
+                                "description": "Score",
+                                "type": "number"
+                            }
+                        ]
+                    }
                 }
             ]
         },
@@ -89,7 +93,8 @@
             },
             {
                 "name": "member",
-                "type": "string"
+                "type": "string",
+                "multiple": true
             }
         ]
     }

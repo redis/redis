@@ -66,9 +66,21 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
             r del target{t}
             create_move_zset zset{t} {-1 a 1 b 2 c 3 d}
 
-            assert_equal {b 1} [r zmovemember zset{t} target{t} b]
+            assert_equal {{b 1}} [r zmovemember zset{t} target{t} b]
             assert_equal {b 1} [r zrange target{t} 0 -1 withscores]
             assert_equal {a c d} [r zrange zset{t} 0 -1]
+        }
+
+        test "ZMOVEMEMBER with multiple members skips missing and duplicate members - $encoding" {
+            r del target{t}
+            create_move_zset zset{t} {-1 a 1 b 2 c 3 d}
+
+            assert_equal {{d 3} {a -1}} [r zmovemember zset{t} target{t} missing d a d missing]
+            assert_equal {a -1 d 3} [r zrange target{t} 0 -1 withscores]
+            assert_equal {b c} [r zrange zset{t} 0 -1]
+            assert_equal {{c 2} {b 1}} [r zmovemember zset{t} target{t} c b]
+            assert_equal 0 [r exists zset{t}]
+            assert_equal {a -1 b 1 c 2 d 3} [r zrange target{t} 0 -1 withscores]
         }
 
         test "ZMOVEMEMBER updates existing destination member - $encoding" {
@@ -76,7 +88,7 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
             r del target{t}
             r zadd target{t} 42 b
 
-            assert_equal {b 1} [r zmovemember zset{t} target{t} b]
+            assert_equal {{b 1}} [r zmovemember zset{t} target{t} b]
             assert_equal {b 1} [r zrange target{t} 0 -1 withscores]
             assert_equal {a c d} [r zrange zset{t} 0 -1]
         }
@@ -96,7 +108,9 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
             r del target{t}
 
             assert_equal {} [r zmovemember zset{t} target{t} missing]
+            assert_equal {} [r zmovemember zset{t} target{t} missing1 missing2]
             assert_equal {} [r zmovemember zset{t} zset{t} a]
+            assert_equal {} [r zmovemember zset{t} zset{t} a b]
             assert_equal {a b c d} [r zrange zset{t} 0 -1]
             assert_equal 0 [r exists target{t}]
         }
@@ -144,7 +158,8 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
             assert_equal [r read] {a}
             verify_move_score_response r $resp 1
 
-            assert_equal {*2} [r zmovemember zset2{t} target{t} b]
+            assert_equal {*1} [r zmovemember zset2{t} target{t} b]
+            assert_equal [r read] {*2}
             assert_equal [r read] {$1}
             assert_equal [r read] {b}
             verify_move_score_response r $resp 2
@@ -572,6 +587,34 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes}} {
         $rd close
         r config set notify-keyspace-events {}
     }
+
+    test {ZMOVEMEMBER with multiple members propagates verbatim only when something moved} {
+        r del src{t} dst{t}
+        set repl [attach_to_replication_stream]
+        r zadd src{t} 1 a 2 b 3 c
+        r zmovemember src{t} dst{t} missing1 missing2
+        r zmovemember src{t} dst{t} c missing a
+        r zmovemember src{t} src{t} b
+        r set marker{t} done
+        assert_replication_stream $repl {
+            {select *}
+            {zadd src{t} 1 a 2 b 3 c}
+            {zmovemember src{t} dst{t} c missing a}
+            {set marker{t} done}
+        }
+        close_replication_stream $repl
+    } {} {needs:repl}
+
+    test {ZMOVEMEMBER with multiple members converts the destination encoding} {
+        r del src{t} dst{t}
+        r config set zset-max-listpack-entries 4
+        r zadd src{t} 1 a 2 b 3 c 4 d
+        r zadd dst{t} 5 e 6 f
+        assert_equal {{d 4} {c 3} {b 2} {a 1}} [r zmovemember src{t} dst{t} d c b a]
+        assert_encoding btree dst{t}
+        assert_equal {a 1 b 2 c 3 d 4 e 5 f 6} [r zrange dst{t} 0 -1 withscores]
+        r config set zset-max-listpack-entries 128
+    }
 }
 
 start_server {tags {"zset needs:debug external:skip"} overrides {appendonly yes aof-use-rdb-preamble no}} {
@@ -599,7 +642,7 @@ start_server {tags {"zset needs:debug"} overrides {key-memory-histograms yes zse
         for {set i 0} {$i < 100} {incr i} {
             # Both successful and missing-member lookups may finish a rehash.
             assert_equal {} [r zmovemember source{t} target{t} missing]
-            assert_equal [list m$i $i] [r zmovemember source{t} target{t} m$i]
+            assert_equal [list [list m$i $i]] [r zmovemember source{t} target{t} m$i missing]
         }
         assert_equal 0 [r exists source{t}]
         assert_equal 100 [r zcard target{t}]
