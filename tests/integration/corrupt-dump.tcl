@@ -103,7 +103,7 @@ test {ZRANGESTORE builds an ordered btree from an unordered listpack} {
 
 test {ZRANGESTORE asserts on a listpack that repeats a member} {
     foreach {members old new} [list \
-        {a b c d}  "\x81c"         "\x81a" \
+        {a b c d}  "\x81\x63"      "\x81\x61" \
         {1 2 3 4}  "\x03\x01\x03"  "\x01\x01\x03" \
     ] {
         lassign $members m1 m2 m3 m4
