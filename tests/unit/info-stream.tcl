@@ -112,6 +112,41 @@ proc eval_stream_histogram {server dbid metric xinfo_field} {
     return "db${dbid}_$metric:[join $out ,]"
 }
 
+# The max-lag row for the single stream 'key' in 'dbid' when only the groups
+# in the dict 'touched' are members, as after a lazy enable: the worst lag
+# among them, or "" if none has a known position. Binned like
+# eval_stream_histogram, from the same XINFO fields.
+proc expected_lag_row {server dbid key touched} {
+    set info [$server xinfo stream $key]
+    set added [dict get $info entries-added]
+    set len [dict get $info length]
+    set worst -1
+    foreach g [$server xinfo groups $key] {
+        array set gi $g
+        if {[dict exists $touched $gi(name)] && $gi(entries-read) ne {}} {
+            set lag [expr {$added > $gi(entries-read) ? $added - $gi(entries-read) : 0}]
+            if {$lag > $len} { set lag $len }
+            if {$lag > $worst} { set worst $lag }
+        }
+        unset gi
+    }
+    if {$worst < 0} { return "" }
+    return "db${dbid}_stream_distrib_streams_max_lag:[hist_label $worst]=1"
+}
+
+# Checks at full membership: the row equals the keyspace reconstruction and
+# the validator, armed for one command, accepts the heap. The validator stays
+# off otherwise: it requires full membership, and CONFIG SET stream-stats yes
+# rebuilds eagerly while it is armed. Leaves the client on db 0.
+proc check_lag_full {server dbid} {
+    assert_equal [eval_stream_histogram $server $dbid stream_distrib_streams_max_lag max_lag] \
+                 [get_info_stream_field $server stream_distrib_streams_max_lag]
+    $server debug stream-stats-assert 1
+    $server dbsize ;# runs the validator on 'dbid', still selected
+    $server debug stream-stats-assert 0
+    $server select 0
+}
+
 # Resolve the expected string for metric 'field': the sentinel "__EVAL__ <dbid>"
 # reconstructs from the keyspace via XINFO 'xinfo_field'; otherwise the literal,
 # with the given short 'placeholder' expanded to the field name.
@@ -1241,5 +1276,117 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         # sample with no further group command, so the heap was not wiped.
         assert_equal 1 [r xgroup destroy st g1]
         assert_equal "db0_stream_distrib_streams_max_lag:0=1" [get_info_stream_field r stream_distrib_streams_max_lag]
+    }
+
+    test "STREAM-STATS - streams_max_lag: generation churn with hundreds of groups" {
+        # Every path that starts a generation or rebuilds the heap whole, with
+        # 520 groups. After a lazy enable the row must reflect exactly the
+        # groups touched so far; a whole-stream path must bring all of them
+        # back at once. Set STREAM_LAG_SEED to replay a run.
+        set seed [expr {[clock microseconds] % 2147483647}]
+        if {[info exists ::env(STREAM_LAG_SEED)]} { set seed $::env(STREAM_LAG_SEED) }
+        expr {srand($seed)}
+        if {[catch {
+            r config set stream-stats yes
+            r FLUSHALL
+            set groups 520
+            seed_stream r st 100
+            set live {}
+            for {set g 0} {$g < $groups} {incr g} {
+                r xgroup create st g$g 0
+                r xreadgroup group g$g c count [expr {int(rand()*100)+1}] streams st >
+                lappend live g$g
+            }
+            check_lag_full r 0
+
+            # Changes while off (reads, destroys) force a new generation on
+            # the next enable; a destroy while off also frees the heap. The
+            # enable is lazy: nothing is counted until touched.
+            r config set stream-stats no
+            for {set i 0} {$i < 20} {incr i} {
+                set g [lindex $live [expr {int(rand()*[llength $live])}]]
+                r xgroup destroy st $g
+                set live [lsearch -all -inline -not -exact $live $g]
+            }
+            for {set i 0} {$i < 20} {incr i} {
+                r xreadgroup group [lindex $live [expr {int(rand()*[llength $live])}]] c count 3 streams st >
+            }
+            r config set stream-stats yes
+            assert_equal "" [get_info_stream_field r stream_distrib_streams_max_lag]
+
+            # Touch the groups in random order, half by a read, half by a
+            # no-op ack. Every 50 touches the row must show the worst lag of
+            # the touched groups only; once all are back, the full check.
+            set order [lshuffle $live]
+            set touched [dict create]
+            set i 0
+            foreach g $order {
+                if {$i % 2} { r xack st $g 0-1 } else { r xreadgroup group $g c count 1 streams st > }
+                dict set touched $g 1
+                if {[incr i] % 50 == 0} {
+                    assert_equal [expected_lag_row r 0 st $touched] [get_info_stream_field r stream_distrib_streams_max_lag]
+                }
+            }
+            check_lag_full r 0
+
+            # FLUSHDB of another db bumps the generation counter but not this
+            # db's epoch: row and heap are untouched.
+            r select 1
+            r flushdb
+            r select 0
+            check_lag_full r 0
+
+            # MOVE rebuilds the heap from all groups at once in the target
+            # db, there and back; DEBUG RELOAD does the same from the RDB.
+            r move st 1
+            check_lag_full r 1
+            r select 1
+            r move st 0
+            r select 0
+            check_lag_full r 0
+            r debug reload
+            check_lag_full r 0
+
+            # An XADD while off also forces a new generation. The first XADD
+            # after the enable stamps the stream into it and frees the old
+            # heap; the groups then re-enrol one by one.
+            r config set stream-stats no
+            r xadd st 101-1 f v
+            r config set stream-stats yes
+            assert_equal "" [get_info_stream_field r stream_distrib_streams_max_lag]
+            r xadd st 102-1 f v
+            assert_equal "" [get_info_stream_field r stream_distrib_streams_max_lag]
+            set touched [dict create]
+            set i 0
+            foreach g [lshuffle $live] {
+                r xreadgroup group $g c count 1 streams st >
+                dict set touched $g 1
+                if {[incr i] % 50 == 0} {
+                    assert_equal [expected_lag_row r 0 st $touched] [get_info_stream_field r stream_distrib_streams_max_lag]
+                }
+            }
+            check_lag_full r 0
+
+            # Destroys while off free the heap; after the enable the
+            # survivors re-enrol in random order.
+            r config set stream-stats no
+            for {set i 0} {$i < 50} {incr i} {
+                set g [lindex $live [expr {int(rand()*[llength $live])}]]
+                r xgroup destroy st $g
+                set live [lsearch -all -inline -not -exact $live $g]
+            }
+            r config set stream-stats yes
+            assert_equal "" [get_info_stream_field r stream_distrib_streams_max_lag]
+            set touched [dict create]
+            set i 0
+            foreach g [lshuffle $live] {
+                if {$i % 2} { r xack st $g 0-1 } else { r xreadgroup group $g c count 1 streams st > }
+                dict set touched $g 1
+                if {[incr i] % 50 == 0} {
+                    assert_equal [expected_lag_row r 0 st $touched] [get_info_stream_field r stream_distrib_streams_max_lag]
+                }
+            }
+            check_lag_full r 0
+        } err]} { error "seed $seed: $err" }
     }
 }
