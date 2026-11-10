@@ -2604,6 +2604,7 @@ void xaddCommand(client *c) {
          * the * was replaced with the ID of an entry the upstream node did
          * append, so it must be applied even if the IID is still tracked here.
          * Duplicates are propagated with *, so they are still filtered here. */
+        serverAssert(!parsed_args.id_given || mustObeyClient(c));
         if (!parsed_args.id_given && idmpLookupAndReply(s, producer, entry, c)) {
             /* IID already exists, free the entry and return */
             idmpEntryFree(entry, &s->alloc_size);
