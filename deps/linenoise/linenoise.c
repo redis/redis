@@ -365,6 +365,8 @@ static int getCursorPosition(int ifd, int ofd) {
     /* Parse it. */
     if (buf[0] != ESC || buf[1] != '[') return -1;
     if (sscanf(buf+2,"%d;%d",&rows,&cols) != 2) return -1;
+    /* Non-positive column counts must not become a huge size_t later. */
+    if (cols <= 0) return -1;
     return cols;
 }
 
@@ -387,7 +389,7 @@ static int getColumns(int ifd, int ofd) {
         /* Go to right margin and get position. */
         if (write(ofd,"\x1b[999C",6) != 6) goto failed;
         cols = getCursorPosition(ifd,ofd);
-        if (cols == -1) goto failed;
+        if (cols <= 0) goto failed;
 
         /* Restore position. */
         if (cols > start) {
