@@ -3220,6 +3220,15 @@ void sinterGenericCommand(client *c, robj **setkeys,
         for (j = 0; j < setnum; j++) {
             robj *obj = sets[j].set;
             if (!obj) continue;
+            /* Repeated keys share one object; apply the size delta once. */
+            int seen = 0;
+            for (int k = 0; k < j; k++) {
+                if (sets[k].set == obj) {
+                    seen = 1;
+                    break;
+                }
+            }
+            if (seen) continue;
             updateSlotAllocSize(c->db, getKeySlot(setkeys[j]->ptr), obj,
                                 sets[j].oldsize, kvobjAllocSize(obj));
         }
@@ -3599,6 +3608,15 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         for (j = 0; j < setnum; j++) {
             robj *obj = sets[j].set;
             if (!obj) continue;
+            /* Repeated keys share one object; apply the size delta once. */
+            int seen = 0;
+            for (int k = 0; k < j; k++) {
+                if (sets[k].set == obj) {
+                    seen = 1;
+                    break;
+                }
+            }
+            if (seen) continue;
             updateSlotAllocSize(c->db, getKeySlot(setkeys[j]->ptr), obj,
                                 sets[j].oldsize, kvobjAllocSize(obj));
         }
