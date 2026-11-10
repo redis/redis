@@ -5700,7 +5700,7 @@ static void zmoveRangeFinalize(zrange_result_handler *handler, size_t count) {
         addReplyNullArray(handler->client);
 }
 
-static void zmoveRangeCommand(client *c, zrangespec *range, long limit) {
+static void zmoveRangeCommand(client *c, zrangespec *range, long count) {
     robj *srckey = c->argv[1], *dstkey = c->argv[2];
     kvobj *sobj = lookupKeyWriteOrReply(c, srckey, shared.nullarray[c->resp]);
     if (sobj == NULL || checkType(c, sobj, OBJ_ZSET)) return;
@@ -5725,7 +5725,7 @@ static void zmoveRangeCommand(client *c, zrangespec *range, long limit) {
         .emitResultFromLongLong = zmoveRangeEmitLongLong,
         .finalizeResultEmission = zmoveRangeFinalize,
     };
-    genericZrangebyscoreCommand(&handler, range, sobj, 0, limit, 0);
+    genericZrangebyscoreCommand(&handler, range, sobj, 0, count, 0);
     if (!state.moved) return;
 
     /* Rank lookup can finish a B+tree index rehash; src_old_size includes it.
