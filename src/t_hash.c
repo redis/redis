@@ -6821,12 +6821,18 @@ void hpersistCommand(client *c) {
         return;
     }
 
+    /* A command of the master, or replayed from the AOF, is applied as the
+     * master executed it: a field that is already expired by this node's clock
+     * is not considered expired, it was still alive when the master ran
+     * HPERSIST. Expired fields are left to the master's explicit deletion. */
+    const int obey = mustObeyClient(c);
+
     /* Fields that are not persisted are removed from the command as we go, so
      * that a replica (or the AOF) persists exactly the fields the master did:
      * a field that is already expired here but not yet deleted is not
-     * considered expired there (see checkAlreadyExpired()), and must not be
-     * revived by the propagated command. Once done, the persisted fields are
-     * the ones left in argv, from the first field position up to argIdx.
+     * considered expired there (see 'obey' above), and must not be revived by
+     * the propagated command. Once done, the persisted fields are the ones
+     * left in argv, from the first field position up to argIdx.
      *
      * argIdx is pos in argv of i'th field, as removals shift the following fields left. */
     int argIdx = numFieldsAt + 1;
@@ -6856,11 +6862,8 @@ void hpersistCommand(client *c) {
 
                 if (prevExpire == HASH_LP_NO_TTL) {
                     res = HFE_PERSIST_NO_TTL;
-                } else if (checkAlreadyExpired(prevExpire)) {
-                    /* Already expired. Pretend there is no such field. Not so
-                     * for a replica or while loading AOF: there the field was
-                     * still alive when the master ran HPERSIST, so persist it
-                     * and leave expired fields to the master. */
+                } else if (!obey && prevExpire < commandTimeSnapshot()) {
+                    /* Already expired. Pretend there is no such field. */
                     res = HFE_PERSIST_NO_FIELD;
                 } else {
                     if (server.memory_tracking_enabled)
@@ -6897,11 +6900,8 @@ void hpersistCommand(client *c) {
                 uint64_t expire = hEntryGetExpiry(hEntry);
                 if (expire == EB_EXPIRE_TIME_INVALID) {
                     res = HFE_PERSIST_NO_TTL;
-                } else if (checkAlreadyExpired((long long) expire)) {
-                    /* Already expired. Pretend there is no such field. Not so
-                     * for a replica or while loading AOF: there the field was
-                     * still alive when the master ran HPERSIST, so persist it
-                     * and leave expired fields to the master. */
+                } else if (!obey && (long long) expire < commandTimeSnapshot()) {
+                    /* Already expired. Pretend there is no such field. */
                     res = HFE_PERSIST_NO_FIELD;
                 } else {
                     hfieldPersist(hashObj, hEntry);

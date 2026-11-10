@@ -2230,6 +2230,23 @@ start_server {tags {"external:skip needs:debug"}} {
                 assert_equal [$replica httl h1 FIELDS 1 f1] {-1}
                 assert_equal [dumpAllHashes $primary] [dumpAllHashes $replica]
             }
+
+            test {HPERSIST by a user client on a writable replica does not revive an expired field} {
+                $primary debug set-active-expire 0
+                $primary flushall
+                $primary hset h1 f1 v1 f2 v2
+                $primary hpexpire h1 1 FIELDS 1 f1
+                assert {[$primary wait 1 0] == 1}
+                after 10
+
+                # Only commands of the master bypass the expiry check: a user
+                # command on the replica sees the field as expired, like reads do.
+                $replica config set replica-read-only no
+                assert_equal [$replica hpersist h1 FIELDS 1 f1] {-2}
+                assert_equal [$replica hget h1 f1] {}
+                $replica config set replica-read-only yes
+                $primary debug set-active-expire 1
+            } {OK}
         }
 
         test "Test HSETEX command replication" {
