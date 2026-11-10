@@ -75,6 +75,58 @@ test {Zset listpack scores are validated before loading or conversion} {
     }
 }
 
+test {ZRANGESTORE builds an ordered btree from an unordered listpack} {
+    start_server {} {
+        # Mix string and integer members to cover both emit callbacks.
+        r zadd order-source 1.5 a 2.5 2 3.5 c 4.5 4
+        assert_encoding listpack order-source
+        # Deep sanitization checks scores and duplicates, not their order,
+        # so a listpack holding 1.5 4.5 3.5 2.5 is accepted.
+        set payload [string map {2.5 4.5 4.5 2.5} [r dump order-source]]
+        r debug set-skip-checksum-validation 1
+        r config set sanitize-dump-payload yes
+        r restore unordered 0 $payload
+        assert_encoding listpack unordered
+        r config set zset-max-listpack-entries 1
+        foreach range {{0 -1} {-inf +inf byscore} {- + bylex}} {
+            r del dst
+            assert_equal 4 [r zrangestore dst unordered {*}$range]
+            assert_encoding btree dst
+            assert_equal {a 1.5 4 2.5 c 3.5 2 4.5} [r zrange dst 0 -1 withscores]
+            assert_equal 3 [r zcount dst 0 4]
+            assert_equal {a 4 c} [r zrangebyscore dst 0 4]
+        }
+        r debug set-skip-checksum-validation 0
+        r config set zset-max-listpack-entries 128
+    }
+}
+
+test {ZRANGESTORE asserts on a listpack that repeats a member} {
+    foreach {members old new} [list \
+        {a b c d}  "\x81\x63"      "\x81\x61" \
+        {1 2 3 4}  "\x03\x01\x03"  "\x01\x01\x03" \
+    ] {
+        lassign $members m1 m2 m3 m4
+        start_server [list overrides [list use-exit-on-panic yes crash-memcheck-enabled no] ] {
+            r debug set-skip-checksum-validation 1
+            r config set sanitize-dump-payload no
+
+            # Restore a listpack whose third member repeats the first.
+            r zadd dup-source 1 $m1 2 $m2 3 $m3 4 $m4
+            assert_encoding listpack dup-source
+            set payload [string map [list $old $new] [r dump dup-source]]
+            r restore dup 0 $payload
+            assert_equal "$m1 1 $m2 2 $m1 3 $m4 4" [r zrange dup 0 -1 withscores]
+
+            # zsetAdd() would silently merge the repeat and the reply would
+            # count 4 while dst holds 3, so ZRANGESTORE must assert instead.
+            catch {r zrangestore dst dup 0 -1}
+            wait_for_log_messages 0 {"*ASSERTION FAILED*"} 0 100 50
+            assert_equal 0 [count_log_message 0 "crashed by signal"]
+        }
+    }
+}
+
 test {Zset listpack duplicate members are rejected by sanitization and assert on conversion} {
     start_server [list overrides [list use-exit-on-panic yes crash-memcheck-enabled no]] {
         r zadd dup-source 1 alpha 2 bravo

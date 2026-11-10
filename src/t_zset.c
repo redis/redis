@@ -3655,6 +3655,7 @@ struct zrange_result_handler {
     void                                *userdata;
     int                                  withscores;
     int                                  reverse;
+    int                                  source_encoding;
     int                                  should_emit_array_length;
     zbtreeAppendBatch                   *append_batch;
     zrangeResultBeginFunction            beginResultEmission;
@@ -3754,8 +3755,17 @@ static void zrangeResultEmitCBufferForStore(zrange_result_handler *handler,
      * reverse-order emission both keep the original, always-correct path.
      * The batch is created lazily on the first fast-path emit (the
      * destination may start as LISTPACK and convert mid-stream) and flushed
-     * once in zrangeResultFinalizeStore(). */
-    if (!handler->reverse && handler->dstobj->encoding == OBJ_ENCODING_BTREE) {
+     * once in zrangeResultFinalizeStore().
+     *
+     * Only a btree source is sorted by construction. A listpack source may be
+     * a restored payload that validation accepted unsorted or, without deep
+     * sanitization, with a repeated member. It takes the checked path, which
+     * places each element by (score, member) and asserts that each one was
+     * new. That costs nothing in practice: a listpack source feeds a btree
+     * destination only when the limits were lowered after it was built. */
+    if (!handler->reverse && handler->source_encoding == OBJ_ENCODING_BTREE &&
+        handler->dstobj->encoding == OBJ_ENCODING_BTREE)
+    {
         if (!handler->append_batch)
             handler->append_batch = zbtreeAppendBatchCreate(handler->dstobj->ptr);
         zbtreeAppendBatchAdd(handler->append_batch, score, value, value_length_in_bytes);
@@ -3766,7 +3776,7 @@ static void zrangeResultEmitCBufferForStore(zrange_result_handler *handler,
     sds ele = sdsnewlen(value, value_length_in_bytes);
     int retval = zsetAdd(handler->dstobj, score, ele, ZADD_IN_NONE, &retflags, &newscore);
     sdsfree(ele);
-    serverAssert(retval);
+    serverAssert(retval && (retflags & ZADD_OUT_ADDED));
 }
 
 static void zrangeResultEmitLongLongForStore(zrange_result_handler *handler,
@@ -3776,7 +3786,9 @@ static void zrangeResultEmitLongLongForStore(zrange_result_handler *handler,
      * the integer member directly into a stack buffer instead of an sds --
      * zbtreeAppendBatchAdd() copies the bytes out synchronously, so the
      * stack buffer doesn't need to outlive this call. */
-    if (!handler->reverse && handler->dstobj->encoding == OBJ_ENCODING_BTREE) {
+    if (!handler->reverse && handler->source_encoding == OBJ_ENCODING_BTREE &&
+        handler->dstobj->encoding == OBJ_ENCODING_BTREE)
+    {
         char buf[LONG_STR_SIZE];
         size_t len = ll2string(buf, sizeof(buf), value);
         if (!handler->append_batch)
@@ -3789,7 +3801,7 @@ static void zrangeResultEmitLongLongForStore(zrange_result_handler *handler,
     sds ele = sdsfromlonglong(value);
     int retval = zsetAdd(handler->dstobj, score, ele, ZADD_IN_NONE, &retflags, &newscore);
     sdsfree(ele);
-    serverAssert(retval);
+    serverAssert(retval && (retflags & ZADD_OUT_ADDED));
 }
 
 static void zrangeResultFinalizeStore(zrange_result_handler *handler, size_t result_count)
@@ -4597,6 +4609,10 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
     }
 
     if (checkType(c,zobj,OBJ_ZSET)) goto cleanup;
+
+    /* The STORE fast path trusts the order of a btree source only.
+     * See zrangeResultEmitCBufferForStore(). */
+    handler->source_encoding = zobj->encoding;
 
     /* Step 4: Pass this to the command-specific handler. The listpack and
      * B+tree range readers never resize zobj (no member index lookup or rehash
