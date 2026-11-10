@@ -338,6 +338,7 @@ int parseExtendedStringArgumentsOrReply(client *c, int start_pos, extendedString
         {
             args->flags |= OBJ_SET_GET;
         } else if (!strcasecmp(opt, "KEEPTTL") && !(args->flags & OBJ_PERSIST) &&
+            !(args->flags & OBJ_KEEPTTL) &&
             !(args->flags & OBJ_EX) && !(args->flags & OBJ_EXAT) &&
             !(args->flags & OBJ_PX) && !(args->flags & OBJ_PXAT) &&
             (command_type == COMMAND_SET || command_type == COMMAND_MSETEX))
@@ -352,6 +353,7 @@ int parseExtendedStringArgumentsOrReply(client *c, int start_pos, extendedString
         } else if ((opt[0] == 'e' || opt[0] == 'E') &&
                    (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
                    !(args->flags & OBJ_KEEPTTL) && !(args->flags & OBJ_PERSIST) &&
+                   !(args->flags & OBJ_EX) &&
                    !(args->flags & OBJ_EXAT) && !(args->flags & OBJ_PX) &&
                    !(args->flags & OBJ_PXAT) && next)
         {
@@ -363,6 +365,7 @@ int parseExtendedStringArgumentsOrReply(client *c, int start_pos, extendedString
                    (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
                    !(args->flags & OBJ_KEEPTTL) && !(args->flags & OBJ_PERSIST) &&
                    !(args->flags & OBJ_EX) && !(args->flags & OBJ_EXAT) &&
+                   !(args->flags & OBJ_PX) &&
                    !(args->flags & OBJ_PXAT) && next)
         {
             args->flags |= OBJ_PX;
@@ -376,6 +379,7 @@ int parseExtendedStringArgumentsOrReply(client *c, int start_pos, extendedString
                    (opt[3] == 't' || opt[3] == 'T') && opt[4] == '\0' &&
                    !(args->flags & OBJ_KEEPTTL) && !(args->flags & OBJ_PERSIST) &&
                    !(args->flags & OBJ_EX) && !(args->flags & OBJ_PX) &&
+                   !(args->flags & OBJ_EXAT) &&
                    !(args->flags & OBJ_PXAT) && next)
         {
             args->flags |= OBJ_EXAT;
@@ -387,7 +391,7 @@ int parseExtendedStringArgumentsOrReply(client *c, int start_pos, extendedString
                    (opt[3] == 't' || opt[3] == 'T') && opt[4] == '\0' &&
                    !(args->flags & OBJ_KEEPTTL) && !(args->flags & OBJ_PERSIST) &&
                    !(args->flags & OBJ_EX) && !(args->flags & OBJ_EXAT) &&
-                   !(args->flags & OBJ_PX) && next)
+                   !(args->flags & OBJ_PX) && !(args->flags & OBJ_PXAT) && next)
         {
             args->flags |= OBJ_PXAT;
             args->unit = UNIT_MILLISECONDS;

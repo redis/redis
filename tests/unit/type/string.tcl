@@ -376,19 +376,12 @@ start_server {tags {"string"}} {
         assert_error {*syntax error*} {r msetex 2 key1{t} val1 key2{t} val2 keepttl px 5000}
     }
 
-    test {MSETEX - repeated EX/PX of the same unit, last wins} {
+    test {MSETEX - repeated EX/PX of the same unit are rejected} {
         r del dup:key{t}
-        r msetex 1 dup:key{t} val ex 10 ex 100
-        assert_range [r ttl dup:key{t}] 90 100
-
-        r del dup:key{t}
-        r msetex 1 dup:key{t} val px 10000 px 100000
-        assert_range [r ttl dup:key{t}] 90 100
-
-        # Repeated expire options with NX in between
-        r del dup:key{t}
-        r msetex 1 dup:key{t} val ex 10 nx ex 100
-        assert_range [r ttl dup:key{t}] 90 100
+        assert_error {*syntax error*} {r msetex 1 dup:key{t} val ex 10 ex 100}
+        assert_error {*syntax error*} {r msetex 1 dup:key{t} val px 10000 px 100000}
+        assert_error {*syntax error*} {r msetex 1 dup:key{t} val ex 10 nx ex 100}
+        assert_error {*syntax error*} {r msetex 1 dup:key{t} val keepttl keepttl}
     }
 
     test {MSETEX - EX/PX are propagated as a single PXAT} {
@@ -396,8 +389,8 @@ start_server {tags {"string"}} {
         set repl [attach_to_replication_stream]
         r msetex 2 repl:key1{t} v1 repl:key2{t} v2 ex 100
         r msetex 1 repl:key1{t} v3 px 100000 xx
-        r msetex 1 repl:key1{t} v4 ex 10 ex 100
-        r msetex 1 repl:key1{t} v5 px 10000 px 100000
+        r msetex 1 repl:key1{t} v4 ex 100
+        r msetex 1 repl:key1{t} v5 px 100000
         r msetex 1 repl:nx{t} v6 ex 10 nx ex 100
         r msetex 1 repl:key1{t} v7 px 10000 xx px 100000
         foreach expected {
@@ -686,6 +679,15 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         catch {r set foo bar non-existing-option} e
         set e
     } {*syntax*}
+
+    test {Extended SET rejects repeated expiration options} {
+        assert_error {*syntax error*} {r set foo bar ex 10 ex 3}
+        assert_error {*syntax error*} {r set foo bar px 1000 px 2000}
+        assert_error {*syntax error*} {r set foo bar exat 1735689600 exat 1735689700}
+        assert_error {*syntax error*} {r set foo bar pxat 1735689600000 pxat 1735689700000}
+        assert_error {*syntax error*} {r set foo bar keepttl keepttl}
+        assert_error {*syntax error*} {r getex foo ex 10 ex 3}
+    }
 
     test {Extended SET NX option} {
         r del foo
