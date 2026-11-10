@@ -87,3 +87,39 @@ start_server {tags {"modules external:skip"}} {
         assert_equal {OK} [r module unload getkeys]
     }
 }
+
+# With io-threads > 1 the key position callback runs on an IO thread, from
+# preprocessCommand() -> extractKeysAndSlot(). Repeat the checks above on that
+# path. The race itself needs concurrent load, see the getkeys-api preprocess
+# race test in integration/replication-iothreads.tcl.
+start_server {overrides {io-threads 4 save ""} tags {modules external:skip}} {
+    r module load $testmodule
+
+    test {module getkeys-api on IO threads still reports the same keys} {
+        r command getkeys getkeys.command arg1 arg2 key key1 arg3 key key2 key key3
+    } {key1 key2 key3}
+
+    test {module getkeys-api with flags on IO threads still reports the same keys} {
+        r command getkeysandflags getkeys.command_with_flags arg1 arg2 key key1 arg3 key key2 key key3
+    } {{key1 {RO access}} {key2 {RO access}} {key3 {RO access}}}
+
+    # getkeys.command declares firstkey 0, so preprocessCommand() has to ask the
+    # module for the positions on the IO thread.
+    test {module getkeys-api commands are preprocessed on an IO thread} {
+        set info [r client info]
+        assert {[regexp {io-thread=(\d+)} $info - tid]}
+        assert_morethan $tid 0
+    }
+
+    test {module getkeys-api on IO threads keeps ACL checks working} {
+        r ACL setuser testuser +@all %R~read* %W~write* %RW~rw*
+        assert_equal "OK" [r ACL DRYRUN testuser getkeys.command key rw]
+        assert_match {*has no permissions to access the 'read' key*} [r ACL DRYRUN testuser getkeys.command key read]
+        assert_match {*has no permissions to access the 'write' key*} [r ACL DRYRUN testuser getkeys.command_with_flags key write]
+    }
+
+    test {module getkeys-api on IO threads answers the command itself} {
+        assert_equal {k1 k2} [r getkeys.command key k1 key k2]
+        assert_equal {k1} [r getkeys.command_with_flags key k1]
+    }
+}
