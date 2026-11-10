@@ -2318,10 +2318,13 @@ void smoveCommand(client *c) {
     }
 
     /* The member moves with its expiration. A source member that is logically
-     * expired is not a member: it is removed, and nothing is moved. */
+     * expired is not a member: it is removed, and nothing is moved. Pass
+     * setDeleted so a final expired member that deletes the key cannot be
+     * touched afterward. */
     uint64_t srcExpire = EB_EXPIRE_TIME_INVALID;
     if (setTypeHasExpireSupport(srcset)) {
-        if (!setTypeIsMemberLazy(c->db, srcset, ele->ptr, 0, NULL)) {
+        int srcDeleted = 0;
+        if (!setTypeIsMemberLazy(c->db, srcset, ele->ptr, 0, &srcDeleted) || srcDeleted) {
             addReply(c,shared.czero);
             return;
         }
