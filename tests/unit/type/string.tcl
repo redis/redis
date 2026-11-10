@@ -391,8 +391,8 @@ start_server {tags {"string"}} {
         r msetex 1 repl:key1{t} v3 px 100000 xx
         r msetex 1 repl:key1{t} v4 ex 100
         r msetex 1 repl:key1{t} v5 px 100000
-        r msetex 1 repl:nx{t} v6 ex 10 nx ex 100
-        r msetex 1 repl:key1{t} v7 px 10000 xx px 100000
+        r msetex 1 repl:nx{t} v6 nx ex 100
+        r msetex 1 repl:key1{t} v7 xx px 100000
         foreach expected {
             {select *}
             {msetex 2 repl:key1{t} v1 repl:key2{t} v2 PXAT *}
