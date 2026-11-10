@@ -5545,7 +5545,8 @@ void bzmpopCommand(client *c) {
 /* Complete source bookkeeping after members have been removed. The size
  * snapshot must precede member/rank lookups, which can finish a B+tree rehash. */
 static void zmoveUpdateSource(client *c, robj *key, kvobj *obj, size_t oldsize,
-                              int64_t oldlen, unsigned long moved, const char *event) {
+                              int64_t oldlen, unsigned long moved, const char *event)
+{
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(key->ptr), obj, oldsize, kvobjAllocSize(obj));
     notifyKeyspaceEvent(NOTIFY_ZSET, event, key, c->db->id);
@@ -5563,7 +5564,8 @@ static void zmoveUpdateSource(client *c, robj *key, kvobj *obj, size_t oldsize,
 /* A destination can allocate memory without changing its logical contents.
  * Only added or score-updated members invalidate WATCH and emit zadd. */
 static void zmoveUpdateDestination(client *c, robj *key, kvobj *obj, size_t oldsize,
-                                   int64_t oldlen, unsigned long added, unsigned long updated) {
+                                   int64_t oldlen, unsigned long added, unsigned long updated)
+{
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(key->ptr), obj, oldsize, kvobjAllocSize(obj));
     if (added)
@@ -5656,7 +5658,8 @@ static void zmoveRangeBegin(zrange_result_handler *handler, long length) {
 }
 
 static void zmoveRangeEmit(zrange_result_handler *handler, const void *value,
-                           size_t len, double score) {
+                           size_t len, double score)
+{
     zmoveRangeState *state = handler->userdata;
     client *c = handler->client;
     sds ele = sdsnewlen(value, len);
@@ -5681,7 +5684,8 @@ static void zmoveRangeEmit(zrange_result_handler *handler, const void *value,
 }
 
 static void zmoveRangeEmitLongLong(zrange_result_handler *handler, long long value,
-                                   double score) {
+                                   double score)
+{
     char buf[LONG_STR_SIZE];
     size_t len = ll2string(buf, sizeof(buf), value);
     zmoveRangeEmit(handler, buf, len, score);
