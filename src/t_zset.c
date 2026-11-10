@@ -5316,7 +5316,8 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
      * used into CASE 4 is highly inefficient. Listpack is served by CASE 2.5;
      * other encodings fall through to CASE 4. */
     if (zsetobj->encoding == OBJ_ENCODING_BTREE &&
-        count*ZRANDMEMBER_SUB_STRATEGY_MUL > size) {
+        count*ZRANDMEMBER_SUB_STRATEGY_MUL > size)
+    {
         unsigned long needed = count, remaining = size;
         zbtreeIterator iter;
         const unsigned char *ele;
