@@ -622,6 +622,7 @@ void lindexCommand(client *c) {
     kvobj *o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]);
     if (o == NULL || checkType(c,o,OBJ_LIST)) return;
     long index;
+    size_t oldsize = 0;
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &index, NULL) != C_OK))
         return;
@@ -632,6 +633,8 @@ void lindexCommand(client *c) {
     size_t vlen;
     long long lval;
 
+    if (server.memory_tracking_enabled)
+        oldsize = kvobjAllocSize(o);
     listTypeInitIterator(&iter, o, index, LIST_TAIL);
     if (listTypeNext(&iter, &entry)) {
         vstr = listTypeGetValue(&entry,&vlen,&lval);
@@ -645,6 +648,9 @@ void lindexCommand(client *c) {
     }
 
     listTypeResetIterator(&iter);
+    /* Resetting the iterator may recompress a node and shrink the list. */
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
 }
 
 /* LSET <key> <index> <element> */
@@ -718,6 +724,9 @@ void addListQuicklistRangeReply(client *c, robj *o, int from, int rangelen, int 
     /* Return the result in form of a multi-bulk reply */
     addReplyArrayLen(c,rangelen);
 
+    size_t oldsize = 0;
+    if (server.memory_tracking_enabled)
+        oldsize = kvobjAllocSize(o);
     int direction = reverse ? AL_START_TAIL : AL_START_HEAD;
     quicklistIter iter;
     quicklistInitIteratorAtIdx(&iter, o->ptr, direction, from);
@@ -731,6 +740,9 @@ void addListQuicklistRangeReply(client *c, robj *o, int from, int rangelen, int 
         }
     }
     quicklistResetIterator(&iter);
+    /* Leaving nodes may recompress them and shrink the list allocation. */
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
 }
 
 /* Extracted from `addListRangeReply()` to reply with a listpack list.
@@ -1074,6 +1086,9 @@ void lposCommand(client *c) {
     /* Seek the element. */
     listTypeIterator li;
     listTypeEntry entry;
+    size_t oldsize = 0;
+    if (server.memory_tracking_enabled)
+        oldsize = kvobjAllocSize(o);
     listTypeInitIterator(&li, o, direction == LIST_HEAD ? -1 : 0, direction);
     long llen = listTypeLength(o);
     long index = 0, matches = 0, matchindex = -1, arraylen = 0;
@@ -1098,6 +1113,8 @@ void lposCommand(client *c) {
         matchindex = -1; /* Remember if we exit the loop without a match. */
     }
     listTypeResetIterator(&li);
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
 
     /* Reply to the client. Note that arraylenptr is not NULL only if
      * the COUNT option was selected. */
