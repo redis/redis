@@ -5575,9 +5575,9 @@ static void zmoveUpdateDestination(client *c, robj *key, kvobj *obj, size_t olds
     }
 }
 
-static void zmoveGenericCommand(client *c, robj *srckey, robj *dstkey, int where, long count) {
-    kvobj *sobj = lookupKeyWriteOrReply(c, srckey, shared.nullarray[c->resp]);
-    if (sobj == NULL || checkType(c, sobj, OBJ_ZSET)) return;
+static void zmoveGenericCommand(client *c, kvobj *sobj, robj *srckey, robj *dstkey,
+                                int where, long count)
+{
     kvobj *dobj = lookupKeyWrite(c->db, dstkey);
     if (checkType(c, dobj, OBJ_ZSET)) return;
 
@@ -5837,7 +5837,9 @@ void zmoveCommand(client *c) {
         int where;
         if (zsetGetPositionOrReply(c, c->argv[3], &where) != C_OK) return;
         if (zmoveParseCount(c, 4, 1, &count) != C_OK) return;
-        zmoveGenericCommand(c, c->argv[1], c->argv[2], where, count);
+        kvobj *sobj = lookupKeyWriteOrReply(c, c->argv[1], shared.nullarray[c->resp]);
+        if (sobj == NULL || checkType(c, sobj, OBJ_ZSET)) return;
+        zmoveGenericCommand(c, sobj, c->argv[1], c->argv[2], where, count);
     }
 }
 
@@ -5850,13 +5852,13 @@ void bzmoveCommand(client *c) {
     if (getMonotonicTimeoutFromObjectOrReply(c, c->argv[4], &timeout, UNIT_SECONDS) != C_OK) return;
     if (zmoveParseCount(c, 5, 1, &count) != C_OK) return;
 
-    robj *key = lookupKeyWrite(c->db, c->argv[1]);
-    if (checkType(c, key, OBJ_ZSET)) return;
+    kvobj *sobj = lookupKeyWrite(c->db, c->argv[1]);
+    if (checkType(c, sobj, OBJ_ZSET)) return;
 
     /* A non-empty source takes the non-blocking path, which also replies nil
      * for equal keys and checks the destination type. */
-    if (key && zsetLength(key) > 0) {
-        zmoveGenericCommand(c, c->argv[1], c->argv[2], where, count);
+    if (sobj && zsetLength(sobj) > 0) {
+        zmoveGenericCommand(c, sobj, c->argv[1], c->argv[2], where, count);
         return;
     }
 
