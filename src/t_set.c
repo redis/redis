@@ -2702,6 +2702,15 @@ void spopWithCountCommand(client *c) {
             set->ptr = lp;
         } else {
             const int keepExpire = setTypeHasExpireSupport(set);
+            /* The number of the members that remain is known: if they do not fit
+             * a listpack, create the hashtable, sized for them, right away instead
+             * of growing a listpack and converting it on the way. A set that is not
+             * a hashtable is small enough for its members to be added as they are. */
+            if (set->encoding == OBJ_ENCODING_HT && remaining > server.set_max_listpack_entries) {
+                newset = createSetObject();
+                dictExpand(newset->ptr, remaining);
+                if (keepExpire) setHashtableAddExpireSupport(newset);
+            }
             while(remaining--) {
                 int encoding = setTypeRandomElement(set, &str, &len, &llele);
                 uint64_t expire = EB_EXPIRE_TIME_INVALID;

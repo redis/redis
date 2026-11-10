@@ -1045,6 +1045,19 @@ foreach type {single multiple single_multiple} {
     }
     }
 
+    test "SPOP new implementation: code path #3 with many remaining members creates a hashtable" {
+        r del myset
+        set content {}
+        for {set i 0} {$i < 1200} {incr i} {lappend content m$i}
+        r sadd myset {*}$content
+        assert_encoding hashtable myset
+        set res [r spop myset 1000]
+        assert_equal 1000 [llength $res]
+        assert_equal 200 [r scard myset]
+        assert_encoding hashtable myset
+        assert_equal [lsort $content] [lsort [concat [r smembers myset] $res]]
+    }
+
     test "SPOP new implementation: code path #1 propagate as DEL or UNLINK" {
         r del myset1{t} myset2{t}
         r sadd myset1{t} 1 2 3 4 5

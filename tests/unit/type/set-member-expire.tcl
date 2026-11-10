@@ -914,6 +914,29 @@ start_server {tags {"external:skip needs:debug"}} {
             r debug set-active-expire 1
         } {OK} {needs:repl}
 
+        test "SPOP with a count that leaves many members keeps the expirations in a hashtable ($enc)" {
+            r flushall
+            r debug set-active-expire 0
+            r del myset
+            for {set i 0} {$i < 1200} {incr i} {r sadd myset m$i}
+            # Some of the members have an expiration, the ones that remain too.
+            for {set i 0} {$i < 1200} {incr i 2} {r spexpireat myset [expr {[clock milliseconds] + 100000 + $i}] MEMBERS 1 m$i}
+            assert_encoding hashtable myset
+            set popped [r spop myset 1000]
+            assert_equal 1000 [llength $popped]
+            assert_equal 200 [r scard myset]
+            assert_encoding hashtable myset
+            foreach m [r smembers myset] {
+                set i [string range $m 1 end]
+                if {$i % 2 == 0} {
+                    assert {[r sttl myset MEMBERS 1 $m] > 0}
+                } else {
+                    assert_equal -1 [lindex [r sttl myset MEMBERS 1 $m] 0]
+                }
+            }
+            r debug set-active-expire 1
+        } {OK}
+
         test "SRANDMEMBER - Never returns an expired member, in every form ($enc)" {
             r flushall
             sme_mixed_set r
