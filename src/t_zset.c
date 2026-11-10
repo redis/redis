@@ -5580,39 +5580,50 @@ static void zmoveGenericCommand(client *c, kvobj *sobj, robj *srckey, robj *dstk
 {
     kvobj *dobj = lookupKeyWrite(c->db, dstkey);
     if (checkType(c, dobj, OBJ_ZSET)) return;
-
     /* Equal keys are a no-op and require no member lookups. */
     if (sobj == dobj || zsetLength(sobj) == 0) {
         addReplyNullArray(c);
         return;
     }
 
+    /* Snapshot for keysizes and memory accounting. */
     int64_t src_old_len = zsetLength(sobj);
     int64_t dst_old_len = dobj ? (int64_t)zsetLength(dobj) : 0;
     size_t src_old_size = server.memory_tracking_enabled ? kvobjAllocSize(sobj) : 0;
     size_t dst_old_size = server.memory_tracking_enabled && dobj ? kvobjAllocSize(dobj) : 0;
+
+    /* Every popped member is added, so the reply length is known. */
     unsigned long moved = min((unsigned long)count, (unsigned long)src_old_len);
     unsigned long added = 0, updated = 0;
     addReplyArrayLen(c, moved);
     for (unsigned long i = 0; i < moved; i++) {
         sds ele;
         double score;
+
+        /* 'ele' is a copy, so it outlives the delete. */
         zsetGetMinMax(c, sobj, &ele, &score, where);
         serverAssertWithInfo(c, sobj, zsetDel(sobj, ele));
+
+        /* Create the destination lazily. */
         if (!dobj) {
             robj *newobj = zsetTypeCreate(1, sdslen(ele));
             dobj = dbAdd(c->db, dstkey, &newobj);
             if (server.memory_tracking_enabled) dst_old_size = kvobjAllocSize(dobj);
         }
+
+        /* Add with the source score; an existing member's score is overwritten. */
         int flags = 0;
         serverAssert(zsetAdd(dobj, score, ele, ZADD_IN_NONE, &flags, NULL));
         if (flags & ZADD_OUT_ADDED) added++;
         if (flags & ZADD_OUT_UPDATED) updated++;
+
         addReplyArrayLen(c, 2);
         addReplyBulkCBuffer(c, ele, sdslen(ele));
         addReplyDouble(c, score);
         sdsfree(ele);
     }
+
+    /* Notify, update stats and WATCH for both keys; an emptied source is deleted. */
     const char *event = where == ZSET_MIN ? "zpopmin" : "zpopmax";
     zmoveUpdateSource(c, srckey, sobj, src_old_size, src_old_len, moved, event);
     zmoveUpdateDestination(c, dstkey, dobj, dst_old_size, dst_old_len, added, updated);
