@@ -5734,7 +5734,7 @@ static void zmoveRangeCommand(client *c, zrangespec *range, long limit) {
                            state.added, state.updated);
 }
 
-/* ZMOVEMEMBER <source> <destination> <member> */
+/* ZMOVEMEMBER source destination member */
 void zmovememberCommand(client *c) {
     zmoveGenericCommand(c, c->argv[1], c->argv[2], 0, c->argv[3]);
 }
@@ -5776,7 +5776,7 @@ void zmoveCommand(client *c) {
     zmoveGenericCommand(c, c->argv[1], c->argv[2], where, NULL);
 }
 
-/* BZMOVE <source> <destination> MIN|MAX <timeout> */
+/* BZMOVE source destination <MIN | MAX> timeout */
 void bzmoveCommand(client *c) {
     uint64_t timeout;
     int where; /* ZSET_MIN or ZSET_MAX. */
