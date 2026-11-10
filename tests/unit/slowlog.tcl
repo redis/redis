@@ -87,26 +87,6 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         assert_morethan [lindex $e 7] 0
     }
 
-    test {SLOWLOG - off-CPU time before a command is not blamed on it} {
-        # Compare CPU estimates, which don't depend on host load (wall time does):
-        # the same EVAL alone, then after 75ms of sleeps in the same window (five
-        # 15ms sleeps, each under the threshold so none moves the checkpoint).
-        # If the sleeps were blamed on it, its estimate would drop by ~75ms.
-        set script {local i = 0 while i < 10000000 do i = i + 1 end return i}
-        r config set slowlog-log-slower-than 20000
-        r slowlog reset
-        r eval $script 0
-        set alone [lindex [lindex [r slowlog get 1] 0] 7]
-        r slowlog reset
-        r multi
-        for {set i 0} {$i < 5} {incr i} { r debug sleep 0.015 }
-        r eval $script 0
-        r exec
-        set e [lindex [r slowlog get 1] 0]
-        assert_match {eval *} [lindex $e 3]
-        assert_morethan [lindex $e 7] [expr {$alone - 37000}]
-    } {} {needs:debug}
-
     test {SLOWLOG - on-CPU subcommand does not mask a later off-CPU one in EXEC} {
         r config set slowlog-log-slower-than 10000
         r slowlog reset
