@@ -702,6 +702,8 @@ void debugCommand(client *c) {
 "    Pause the server's main process during various replication steps.",
 "DICT-RESIZING <0|1>",
 "    Enable or disable the main dict and expire dict resizing.",
+"HOTKEYS-SHIFT-START <milliseconds>",
+"    Move the start of the current HOTKEYS tracking <milliseconds> into the past.",
 "SCRIPT <LIST|<sha>>",
 "    Output SHA and content of all scripts or of a specific script with its SHA.",
 "MARK-INTERNAL-CLIENT [UNMARK]",
@@ -1326,6 +1328,15 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"pause-cron") && c->argc == 3)
     {
         server.pause_cron = atoi(c->argv[2]->ptr);
+        addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"hotkeys-shift-start") && c->argc == 3) {
+        long long ms;
+        if (getLongLongFromObjectOrReply(c, c->argv[2], &ms, NULL) != C_OK) return;
+        if (!server.hotkeys) {
+            addReplyError(c, "HOTKEYS tracking was not started");
+            return;
+        }
+        server.hotkeys->start -= ms;
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"replybuffer") && c->argc == 4 ) {
         if(!strcasecmp(c->argv[2]->ptr, "peak-reset-time")) {

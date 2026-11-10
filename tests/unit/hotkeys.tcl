@@ -240,6 +240,24 @@ start_server {tags {external:skip "hotkeys"}} {
         assert_equal {OK} [r hotkeys reset]
     }
 
+    test {HOTKEYS GET - collection-duration-ms beyond 2^31 milliseconds} {
+        assert_equal {OK} [r hotkeys start METRICS 1 CPU]
+        # Tracking for 25 days, longer than 2^31 ms (24.8 days).
+        set age [expr {25 * 24 * 3600 * 1000}]
+        assert_equal {OK} [r debug hotkeys-shift-start $age]
+
+        # While tracking
+        set result [lindex [r hotkeys get] 0]
+        assert_morethan_equal [dict get $result "collection-duration-ms"] $age
+
+        # After stopping
+        assert_equal {OK} [r hotkeys stop]
+        set result [lindex [r hotkeys get] 0]
+        assert_morethan_equal [dict get $result "collection-duration-ms"] $age
+
+        assert_equal {OK} [r hotkeys reset]
+    } {} {needs:debug}
+
     test {HOTKEYS - nested commands} {
         assert_equal {OK} [r hotkeys start METRICS 1 NET]
         r eval "redis.call('set', 'x', 1)" 1 x
