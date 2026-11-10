@@ -5792,39 +5792,46 @@ void zmovememberCommand(client *c) {
     size_t dst_old_size = server.memory_tracking_enabled && dobj ? kvobjAllocSize(dobj) : 0;
     int64_t src_old_len = zsetLength(sobj);
     int64_t dst_old_len = dobj ? (int64_t)zsetLength(dobj) : 0;
+
     unsigned long moved = 0, added = 0, updated = 0;
     void *replylen = NULL;
     for (int j = 4; j < end; j++) {
         sds ele = c->argv[j]->ptr;
-        double score, dstscore;
+        double score;
+
+        /* Skip members not in the source, including repeats of a moved one. */
         if (zsetScore(sobj, ele, &score) == C_ERR) continue;
-        if (condition != ZADD_IN_NONE) {
-            int exists = dobj && zsetScore(dobj, ele, &dstscore) == C_OK;
-            if ((condition == ZADD_IN_NX && exists) ||
-                (condition == ZADD_IN_XX && !exists)) continue;
-        }
+
+        /* XX can't match without a destination; skip before creating one. */
+        if (condition == ZADD_IN_XX && !dobj) continue;
         if (!dobj) {
             robj *newobj = zsetTypeCreate(1, sdslen(ele));
             dobj = dbAdd(c->db, dstkey, &newobj);
             if (server.memory_tracking_enabled) dst_old_size = kvobjAllocSize(dobj);
         }
+
+        /* zsetAdd() applies NX | XX; a member failing it stays in the source. */
         int flags = 0;
-        serverAssert(zsetAdd(dobj, score, ele, ZADD_IN_NONE, &flags, NULL));
+        serverAssert(zsetAdd(dobj, score, ele, condition, &flags, NULL));
+        if (flags & ZADD_OUT_NOP) continue;
         if (flags & ZADD_OUT_ADDED) added++;
         if (flags & ZADD_OUT_UPDATED) updated++;
-        /* Deleting each moved member also suppresses later duplicates. */
         serverAssertWithInfo(c, sobj, zsetDel(sobj, ele));
+
+        /* The reply length is only known once every member is checked. */
         if (!moved) replylen = addReplyDeferredLen(c);
         addReplyArrayLen(c, 2);
         addReplyBulkCBuffer(c, ele, sdslen(ele));
         addReplyDouble(c, score);
         moved++;
     }
+
     if (moved) {
         setDeferredArrayLen(c, replylen, moved);
         zmoveUpdateSource(c, srckey, sobj, src_old_size, src_old_len, moved, "zrem");
         zmoveUpdateDestination(c, dstkey, dobj, dst_old_size, dst_old_len, added, updated);
     } else {
+        /* Nothing moved, but the lookups above may still have resized either key. */
         if (server.memory_tracking_enabled) {
             updateSlotAllocSize(c->db, getKeySlot(srckey->ptr), sobj, src_old_size, kvobjAllocSize(sobj));
             if (dobj)
