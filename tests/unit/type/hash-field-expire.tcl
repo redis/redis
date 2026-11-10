@@ -2038,6 +2038,24 @@ start_server {tags {"external:skip needs:debug"}} {
                 assert_equal [r httl h1 FIELDS 1 f1] {-1}
                 assert_equal [lsort [r hkeys h1]] {f1 f2}
             } {} {needs:debug}
+
+            test {HPERSIST of an expired field is not replayed from AOF as a persist} {
+                r debug set-active-expire 0
+                r flushall
+                r hset h1 f1 v1 f2 v2
+                r hpexpire h1 1 FIELDS 1 f1
+                r hexpire h1 100 FIELDS 1 f2
+                after 10
+                # f1 is expired (not yet deleted) and is rejected, f2 is persisted
+                assert_equal [r hpersist h1 FIELDS 2 f1 f2] {-2 1}
+
+                # The AOF must hold the persist of f2 only: on replay nothing is
+                # expired by the local clock, so f1 would otherwise be revived.
+                r debug loadaof
+                assert_equal [r hget h1 f1] {}
+                assert_equal [r httl h1 FIELDS 2 f1 f2] {-2 -1}
+                r debug set-active-expire 1
+            } {OK} {needs:debug}
         }
 
         # Based on test, with same name, at expire.tcl:
@@ -2045,6 +2063,7 @@ start_server {tags {"external:skip needs:debug"}} {
             # Make sure that both relative and absolute expire commands are propagated
             # Consider also comment of the test, with same name, at expire.tcl
 
+            r debug set-active-expire 0
             r flushall ; # Clean up keyspace to avoid interference by keys from other tests
             set repl [attach_to_replication_stream]
 
@@ -2061,6 +2080,14 @@ start_server {tags {"external:skip needs:debug"}} {
             r hpersist h3 FIELDS 1 f5
             r hexpire h3 100 FIELDS 3 f3 f4 non_exists_field
             r hpersist h3 FIELDS 1 f3
+            # Only the fields that were actually persisted are propagated. f1 is
+            # expired but not yet deleted: a replica never expires fields on its
+            # own, so propagating it would revive it there.
+            r hset h4 f1 v1 f2 v2 f3 v3
+            r hpexpire h4 1 FIELDS 1 f1
+            r hexpire h4 100 FIELDS 1 f2
+            after 10
+            assert_equal [r hpersist h4 FIELDS 4 f1 f2 f3 non_exists_field] {-2 1 -1 -2}
 
             assert_replication_stream $repl {
                 {select *}
@@ -2072,9 +2099,14 @@ start_server {tags {"external:skip needs:debug"}} {
                 {hset h3 f3 v3 f4 v4 f5 v5}
                 {hpexpireat h3 * FIELDS 2 f3 f4}
                 {hpersist h3 FIELDS 1 f3}
+                {hset h4 f1 v1 f2 v2 f3 v3}
+                {hpexpireat h4 * FIELDS 1 f1}
+                {hpexpireat h4 * FIELDS 1 f2}
+                {hpersist h4 FIELDS 1 f2}
             }
             close_replication_stream $repl
-        } {} {needs:repl}
+            r debug set-active-expire 1
+        } {OK} {needs:repl}
 
         test {HRANDFIELD delete expired fields and propagate DELs to replica} {
             r debug set-active-expire 0
