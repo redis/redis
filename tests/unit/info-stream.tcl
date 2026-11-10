@@ -592,6 +592,74 @@ proc test_all_stream_stats { {replMode 0} } {
         verify_streams_cgroups {} {__EVAL__ 0}
         verify_streams_max_lag {} {__EVAL__ 0}
     }
+
+    test "STREAM-STATS - streams_max_lag: 520 groups under random operations $suffix" {
+        # One stream with about 520 groups: a heap of ten levels whose count
+        # drifts across 512, so sifts, removals and inserts meet both a full
+        # tree and a partial bottom level. The stream is short, so positions
+        # collide and equal keys stop sifts early. The armed validator checks
+        # the heap against every group's stamp after each command; the
+        # cross-check at the end compares the row with the keyspace. Set
+        # STREAM_LAG_SEED to replay a run.
+        verify_streams_max_lag {$server FLUSHALL} {}
+        set seed [expr {[clock microseconds] % 2147483647}]
+        if {[info exists ::env(STREAM_LAG_SEED)]} { set seed $::env(STREAM_LAG_SEED) }
+        expr {srand($seed)}
+        if {[catch {
+            set groups 520
+            set added 100
+            seed_stream $server st $added
+            set live {}
+            for {set g 0} {$g < $groups} {incr g} {
+                $server xgroup create st g$g 0
+                $server xreadgroup group g$g c count [expr {int(rand()*$added)+1}] streams st >
+                lappend live g$g
+            }
+            set next $groups
+            for {set i 0} {$i < 2000} {incr i} {
+                set g [lindex $live [expr {int(rand()*[llength $live])}]]
+                set op [expr {int(rand()*100)}]
+                if {$op < 35} {
+                    # Re-key down by reading.
+                    $server xreadgroup group $g c count [expr {int(rand()*20)+1}] streams st >
+                } elseif {$op < 50} {
+                    # Re-key either way; a value above entries_added is clamped.
+                    $server xgroup setid st $g [expr {int(rand()*$added)}]-1 entriesread [expr {int(rand()*($added+5))}]
+                } elseif {$op < 55} {
+                    # Unknown position: the key becomes the sentinel and sinks.
+                    $server xgroup setid st $g [expr {int(rand()*$added)}]-1
+                } elseif {$op < 65} {
+                    # Equal destroy and create weights: the count walks across 512.
+                    $server xgroup destroy st $g
+                    set live [lsearch -all -inline -not -exact $live $g]
+                } elseif {$op < 75} {
+                    # A fresh group at 0 is the laggiest: a full-depth sift up.
+                    $server xgroup create st g$next 0
+                    lappend live g$next
+                    incr next
+                } elseif {$op < 85} {
+                    # Threshold crossings.
+                    incr added
+                    $server xadd st $added-1 f v
+                } elseif {$op < 90} {
+                    $server xdel st [expr {int(rand()*$added)+1}]-1
+                } elseif {$op < 95} {
+                    $server xtrim st maxlen [expr {int(rand()*$added)}]
+                } else {
+                    # Lower entries_added towards the length: clamps every
+                    # group above it with no group command involved.
+                    set info [$server xinfo stream st]
+                    set len [dict get $info length]
+                    set ea [dict get $info entries-added]
+                    $server xsetid st [dict get $info last-generated-id] entriesadded [expr {$len + int(rand()*($ea - $len + 1))}]
+                }
+            }
+            verify_pel {} {__EVAL__ 0}
+            verify_consumers {} {__EVAL__ 0}
+            verify_streams_cgroups {} {__EVAL__ 0}
+            verify_streams_max_lag {} {__EVAL__ 0}
+        } err]} { error "seed $seed: $err" }
+    }
 }
 
 start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats yes}} {
