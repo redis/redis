@@ -5565,8 +5565,8 @@ static void zmoveGenericCommand(client *c, robj *srckey, robj *dstkey, int where
     kvobj *dobj = lookupKeyWrite(c->db, dstkey);
     if (checkType(c, dobj, OBJ_ZSET)) return;
 
-    /* Equal keys and COUNT 0 are no-ops; neither requires member lookups. */
-    if (sobj == dobj || count == 0 || zsetLength(sobj) == 0) {
+    /* Equal keys are a no-op and require no member lookups. */
+    if (sobj == dobj || zsetLength(sobj) == 0) {
         addReplyNullArray(c);
         return;
     }
@@ -5675,7 +5675,7 @@ static void zmoveRangeCommand(client *c, zrangespec *range, long limit) {
     if (sobj == NULL || checkType(c, sobj, OBJ_ZSET)) return;
     kvobj *dobj = lookupKeyWrite(c->db, dstkey);
     if (checkType(c, dobj, OBJ_ZSET)) return;
-    if (sobj == dobj || limit == 0 || zsetLength(sobj) == 0) {
+    if (sobj == dobj || zsetLength(sobj) == 0) {
         addReplyNullArray(c);
         return;
     }
@@ -5802,7 +5802,7 @@ void zmovememberCommand(client *c) {
     }
 }
 
-/* Parse a trailing COUNT. Zero is an immediate no-op, including for BZMOVE. */
+/* Parse a trailing COUNT using the same positive batch cap as ZMPOP. */
 static int zmoveParseCount(client *c, int index, long default_count, long *count) {
     *count = default_count;
     if (c->argc == index) return C_OK;
@@ -5814,8 +5814,8 @@ static int zmoveParseCount(client *c, int index, long default_count, long *count
         addReplyErrorObject(c, shared.syntaxerr);
         return C_ERR;
     }
-    return getRangeLongFromObjectOrReply(c, c->argv[index + 1], 0, LONG_MAX, count,
-                                         "COUNT must be a non-negative integer");
+    return getRangeLongFromObjectOrReply(c, c->argv[index + 1], 1, LONG_MAX, count,
+                                         "count should be greater than 0");
 }
 
 /* ZMOVE source destination <MIN | MAX | BYSCORE score-min score-max> [COUNT count] */
@@ -5852,7 +5852,7 @@ void bzmoveCommand(client *c) {
 
     robj *key = lookupKeyWrite(c->db, c->argv[1]);
     if (checkType(c, key, OBJ_ZSET)) return;
-    if (count == 0 || equalStringObjects(c->argv[1], c->argv[2])) {
+    if (equalStringObjects(c->argv[1], c->argv[2])) {
         addReplyNullArray(c);
     } else if (key == NULL || zsetLength(key) == 0) {
         if (c->flags & CLIENT_DENY_BLOCKING) {

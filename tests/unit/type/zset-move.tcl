@@ -220,7 +220,7 @@ start_server [list tags {zset needs:debug} overrides $move_memory_overrides] {
                     assert_encoding $encoding src{t}
                     set options [list $position]
                     if {$command eq "bzmove"} {lappend options 0}
-                    assert_equal {} [r $command src{t} dst{t} {*}$options COUNT 0]
+                    assert_error {ERR count should be greater than 0} {r $command src{t} dst{t} {*}$options COUNT 0}
                     if {$position eq "min"} {
                         assert_equal {{a 1} {b 1}} [r $command src{t} dst{t} {*}$options COUNT 2]
                         assert_equal {c 1 d 2 e 3} [r zrange src{t} 0 -1 withscores]
@@ -242,10 +242,10 @@ start_server [list tags {zset needs:debug} overrides $move_memory_overrides] {
         r del src{t} dst{t}
         r zadd src{t} 1 a
         foreach command {zmove bzmove} {
-            foreach count {-1 1.5 invalid 9223372036854775808} {
+            foreach count {0 -1 1.5 invalid 9223372036854775808} {
                 set args {min}
                 if {$command eq "bzmove"} {lappend args 0}
-                assert_error {*COUNT must be a non-negative integer*} {r $command src{t} dst{t} {*}$args COUNT $count}
+                assert_error {ERR count should be greater than 0} {r $command src{t} dst{t} {*}$args COUNT $count}
             }
         }
         assert_equal {a 1} [r zrange src{t} 0 -1 withscores]
@@ -289,7 +289,7 @@ start_server [list tags {zset needs:debug} overrides $move_memory_overrides] {
             verify_move_nil_response $resp [r zmove zset2{t} zset2{t} min COUNT 2]
             verify_move_nil_response $resp [r zmove zset2{t} target{t} BYSCORE 100 +inf]
             verify_move_nil_response $resp [r zmovemember zset2{t} target{t} 1 missing]
-            verify_move_nil_response $resp [r bzmove missing{t} target{t} min 0 COUNT 0]
+            assert_equal {-ERR count should be greater than 0} [r bzmove missing{t} target{t} min 0 COUNT 0]
             verify_move_nil_response $resp [r zmovemember missing{t} target{t} 1 a]
 
             assert_equal {*1} [r zmove zset2{t} target{t} min]
@@ -401,10 +401,10 @@ start_server [list tags {zset needs:debug} overrides $move_memory_overrides] {
         }
     }
 
-    test {BZMOVE COUNT zero and same-key batches never block} {
+    test {BZMOVE rejects COUNT zero before blocking and same-key batches never block} {
         r del src{t} dst{t}
         set start [clock milliseconds]
-        assert_equal {} [r bzmove src{t} dst{t} min 0 COUNT 0]
+        assert_error {ERR count should be greater than 0} {r bzmove src{t} dst{t} min 0 COUNT 0}
         assert_equal {} [r bzmove src{t} src{t} max 0 COUNT 5]
         assert_lessthan [expr {[clock milliseconds] - $start}] 1000
         assert_equal 0 [s blocked_clients]
@@ -499,7 +499,7 @@ start_server [list tags {zset needs:debug} overrides $move_memory_overrides] {
                 assert_equal $src_expiry [r pexpiretime src{t}]
                 assert_equal $dst_expiry [r pexpiretime dst{t}]
                 assert_equal {{c 1}} [r zmove src{t} dst{t} BYSCORE 1 (2]
-                assert_equal {} [r zmove src{t} dst{t} BYSCORE 2 3 COUNT 0]
+                assert_error {ERR count should be greater than 0} {r zmove src{t} dst{t} BYSCORE 2 3 COUNT 0}
                 assert_equal {{two 2} {three 3}} [r zmove src{t} dst{t} BYSCORE 2 3 COUNT 2147483647]
                 assert_equal {{low -inf}} [r zmove src{t} dst{t} BYSCORE -inf +inf COUNT 1]
                 assert_equal {{zero 0} {high inf}} [r zmove src{t} dst{t} BYSCORE -inf +inf]
@@ -581,7 +581,7 @@ start_server [list tags {zset needs:debug} overrides $move_memory_overrides] {
             lassign $bounds min max
             assert_equal {} [r zmove src{t} dst{t} BYSCORE $min $max]
         }
-        assert_equal {} [r zmove src{t} dst{t} BYSCORE -inf +inf COUNT 0]
+        assert_error {ERR count should be greater than 0} {r zmove src{t} dst{t} BYSCORE -inf +inf COUNT 0}
         assert_equal {} [r zmove src{t} src{t} BYSCORE -inf +inf]
         assert_equal {} [r zmove missing{t} dst{t} BYSCORE -inf +inf]
         assert_equal $before [r dump src{t}]
@@ -604,8 +604,8 @@ start_server [list tags {zset needs:debug} overrides $move_memory_overrides] {
         } {
             assert_error {*min or max is not a float*} {r zmove src{t} dst{t} {*}$args}
         }
-        foreach count {-1 1.5 bogus 9223372036854775808} {
-            assert_error {*COUNT must be a non-negative integer*} {r zmove src{t} dst{t} BYSCORE 1 2 COUNT $count}
+        foreach count {0 -1 1.5 bogus 9223372036854775808} {
+            assert_error {ERR count should be greater than 0} {r zmove src{t} dst{t} BYSCORE 1 2 COUNT $count}
         }
         assert_error {*syntax error*} {r zmove src{t} dst{t} BYSCORE 1 2 LIMIT 1}
         assert_error {*WRONGTYPE*} {r zmove wrong{t} dst{t} BYSCORE 1 2}
@@ -692,13 +692,13 @@ start_server [list tags {zset needs:debug} overrides $move_memory_overrides] {
         $watcher close
     }
 
-    test {ZMOVE BYSCORE propagates only successful batches with their range and limit} {
+    test {ZMOVE BYSCORE propagates only successful batches with their range and count} {
         r del src{t} dst{t}
         set repl [attach_to_replication_stream]
         r zadd src{t} 1 a 1 b 2 c
         r zmove src{t} dst{t} BYSCORE 1 2 COUNT 2
         r zmove src{t} dst{t} BYSCORE 9 +inf
-        r zmove src{t} dst{t} BYSCORE -inf +inf COUNT 0
+        assert_error {ERR count should be greater than 0} {r zmove src{t} dst{t} BYSCORE -inf +inf COUNT 0}
         r zmove src{t} dst{t} BYSCORE -inf +inf
         r zmove src{t} dst{t} BYSCORE -inf +inf
         r set marker{t} done

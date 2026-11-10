@@ -56,7 +56,7 @@
         "reply_schema": {
             "oneOf": [
                 {
-                    "description": "No members were moved: the timeout expired, blocking was denied and the source was empty, source and destination are the same sorted set, or COUNT is zero.",
+                    "description": "No members were moved: the timeout expired, blocking was denied and the source was empty, source and destination are the same sorted set.",
                     "type": "null"
                 },
                 {
