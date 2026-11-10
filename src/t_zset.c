@@ -748,6 +748,22 @@ static int zslParseRange(robj *min, robj *max, zrangespec *spec) {
     return C_OK;
 }
 
+/* Parse a trailing COUNT using the same positive batch cap as ZMPOP. */
+static int zmoveParseCount(client *c, int index, long default_count, long *count) {
+    *count = default_count;
+    if (c->argc == index) return C_OK;
+    if (c->argc != index + 2) {
+        addReplyErrorArity(c);
+        return C_ERR;
+    }
+    if (strcasecmp(c->argv[index]->ptr, "COUNT")) {
+        addReplyErrorObject(c, shared.syntaxerr);
+        return C_ERR;
+    }
+    return getRangeLongFromObjectOrReply(c, c->argv[index + 1], 1, LONG_MAX, count,
+                                         "count should be greater than 0");
+}
+
 /* ------------------------ Lexicographic ranges ---------------------------- */
 
 /* Parse max or min argument of ZRANGEBYLEX.
@@ -5800,22 +5816,6 @@ void zmovememberCommand(client *c) {
         }
         addReplyNullArray(c);
     }
-}
-
-/* Parse a trailing COUNT using the same positive batch cap as ZMPOP. */
-static int zmoveParseCount(client *c, int index, long default_count, long *count) {
-    *count = default_count;
-    if (c->argc == index) return C_OK;
-    if (c->argc != index + 2) {
-        addReplyErrorArity(c);
-        return C_ERR;
-    }
-    if (strcasecmp(c->argv[index]->ptr, "COUNT")) {
-        addReplyErrorObject(c, shared.syntaxerr);
-        return C_ERR;
-    }
-    return getRangeLongFromObjectOrReply(c, c->argv[index + 1], 1, LONG_MAX, count,
-                                         "count should be greater than 0");
 }
 
 /* ZMOVE source destination <MIN | MAX | BYSCORE score-min score-max> [COUNT count] */
