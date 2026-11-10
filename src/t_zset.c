@@ -5852,19 +5852,23 @@ void bzmoveCommand(client *c) {
 
     robj *key = lookupKeyWrite(c->db, c->argv[1]);
     if (checkType(c, key, OBJ_ZSET)) return;
-    if (equalStringObjects(c->argv[1], c->argv[2])) {
-        addReplyNullArray(c);
-    } else if (key == NULL || zsetLength(key) == 0) {
-        if (c->flags & CLIENT_DENY_BLOCKING) {
-            addReplyNullArray(c);
-        } else {
-            /* Wait for at least one member, then move up to COUNT. Destination
-             * type is checked on re-execution, before any source mutation. */
-            blockForKeys(c, BLOCKED_ZSET, c->argv + 1, 1, timeout, 0);
-        }
-    } else {
+
+    /* A non-empty source takes the non-blocking path, which also replies nil
+     * for equal keys and checks the destination type. */
+    if (key && zsetLength(key) > 0) {
         zmoveGenericCommand(c, c->argv[1], c->argv[2], where, count);
+        return;
     }
+
+    /* Nothing can ever move from a key to itself, so never block on it. */
+    if (c->flags & CLIENT_DENY_BLOCKING || equalStringObjects(c->argv[1], c->argv[2])) {
+        addReplyNullArray(c);
+        return;
+    }
+
+    /* Wait for at least one member, then move up to COUNT. The destination
+     * type is checked on re-execution, before any source mutation. */
+    blockForKeys(c, BLOCKED_ZSET, c->argv + 1, 1, timeout, 0);
 }
 
 #ifdef REDIS_TEST
