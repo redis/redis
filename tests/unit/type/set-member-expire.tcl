@@ -1971,7 +1971,8 @@ start_server {tags {"external:skip needs:debug"}} {
         assert_equal [r zunionstore dst 2 z plain] 2
         r sexpire s 1000 MEMBERS 1 a
         foreach cmd {{zunion 2 z s} {zinter 2 z s} {zdiff 2 z s} {zinterstore dst 2 z s}
-                     {zunionstore dst 2 z s} {zdiffstore dst 2 z s} {zintercard 2 z s}} {
+                     {zunionstore dst 2 z s} {zdiffstore dst 2 z s} {zintercard 2 z s}
+                     {zintercard 1 s} {zintercard 2 s s} {zintercard 2 s s LIMIT 1}} {
             assert_error {*member expirations*} {r {*}$cmd}
         }
         # no expiration left: it is a normal input again
