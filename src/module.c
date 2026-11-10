@@ -998,7 +998,8 @@ void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_f
      *    from an IO thread (preprocessCommand() -> extractKeysAndSlot()), so it
      *    must not touch the global execution_nesting / propagation state. */
     if (!(ctx_flags & (REDISMODULE_CTX_THREAD_SAFE|REDISMODULE_CTX_COMMAND|
-                       REDISMODULE_CTX_KEYS_POS_REQUEST|REDISMODULE_CTX_CHANNELS_POS_REQUEST))) {
+                       REDISMODULE_CTX_KEYS_POS_REQUEST|REDISMODULE_CTX_CHANNELS_POS_REQUEST)))
+    {
         enterExecutionUnit(1, 0);
     }
 }
