@@ -2021,6 +2021,23 @@ start_server {tags {"external:skip needs:debug"}} {
                 assert_equal [array get keyAndFields1] [array get keyAndFields2]
 
             } {} {needs:debug}
+
+            test {HPERSIST replayed from AOF after field expiry time must persist the field} {
+                r flushall
+                r hset h1 f1 v1 f2 v2
+                r hpexpire h1 50 FIELDS 1 f1
+                # Persisted before expiry on the live server
+                assert_equal [r hpersist h1 FIELDS 1 f1] {1}
+                after 100
+
+                # On replay, HPEXPIREAT carries a timestamp in the past and the
+                # following HPERSIST must still be applied (the field was alive
+                # when the command was executed).
+                r debug loadaof
+                assert_equal [r hget h1 f1] v1
+                assert_equal [r httl h1 FIELDS 1 f1] {-1}
+                assert_equal [lsort [r hkeys h1]] {f1 f2}
+            } {} {needs:debug}
         }
 
         # Based on test, with same name, at expire.tcl:
@@ -2156,6 +2173,29 @@ start_server {tags {"external:skip needs:debug"}} {
 
                 # Verify absolute TTLs are identical on primary and replica for all keys
                 # This is because TTLs are always replicated as absolute values
+                assert_equal [dumpAllHashes $primary] [dumpAllHashes $replica]
+            }
+
+            test {HPERSIST applied by replica after field expiry time must persist the field} {
+                $primary flushall
+                $primary hset h1 f1 v1 f2 v2
+                $primary hpexpire h1 500 FIELDS 1 f1
+                assert {[$primary wait 1 0] == 1}
+
+                # Stall the replica so that it applies HPERSIST only after f1's
+                # absolute expiry time has passed.
+                set rd [redis_deferring_client]
+                $rd debug sleep 1
+                after 100
+                assert_equal [$primary hpersist h1 FIELDS 1 f1] {1}
+                assert_equal [$rd read] {OK}
+                $rd close
+                assert {[$primary wait 1 0] == 1}
+
+                # The field was alive on the primary when HPERSIST ran, so the
+                # replica must persist it as well rather than treating it as gone.
+                assert_equal [$replica hget h1 f1] v1
+                assert_equal [$replica httl h1 FIELDS 1 f1] {-1}
                 assert_equal [dumpAllHashes $primary] [dumpAllHashes $replica]
             }
         }

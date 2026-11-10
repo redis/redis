@@ -6853,7 +6853,11 @@ void hpersistCommand(client *c) {
                 continue;
             }
 
-            if (prevExpire < commandTimeSnapshot()) {
+            /* Already expired. Pretend there is no such field. Not so for a
+             * replica or while loading AOF: there the field was still alive
+             * when the master ran HPERSIST, so persist it and leave expired
+             * fields to the master (see checkAlreadyExpired()). */
+            if (checkAlreadyExpired(prevExpire)) {
                 addReplyLongLong(c, HFE_PERSIST_NO_FIELD);
                 continue;
             }
@@ -6888,8 +6892,11 @@ void hpersistCommand(client *c) {
                 continue;
             }
 
-            /* Already expired. Pretend there is no such field */
-            if ( (long long) expire < commandTimeSnapshot()) {
+            /* Already expired. Pretend there is no such field. Not so for a
+             * replica or while loading AOF: there the field was still alive
+             * when the master ran HPERSIST, so persist it and leave expired
+             * fields to the master (see checkAlreadyExpired()). */
+            if (checkAlreadyExpired((long long) expire)) {
                 addReplyLongLong(c, HFE_PERSIST_NO_FIELD);
                 continue;
             }
