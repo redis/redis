@@ -5728,40 +5728,44 @@ static void zmoveRangeCommand(client *c, zrangespec *range, long count) {
 }
 
 /* ZMOVEMEMBER source destination [NX | XX] MEMBERS num-members member [member ...]
+ *
  * The counted MEMBERS block keeps options unambiguous even when a member is
  * literally named NX or XX, and lets options appear before or after it.
  * Conditions refer to the destination; members that fail a condition remain
  * in the source. */
 void zmovememberCommand(client *c) {
-    int first = -1, end = -1;
-    int condition = ZADD_IN_NONE;
+    int condition = ZADD_IN_NONE, first = 0;
+    long num = 0;
+
     for (int j = 3; j < c->argc; j++) {
         char *opt = c->argv[j]->ptr;
-        if (first == -1 && !strcasecmp(opt, "MEMBERS")) {
-            long num;
-            /* Only one condition can precede MEMBERS, so the command's
-             * minimum arity guarantees that its count argument exists. */
-            serverAssert(j + 1 < c->argc);
-            if (getRangeLongFromObjectOrReply(c, c->argv[j + 1], 1, INT_MAX, &num,
-                                              "num-members must be a positive integer") != C_OK) return;
-            if (num > c->argc - j - 2) {
-                addReplyErrorArity(c);
+        if (!strcasecmp(opt, "NX") && !(condition & ZADD_IN_NX)) {
+            condition |= ZADD_IN_NX;
+        } else if (!strcasecmp(opt, "XX") && !(condition & ZADD_IN_XX)) {
+            condition |= ZADD_IN_XX;
+        } else if (!strcasecmp(opt, "MEMBERS") && !first && j + 1 < c->argc) {
+            if (getRangeLongFromObjectOrReply(c, c->argv[j + 1], 1, LONG_MAX, &num,
+                    "Number of members must be a positive integer") != C_OK)
+                return;
+            first = j + 2;
+            if (num > c->argc - first) {
+                addReplyError(c, "The `num-members` parameter must match the number of arguments");
                 return;
             }
-            first = j + 2;
-            end = first + num;
-            j = end - 1;
-        } else if (condition == ZADD_IN_NONE && !strcasecmp(opt, "NX")) {
-            condition = ZADD_IN_NX;
-        } else if (condition == ZADD_IN_NONE && !strcasecmp(opt, "XX")) {
-            condition = ZADD_IN_XX;
+            j += num + 1; /* Skip the count and the members. */
         } else {
             addReplyErrorObject(c, shared.syntaxerr);
             return;
         }
     }
-    /* Without MEMBERS, a second option would have failed parsing above. */
-    serverAssert(first != -1);
+    if (!first) {
+        addReplyError(c, "Mandatory argument MEMBERS is missing");
+        return;
+    }
+    if ((condition & ZADD_IN_NX) && (condition & ZADD_IN_XX)) {
+        addReplyError(c, "XX and NX options at the same time are not compatible");
+        return;
+    }
 
     robj *srckey = c->argv[1], *dstkey = c->argv[2];
     kvobj *sobj = lookupKeyWriteOrReply(c, srckey, shared.nullarray[c->resp]);
@@ -5782,7 +5786,7 @@ void zmovememberCommand(client *c) {
 
     unsigned long moved = 0, added = 0, updated = 0;
     void *replylen = NULL;
-    for (int j = first; j < end; j++) {
+    for (int j = first; j < first + num; j++) {
         sds ele = c->argv[j]->ptr;
         double score;
 

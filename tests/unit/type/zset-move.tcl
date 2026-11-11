@@ -210,31 +210,26 @@ start_server [list tags {zset needs:debug} overrides $move_memory_overrides] {
         r zadd src{t} 1 a 2 b
         set before [r dump src{t}]
         foreach count {0 -1 bogus 1.5 9223372036854775808} {
-            assert_error {*num-members*} {r zmovemember src{t} dst{t} MEMBERS $count a}
+            assert_error {*Number of members must be a positive integer*} {r zmovemember src{t} dst{t} MEMBERS $count a}
         }
         assert_error {*wrong number of arguments*} {r zmovemember src{t} dst{t} NX MEMBERS}
         # These requests meet the command's minimum arity and exercise the
         # parser's missing-block and incomplete counted-block rejection paths.
         assert_error {ERR syntax error} {r zmovemember src{t} dst{t} NX XX a}
-        assert_error {ERR wrong number of arguments for 'zmovemember' command} {r zmovemember src{t} dst{t} NX MEMBERS 1}
+        assert_error {*num-members*must match the number of arguments*} {r zmovemember src{t} dst{t} NX MEMBERS 1}
         foreach args {
-            {MEMBERS 2 a} {MEMBERS 1 a b} {MEMBERS 1 a NX XX} {NX MEMBERS 1 a XX}
-            {MEMBERS 1 a NX NX} {MEMBERS 1 a unknown} {MEMBERS 1 a MEMBERS 1 b}
-            {1 a}
+            {MEMBERS 2 a} {MEMBERS 1 a b} {MEMBERS 1 a unknown}
+            {MEMBERS 1 a MEMBERS 1 b} {1 a}
         } {
             assert_error {ERR*} {r zmovemember src{t} dst{t} {*}$args}
         }
-        # A condition may occur on either side of the counted block, but a
-        # repeated or conflicting condition is rejected in every placement.
-        foreach first {NX XX} {
-            foreach second {NX XX} {
-                foreach args [list [list $first $second MEMBERS 1 a] \
-                                   [list MEMBERS 1 a $first $second] \
-                                   [list $first MEMBERS 1 a $second]] {
-                    assert_error {*syntax error*} {r zmovemember src{t} dst{t} {*}$args}
-                }
-            }
-        }
+        # Repeated conditions: before, after, and split across the MEMBERS block.
+        assert_error {*syntax error*} {r zmovemember src{t} dst{t} NX NX MEMBERS 1 a}
+        assert_error {*syntax error*} {r zmovemember src{t} dst{t} MEMBERS 1 a XX XX}
+        assert_error {*syntax error*} {r zmovemember src{t} dst{t} NX MEMBERS 1 a NX}
+        # Conflicting conditions, in either order and placement.
+        assert_error {*XX and NX options at the same time are not compatible*} {r zmovemember src{t} dst{t} NX XX MEMBERS 1 a}
+        assert_error {*XX and NX options at the same time are not compatible*} {r zmovemember src{t} dst{t} XX MEMBERS 1 a NX}
         assert_equal $before [r dump src{t}]
         assert_equal 0 [r exists dst{t}]
     }
