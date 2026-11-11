@@ -748,22 +748,6 @@ static int zslParseRange(robj *min, robj *max, zrangespec *spec) {
     return C_OK;
 }
 
-/* Parse a trailing COUNT using the same positive batch cap as ZMPOP. */
-static int zmoveParseCount(client *c, int index, long default_count, long *count) {
-    *count = default_count;
-    if (c->argc == index) return C_OK;
-    if (c->argc != index + 2) {
-        addReplyErrorArity(c);
-        return C_ERR;
-    }
-    if (strcasecmp(c->argv[index]->ptr, "COUNT")) {
-        addReplyErrorObject(c, shared.syntaxerr);
-        return C_ERR;
-    }
-    return getRangeLongFromObjectOrReply(c, c->argv[index + 1], 1, LONG_MAX, count,
-                                         "count should be greater than 0");
-}
-
 /* ------------------------ Lexicographic ranges ---------------------------- */
 
 /* Parse max or min argument of ZRANGEBYLEX.
@@ -5799,6 +5783,18 @@ void zmovememberCommand(client *c) {
     zmoveEnd(&ctx, "zrem");
 }
 
+/* Parse the "[COUNT count]" tail of ZMOVE and BZMOVE, expected at argv[idx].
+ * '*count' is left untouched if there's none. */
+static int zmoveParseCountOrReply(client *c, int idx, long *count) {
+    if (idx == c->argc) return C_OK;
+    if (idx + 2 != c->argc || strcasecmp(c->argv[idx]->ptr, "COUNT")) {
+        addReplyErrorObject(c, shared.syntaxerr);
+        return C_ERR;
+    }
+    return getRangeLongFromObjectOrReply(c, c->argv[idx + 1], 1, LONG_MAX, count,
+                                         "count should be greater than 0");
+}
+
 /* ZMOVE source destination <MIN | MAX | BYSCORE score-min score-max> [COUNT count] */
 void zmoveCommand(client *c) {
     long count;
@@ -5812,12 +5808,14 @@ void zmoveCommand(client *c) {
             addReplyError(c, "min or max is not a float");
             return;
         }
-        if (zmoveParseCount(c, 6, LONG_MAX, &count) != C_OK) return;
+        count = LONG_MAX; /* The whole range, unless COUNT is given. */
+        if (zmoveParseCountOrReply(c, 6, &count) != C_OK) return;
         zmoveGenericCommand(c, ZSET_MIN, &range, count);
     } else {
         int where;
         if (zsetGetPositionOrReply(c, c->argv[3], &where) != C_OK) return;
-        if (zmoveParseCount(c, 4, 1, &count) != C_OK) return;
+        count = 1;
+        if (zmoveParseCountOrReply(c, 4, &count) != C_OK) return;
         zmoveGenericCommand(c, where, NULL, count);
     }
 }
@@ -5826,10 +5824,10 @@ void zmoveCommand(client *c) {
 void bzmoveCommand(client *c) {
     uint64_t timeout;
     int where;
-    long count;
+    long count = 1;
     if (zsetGetPositionOrReply(c, c->argv[3], &where) != C_OK) return;
     if (getMonotonicTimeoutFromObjectOrReply(c, c->argv[4], &timeout, UNIT_SECONDS) != C_OK) return;
-    if (zmoveParseCount(c, 5, 1, &count) != C_OK) return;
+    if (zmoveParseCountOrReply(c, 5, &count) != C_OK) return;
 
     kvobj *sobj = lookupKeyWrite(c->db, c->argv[1]);
     if (checkType(c, sobj, OBJ_ZSET)) return;
