@@ -5726,15 +5726,16 @@ static void zmoveRankRange(zmoveCtx *ctx, unsigned long start, unsigned long n, 
 
 /* ZMOVE and BZMOVE implementation: move up to 'count' members from the 'where'
  * end of the source or, if 'range' is not NULL, the lowest ones having a score
- * in that range. Either way the members are a range of consecutive ranks. */
-static void zmoveGenericCommand(client *c, robj *srckey, robj *dstkey, int where,
-                                zrangespec *range, long count)
+ * in that range. Either way the members are a range of consecutive ranks.
+ * Returns the number of members moved. */
+static unsigned long zmoveGenericCommand(client *c, robj *srckey, robj *dstkey, int where,
+                                         zrangespec *range, long count)
 {
     zmoveCtx ctx;
     unsigned long start = 0, n;
     const char *event;
 
-    if (!zmoveBegin(c, &ctx, srckey, dstkey)) return;
+    if (!zmoveBegin(c, &ctx, srckey, dstkey)) return 0;
 
     if (range) {
         n = zsetScoreRangeToRank(ctx.src, range, &start);
@@ -5747,6 +5748,7 @@ static void zmoveGenericCommand(client *c, robj *srckey, robj *dstkey, int where
     n = min(n, (unsigned long)count);
     if (n) zmoveRankRange(&ctx, start, n, where == ZSET_MAX);
     zmoveEnd(&ctx, event);
+    return ctx.moved;
 }
 
 /* ZMOVEMEMBER source destination [NX | XX] MEMBERS num-members member [member ...]
@@ -5860,7 +5862,7 @@ void bzmoveCommand(client *c) {
     /* A non-empty source takes the non-blocking path, which also replies nil
      * for equal keys and checks the destination type. */
     if (sobj && zsetLength(sobj) > 0) {
-        zmoveGenericCommand(c, c->argv[1], c->argv[2], where, NULL, count);
+        if (zmoveGenericCommand(c, c->argv[1], c->argv[2], where, NULL, count) == 0) return;
 
         /* Propagate the non-blocking operation, retaining its explicit batch cap. */
         if (c->argc == 7)
