@@ -291,6 +291,77 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
         }
     }
 
+    test {A symlinked standalone preload can be used on consecutive starts} {
+        set local_dir [file normalize [tmpdir preload.source-symlink-local]]
+        file delete -force $local_dir
+        file mkdir $local_dir
+        set preload_dir [file normalize [tmpdir preload.source-symlink-external]]
+        file delete -force $preload_dir
+        file mkdir $preload_dir
+        set real_aof [file join $preload_dir real.aof]
+        set fp [open $real_aof w]
+        puts -nonewline $fp [formatCommand select 9]
+        puts -nonewline $fp [formatCommand set source-symlink-key value]
+        close $fp
+        set preload_aof [file join $preload_dir source.aof]
+        file link -symbolic $preload_aof $real_aof
+
+        for {set i 0} {$i < 2} {incr i} {
+            start_server [list overrides [list dir $local_dir appendonly yes preload-file "aof:$preload_aof"] keep_persistence true] {
+                assert_equal value [r get source-symlink-key]
+                assert {[file exists $preload_aof]}
+                assert_equal file [file type [file join $local_dir appendonlydir source.aof]]
+            }
+        }
+
+        start_server [list overrides [list dir $local_dir appendonly yes]] {
+            assert_equal value [r get source-symlink-key]
+        }
+    }
+
+    test {A symlinked preload to an obsolete AOF is rejected before cleanup} {
+        set local_dir [file normalize [tmpdir preload.obsolete-source-local]]
+        file delete -force $local_dir
+        create_local_aof $local_dir
+        set aof_dir [file join $local_dir appendonlydir]
+        set old_aof [file join $aof_dir appendonly.aof.1.incr.aof]
+        set preload_dir [file normalize [tmpdir preload.obsolete-source-link]]
+        file delete -force $preload_dir
+        file mkdir $preload_dir
+        set external_preload [file join $preload_dir source.aof]
+        set local_preload [file join $aof_dir local-source.aof]
+        file link -symbolic $external_preload $old_aof
+        file link -symbolic $local_preload $old_aof
+
+        set socket [file join $local_dir socket]
+        foreach preload_aof [list $external_preload $local_preload] {
+            set logfile [file join $local_dir "preload-[file tail $preload_aof].log"]
+            catch {exec src/redis-server --port 0 --unixsocket $socket \
+                --dir $local_dir --save "" --appendonly yes --daemonize yes \
+                --logfile $logfile --preload-file "aof:$preload_aof"}
+            set output ""
+            for {set i 0} {$i < 50} {incr i} {
+                after 100
+                if {![file exists $logfile]} continue
+                set fp [open $logfile r]
+                set output [read $fp]
+                close $fp
+                if {[string match {*points into the append-only directory*} $output] ||
+                    [string match {*Ready to accept connections*} $output]} break
+            }
+            if {[file exists $socket]} {
+                catch {exec src/redis-cli -s $socket SHUTDOWN NOSAVE}
+            }
+            assert_match {*points into the append-only directory*} $output
+            assert {[file exists $old_aof]}
+            assert {[file exists $preload_aof]}
+        }
+
+        start_server [list overrides [list dir $local_dir appendonly yes]] {
+            assert_equal value [r get local-aof-key]
+        }
+    }
+
     test {A later preload alias leaves earlier local AOF files untouched} {
         set local_dir [file normalize [tmpdir preload.later-alias-local]]
         file delete -force $local_dir
@@ -326,7 +397,7 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
         assert_equal 1 [catch {exec src/redis-server --port 0 \
             --unixsocket [file join $local_dir socket] --dir $local_dir \
             --save "" --appendonly yes --preload-file "aof:$source_manifest"} error]
-        assert_match {*aliases append-only file*} $error
+        assert_match {*points into the append-only directory*} $error
         set fp [open $local_base r]
         assert_equal $original_base [read $fp]
         close $fp

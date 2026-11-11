@@ -848,26 +848,62 @@ static int aofInstallPreloadFile(char *absolute_preload_dir, char *file_name, in
     sdsfree(relative_path);
     int ret = C_ERR;
 
-    /* Avoid unlinking the preload source when it is already at the target path. */
+    /* A path through a symlink can name the target despite a different string.
+     * A target symlink in a different directory can be replaced without
+     * removing the source entry. */
+    char resolved_source[PATH_MAX], resolved_target[PATH_MAX];
+    if (realpath(source_path, resolved_source) == NULL) {
+        serverLog(LL_WARNING, "Can't resolve preload file %s: %s",
+                  source_path, strerror(errno));
+        goto cleanup;
+    }
+    struct stat source_stat, target_stat;
+    int source_is_symlink = lstat(source_path, &source_stat) == 0 &&
+                            S_ISLNK(source_stat.st_mode);
+
+    /* A source symlink into the local AOF directory can become dangling when
+     * cleanup removes its target. Reject it before replacing any local file. */
+    if (source_is_symlink) {
+        sds source_dir = getFilePath(resolved_source);
+        struct stat source_dir_stat, aof_dir_stat;
+        int dirs_ok = stat(source_dir, &source_dir_stat) == 0 &&
+                      stat(server.aof_dirname, &aof_dir_stat) == 0;
+        int source_is_local_file = dirs_ok &&
+            source_dir_stat.st_dev == aof_dir_stat.st_dev &&
+            source_dir_stat.st_ino == aof_dir_stat.st_ino;
+        sdsfree(source_dir);
+        if (!dirs_ok) {
+            serverLog(LL_WARNING, "Can't inspect preload source directory for %s",
+                      source_path);
+            goto cleanup;
+        }
+        if (source_is_local_file) {
+            serverLog(LL_WARNING, "Preload source symlink %s points into the append-only directory",
+                      source_path);
+            goto cleanup;
+        }
+    }
+
+    /* Reuse an exact local source only after checking whether it is a symlink
+     * to an AOF file that cleanup could remove. */
     if (!strcmp(source_path, target_path)) {
         ret = C_OK;
         goto cleanup;
     }
 
-    /* A path through a symlink can name the target despite a different string.
-     * A target symlink can be replaced when the source is a regular file in
-     * a different directory: unlink then removes only the target symlink. */
-    char resolved_source[PATH_MAX], resolved_target[PATH_MAX];
-    if (realpath(source_path, resolved_source) != NULL &&
-        realpath(target_path, resolved_target) != NULL &&
+    if (realpath(target_path, resolved_target) != NULL &&
         !strcmp(resolved_source, resolved_target))
     {
-        struct stat source_stat, target_stat, source_dir_stat, aof_dir_stat;
+        struct stat source_dir_stat, aof_dir_stat;
+        /* Reusing an installed regular file cannot invalidate either path. */
+        if (source_is_symlink && lstat(target_path, &target_stat) == 0 &&
+            S_ISREG(target_stat.st_mode)) {
+            ret = C_OK;
+            goto cleanup;
+        }
         int distinct_target_symlink =
             lstat(target_path, &target_stat) == 0 &&
             S_ISLNK(target_stat.st_mode) &&
-            lstat(source_path, &source_stat) == 0 &&
-            S_ISREG(source_stat.st_mode) &&
             stat(absolute_preload_dir, &source_dir_stat) == 0 &&
             stat(server.aof_dirname, &aof_dir_stat) == 0 &&
             (source_dir_stat.st_dev != aof_dir_stat.st_dev ||
@@ -891,8 +927,8 @@ static int aofInstallPreloadFile(char *absolute_preload_dir, char *file_name, in
         goto cleanup;
     }
 
-    /* Prefer a hard link to avoid copying, and fall back to a full copy. */
-    if (link(source_path, target_path) == -1) {
+    /* Link the resolved file, not a source symlink that cleanup may break. */
+    if (link(resolved_source, target_path) == -1) {
         serverLog(LL_NOTICE, "Can't hard-link preload file %s as %s, copying it instead: %s",
                              source_path, target_path, strerror(errno));
         if (copyFile(source_path, target_path) == -1) {
