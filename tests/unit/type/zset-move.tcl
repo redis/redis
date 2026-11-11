@@ -129,26 +129,26 @@ start_server [list tags {zset needs:debug} overrides $move_memory_overrides] {
                     r del src{t} dst{t}
                     r config set zset-max-listpack-entries [expr {$src_encoding eq "listpack" ? 128 : 0}]
                     set binary "a\x00\x62 member"
-                    r zadd src{t} 1 new 2 existing 3 same 4 NX 5 XX 6 COUNT 7 123 8 $binary
+                    r zadd src{t} 1 new 2 existing 3 same 4 NX 5 XX 6 COUNT 7 123 8 MEMBERS 9 $binary
                     assert_encoding $src_encoding src{t}
                     r config set zset-max-listpack-entries [expr {$dst_encoding eq "listpack" ? 128 : 0}]
                     r zadd dst{t} 99 existing 3 same 99 NX 100 retained
                     assert_encoding $dst_encoding dst{t}
-                    set members [list missing existing new existing same NX XX COUNT 123 $binary]
+                    set members [list missing existing new existing same NX XX COUNT 123 MEMBERS $binary]
                     set options {}
                     if {$flag ne {}} {lappend options $flag}
                     if {$flag eq "NX"} {
-                        set expected [list {new 1} {XX 5} {COUNT 6} {123 7} [list $binary 8]]
+                        set expected [list {new 1} {XX 5} {COUNT 6} {123 7} {MEMBERS 8} [list $binary 9]]
                         set remaining {existing 2 same 3 NX 4}
-                        set destination [list new 1 same 3 XX 5 COUNT 6 123 7 $binary 8 NX 99 existing 99 retained 100]
+                        set destination [list new 1 same 3 XX 5 COUNT 6 123 7 MEMBERS 8 $binary 9 NX 99 existing 99 retained 100]
                     } elseif {$flag eq "XX"} {
                         set expected {{existing 2} {same 3} {NX 4}}
-                        set remaining [list new 1 XX 5 COUNT 6 123 7 $binary 8]
+                        set remaining [list new 1 XX 5 COUNT 6 123 7 MEMBERS 8 $binary 9]
                         set destination {existing 2 same 3 NX 4 retained 100}
                     } else {
-                        set expected [list {existing 2} {new 1} {same 3} {NX 4} {XX 5} {COUNT 6} {123 7} [list $binary 8]]
+                        set expected [list {existing 2} {new 1} {same 3} {NX 4} {XX 5} {COUNT 6} {123 7} {MEMBERS 8} [list $binary 9]]
                         set remaining {}
-                        set destination [list new 1 existing 2 same 3 NX 4 XX 5 COUNT 6 123 7 $binary 8 retained 100]
+                        set destination [list new 1 existing 2 same 3 NX 4 XX 5 COUNT 6 123 7 MEMBERS 8 $binary 9 retained 100]
                     }
                     assert_equal $expected [r zmovemember src{t} dst{t} MEMBERS [llength $members] {*}$members {*}$options]
                     assert_equal $remaining [r zrange src{t} 0 -1 withscores]
@@ -219,6 +219,17 @@ start_server [list tags {zset needs:debug} overrides $move_memory_overrides] {
             {1 a}
         } {
             assert_error {ERR*} {r zmovemember src{t} dst{t} {*}$args}
+        }
+        # A condition may occur on either side of the counted block, but a
+        # repeated or conflicting condition is rejected in every placement.
+        foreach first {NX XX} {
+            foreach second {NX XX} {
+                foreach args [list [list $first $second MEMBERS 1 a] \
+                                   [list MEMBERS 1 a $first $second] \
+                                   [list $first MEMBERS 1 a $second]] {
+                    assert_error {*syntax error*} {r zmovemember src{t} dst{t} {*}$args}
+                }
+            }
         }
         assert_equal $before [r dump src{t}]
         assert_equal 0 [r exists dst{t}]
