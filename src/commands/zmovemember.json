@@ -4,7 +4,7 @@
         "complexity": "O(K*(log(N)+log(M))) where K is the number of given members and N and M are the source and destination sizes.",
         "group": "sorted_set",
         "since": "8.12.0",
-        "arity": -5,
+        "arity": -6,
         "function": "zmovememberCommand",
         "command_flags": [
             "WRITE",
@@ -92,15 +92,6 @@
                 "key_spec_index": 1
             },
             {
-                "name": "num-members",
-                "type": "integer"
-            },
-            {
-                "name": "member",
-                "type": "string",
-                "multiple": true
-            },
-            {
                 "name": "condition",
                 "type": "oneof",
                 "optional": true,
@@ -114,6 +105,22 @@
                         "name": "xx",
                         "type": "pure-token",
                         "token": "XX"
+                    }
+                ]
+            },
+            {
+                "name": "members",
+                "token": "MEMBERS",
+                "type": "block",
+                "arguments": [
+                    {
+                        "name": "num-members",
+                        "type": "integer"
+                    },
+                    {
+                        "name": "member",
+                        "type": "string",
+                        "multiple": true
                     }
                 ]
             }
