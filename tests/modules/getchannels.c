@@ -65,5 +65,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx, "getchannels.command", getChannels_subscribe, "getchannels-api", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    /* IO-thread preprocessing extracts channels only for commands with key specs. */
+    if (RedisModule_CreateCommand(ctx, "getchannels.command_with_keyspec", getChannels_subscribe, "getchannels-api", 3, 3, 1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
     return REDISMODULE_OK;
 }
