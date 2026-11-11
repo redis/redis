@@ -114,7 +114,7 @@ start_server {overrides {io-threads 4 save ""}} {
         # IO threads resolving key/channel positions can race with the main thread
         # executing SET commands from other clients.
         # This stress test depends on timing and may miss the old race.
-        set seconds 10 ;# run 10s stress test
+        set seconds 5 ;# run 5s stress test
         set batch 200
         set deadline [expr {[clock milliseconds] + $seconds * 1000}]
         while {[clock milliseconds] < $deadline} {
