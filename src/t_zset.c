@@ -5496,9 +5496,11 @@ typedef struct {
     int exact;                       /* 'hint' is exact: it's also the reply length. */
     void *deferred;                  /* Reply length to set at the end, if not exact. */
 
-    /* Destination fast path. */
-    int append;                      /* Ascending B+tree members, for a new 'dst'. */
-    zbtreeAppendBatch *batch;        /* Appends them, once 'dst' is a B+tree. */
+    /* A new destination fed ascending members from a B+tree source can append
+     * them without searching. It may start as a listpack, so the batch is only
+     * created once it's a B+tree. */
+    int append;                      /* The append path applies. */
+    zbtreeAppendBatch *batch;        /* Created lazily, finished by zmoveEnd(). */
 
     /* Counters. */
     unsigned long moved;             /* Members moved so far. */
