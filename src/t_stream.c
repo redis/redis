@@ -168,9 +168,9 @@ static_assert(STREAM_DISTRIB_MAX <= 8, "distrib_counted holds one bit per metric
  * follows them. */
 
 /* Set for the life of the process once the generation counter has wrapped.
- * Read only by streamLagIsMember() on a path that is otherwise a bug, so it is
- * kept out of struct redisServer, where it would shift the hot fields behind
- * it for nothing. */
+ * Read only where a mismatch is otherwise a bug, in streamLagIsMember() and
+ * in streamUpdateStat()'s assertion, so it is kept out of struct redisServer,
+ * where it would shift the hot fields behind it for nothing. */
 static int stream_stats_wrapped = 0;
 
 /* Zero the stream histograms in 'meta' and start a new generation: every
@@ -231,7 +231,9 @@ static void streamUpdateStat(redisDb *db, uint32_t *epoch, uint8_t *counted,
 
     int64_t *hist = meta->stream_hist[metric];
     if (*counted & bit) {                      /* this row holds the sample: exact move */
-        debugServerAssert(old_bin >= 0 && hist[old_bin] > 0);
+        /* After a wrap a stamp can claim a sample this row never held. */
+        debugServerAssert((old_bin >= 0 && hist[old_bin] > 0) ||
+                          stream_stats_wrapped);
         if (old_bin >= 0 && hist[old_bin] > 0) hist[old_bin]--;
         if (new_bin < 0) {                     /* the sample leaves this row */
             *counted &= ~bit;
@@ -383,8 +385,8 @@ static inline int streamLagHeldAt(const iheap *h, uint32_t slot, const streamCG 
  * wrap is recorded (streamStatsResetMeta()), so until one has happened a
  * disagreement is asserted, and after one it is handled: the bit is cleared
  * and the group is not a member. Acting on the slot regardless would re-key
- * or remove whatever group sits there now, or dereference a heap that was
- * freed. */
+ * or remove whatever group sits there now, index past the end of the heap,
+ * or dereference a NULL heap. */
 static inline int streamLagIsMember(streamLagState *ls, streamDistribStamp *st, streamCG *cg) {
     if (!(st->counted & STREAM_CG_IN_LAG_HEAP)) return 0;
     if (streamLagHeldAt(ls->heap, streamStampSlot(st), cg)) return 1;
