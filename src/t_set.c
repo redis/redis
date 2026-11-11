@@ -2462,8 +2462,9 @@ void scardCommand(client *c) {
 
 /* Propagates SPOP of CASE 3 as the deletion of the key, followed by the addition
  * of the members that remain in 'set': SADD for the ones without an expiration,
- * and SADDEX with an absolute time for each one with an expiration. All of them
- * are propagated as a transaction, see propagatePendingCommands(). */
+ * and SADDEX with an absolute time for each one with an expiration, and then the
+ * expiration of the key, if it has one. All of them are propagated as a
+ * transaction, see propagatePendingCommands(). */
 static void spopPropagateRemaining(client *c, kvobj *set) {
     robj *key = c->argv[1];
     robj *delargv[2] = { server.lazyfree_lazy_server_del ? shared.unlink : shared.del, key };
@@ -2505,6 +2506,15 @@ static void spopPropagateRemaining(client *c, kvobj *set) {
     if (saddlen != 2) {
         alsoPropagate(c->db->id, saddargv, saddlen, PROPAGATE_AOF | PROPAGATE_REPL);
         for (unsigned long i = 2; i < saddlen; i++) decrRefCount(saddargv[i]);
+    }
+
+    /* The deletion removed the expiration of the key, which the set keeps. */
+    long long keyExpire = getExpire(c->db, key->ptr, set);
+    if (keyExpire != -1) {
+        robj *expire = createStringObjectFromLongLong(keyExpire);
+        robj *argv[3] = { shared.pexpireat, key, expire };
+        alsoPropagate(c->db->id, argv, 3, PROPAGATE_AOF | PROPAGATE_REPL);
+        decrRefCount(expire);
     }
     decrRefCount(saddcmd);
     decrRefCount(members);

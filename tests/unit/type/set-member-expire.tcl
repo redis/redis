@@ -910,7 +910,24 @@ start_server {tags {"external:skip needs:debug"}} {
                 assert {[r sttl myset MEMBERS 1 $m] > 0}
             }
 
+            # The expiration of the key is kept, so it is propagated as well.
+            r del myset
+            for {set i 0} {$i < 20} {incr i} {r sadd myset m$i}
+            r pexpireat myset [expr {[clock milliseconds] + 100000}]
+            set repl [attach_to_replication_stream]
             r config set lazyfree-lazy-server-del no
+            assert_equal 18 [llength [r spop myset 18]]
+            assert_replication_stream $repl {
+                {multi}
+                {select *}
+                {del myset}
+                {sadd myset * *}
+                {pexpireat myset *}
+                {exec}
+            }
+            close_replication_stream $repl
+            assert_range [r pttl myset] 90000 100000
+
             r debug set-active-expire 1
         } {OK} {needs:repl}
 
