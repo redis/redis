@@ -5493,7 +5493,7 @@ typedef struct {
     unsigned long hint;              /* Upper bound on the members to move. */
     int exact;                       /* 'hint' is exact: it's also the reply length. */
     void *deferred;                  /* Reply length to set at the end, if not exact. */
-    int append;                      /* Members come in ascending order, for a new 'dst'. */
+    int append;                      /* Ascending B+tree members, for a new 'dst'. */
     zbtreeAppendBatch *batch;        /* Appends them, once 'dst' is a B+tree. */
     unsigned long moved;             /* Members moved so far... */
     unsigned long added;             /* ...those that were new to the destination... */
@@ -5664,7 +5664,9 @@ static void zmoveRankRange(zmoveCtx *ctx, unsigned long start, unsigned long n, 
 
     ctx->hint = n;
     ctx->exact = 1;
-    ctx->append = !reverse && ctx->dst == NULL;
+    /* Only a B+tree source is sorted and free of repeats by construction; a
+     * restored listpack may be neither, so its members take the checked add. */
+    ctx->append = !reverse && ctx->dst == NULL && src->encoding == OBJ_ENCODING_BTREE;
     if (src->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *zl = src->ptr, *eptr, *sptr;
         char buf[LONG_STR_SIZE];

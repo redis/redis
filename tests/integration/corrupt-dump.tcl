@@ -101,6 +101,33 @@ test {ZRANGESTORE builds an ordered btree from an unordered listpack} {
     }
 }
 
+test {ZMOVE builds an ordered btree from an unordered listpack} {
+    start_server {} {
+        r zadd order-source 1.5 a 2.5 2 3.5 c 4.5 4
+        assert_encoding listpack order-source
+        # As above, a listpack holding 1.5 4.5 3.5 2.5 is accepted.
+        set payload [string map {2.5 4.5 4.5 2.5} [r dump order-source]]
+        r debug set-skip-checksum-validation 1
+        r config set sanitize-dump-payload yes
+        foreach selection {{MIN COUNT 4} {BYSCORE -inf +inf}} {
+            r del dst
+            r config set zset-max-listpack-entries 128
+            r restore unordered 0 $payload
+            assert_encoding listpack unordered
+            r config set zset-max-listpack-entries 1
+            # Members are moved in listpack order, yet must be placed by score.
+            assert_equal {{a 1.5} {2 4.5} {c 3.5} {4 2.5}} [r zmove unordered dst {*}$selection]
+            assert_equal 0 [r exists unordered]
+            assert_encoding btree dst
+            assert_equal {a 1.5 4 2.5 c 3.5 2 4.5} [r zrange dst 0 -1 withscores]
+            assert_equal 3 [r zcount dst 0 4]
+            assert_equal {a 4 c} [r zrangebyscore dst 0 4]
+        }
+        r debug set-skip-checksum-validation 0
+        r config set zset-max-listpack-entries 128
+    }
+}
+
 test {ZRANGESTORE asserts on a listpack that repeats a member} {
     foreach {members old new} [list \
         {a b c d}  "\x81\x63"      "\x81\x61" \
