@@ -864,6 +864,7 @@ static int aofInstallPreloadFile(char *absolute_preload_dir, char *file_name, in
      * cleanup removes its target. Reject it before replacing any local file. */
     if (source_is_symlink) {
         sds source_dir = getFilePath(resolved_source);
+        if (sdslen(source_dir) == 0) source_dir = sdscat(source_dir, "/");
         struct stat source_dir_stat, aof_dir_stat;
         int dirs_ok = stat(source_dir, &source_dir_stat) == 0 &&
                       stat(server.aof_dirname, &aof_dir_stat) == 0;

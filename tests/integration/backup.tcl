@@ -319,6 +319,29 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
         }
     }
 
+    if {[file writable /]} {
+        test {A preload symlink targeting a file in the root directory is accepted} {
+            set root_aof "/redis-preload-root-[pid].aof"
+            set preload_dir [file normalize [tmpdir preload.root-target-source]]
+            set local_dir [file normalize [tmpdir preload.root-target-local]]
+            file delete -force $preload_dir $local_dir
+            file mkdir $preload_dir $local_dir
+            try {
+                set fp [open $root_aof {WRONLY CREAT EXCL}]
+                puts -nonewline $fp [formatCommand select 9]
+                puts -nonewline $fp [formatCommand set root-target-key value]
+                close $fp
+                set preload_aof [file join $preload_dir source.aof]
+                file link -symbolic $preload_aof $root_aof
+                start_server [list overrides [list dir $local_dir appendonly yes preload-file "aof:$preload_aof"]] {
+                    assert_equal value [r get root-target-key]
+                }
+            } finally {
+                file delete -force $root_aof
+            }
+        }
+    }
+
     test {A local preload symlink to an external file becomes self-contained} {
         set local_dir [file normalize [tmpdir preload.local-source-symlink]]
         file delete -force $local_dir
