@@ -62,12 +62,24 @@ struct luaCtx {
     dict *lua_scripts;         /* A dictionary of SHA1 -> Lua scripts */
     list *lua_scripts_lru_list; /* A list of SHA1, first in first out LRU eviction. */
     unsigned long long lua_scripts_mem;  /* Cached scripts' memory + oh */
-    unsigned long long lua_eval_scripts_mem; /* Cached EVAL scripts' memory + oh */
+    unsigned long long lua_eval_scripts_mem; /* Cached EVAL scripts' memory */
 } lctx;
 
-static size_t evalScriptMemory(sds sha, robj *body) {
-    return sdsZmallocSize(sha) + getStringObjectSdsUsedMemory(body) +
-           sizeof(luaScript) + sizeof(listNode);
+#define EVAL_LRU_SCRIPT_OVERHEAD (sizeof(luaScript) + sizeof(listNode))
+
+static size_t evalScriptBytes(sds sha, robj *body) {
+    return sdsZmallocSize(sha) + getStringObjectSdsUsedMemory(body);
+}
+
+unsigned long long evalLRUScriptsMemory(void) {
+    return lctx.lua_eval_scripts_mem +
+           listLength(lctx.lua_scripts_lru_list) * EVAL_LRU_SCRIPT_OVERHEAD;
+}
+
+static void luaScriptsLRUPromote(sds sha, luaScript *l) {
+    lctx.lua_eval_scripts_mem -= evalScriptBytes(sha, l->body);
+    listDelNode(lctx.lua_scripts_lru_list, l->node);
+    l->node = NULL;
 }
 
 /* Debugger shared state is stored inside this global structure. */
@@ -451,11 +463,7 @@ sds luaCreateFunction(client *c, robj *body, int evalsha) {
 
     if ((de = dictFind(lctx.lua_scripts,funcname+2)) != NULL) {
         luaScript *l = dictGetVal(de);
-        if (evalsha && l->node) {
-            lctx.lua_eval_scripts_mem -= evalScriptMemory(dictGetKey(de), l->body);
-            listDelNode(lctx.lua_scripts_lru_list, l->node);
-            l->node = NULL;
-        }
+        if (evalsha && l->node) luaScriptsLRUPromote(dictGetKey(de), l);
         return dictGetKey(de);
     }
 
@@ -495,7 +503,7 @@ sds luaCreateFunction(client *c, robj *body, int evalsha) {
     l->node = luaScriptsLRUAdd(c, sha, body, evalsha);
     int retval = dictAdd(lctx.lua_scripts,sha,l);
     serverAssertWithInfo(c ? c : lctx.lua_client,NULL,retval == DICT_OK);
-    lctx.lua_scripts_mem += sdsZmallocSize(sha) + getStringObjectSdsUsedMemory(body);
+    lctx.lua_scripts_mem += evalScriptBytes(sha, body);
     incrRefCount(body);
 
     /* Perform GC after creating the script and adding it to the LRU list,
@@ -526,8 +534,9 @@ void luaDeleteFunction(client *c, sds sha) {
     /* We only delete `EVAL` scripts, which must exist in the LRU list. */
     serverAssert(l->node);
     listDelNode(lctx.lua_scripts_lru_list, l->node);
-    lctx.lua_eval_scripts_mem -= evalScriptMemory(sha, l->body);
-    lctx.lua_scripts_mem -= sdsZmallocSize(sha) + getStringObjectSdsUsedMemory(l->body);
+    size_t bytes = evalScriptBytes(sha, l->body);
+    lctx.lua_eval_scripts_mem -= bytes;
+    lctx.lua_scripts_mem -= bytes;
     dictFreeUnlinkedEntry(lctx.lua_scripts, de);
 }
 
@@ -557,8 +566,8 @@ listNode *luaScriptsLRUAdd(client *c, sds sha, robj *body, int evalsha) {
         luaDeleteFunction(c, oldest);
         server.stat_evictedscripts++;
     }
-    size_t mem = evalScriptMemory(sha, body);
-    evalScriptsEnforceMemoryLimit(c, mem);
+    size_t mem = evalScriptBytes(sha, body);
+    evalScriptsEnforceMemoryLimit(c, mem + EVAL_LRU_SCRIPT_OVERHEAD);
 
     /* Add current. */
     listAddNodeTail(lctx.lua_scripts_lru_list, sha);
@@ -569,7 +578,7 @@ listNode *luaScriptsLRUAdd(client *c, sds sha, robj *body, int evalsha) {
 void evalScriptsEnforceMemoryLimit(client *c, size_t incoming) {
     if (!server.maxmemory_eval_scripts) return;
     while (listLength(lctx.lua_scripts_lru_list) &&
-           lctx.lua_eval_scripts_mem + incoming > server.maxmemory_eval_scripts)
+           evalLRUScriptsMemory() + incoming > server.maxmemory_eval_scripts)
     {
         sds oldest = listNodeValue(listFirst(lctx.lua_scripts_lru_list));
         luaDeleteFunction(c, oldest);

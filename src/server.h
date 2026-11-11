@@ -4528,6 +4528,7 @@ unsigned long evalScriptsMemoryVM(void);
 dict* evalScriptsDict(void);
 unsigned long evalScriptsMemoryEngine(void);
 void evalScriptsEnforceMemoryLimit(client *c, size_t incoming);
+unsigned long long evalLRUScriptsMemory(void);
 uint64_t evalGetCommandFlags(client *c, uint64_t orig_flags);
 uint64_t fcallGetCommandFlags(client *c, uint64_t orig_flags);
 int isInsideYieldingLongCommand(void);

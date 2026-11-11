@@ -2001,7 +2001,7 @@ start_server {tags {"scripting external:skip"}} {
         r config resetstat
     }
 
-    test {maxmemory-eval-scripts evicts large EVAL scripts in LRU order} {
+    test {maxmemory-eval-scripts evicts large EVAL scripts to stay within budget} {
         set shas {}
         for {set j 1} {$j <= 10} {incr j} {
             lappend shas [script_sha [large_script $j]]
@@ -2013,11 +2013,34 @@ start_server {tags {"scripting external:skip"}} {
             assert_equal $j [r eval [large_script $j] 0]
         }
 
-        set cached [s number_of_cached_scripts]
-        assert_range $cached 1 3
-        assert_equal [s evicted_scripts] [expr {10 - $cached}]
+        assert_equal 3 [s number_of_cached_scripts]
+        assert {[s used_memory_scripts_eval_lru] <= 102400}
+        assert_equal 7 [s evicted_scripts]
         assert_error {NOSCRIPT*} {r evalsha [lindex $shas 0] 0}
         assert_equal 10 [r evalsha [lindex $shas 9] 0]
+        r config set maxmemory-eval-scripts 0
+    }
+
+    test {maxmemory-eval-scripts evicts in LRU order} {
+        set shas {}
+        for {set j 1} {$j <= 4} {incr j} {
+            lappend shas [script_sha [large_script $j]]
+        }
+        reset_scripts
+        r config set maxmemory-eval-scripts 100kb
+
+        for {set j 1} {$j <= 3} {incr j} {
+            r eval [large_script $j] 0
+        }
+        assert_equal 3 [s number_of_cached_scripts]
+        assert_equal 1 [r evalsha [lindex $shas 0] 0]
+        r eval [large_script 4] 0
+
+        assert_equal 1 [s evicted_scripts]
+        assert_equal 1 [r evalsha [lindex $shas 0] 0]
+        assert_error {NOSCRIPT*} {r evalsha [lindex $shas 1] 0}
+        assert_equal 3 [r evalsha [lindex $shas 2] 0]
+        assert_equal 4 [r evalsha [lindex $shas 3] 0]
         r config set maxmemory-eval-scripts 0
     }
 
@@ -2032,6 +2055,24 @@ start_server {tags {"scripting external:skip"}} {
         assert_equal big [r evalsha $sha 0]
         assert_equal [s number_of_cached_scripts] 1
         assert_equal [s evicted_scripts] 1
+        r config set maxmemory-eval-scripts 0
+    }
+
+    test {Oversized EVAL script is evicted when the budget changes below its size} {
+        set big "return 'big' --[string repeat x 200000]"
+        set sha [script_sha $big]
+        reset_scripts
+        r config set maxmemory-eval-scripts 100kb
+        r eval $big 0
+
+        r config set maxmemory-eval-scripts 100kb
+        assert_equal big [r evalsha $sha 0]
+        assert_equal 0 [s evicted_scripts]
+
+        r config set maxmemory-eval-scripts 50kb
+        assert_error {NOSCRIPT*} {r evalsha $sha 0}
+        assert_equal 1 [s evicted_scripts]
+        assert_equal 0 [s used_memory_scripts_eval_lru]
         r config set maxmemory-eval-scripts 0
     }
 
@@ -2058,9 +2099,9 @@ start_server {tags {"scripting external:skip"}} {
         assert_equal [s evicted_scripts] 0
 
         r config set maxmemory-eval-scripts 100kb
-        set cached [s number_of_cached_scripts]
-        assert_range $cached 1 3
-        assert_equal [s evicted_scripts] [expr {10 - $cached}]
+        assert_equal 3 [s number_of_cached_scripts]
+        assert {[s used_memory_scripts_eval_lru] <= 102400}
+        assert_equal 7 [s evicted_scripts]
         assert_equal 10 [r evalsha $last 0]
         r config set maxmemory-eval-scripts 0
     }
@@ -2109,6 +2150,32 @@ start_server {tags {"scripting external:skip"}} {
 
         r config set maxmemory 0
         assert_equal 1 [r evalsha [r script load "return 1"] 0]
+    }
+
+    test {SCRIPT LOAD evicts keys when over maxmemory with allkeys-lru} {
+        reset_scripts
+        r flushall
+        r config set maxmemory-policy noeviction
+        set val [string repeat x 102400]
+        for {set j 0} {$j < 10} {incr j} {
+            r set key:$j $val
+        }
+
+        set used [expr {[s used_memory] - [s mem_not_counted_for_evict]}]
+        r config set maxmemory [expr {$used - 300000}]
+
+        assert_error {OOM*} {r script load "return 'loaded'"}
+        assert_equal 0 [s evicted_keys]
+
+        r config set maxmemory-policy allkeys-lru
+        set sha [r script load "return 'loaded'"]
+        assert_morethan [s evicted_keys] 0
+        assert_equal 1 [r script exists $sha]
+
+        r config set maxmemory 0
+        r config set maxmemory-policy noeviction
+        r flushall
+        assert_equal loaded [r evalsha $sha 0]
     }
 }
 
