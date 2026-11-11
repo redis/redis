@@ -244,6 +244,7 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
 
     test {A preload alias cannot remove the current AOF} {
         set local_dir [file normalize [tmpdir preload.alias-local]]
+        file delete -force $local_dir
         create_local_aof $local_dir
         set alias_dir [file normalize [tmpdir preload.alias-link]]
         file delete -force $alias_dir
@@ -265,6 +266,74 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
 
         start_server [list overrides [list dir $local_dir appendonly yes]] {
             assert_equal value [r get local-aof-key]
+        }
+    }
+
+    test {A destination symlink can be replaced without removing its preload source} {
+        set local_dir [file normalize [tmpdir preload.target-symlink]]
+        file delete -force $local_dir
+        file mkdir $local_dir
+        set preload_aof [file join $local_dir source.aof]
+        set fp [open $preload_aof w]
+        puts -nonewline $fp [formatCommand select 9]
+        puts -nonewline $fp [formatCommand set target-symlink-key value]
+        close $fp
+        set aof_dir [file join $local_dir appendonlydir]
+        file mkdir $aof_dir
+        set target [file join $aof_dir source.aof]
+        file link -symbolic $target $preload_aof
+
+        start_server [list overrides [list dir $local_dir appendonly yes preload-file "aof:$preload_aof"]] {
+            assert_equal value [r get target-symlink-key]
+            assert {[file exists $preload_aof]}
+            assert {[file exists $target]}
+            assert_equal file [file type $target]
+        }
+    }
+
+    test {A later preload alias leaves earlier local AOF files untouched} {
+        set local_dir [file normalize [tmpdir preload.later-alias-local]]
+        file delete -force $local_dir
+        create_local_aof $local_dir
+        set aof_dir [file join $local_dir appendonlydir]
+        set base_name appendonly.aof.1.base.aof
+        set incr_name appendonly.aof.1.incr.aof
+        set local_base [file join $aof_dir $base_name]
+        set fp [open $local_base w]
+        puts -nonewline $fp [formatCommand select 9]
+        puts -nonewline $fp [formatCommand set original-base-key value]
+        close $fp
+        set fp [open [file join $aof_dir appendonly.aof.manifest] w]
+        puts -nonewline $fp "file $base_name seq 1 type b\nfile $incr_name seq 1 type i\n"
+        close $fp
+        set fp [open $local_base r]
+        set original_base [read $fp]
+        close $fp
+
+        set preload_dir [file normalize [tmpdir preload.later-alias-source]]
+        file delete -force $preload_dir
+        file mkdir $preload_dir
+        set fp [open [file join $preload_dir $base_name] w]
+        puts -nonewline $fp [formatCommand select 9]
+        puts -nonewline $fp [formatCommand set external-base-key value]
+        close $fp
+        file link -symbolic [file join $preload_dir $incr_name] [file join $aof_dir $incr_name]
+        set source_manifest [file join $preload_dir appendonly.aof.manifest]
+        set fp [open $source_manifest w]
+        puts -nonewline $fp "file $base_name seq 1 type b\nfile $incr_name seq 1 type i\n"
+        close $fp
+
+        assert_equal 1 [catch {exec src/redis-server --port 0 \
+            --unixsocket [file join $local_dir socket] --dir $local_dir \
+            --save "" --appendonly yes --preload-file "aof:$source_manifest"} error]
+        assert_match {*aliases append-only file*} $error
+        set fp [open $local_base r]
+        assert_equal $original_base [read $fp]
+        close $fp
+        start_server [list overrides [list dir $local_dir appendonly yes]] {
+            assert_equal value [r get original-base-key]
+            assert_equal value [r get local-aof-key]
+            assert_equal {} [r get external-base-key]
         }
     }
 

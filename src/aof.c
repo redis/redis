@@ -838,10 +838,10 @@ static aofManifest *aofManifestFromPreloadFile(char *preload_path) {
     return am;
 }
 
-/* Install one preload manifest entry under its existing filename. Leave the
- * file in place when source and target are the same path, otherwise replace
- * the target without changing the manifest metadata. */
-static int aofInstallPreloadFile(char *absolute_preload_dir, char *file_name) {
+/* Check or install one preload manifest entry under its existing filename.
+ * Leave the file in place when source and target are the same path, otherwise
+ * replace the target without changing the manifest metadata. */
+static int aofInstallPreloadFile(char *absolute_preload_dir, char *file_name, int check_only) {
     sds source_path = makePath(absolute_preload_dir, file_name);
     sds relative_path = makePath(server.aof_dirname, file_name);
     sds target_path = getAbsolutePath(relative_path);
@@ -855,14 +855,32 @@ static int aofInstallPreloadFile(char *absolute_preload_dir, char *file_name) {
     }
 
     /* A path through a symlink can name the target despite a different string.
-     * Reject it before unlinking the source of the preload. */
+     * A target symlink can be replaced when the source is a regular file in
+     * a different directory: unlink then removes only the target symlink. */
     char resolved_source[PATH_MAX], resolved_target[PATH_MAX];
     if (realpath(source_path, resolved_source) != NULL &&
         realpath(target_path, resolved_target) != NULL &&
         !strcmp(resolved_source, resolved_target))
     {
-        serverLog(LL_WARNING, "Preload file %s aliases append-only file %s",
-                  source_path, target_path);
+        struct stat source_stat, target_stat, source_dir_stat, aof_dir_stat;
+        int distinct_target_symlink =
+            lstat(target_path, &target_stat) == 0 &&
+            S_ISLNK(target_stat.st_mode) &&
+            lstat(source_path, &source_stat) == 0 &&
+            S_ISREG(source_stat.st_mode) &&
+            stat(absolute_preload_dir, &source_dir_stat) == 0 &&
+            stat(server.aof_dirname, &aof_dir_stat) == 0 &&
+            (source_dir_stat.st_dev != aof_dir_stat.st_dev ||
+             source_dir_stat.st_ino != aof_dir_stat.st_ino);
+        if (!distinct_target_symlink) {
+            serverLog(LL_WARNING, "Preload file %s aliases append-only file %s",
+                      source_path, target_path);
+            goto cleanup;
+        }
+    }
+
+    if (check_only) {
+        ret = C_OK;
         goto cleanup;
     }
 
@@ -1012,20 +1030,20 @@ void aofSetupAfterPreloadFile(void) {
     aofManifest *am = aofManifestFromPreloadFile(preload_path);
     listEmpty(am->history_aof_list); /* Discard HISTORY entries. */
 
-    /* Install the preload BASE in appendonlydir. */
-    if (am->base_aof_info) {
-        if (aofInstallPreloadFile(absolute_preload_dir, am->base_aof_info->file_name) != C_OK)
+    /* Check every entry for aliases before replacing any local AOF file. */
+    for (int check_only = 1; check_only >= 0; check_only--) {
+        if (am->base_aof_info &&
+            aofInstallPreloadFile(absolute_preload_dir, am->base_aof_info->file_name, check_only) != C_OK)
             exit(1);
-    }
 
-    /* Install every ordered INCR referenced by the preload manifest. */
-    listIter li;
-    listNode *ln;
-    listRewind(am->incr_aof_list, &li);
-    while ((ln = listNext(&li)) != NULL) {
-        aofInfo *ai = listNodeValue(ln);
-        if (aofInstallPreloadFile(absolute_preload_dir, ai->file_name) != C_OK)
-            exit(1);
+        listIter li;
+        listNode *ln;
+        listRewind(am->incr_aof_list, &li);
+        while ((ln = listNext(&li)) != NULL) {
+            aofInfo *ai = listNodeValue(ln);
+            if (aofInstallPreloadFile(absolute_preload_dir, ai->file_name, check_only) != C_OK)
+                exit(1);
+        }
     }
 
     /* Remove files not owned by the preload manifest before choosing the new
