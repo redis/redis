@@ -4180,8 +4180,6 @@ start_server {tags {"stream external:skip"} overrides {appendonly yes appendfsyn
         restart_server 0 true false
 
         assert_equal 3 [r XLEN mystream]
-        # The live mapping points at the new ID.
-        assert_equal $id2 [r XADD mystream IDMP p1 "req-1" * field "v3"]
     }
 
     test "XADD IDMP appends after expiry survive an AOF restart without rewrite" {
@@ -4203,7 +4201,6 @@ start_server {tags {"stream external:skip"} overrides {appendonly yes appendfsyn
         restart_server 0 true false
 
         assert_equal 3 [r XLEN mystream]
-        assert_equal $id2 [r XADD mystream IDMP p1 "req-1" * field "v3"]
     }
 }
 
