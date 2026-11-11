@@ -242,6 +242,32 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
         }
     }
 
+    test {A preload alias cannot remove the current AOF} {
+        set local_dir [file normalize [tmpdir preload.alias-local]]
+        create_local_aof $local_dir
+        set alias_dir [file normalize [tmpdir preload.alias-link]]
+        file delete -force $alias_dir
+        file link -symbolic $alias_dir [file join $local_dir appendonlydir]
+        set source_manifest [file join $alias_dir appendonly.aof.manifest]
+        set incr [file join $local_dir appendonlydir appendonly.aof.1.incr.aof]
+        set fp [open $incr r]
+        set contents [read $fp]
+        close $fp
+
+        assert_equal 1 [catch {exec src/redis-server --port 0 \
+            --unixsocket [file join $local_dir socket] --dir $local_dir \
+            --save "" --appendonly yes --preload-file "aof:$source_manifest"} error]
+        assert_match {*aliases append-only file*} $error
+        assert {[file exists $incr]}
+        set fp [open $incr r]
+        assert_equal $contents [read $fp]
+        close $fp
+
+        start_server [list overrides [list dir $local_dir appendonly yes]] {
+            assert_equal value [r get local-aof-key]
+        }
+    }
+
     test {Preload from appendonlydir preserves its source and recreates the INCR} {
         set local_dir [file normalize [tmpdir preload.same-aof-dir]]
         create_local_aof $local_dir

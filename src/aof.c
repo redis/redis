@@ -854,6 +854,18 @@ static int aofInstallPreloadFile(char *absolute_preload_dir, char *file_name) {
         goto cleanup;
     }
 
+    /* A path through a symlink can name the target despite a different string.
+     * Reject it before unlinking the source of the preload. */
+    char resolved_source[PATH_MAX], resolved_target[PATH_MAX];
+    if (realpath(source_path, resolved_source) != NULL &&
+        realpath(target_path, resolved_target) != NULL &&
+        !strcmp(resolved_source, resolved_target))
+    {
+        serverLog(LL_WARNING, "Preload file %s aliases append-only file %s",
+                  source_path, target_path);
+        goto cleanup;
+    }
+
     /* Remove an existing target before installing the preload file. */
     if (unlink(target_path) == -1 && errno != ENOENT) {
         serverLog(LL_WARNING, "Can't remove old append-only file %s: %s",
