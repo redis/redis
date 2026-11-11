@@ -1466,13 +1466,20 @@ robj *zsetTypeCreate(size_t size_hint, size_t val_len_hint) {
 }
 
 /* Check if the existing zset should be converted to another encoding based off the
- * the size hint. */
-void zsetTypeMaybeConvert(robj *zobj, size_t size_hint) {
+ * size hint, and return 1 if it was converted.
+ *
+ * ZADD's hint counts its score-member pairs, and the B+ tree member index is
+ * presized for them. The pairs may repeat a member or be skipped by
+ * NX/XX/GT/LT, so the caller must call zbtreeShrinkToFit() once they are
+ * added. */
+int zsetTypeMaybeConvert(robj *zobj, size_t size_hint) {
     if (zobj->encoding == OBJ_ENCODING_LISTPACK &&
         size_hint > server.zset_max_listpack_entries)
     {
         zsetConvertAndExpand(zobj, OBJ_ENCODING_BTREE, size_hint);
+        return 1;
     }
+    return 0;
 }
 
 /* Convert the zset to specified encoding. The zset dict (when converting
@@ -1499,50 +1506,6 @@ static const unsigned char *zzlDecodeElement(unsigned char *eptr, char *buf,
     }
     *rawlen = vlen;
     return vstr;
-}
-
-/* Verify a listpack-encoded zset is genuinely sorted (score, then member)
- * and duplicate-free -- its invariant when uncorrupted. A single linear
- * pass here lets the LISTPACK->BTREE conversion below use the descent-free
- * append path for every member instead of paying a full B+tree search (the
- * duplicate check) plus a second full descent (the insert) per element.
- * Only a corrupt listpack should make this return false, in which case the
- * caller falls back to the original per-element-checked, slower path. */
-static int zzlIsSortedNoDup(unsigned char *zl) {
-    unsigned char *preveptr = NULL;
-    unsigned char *eptr, *sptr;
-    double prevscore = 0;
-
-    eptr = lpSeek(zl, 0);
-    if (eptr == NULL) return 1;
-    sptr = lpNext(zl, eptr);
-    if (sptr == NULL) return 0;
-
-    while (eptr != NULL) {
-        double score = zzlGetScore(sptr);
-        if (isnan(score)) return 0;
-        if (preveptr != NULL) {
-            int cmp;
-            if (prevscore != score) {
-                cmp = prevscore < score ? -1 : 1;
-            } else {
-                char prevbuf[LONG_STR_SIZE], buf[LONG_STR_SIZE];
-                size_t prevrawlen, rawlen;
-                const unsigned char *prevraw = zzlDecodeElement(
-                    preveptr, prevbuf, sizeof(prevbuf), &prevrawlen);
-                const unsigned char *raw = zzlDecodeElement(eptr, buf, sizeof(buf), &rawlen);
-                size_t minlen = prevrawlen < rawlen ? prevrawlen : rawlen;
-                cmp = memcmp(prevraw, raw, minlen);
-                if (cmp == 0)
-                    cmp = prevrawlen < rawlen ? -1 : (prevrawlen > rawlen ? 1 : 0);
-            }
-            if (cmp >= 0) return 0;
-        }
-        preveptr = eptr;
-        prevscore = score;
-        zzlNext(zl, &eptr, &sptr);
-    }
-    return 1;
 }
 
 /* Converts a zset to the specified encoding, pre-sizing it for 'cap' elements. */
@@ -1588,50 +1551,20 @@ void zsetConvertAndExpand(robj *zobj, int encoding, unsigned long cap) {
                 serverAssertWithInfo(NULL,zobj,sptr != NULL);
             }
 
-            if (zzlIsSortedNoDup(zl)) {
-                /* Uncorrupted listpack (the common case, verified above):
-                 * known sorted and duplicate-free, so every insert can use
-                 * the descent-free append path -- no per-element duplicate
-                 * search, and no separate full-tree descent to insert.
-                 * Batched: buf is a per-iteration stack scratch reused every
-                 * loop pass, so raw's bytes are only valid until the next
-                 * zzlDecodeElement() call -- zbtreeAppendBatchAdd() copies
-                 * them out synchronously before returning, same contract the
-                 * unbatched zbtreeInsertNewAppend() call it replaces had. */
-                zbtreeAppendBatch *batch = zbtreeAppendBatchCreate(bt);
-                while (eptr != NULL) {
-                    score = zzlGetScore(sptr);
-                    serverAssert(!isnan(score));
-                    char buf[LONG_STR_SIZE];
-                    size_t rawlen;
-                    const unsigned char *raw = zzlDecodeElement(eptr, buf, sizeof(buf), &rawlen);
-                    zbtreeAppendBatchAdd(batch, score, raw, rawlen);
-                    zzlNext(zl,&eptr,&sptr);
-                }
-                zbtreeAppendBatchFinish(batch);
-            } else {
-                while (eptr != NULL) {
-                    score = zzlGetScore(sptr);
-                    serverAssert(!isnan(score));
-                    vstr = lpGetValue(eptr,&vlen,&vlong);
-                    char buf[LONG_STR_SIZE];
-                    const unsigned char *raw;
-                    size_t rawlen;
-                    if (vstr == NULL) {
-                        rawlen = ll2string(buf,sizeof(buf),vlong);
-                        raw = (unsigned char *)buf;
-                    } else {
-                        raw = vstr;
-                        rawlen = vlen;
-                    }
-                    /* A corrupt listpack may contain a duplicate. dictAdd()
-                     * used to catch this when the target was always a
-                     * skiplist. */
-                    int duplicate = zbtreeScoreRaw(bt,raw,rawlen,NULL);
-                    serverAssert(!duplicate);
-                    zbtreeInsertNewRaw(bt,score,raw,rawlen,NULL);
-                    zzlNext(zl,&eptr,&sptr);
-                }
+            /* A corrupt listpack may contain a duplicate, even one that is
+             * still ordered by (score, member) such as (a,1),(a,2), so every
+             * member is looked up before it is inserted. dictAdd() used to
+             * catch this when the target was always a skiplist. */
+            while (eptr != NULL) {
+                score = zzlGetScore(sptr);
+                serverAssert(!isnan(score));
+                char buf[LONG_STR_SIZE];
+                size_t rawlen;
+                const unsigned char *raw = zzlDecodeElement(eptr, buf, sizeof(buf), &rawlen);
+                int duplicate = zbtreeScoreRaw(bt,raw,rawlen,NULL);
+                serverAssert(!duplicate);
+                zbtreeInsertNewRaw(bt,score,raw,rawlen,NULL);
+                zzlNext(zl,&eptr,&sptr);
             }
 
             zfree(zobj->ptr);
@@ -2325,6 +2258,7 @@ void zaddGenericCommand(client *c, int flags) {
     int updated = 0;    /* Number of elements with updated score. */
     int processed = 0;  /* Number of elements processed, may remain zero with
                            options like XX. */
+    int converted = 0;  /* This command converted the zset to a B+ tree. */
 
     /* Parse options. At the end 'scoreidx' is set to the argument position
      * of the score of the first score-element pair. */
@@ -2396,7 +2330,7 @@ void zaddGenericCommand(client *c, int flags) {
     } else {
         if (server.memory_tracking_enabled)
             oldsize = kvobjAllocSize(zobj);
-        zsetTypeMaybeConvert(zobj, elements);
+        converted = zsetTypeMaybeConvert(zobj, elements);
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db, getKeySlot(key->ptr), zobj, oldsize, kvobjAllocSize(zobj));
     }
@@ -2422,6 +2356,9 @@ void zaddGenericCommand(client *c, int flags) {
         if (!(retflags & ZADD_OUT_NOP)) processed++;
         score = newscore;
     }
+    /* The index was presized for every pair. Release what repeated or
+     * skipped pairs left unused. */
+    if (converted) zbtreeShrinkToFit(zobj->ptr);
     server.dirty += (added+updated);
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(key->ptr), zobj, oldsize, kvobjAllocSize(zobj));
@@ -3780,6 +3717,7 @@ struct zrange_result_handler {
     void                                *userdata;
     int                                  withscores;
     int                                  reverse;
+    int                                  source_encoding;
     int                                  should_emit_array_length;
     zbtreeAppendBatch                   *append_batch;
     zrangeResultBeginFunction            beginResultEmission;
@@ -3879,8 +3817,17 @@ static void zrangeResultEmitCBufferForStore(zrange_result_handler *handler,
      * reverse-order emission both keep the original, always-correct path.
      * The batch is created lazily on the first fast-path emit (the
      * destination may start as LISTPACK and convert mid-stream) and flushed
-     * once in zrangeResultFinalizeStore(). */
-    if (!handler->reverse && handler->dstobj->encoding == OBJ_ENCODING_BTREE) {
+     * once in zrangeResultFinalizeStore().
+     *
+     * Only a btree source is sorted by construction. A listpack source may be
+     * a restored payload that validation accepted unsorted or, without deep
+     * sanitization, with a repeated member. It takes the checked path, which
+     * places each element by (score, member) and asserts that each one was
+     * new. That costs nothing in practice: a listpack source feeds a btree
+     * destination only when the limits were lowered after it was built. */
+    if (!handler->reverse && handler->source_encoding == OBJ_ENCODING_BTREE &&
+        handler->dstobj->encoding == OBJ_ENCODING_BTREE)
+    {
         if (!handler->append_batch)
             handler->append_batch = zbtreeAppendBatchCreate(handler->dstobj->ptr);
         zbtreeAppendBatchAdd(handler->append_batch, score, value, value_length_in_bytes);
@@ -3891,7 +3838,7 @@ static void zrangeResultEmitCBufferForStore(zrange_result_handler *handler,
     sds ele = sdsnewlen(value, value_length_in_bytes);
     int retval = zsetAdd(handler->dstobj, score, ele, ZADD_IN_NONE, &retflags, &newscore);
     sdsfree(ele);
-    serverAssert(retval);
+    serverAssert(retval && (retflags & ZADD_OUT_ADDED));
 }
 
 static void zrangeResultEmitLongLongForStore(zrange_result_handler *handler,
@@ -3901,7 +3848,9 @@ static void zrangeResultEmitLongLongForStore(zrange_result_handler *handler,
      * the integer member directly into a stack buffer instead of an sds --
      * zbtreeAppendBatchAdd() copies the bytes out synchronously, so the
      * stack buffer doesn't need to outlive this call. */
-    if (!handler->reverse && handler->dstobj->encoding == OBJ_ENCODING_BTREE) {
+    if (!handler->reverse && handler->source_encoding == OBJ_ENCODING_BTREE &&
+        handler->dstobj->encoding == OBJ_ENCODING_BTREE)
+    {
         char buf[LONG_STR_SIZE];
         size_t len = ll2string(buf, sizeof(buf), value);
         if (!handler->append_batch)
@@ -3914,7 +3863,7 @@ static void zrangeResultEmitLongLongForStore(zrange_result_handler *handler,
     sds ele = sdsfromlonglong(value);
     int retval = zsetAdd(handler->dstobj, score, ele, ZADD_IN_NONE, &retflags, &newscore);
     sdsfree(ele);
-    serverAssert(retval);
+    serverAssert(retval && (retflags & ZADD_OUT_ADDED));
 }
 
 static void zrangeResultFinalizeStore(zrange_result_handler *handler, size_t result_count)
@@ -4009,6 +3958,21 @@ void genericZrangebyrankCommand(zrange_result_handler *handler,
     if (end >= llen) end = llen-1;
     rangelen = (end-start)+1;
     result_cardinality = rangelen;
+
+    /* A REV range holds the same elements as the mirrored forward range.
+     * ZRANGESTORE walks it forward when the destination will start as a
+     * B+ tree (zrangeResultBeginStore() calls zsetTypeCreate() with this
+     * length and no value length hint), so it is filled through the append
+     * path. A listpack destination has no append path. */
+    if (reverse && handler->dstkey &&
+        (size_t)rangelen > server.zset_max_listpack_entries)
+    {
+        long tmp = start;
+        start = llen-1-end;
+        end = llen-1-tmp;
+        reverse = 0;
+        zrangeResultHandlerDirectionSet(handler, 0);
+    }
 
     handler->beginResultEmission(handler, rangelen);
     if (zobj->encoding == OBJ_ENCODING_LISTPACK) {
@@ -4597,7 +4561,6 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
     zlexrangespec lexrange;
     int minidx = argc_start + 1;
     int maxidx = argc_start + 2;
-    size_t oldsize = 0;
 
     /* Options common to all */
     long opt_start = 0;
@@ -4709,9 +4672,15 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
 
     if (checkType(c,zobj,OBJ_ZSET)) goto cleanup;
 
-    /* Step 4: Pass this to the command-specific handler. */
-    if (server.memory_tracking_enabled)
-        oldsize = kvobjAllocSize(zobj);
+    /* The STORE fast path trusts the order of a btree source only.
+     * See zrangeResultEmitCBufferForStore(). */
+    handler->source_encoding = zobj->encoding;
+
+    /* Step 4: Pass this to the command-specific handler. The listpack and
+     * B+tree range readers never resize zobj (no member index lookup or rehash
+     * step), so there is no alloc size to update; a handler that does must
+     * sample it around the call. Don't use zobj after the switch: in store
+     * mode it may be the destination, which setKey()/dbDelete() replace/free. */
     switch (rangetype) {
     case ZRANGE_AUTO:
     case ZRANGE_RANK:
@@ -4729,8 +4698,6 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
             opt_offset, opt_limit, direction == ZRANGE_DIRECTION_REVERSE);
         break;
     }
-    if (server.memory_tracking_enabled)
-        updateSlotAllocSize(c->db, getKeySlot(key->ptr), zobj, oldsize, kvobjAllocSize(zobj));
 
     /* Instead of returning here, we'll just fall-through the clean-up. */
 
@@ -4833,6 +4800,12 @@ void zrankGenericCommand(client *c, int reverse) {
     }
     reply = opt_withscore ? shared.nullarray[c->resp] : shared.null[c->resp];
     if ((zobj = lookupKeyReadOrReply(c, key, reply)) == NULL || checkType(c, zobj, OBJ_ZSET)) {
+        return;
+    }
+    /* A module may read a zset emptied by ZPOP from its notification,
+     * before the key is deleted. Reply as if the member is missing. */
+    if (zsetLength(zobj) == 0) {
+        addReply(c, reply);
         return;
     }
     if (server.memory_tracking_enabled)
@@ -5233,8 +5206,10 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
         uniq = 0;
     }
 
-    /* If count is zero, serve it ASAP to avoid special cases later. */
-    if (count == 0) {
+    /* If count is zero, serve it ASAP to avoid special cases later. The set
+     * can also be empty when a module reads it from the notification of a
+     * pop that removed its last member, before the key is deleted. */
+    if (count == 0 || size == 0) {
         addReply(c,shared.emptyarray);
         return;
     }
@@ -5470,6 +5445,12 @@ void zrandmemberCommand(client *c) {
     /* Handle variant without <count> argument. Reply with simple bulk string */
     if ((zset = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]))== NULL ||
         checkType(c,zset,OBJ_ZSET)) {
+        return;
+    }
+
+    /* See zrandmemberWithCountCommand(). */
+    if (zsetLength(zset) == 0) {
+        addReplyNull(c);
         return;
     }
 
@@ -6114,13 +6095,12 @@ int zsetTest(int argc, char **argv, int flags) {
     zfree(elements);
     zslFree(zsl);
 
-    printf("Testing LISTPACK->BTREE conversion order-check fast path\n");
+    printf("Testing LISTPACK->BTREE conversion\n");
     {
         /* Member strings are named by (49 - i), the OPPOSITE of insertion/
          * score order, so score order and member-lexicographic order are
-         * inversely correlated throughout -- a comparator that silently
-         * fell back to comparing members instead of scores (or vice versa)
-         * would disagree with the true order and get caught, instead of
+         * inversely correlated throughout -- a conversion that silently
+         * ordered by member instead of score would get caught, instead of
          * accidentally agreeing because the two happened to correlate. */
         unsigned char *zl = lpNew(0);
         char namebuf[32];
@@ -6130,8 +6110,6 @@ int zsetTest(int argc, char **argv, int flags) {
             zl = zzlInsert(zl, ele, (double)i);
             sdsfree(ele);
         }
-        test_cond("zzlIsSortedNoDup accepts a genuinely sorted, duplicate-free listpack",
-            zzlIsSortedNoDup(zl) == 1);
 
         /* Swap the last two entries' relative order by appending them in
          * reverse (zzlInsertAt(..., NULL, ...) always appends, ignoring
@@ -6150,34 +6128,10 @@ int zsetTest(int argc, char **argv, int flags) {
         zl2 = zzlInsertAt(zl2, NULL, elelow, 48.0);
         sdsfree(elehigh);
         sdsfree(elelow);
-        test_cond("zzlIsSortedNoDup rejects an out-of-order (but duplicate-free) listpack",
-            zzlIsSortedNoDup(zl2) == 0);
 
-        /* Exact duplicate of the LAST element appended right after it, so
-         * the only thing wrong is the (score, member) tie -- unlike
-         * duplicating an earlier element (which would also read as
-         * out-of-order via the score comparison alone), this specifically
-         * exercises the equal-keys boundary of the comparison. */
-        unsigned char *zl3 = lpNew(0);
-        for (int i = 0; i < 50; i++) {
-            snprintf(namebuf, sizeof(namebuf), "member:%04d", 49 - i);
-            sds ele = sdsnew(namebuf);
-            zl3 = zzlInsert(zl3, ele, (double)i);
-            sdsfree(ele);
-        }
-        sds dup = sdsnew("member:0000"); /* i=49's member */
-        zl3 = zzlInsertAt(zl3, NULL, dup, 49.0);
-        sdsfree(dup);
-        test_cond("zzlIsSortedNoDup rejects a listpack containing a duplicate",
-            zzlIsSortedNoDup(zl3) == 0);
-
-        /* End-to-end: a sorted source exercises the fast (append) path; an
-         * out-of-order-but-duplicate-free source exercises the fallback
-         * (zbtreeInsertNewRaw's own descent-based positioning handles
-         * arbitrary insertion order correctly, only true duplicates ever
-         * hit the assert this whole check exists to avoid paying for
-         * unnecessarily) -- both must still produce a correct, fully sorted
-         * B+tree either way. */
+        /* Each member is positioned by its own B+tree descent, so a sorted
+         * and a misordered (but duplicate-free) source must both produce a
+         * correct, fully sorted B+tree. */
         robj sortedobj = {.encoding = OBJ_ENCODING_LISTPACK, .ptr = zl, .type = OBJ_ZSET};
         zsetConvertAndExpand(&sortedobj, OBJ_ENCODING_BTREE, 50);
         robj unsortedobj = {.encoding = OBJ_ENCODING_LISTPACK, .ptr = zl2, .type = OBJ_ZSET};
@@ -6205,14 +6159,13 @@ int zsetTest(int argc, char **argv, int flags) {
             prevscore = score;
             unsorted_len++;
         }
-        test_cond("Fast-path (sorted source) conversion yields a correctly sorted, complete B+tree",
+        test_cond("Sorted source conversion yields a correctly sorted, complete B+tree",
             sorted_ok && sorted_len == 50);
-        test_cond("Fallback-path (unsorted source) conversion also yields a correctly sorted, complete B+tree",
+        test_cond("Misordered source conversion also yields a correctly sorted, complete B+tree",
             unsorted_ok && unsorted_len == 50);
 
         zbtreeFree(sortedobj.ptr);
         zbtreeFree(unsortedobj.ptr);
-        lpFree(zl3);
     }
 
     return 0;
