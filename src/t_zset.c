@@ -5509,16 +5509,23 @@ static int zmoveBegin(client *c, zmoveCtx *ctx, robj *srckey, robj *dstkey) {
     ctx->srckey = srckey;
     ctx->dstkey = dstkey;
 
+    /* A missing source has nothing to move: reply nil without even looking
+     * at the destination. */
     ctx->src = lookupKeyWriteOrReply(c, ctx->srckey, shared.nullarray[c->resp]);
     if (ctx->src == NULL || checkType(c, ctx->src, OBJ_ZSET)) return 0;
+
+    /* The destination may be missing, it's created by the first add. */
     ctx->dst = lookupKeyWrite(c->db, ctx->dstkey);
     if (checkType(c, ctx->dst, OBJ_ZSET)) return 0;
+
+    /* Moving members of a sorted set into itself changes nothing. */
     if (ctx->src == ctx->dst || zsetLength(ctx->src) == 0) {
         addReplyNullArray(c);
         return 0;
     }
 
-    /* Snapshot before any member lookup, which can finish a B+tree rehash. */
+    /* Lengths before the move, for the keysizes histogram. Sizes are taken
+     * before any member lookup, which can finish a B+tree rehash. */
     ctx->srclen = zsetLength(ctx->src);
     if (ctx->dst) ctx->dstlen = zsetLength(ctx->dst);
     if (server.memory_tracking_enabled) {
@@ -5560,6 +5567,9 @@ static int zmoveAdd(zmoveCtx *ctx, sds ele, double score, int flags) {
         if (out & ZADD_OUT_UPDATED) ctx->updated++;
     }
 
+    /* The array header goes out with the first moved member, since moving
+     * none replies nil instead. A known length is written directly: a deferred
+     * one costs an extra reply node, which shows on single-member moves. */
     if (ctx->moved++ == 0) {
         if (ctx->exact)
             addReplyArrayLen(c, ctx->hint);
@@ -5592,12 +5602,16 @@ static void zmoveEnd(zmoveCtx *ctx, const char *event) {
                                 ctx->dst_oldsize, kvobjAllocSize(ctx->dst));
     }
 
+    /* Nothing moved: neither key changed, so just reply nil. */
     if (ctx->moved == 0) {
         addReplyNullArray(c);
         return;
     }
+
+    /* Fill in the reply length if it wasn't known upfront. */
     if (ctx->deferred) setDeferredArrayLen(c, ctx->deferred, ctx->moved);
 
+    /* Settle the source, deleting it once emptied. */
     int64_t newlen = ctx->srclen - ctx->moved;
     notifyKeyspaceEvent(NOTIFY_ZSET, event, ctx->srckey, db->id);
     if (newlen == 0) {
