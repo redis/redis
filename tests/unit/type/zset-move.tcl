@@ -213,6 +213,10 @@ start_server [list tags {zset needs:debug} overrides $move_memory_overrides] {
             assert_error {*num-members*} {r zmovemember src{t} dst{t} MEMBERS $count a}
         }
         assert_error {*wrong number of arguments*} {r zmovemember src{t} dst{t} NX MEMBERS}
+        # These requests meet the command's minimum arity and exercise the
+        # parser's missing-block and incomplete counted-block rejection paths.
+        assert_error {ERR syntax error} {r zmovemember src{t} dst{t} NX XX a}
+        assert_error {ERR wrong number of arguments for 'zmovemember' command} {r zmovemember src{t} dst{t} NX MEMBERS 1}
         foreach args {
             {MEMBERS 2 a} {MEMBERS 1 a b} {MEMBERS 1 a NX XX} {NX MEMBERS 1 a XX}
             {MEMBERS 1 a NX NX} {MEMBERS 1 a unknown} {MEMBERS 1 a MEMBERS 1 b}

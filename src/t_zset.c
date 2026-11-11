@@ -2212,7 +2212,8 @@ static void zsetGetMinMax(client *c, robj *zobj, sds *ele, double *score, int wh
         sptr = lpNext(zl, eptr);
         serverAssertWithInfo(c, zobj, sptr != NULL);
         *score = zzlGetScore(sptr);
-    } else if (zobj->encoding == OBJ_ENCODING_BTREE) {
+    } else {
+        serverAssert(zobj->encoding == OBJ_ENCODING_BTREE);
         zbtreeIterator iter;
         const unsigned char *raw;
         size_t len;
@@ -2220,8 +2221,6 @@ static void zsetGetMinMax(client *c, robj *zobj, sds *ele, double *score, int wh
         serverAssert(zbtreeIteratorNext(&iter, where == ZSET_MAX, &raw, &len, score));
         /* Deleting the source member invalidates the iterator's leaf bytes. */
         *ele = sdsnewlen(raw, len);
-    } else {
-        serverPanic("Unknown sorted set encoding");
     }
 }
 
@@ -5718,10 +5717,9 @@ static void zmoveRangeCommand(client *c, zrangespec *range, long count) {
     if (sobj->encoding == OBJ_ENCODING_LISTPACK) {
         sobj->ptr = zzlDeleteRangeByRank(sobj->ptr, first + 1,
                                         first + state.moved, &deleted);
-    } else if (sobj->encoding == OBJ_ENCODING_BTREE) {
-        deleted = zbtreeDeleteRangeByRank(sobj->ptr, first, first + state.moved - 1);
     } else {
-        serverPanic("Unknown sorted set encoding");
+        serverAssert(sobj->encoding == OBJ_ENCODING_BTREE);
+        deleted = zbtreeDeleteRangeByRank(sobj->ptr, first, first + state.moved - 1);
     }
     serverAssert(deleted == state.moved);
     zmoveUpdateSource(c, srckey, sobj, src_old_size, src_old_len, state.moved, "zrem");
@@ -5741,10 +5739,9 @@ void zmovememberCommand(client *c) {
         char *opt = c->argv[j]->ptr;
         if (first == -1 && !strcasecmp(opt, "MEMBERS")) {
             long num;
-            if (j + 1 >= c->argc) {
-                addReplyErrorArity(c);
-                return;
-            }
+            /* Only one condition can precede MEMBERS, so the command's
+             * minimum arity guarantees that its count argument exists. */
+            serverAssert(j + 1 < c->argc);
             if (getRangeLongFromObjectOrReply(c, c->argv[j + 1], 1, INT_MAX, &num,
                                               "num-members must be a positive integer") != C_OK) return;
             if (num > c->argc - j - 2) {
@@ -5763,10 +5760,8 @@ void zmovememberCommand(client *c) {
             return;
         }
     }
-    if (first == -1) {
-        addReplyError(c, "missing MEMBERS argument");
-        return;
-    }
+    /* Without MEMBERS, a second option would have failed parsing above. */
+    serverAssert(first != -1);
 
     robj *srckey = c->argv[1], *dstkey = c->argv[2];
     kvobj *sobj = lookupKeyWriteOrReply(c, srckey, shared.nullarray[c->resp]);
