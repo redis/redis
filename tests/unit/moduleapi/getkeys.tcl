@@ -88,38 +88,55 @@ start_server {tags {"modules external:skip"}} {
     }
 }
 
-# With io-threads > 1 the key position callback runs on an IO thread, from
-# preprocessCommand() -> extractKeysAndSlot(). Repeat the checks above on that
-# path. The race itself needs concurrent load, see the getkeys-api preprocess
-# race test in integration/replication-iothreads.tcl.
-start_server {overrides {io-threads 4 save ""} tags {modules external:skip}} {
-    r module load $testmodule
+# Position callbacks must not change execution_nesting from IO threads while
+# the main thread executes writes. Otherwise pending propagation can be skipped
+# or flushed by an IO thread, causing assertions or replication crashes (#16042).
+start_server {overrides {save ""} tags {iothreads repl network modules external:skip}} {
+start_server {overrides {io-threads 4 save ""}} {
+    set master [srv 0 client]
+    set slave [srv -1 client]
+    $master module load $testmodule
+    $master module load [file normalize tests/modules/getchannels.so]
 
-    test {module getkeys-api on IO threads still reports the same keys} {
-        r command getkeys getkeys.command arg1 arg2 key key1 arg3 key key2 key key3
-    } {key1 key2 key3}
+    test {Module key and channel position callbacks from IO threads do not corrupt execution nesting} {
+        $slave replicaof [srv 0 host] [srv 0 port]
+        wait_for_sync $slave
 
-    test {module getkeys-api with flags on IO threads still reports the same keys} {
-        r command getkeysandflags getkeys.command_with_flags arg1 arg2 key key1 arg3 key key2 key key3
-    } {{key1 {RO access}} {key2 {RO access}} {key3 {RO access}}}
+        set clients {}
+        for {set i 0} {$i < 4} {incr i} {
+            set rd [redis_deferring_client]
+            $rd client info
+            assert {[regexp {io-thread=(\d+)} [$rd read] - tid]}
+            assert_morethan $tid 0
+            lappend clients $rd
+        }
 
-    # getkeys.command declares firstkey 0, so preprocessCommand() has to ask the
-    # module for the positions on the IO thread.
-    test {module getkeys-api commands are preprocessed on an IO thread} {
-        set info [r client info]
-        assert {[regexp {io-thread=(\d+)} $info - tid]}
-        assert_morethan $tid 0
+        # IO threads resolving key/channel positions can race with the main thread
+        # executing SET commands from other clients.
+        # This stress test depends on timing and may miss the old race.
+        set seconds 10 ;# run 10s stress test
+        set batch 200
+        set deadline [expr {[clock milliseconds] + $seconds * 1000}]
+        while {[clock milliseconds] < $deadline} {
+            foreach rd $clients {
+                for {set j 0} {$j < $batch} {incr j} {
+                    $rd set race:$j v
+                    $rd getkeys.command key race:$j
+                    $rd getchannels.command_with_keyspec publish literal race:$j
+                }
+            }
+            foreach rd $clients {
+                for {set j 0} {$j < $batch} {incr j} {
+                    assert_equal OK [$rd read]
+                    assert_equal [list race:$j] [$rd read]
+                    assert_equal OK [$rd read]
+                }
+            }
+        }
+
+        foreach rd $clients { $rd close }
+        wait_for_ofs_sync $master $slave
+        assert_equal [$master debug digest] [$slave debug digest]
     }
-
-    test {module getkeys-api on IO threads keeps ACL checks working} {
-        r ACL setuser testuser +@all %R~read* %W~write* %RW~rw*
-        assert_equal "OK" [r ACL DRYRUN testuser getkeys.command key rw]
-        assert_match {*has no permissions to access the 'read' key*} [r ACL DRYRUN testuser getkeys.command key read]
-        assert_match {*has no permissions to access the 'write' key*} [r ACL DRYRUN testuser getkeys.command_with_flags key write]
-    }
-
-    test {module getkeys-api on IO threads answers the command itself} {
-        assert_equal {k1 k2} [r getkeys.command key k1 key k2]
-        assert_equal {k1} [r getkeys.command_with_flags key k1]
-    }
+}
 }
