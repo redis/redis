@@ -5495,9 +5495,9 @@ typedef struct {
     void *deferred;                  /* Reply length to set at the end, if not exact. */
     int append;                      /* Ascending B+tree members, for a new 'dst'. */
     zbtreeAppendBatch *batch;        /* Appends them, once 'dst' is a B+tree. */
-    unsigned long moved;             /* Members moved so far... */
-    unsigned long added;             /* ...those that were new to the destination... */
-    unsigned long updated;           /* ...and those that overwrote a destination score. */
+    unsigned long moved;             /* Members moved so far. */
+    unsigned long added;             /* Moved members new to the destination. */
+    unsigned long updated;           /* Moved members that overwrote a destination score. */
 } zmoveCtx;
 
 /* Look up and validate the 'srckey' and 'dstkey' sorted sets. Returns 1 if
