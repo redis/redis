@@ -1464,12 +1464,15 @@ start_server {tags {"external:skip needs:debug"}} {
 start_cluster 1 0 {tags {external:skip cluster needs:debug}} {
     test "Active expiration works for sets in different slots of a cluster node" {
         R 0 flushall
-        R 0 debug set-active-expire 1
+        # Nothing expires while the sets are created, which can take longer than
+        # the first TTLs on a slow run (a sanitizer).
+        R 0 debug set-active-expire 0
         for {set i 0} {$i < 50} {incr i} {
             R 0 sadd "{slot$i}set" a b c
             R 0 spexpire "{slot$i}set" [expr {50 + $i}] MEMBERS 2 a b
         }
         assert_equal [sme_subexpiry [Rn 0]] 50
+        R 0 debug set-active-expire 1
         # The active expiration of a cluster node is slower: it goes over the slots (the
         # same is true for hash fields).
         wait_for_condition 750 20 {[sme_subexpiry [Rn 0]] == 0} else {fail "not all expired"}
