@@ -5490,11 +5490,17 @@ typedef struct {
     kvobj *src, *dst;                /* 'dst' is NULL until the first add creates it. */
     unsigned long srclen, dstlen;    /* Lengths before the move. */
     size_t src_oldsize, dst_oldsize; /* Allocation sizes before the move. */
+
+    /* Reply. */
     unsigned long hint;              /* Upper bound on the members to move. */
     int exact;                       /* 'hint' is exact: it's also the reply length. */
     void *deferred;                  /* Reply length to set at the end, if not exact. */
+
+    /* Destination fast path. */
     int append;                      /* Ascending B+tree members, for a new 'dst'. */
     zbtreeAppendBatch *batch;        /* Appends them, once 'dst' is a B+tree. */
+
+    /* Counters. */
     unsigned long moved;             /* Members moved so far. */
     unsigned long added;             /* Moved members new to the destination. */
     unsigned long updated;           /* Moved members that overwrote a destination score. */
