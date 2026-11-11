@@ -610,6 +610,9 @@ void debugCommand(client *c) {
 "    Enable/disable INFO streams histogram assertion after each command.",
 "    Arm on an exact state: tracking enabled at startup, an empty keyspace,",
 "    or right after DEBUG RELOAD; a runtime enable fills in lazily.",
+"STREAM-STATS-GENERATION [<n>]",
+"    Return the generation counter of the INFO streams histograms, or set it",
+"    to <n>: the next reset starts generation <n>+1. For testing its wrap.",
 "KEYMETA-AOF-DUMP <key>",
 "    Return a DUMP payload without KeyMeta for an AOF rewrite.",
 "LOADAOF",
@@ -760,6 +763,23 @@ NULL
             server.dbg_assert_flags |= DBG_ASSERT_STREAM_STATS;
         else
             server.dbg_assert_flags &= ~DBG_ASSERT_STREAM_STATS;
+        addReply(c, shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"STREAM-STATS-GENERATION") &&
+               (c->argc == 2 || c->argc == 3))
+    {
+        if (c->argc == 2) {
+            addReplyLongLong(c, server.stream_stats_generation);
+            return;
+        }
+        long long gen;
+        if (getLongLongFromObjectOrReply(c, c->argv[2], &gen, NULL) != C_OK)
+            return;
+        /* The counter never holds the never-counted sentinel. */
+        if (gen < 0 || gen >= STREAM_DISTRIB_NEVER_COUNTED) {
+            addReplyError(c, "The generation is out of range");
+            return;
+        }
+        server.stream_stats_generation = (uint32_t) gen;
         addReply(c, shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"ALLOCSIZE-SLOTS-ASSERT") && c->argc == 3) {
         long long flag;
