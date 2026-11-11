@@ -5609,15 +5609,6 @@ static void zmoveGenericCommand(client *c, kvobj *sobj, robj *srckey, robj *dstk
     const char *event = where == ZSET_MIN ? "zpopmin" : "zpopmax";
     zmoveUpdateSource(c, srckey, sobj, src_old_size, src_old_len, moved, event);
     zmoveUpdateDestination(c, dstkey, dobj, dst_old_size, dst_old_len, added, updated);
-
-    /* Propagate the non-blocking operation, retaining its explicit batch cap. */
-    if (c->cmd->proc == bzmoveCommand) {
-        if (c->argc == 7)
-            rewriteClientCommandVector(c, 6, shared.zmove, c->argv[1], c->argv[2],
-                                       c->argv[3], c->argv[5], c->argv[6]);
-        else
-            rewriteClientCommandVector(c, 4, shared.zmove, c->argv[1], c->argv[2], c->argv[3]);
-    }
 }
 
 /* Stream a score range into the destination without changing the source while
@@ -5873,6 +5864,13 @@ void bzmoveCommand(client *c) {
      * for equal keys and checks the destination type. */
     if (sobj && zsetLength(sobj) > 0) {
         zmoveGenericCommand(c, sobj, c->argv[1], c->argv[2], where, count);
+
+        /* Propagate the non-blocking operation, retaining its explicit batch cap. */
+        if (c->argc == 7)
+            rewriteClientCommandVector(c, 6, shared.zmove, c->argv[1], c->argv[2],
+                                       c->argv[3], c->argv[5], c->argv[6]);
+        else
+            rewriteClientCommandVector(c, 4, shared.zmove, c->argv[1], c->argv[2], c->argv[3]);
         return;
     }
 
