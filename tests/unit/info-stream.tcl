@@ -1339,11 +1339,16 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
             }
             check_lag_full r 0
 
-            # FLUSHDB of another db bumps the generation counter but not this
-            # db's epoch: row and heap are untouched.
+            # An in-place FLUSHDB of another db moves the generation counter
+            # but not this db's epoch: row and heap are untouched. In MULTI
+            # because a plain FLUSHDB swaps in a new keyspace and moves nothing.
+            set gen [r debug stream-stats-generation]
             r select 1
+            r multi
             r flushdb
+            r exec
             r select 0
+            assert_equal [expr {$gen + 1}] [r debug stream-stats-generation]
             check_lag_full r 0
 
             # MOVE rebuilds the heap from all groups at once in the target

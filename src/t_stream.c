@@ -379,9 +379,9 @@ static inline int streamLagHeldAt(const iheap *h, uint32_t slot, const streamCG 
 /* Whether 'cg', whose stamp is of the current generation, is a member of its
  * stream's heap. The stamp's bit is believed only if the heap agrees, that
  * is, if the group's slot holds it. A disagreement is a bookkeeping bug,
- * except after an epoch wrap: the epoch is 32 bits and moves once per
- * emptied db and per reset, so a stamp untouched for 2^32 generations can
- * pass as current while its bit and slot describe a heap long gone. The
+ * except after an epoch wrap: the epoch is 32 bits and moves once per db
+ * emptied in place and per reset, so a stamp untouched for 2^32 generations
+ * can pass as current while its bit and slot describe a heap long gone. The
  * wrap is recorded (streamStatsResetMeta()), so until one has happened a
  * disagreement is asserted, and after one it is handled: the bit is cleared
  * and the group is not a member. Acting on the slot regardless would re-key
