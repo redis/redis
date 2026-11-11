@@ -613,6 +613,9 @@ void debugCommand(client *c) {
 "STREAM-STATS-GENERATION [<n>]",
 "    Return the generation counter of the INFO streams histograms, or set it",
 "    to <n>: the next reset starts generation <n>+1. For testing its wrap.",
+"STREAM-STATS-EPOCH",
+"    Return the generation the INFO streams histograms of the selected",
+"    database were last reset in, 0 if never.",
 "KEYMETA-AOF-DUMP <key>",
 "    Return a DUMP payload without KeyMeta for an AOF rewrite.",
 "LOADAOF",
@@ -781,6 +784,9 @@ NULL
         }
         server.stream_stats_generation = (uint32_t) gen;
         addReply(c, shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"STREAM-STATS-EPOCH") && c->argc == 2) {
+        kvstoreMetadata *meta = kvstoreGetMetadata(c->db->keys);
+        addReplyLongLong(c, meta->stream_stats_epoch);
     } else if (!strcasecmp(c->argv[1]->ptr,"ALLOCSIZE-SLOTS-ASSERT") && c->argc == 3) {
         long long flag;
         if (getLongLongFromObjectOrReply(c, c->argv[2], &flag, NULL) != C_OK)
