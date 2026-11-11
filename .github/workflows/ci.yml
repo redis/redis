@@ -94,11 +94,8 @@ jobs:
     - name: make
       run: |
         apt-get update
-        apt-get install -y gnupg2
-        echo "deb http://archive.ubuntu.com/ubuntu/ xenial main" >> /etc/apt/sources.list
-        echo "deb http://archive.ubuntu.com/ubuntu/ xenial universe" >> /etc/apt/sources.list
-        apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 40976EAF437D05B5
-        apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 3B4FE6ACC0B21F32
+        apt-get install -y ubuntu-keyring
+        echo "deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] http://archive.ubuntu.com/ubuntu/ xenial main universe" > /etc/apt/sources.list.d/xenial.list
         apt-get update
         apt-get install -y make gcc-4.8
         update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.8 100
