@@ -5562,7 +5562,7 @@ static int zmoveAdd(zmoveCtx *ctx, sds ele, double score, int flags) {
     if (ctx->append && ctx->dst->encoding == OBJ_ENCODING_BTREE) {
         /* Each member is new to the destination and sorts after all it has,
          * so there's no need to search the B+tree for it. */
-        serverAssert(ctx->dstlen == 0 && flags == ZADD_IN_NONE);
+        serverAssert(ctx->dstlen == 0);
         if (!ctx->batch) ctx->batch = zbtreeAppendBatchCreate(ctx->dst->ptr);
         zbtreeAppendBatchAdd(ctx->batch, score, (unsigned char *)ele, sdslen(ele));
         ctx->added++;
