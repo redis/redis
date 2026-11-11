@@ -544,7 +544,9 @@ lcov:
 	# geninfo_unexecuted_blocks=1 count partially executed lines as uncovered.
 	# May lower coverage but gives a strict result
 	@geninfo --rc geninfo_unexecuted_blocks=1 -o redis.info .
-	@genhtml --legend -o lcov-html redis.info
+	# Optimized builds can report zero function hits despite covered lines (e.g. after inlining).
+	# Keep these inconsistencies as warnings so HTML generation can finish without changing redis.info.
+	@genhtml --ignore-errors inconsistent --legend -o lcov-html redis.info
 
 .PHONY: lcov
 
