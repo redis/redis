@@ -534,6 +534,31 @@ start_server [list tags {zset needs:debug} overrides $move_memory_overrides] {
         }
     }
 
+    foreach src_encoding {listpack btree} {
+        foreach selection {{MIN COUNT 5} {BYSCORE -inf +inf}} {
+            test "ZMOVE $selection converts a new destination to btree mid-move - $src_encoding" {
+                r del src{t} dst{t}
+                r config set zset-max-listpack-entries 128
+                r config set zset-max-listpack-value [expr {$src_encoding eq "listpack" ? 64 : 0}]
+                set long [string repeat x 40]
+                r zadd src{t} 1 a 2 b 3 $long 4 d 5 e
+                assert_encoding $src_encoding src{t}
+                # The destination starts as a listpack and outgrows it at the
+                # long member, so the members after it are appended to a
+                # B+tree that already holds the earlier ones.
+                r config set zset-max-listpack-value 16
+                set expected [list {a 1} {b 2} [list $long 3] {d 4} {e 5}]
+                assert_equal $expected [r zmove src{t} dst{t} {*}$selection]
+                assert_equal 0 [r exists src{t}]
+                assert_encoding btree dst{t}
+                assert_equal [concat {*}$expected] [r zrange dst{t} 0 -1 withscores]
+                assert_equal 4 [r zscore dst{t} d]
+                assert_equal 4 [r zrank dst{t} e]
+                r config set zset-max-listpack-value 64
+            }
+        }
+    }
+
     foreach command {zmove bzmove} {
         foreach position {min max} {
             test "$command $position moves integer-encoded listpack members" {

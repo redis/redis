@@ -2191,39 +2191,6 @@ void zsetTypeRandomElement(robj *zsetobj, unsigned long zsetsize, listpackEntry 
     }
 }
 
-/* Return the minimum or maximum score element from a non-empty sorted set.
- * The returned SDS in 'ele' must be freed by the caller. */
-static void zsetGetMinMax(client *c, robj *zobj, sds *ele, double *score, int where) {
-    if (zobj->encoding == OBJ_ENCODING_LISTPACK) {
-        unsigned char *zl = zobj->ptr;
-        unsigned char *eptr, *sptr;
-        unsigned char *vstr;
-        unsigned int vlen;
-        long long vlong;
-
-        eptr = lpSeek(zl, where == ZSET_MAX ? -2 : 0);
-        serverAssertWithInfo(c, zobj, eptr != NULL);
-        vstr = lpGetValue(eptr, &vlen, &vlong);
-        if (vstr == NULL)
-            *ele = sdsfromlonglong(vlong);
-        else
-            *ele = sdsnewlen(vstr, vlen);
-
-        sptr = lpNext(zl, eptr);
-        serverAssertWithInfo(c, zobj, sptr != NULL);
-        *score = zzlGetScore(sptr);
-    } else {
-        serverAssert(zobj->encoding == OBJ_ENCODING_BTREE);
-        zbtreeIterator iter;
-        const unsigned char *raw;
-        size_t len;
-        serverAssert(zbtreeIteratorStart(zobj->ptr, where == ZSET_MAX, &iter));
-        serverAssert(zbtreeIteratorNext(&iter, where == ZSET_MAX, &raw, &len, score));
-        /* Deleting the source member invalidates the iterator's leaf bytes. */
-        *ele = sdsnewlen(raw, len);
-    }
-}
-
 static int zsetGetPositionOrReply(client *c, robj *arg, int *where) {
     if (!strcasecmp(arg->ptr, "MIN")) {
         *where = ZSET_MIN;
@@ -5522,200 +5489,256 @@ void bzmpopCommand(client *c) {
     zmpopGenericCommand(c, 2, 1);
 }
 
-/* Complete source bookkeeping after members have been removed. The size
- * snapshot must precede member/rank lookups, which can finish a B+tree rehash. */
-static void zmoveUpdateSource(client *c, robj *key, kvobj *obj, size_t oldsize,
-                              int64_t oldlen, unsigned long moved, const char *event)
-{
-    if (server.memory_tracking_enabled)
-        updateSlotAllocSize(c->db, getKeySlot(key->ptr), obj, oldsize, kvobjAllocSize(obj));
-    notifyKeyspaceEvent(NOTIFY_ZSET, event, key, c->db->id);
-    int64_t newlen = oldlen - moved;
-    if (newlen == 0) {
-        dbDeleteSkipKeysizesUpdate(c->db, key);
-        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, c->db->id);
-        newlen = -1;
-    }
-    updateKeysizesHist(c->db, OBJ_ZSET, oldlen, newlen);
-    keyModified(c, c->db, key, newlen > 0 ? obj : NULL, 1);
-    server.dirty += moved;
-}
+/*-----------------------------------------------------------------------------
+ * ZMOVE, BZMOVE and ZMOVEMEMBER
+ *
+ * All three take members out of the source sorted set and put them, with
+ * their scores, into the destination. They only differ in how the members
+ * are selected, so they share the state below and three steps: zmoveBegin()
+ * validates both keys, zmoveAdd() handles the destination side of one member
+ * and replies with it, zmoveEnd() settles both keys. Removing the members
+ * from the source is left to each selection method.
+ *----------------------------------------------------------------------------*/
 
-/* A destination can allocate memory without changing its logical contents.
- * Only added or score-updated members invalidate WATCH and emit zadd. */
-static void zmoveUpdateDestination(client *c, robj *key, kvobj *obj, size_t oldsize,
-                                   int64_t oldlen, unsigned long added, unsigned long updated)
-{
-    if (server.memory_tracking_enabled)
-        updateSlotAllocSize(c->db, getKeySlot(key->ptr), obj, oldsize, kvobjAllocSize(obj));
-    if (added)
-        updateKeysizesHist(c->db, OBJ_ZSET, oldlen, oldlen + added);
-    if (added || updated) {
-        keyModified(c, c->db, key, obj, 1);
-        notifyKeyspaceEvent(NOTIFY_ZSET, "zadd", key, c->db->id);
-        server.dirty += added + updated;
-    }
-}
-
-static void zmoveGenericCommand(client *c, kvobj *sobj, robj *srckey, robj *dstkey,
-                                int where, long count)
-{
-    kvobj *dobj = lookupKeyWrite(c->db, dstkey);
-    if (checkType(c, dobj, OBJ_ZSET)) return;
-    /* Equal keys are a no-op and require no member lookups. */
-    if (sobj == dobj || zsetLength(sobj) == 0) {
-        addReplyNullArray(c);
-        return;
-    }
-
-    /* Snapshot for keysizes and memory accounting. */
-    int64_t src_old_len = zsetLength(sobj);
-    int64_t dst_old_len = dobj ? (int64_t)zsetLength(dobj) : 0;
-    size_t src_old_size = server.memory_tracking_enabled ? kvobjAllocSize(sobj) : 0;
-    size_t dst_old_size = server.memory_tracking_enabled && dobj ? kvobjAllocSize(dobj) : 0;
-
-    /* Every popped member is added, so the reply length is known. */
-    unsigned long moved = min((unsigned long)count, (unsigned long)src_old_len);
-    unsigned long added = 0, updated = 0;
-    addReplyArrayLen(c, moved);
-    for (unsigned long i = 0; i < moved; i++) {
-        sds ele;
-        double score;
-
-        /* 'ele' is a copy, so it outlives the delete. */
-        zsetGetMinMax(c, sobj, &ele, &score, where);
-        serverAssertWithInfo(c, sobj, zsetDel(sobj, ele));
-
-        /* Create the destination lazily. */
-        if (!dobj) {
-            robj *newobj = zsetTypeCreate(1, sdslen(ele));
-            dobj = dbAdd(c->db, dstkey, &newobj);
-            if (server.memory_tracking_enabled) dst_old_size = kvobjAllocSize(dobj);
-        }
-
-        /* Add with the source score; an existing member's score is overwritten. */
-        int flags = 0;
-        serverAssert(zsetAdd(dobj, score, ele, ZADD_IN_NONE, &flags, NULL));
-        if (flags & ZADD_OUT_ADDED) added++;
-        if (flags & ZADD_OUT_UPDATED) updated++;
-
-        addReplyArrayLen(c, 2);
-        addReplyBulkCBuffer(c, ele, sdslen(ele));
-        addReplyDouble(c, score);
-        sdsfree(ele);
-    }
-
-    /* Notify, update stats and WATCH for both keys; an emptied source is deleted. */
-    const char *event = where == ZSET_MIN ? "zpopmin" : "zpopmax";
-    zmoveUpdateSource(c, srckey, sobj, src_old_size, src_old_len, moved, event);
-    zmoveUpdateDestination(c, dstkey, dobj, dst_old_size, dst_old_len, added, updated);
-}
-
-/* Stream a score range into the destination without changing the source while
- * its iterator is live. Only the first member is retained: after iteration, the
- * moved members form one contiguous rank range that can be deleted in bulk. */
 typedef struct {
-    kvobj *dstobj;
-    robj *dstkey;
-    sds first;
-    void *replylen;
-    size_t dst_old_size;
-    unsigned long moved, added, updated;
-} zmoveRangeState;
+    client *c;
+    robj *srckey, *dstkey;
+    kvobj *src, *dst;                /* 'dst' is NULL until the first add creates it. */
+    unsigned long srclen, dstlen;    /* Lengths before the move. */
+    size_t src_oldsize, dst_oldsize; /* Allocation sizes before the move. */
+    unsigned long hint;              /* Upper bound on the members to move. */
+    int exact;                       /* 'hint' is exact: it's also the reply length. */
+    void *deferred;                  /* Reply length to set at the end, if not exact. */
+    int append;                      /* Members come in ascending order, for a new 'dst'. */
+    zbtreeAppendBatch *batch;        /* Appends them, once 'dst' is a B+tree. */
+    unsigned long moved;             /* Members moved so far... */
+    unsigned long added;             /* ...those that were new to the destination... */
+    unsigned long updated;           /* ...and those that overwrote a destination score. */
+} zmoveCtx;
 
-static void zmoveRangeBegin(zrange_result_handler *handler, long length) {
-    UNUSED(length);
-    UNUSED(handler);
+/* Look up and validate the keys in argv[1] and argv[2]. Returns 1 if members
+ * can be moved. Otherwise the client was replied to and 0 is returned: nothing
+ * can be moved out of a missing source, nor from a sorted set to itself. */
+static int zmoveBegin(client *c, zmoveCtx *ctx) {
+    memset(ctx, 0, sizeof(*ctx));
+    ctx->c = c;
+    ctx->srckey = c->argv[1];
+    ctx->dstkey = c->argv[2];
+
+    ctx->src = lookupKeyWriteOrReply(c, ctx->srckey, shared.nullarray[c->resp]);
+    if (ctx->src == NULL || checkType(c, ctx->src, OBJ_ZSET)) return 0;
+    ctx->dst = lookupKeyWrite(c->db, ctx->dstkey);
+    if (checkType(c, ctx->dst, OBJ_ZSET)) return 0;
+    if (ctx->src == ctx->dst || zsetLength(ctx->src) == 0) {
+        addReplyNullArray(c);
+        return 0;
+    }
+
+    /* Snapshot before any member lookup, which can finish a B+tree rehash. */
+    ctx->srclen = zsetLength(ctx->src);
+    if (ctx->dst) ctx->dstlen = zsetLength(ctx->dst);
+    if (server.memory_tracking_enabled) {
+        ctx->src_oldsize = kvobjAllocSize(ctx->src);
+        if (ctx->dst) ctx->dst_oldsize = kvobjAllocSize(ctx->dst);
+    }
+    return 1;
 }
 
-static void zmoveRangeEmit(zrange_result_handler *handler, const void *value,
-                           size_t len, double score)
-{
-    zmoveRangeState *state = handler->userdata;
-    client *c = handler->client;
-    sds ele = sdsnewlen(value, len);
-    if (!state->first) {
-        state->first = sdsdup(ele);
-        state->replylen = addReplyDeferredLen(c);
-    }
-    if (!state->dstobj) {
-        robj *newobj = zsetTypeCreate(1, len);
-        state->dstobj = dbAdd(c->db, state->dstkey, &newobj);
+/* Put a source member into the destination, which is created if needed, and
+ * reply with it. 'flags' may hold ZADD_IN_NX or ZADD_IN_XX: 0 is returned if
+ * that left the member out, so it must stay in the source. Otherwise returns 1,
+ * and a member the destination already had now has the source score. */
+static int zmoveAdd(zmoveCtx *ctx, sds ele, double score, int flags) {
+    client *c = ctx->c;
+
+    if (ctx->dst == NULL) {
+        /* XX can't match without a destination, so don't create one. */
+        if (flags & ZADD_IN_XX) return 0;
+        robj *o = zsetTypeCreate(ctx->hint, sdslen(ele));
+        ctx->dst = dbAdd(c->db, ctx->dstkey, &o);
         if (server.memory_tracking_enabled)
-            state->dst_old_size = kvobjAllocSize(state->dstobj);
+            ctx->dst_oldsize = kvobjAllocSize(ctx->dst);
     }
-    int flags = 0;
-    serverAssert(zsetAdd(state->dstobj, score, ele, ZADD_IN_NONE, &flags, NULL));
-    if (flags & ZADD_OUT_ADDED) state->added++;
-    if (flags & ZADD_OUT_UPDATED) state->updated++;
+
+    if (ctx->append && ctx->dst->encoding == OBJ_ENCODING_BTREE) {
+        /* Each member is new to the destination and sorts after all it has,
+         * so there's no need to search the B+tree for it. */
+        serverAssert(ctx->dstlen == 0 && flags == ZADD_IN_NONE);
+        if (!ctx->batch) ctx->batch = zbtreeAppendBatchCreate(ctx->dst->ptr);
+        zbtreeAppendBatchAdd(ctx->batch, score, (unsigned char *)ele, sdslen(ele));
+        ctx->added++;
+    } else {
+        /* Scores of existing members are never NaN, so this can't fail. */
+        int out = 0;
+        serverAssert(zsetAdd(ctx->dst, score, ele, flags, &out, NULL));
+        if (out & ZADD_OUT_NOP) return 0;
+        if (out & ZADD_OUT_ADDED) ctx->added++;
+        if (out & ZADD_OUT_UPDATED) ctx->updated++;
+    }
+
+    if (ctx->moved++ == 0) {
+        if (ctx->exact)
+            addReplyArrayLen(c, ctx->hint);
+        else
+            ctx->deferred = addReplyDeferredLen(c);
+    }
     addReplyArrayLen(c, 2);
     addReplyBulkCBuffer(c, ele, sdslen(ele));
     addReplyDouble(c, score);
-    sdsfree(ele);
+    return 1;
 }
 
-static void zmoveRangeEmitLongLong(zrange_result_handler *handler, long long value,
-                                   double score)
-{
-    char buf[LONG_STR_SIZE];
-    size_t len = ll2string(buf, sizeof(buf), value);
-    zmoveRangeEmit(handler, buf, len, score);
-}
+/* Complete the reply and settle both keys once the moved members are gone
+ * from the source. 'event' is the keyspace event for the source. */
+static void zmoveEnd(zmoveCtx *ctx, const char *event) {
+    client *c = ctx->c;
+    redisDb *db = c->db;
 
-static void zmoveRangeFinalize(zrange_result_handler *handler, size_t count) {
-    zmoveRangeState *state = handler->userdata;
-    state->moved = count;
-    if (count)
-        setDeferredArrayLen(handler->client, state->replylen, count);
-    else
-        addReplyNullArray(handler->client);
-}
+    /* An exact reply length was already sent, so every add must have moved. */
+    serverAssert(!ctx->exact || ctx->moved == ctx->hint);
+    if (ctx->batch) zbtreeAppendBatchFinish(ctx->batch);
 
-static void zmoveRangeCommand(client *c, zrangespec *range, long count) {
-    robj *srckey = c->argv[1], *dstkey = c->argv[2];
-    kvobj *sobj = lookupKeyWriteOrReply(c, srckey, shared.nullarray[c->resp]);
-    if (sobj == NULL || checkType(c, sobj, OBJ_ZSET)) return;
-    kvobj *dobj = lookupKeyWrite(c->db, dstkey);
-    if (checkType(c, dobj, OBJ_ZSET)) return;
-    if (sobj == dobj || zsetLength(sobj) == 0) {
+    /* Even if nothing moved, member lookups may have advanced the rehashing
+     * of a B+tree member index. */
+    if (server.memory_tracking_enabled) {
+        updateSlotAllocSize(db, getKeySlot(ctx->srckey->ptr), ctx->src,
+                            ctx->src_oldsize, kvobjAllocSize(ctx->src));
+        if (ctx->dst)
+            updateSlotAllocSize(db, getKeySlot(ctx->dstkey->ptr), ctx->dst,
+                                ctx->dst_oldsize, kvobjAllocSize(ctx->dst));
+    }
+
+    if (ctx->moved == 0) {
         addReplyNullArray(c);
         return;
     }
+    if (ctx->deferred) setDeferredArrayLen(c, ctx->deferred, ctx->moved);
 
-    int64_t src_old_len = zsetLength(sobj);
-    int64_t dst_old_len = dobj ? (int64_t)zsetLength(dobj) : 0;
-    size_t src_old_size = server.memory_tracking_enabled ? kvobjAllocSize(sobj) : 0;
-    zmoveRangeState state = {.dstobj = dobj, .dstkey = dstkey};
-    if (server.memory_tracking_enabled && dobj)
-        state.dst_old_size = kvobjAllocSize(dobj);
-    zrange_result_handler handler = {
-        .client = c,
-        .userdata = &state,
-        .beginResultEmission = zmoveRangeBegin,
-        .emitResultFromCBuffer = zmoveRangeEmit,
-        .emitResultFromLongLong = zmoveRangeEmitLongLong,
-        .finalizeResultEmission = zmoveRangeFinalize,
-    };
-    genericZrangebyscoreCommand(&handler, range, sobj, 0, count, 0);
-    if (!state.moved) return;
-
-    /* Rank lookup can finish a B+tree index rehash; src_old_size includes it.
-     * Deleting by rank also handles COUNT cutting through equal-score ties. */
-    long first = zsetRank(sobj, state.first, 0, NULL);
-    sdsfree(state.first);
-    serverAssert(first >= 0);
-    unsigned long deleted = 0;
-    if (sobj->encoding == OBJ_ENCODING_LISTPACK) {
-        sobj->ptr = zzlDeleteRangeByRank(sobj->ptr, first + 1,
-                                        first + state.moved, &deleted);
-    } else {
-        serverAssert(sobj->encoding == OBJ_ENCODING_BTREE);
-        deleted = zbtreeDeleteRangeByRank(sobj->ptr, first, first + state.moved - 1);
+    int64_t newlen = ctx->srclen - ctx->moved;
+    notifyKeyspaceEvent(NOTIFY_ZSET, event, ctx->srckey, db->id);
+    if (newlen == 0) {
+        dbDeleteSkipKeysizesUpdate(db, ctx->srckey);
+        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", ctx->srckey, db->id);
+        newlen = -1; /* Means the key got deleted. */
     }
-    serverAssert(deleted == state.moved);
-    zmoveUpdateSource(c, srckey, sobj, src_old_size, src_old_len, state.moved, "zrem");
-    zmoveUpdateDestination(c, dstkey, state.dstobj, state.dst_old_size, dst_old_len,
-                           state.added, state.updated);
+    updateKeysizesHist(db, OBJ_ZSET, ctx->srclen, newlen);
+    keyModified(c, db, ctx->srckey, newlen > 0 ? ctx->src : NULL, 1);
+    server.dirty += ctx->moved;
+
+    /* The destination is untouched if it had every moved member already,
+     * with the same score. */
+    if (ctx->added)
+        updateKeysizesHist(db, OBJ_ZSET, ctx->dstlen, ctx->dstlen + ctx->added);
+    if (ctx->added || ctx->updated) {
+        keyModified(c, db, ctx->dstkey, ctx->dst, 1);
+        notifyKeyspaceEvent(NOTIFY_ZSET, "zadd", ctx->dstkey, db->id);
+        server.dirty += ctx->added + ctx->updated;
+    }
+}
+
+/* Resolve a score range into a rank range of 'zobj': returns the number of
+ * members in 'range', and stores the 0-based rank of the first in '*start'. */
+static unsigned long zsetScoreRangeToRank(robj *zobj, zrangespec *range, unsigned long *start) {
+    unsigned long n = 0;
+
+    *start = 0;
+    if (zobj->encoding == OBJ_ENCODING_LISTPACK) {
+        unsigned char *zl = zobj->ptr, *eptr = lpSeek(zl, 0), *sptr;
+
+        while (eptr != NULL) {
+            sptr = lpNext(zl, eptr);
+            serverAssert(sptr != NULL);
+            double score = zzlGetScore(sptr);
+            if (!zslValueGteMin(score, range))
+                (*start)++;
+            else if (zslValueLteMax(score, range))
+                n++;
+            else
+                break;
+            eptr = lpNext(zl, sptr);
+        }
+    } else if (zobj->encoding == OBJ_ENCODING_BTREE) {
+        zbtreeIterator iter;
+
+        n = zbtreeCountByScore(zobj->ptr, range->min, range->minex, range->max, range->maxex);
+        if (n) serverAssert(zbtreeIteratorSeekScore(zobj->ptr, range->min, range->minex,
+                                                    0, &iter, start));
+    } else {
+        serverPanic("Unknown sorted set encoding");
+    }
+    return n;
+}
+
+/* Move the 'n' source members found from the 0-based rank 'start' on, going
+ * down the ranks if 'reverse'. A rank range is read in place, and then deleted
+ * as a whole, as the source can't change in between: there's no need to copy
+ * the members, nor to look each of them up again in order to delete it. */
+static void zmoveRankRange(zmoveCtx *ctx, unsigned long start, unsigned long n, int reverse) {
+    robj *src = ctx->src;
+    unsigned long first = reverse ? start + 1 - n : start; /* Lowest rank. */
+    sds ele = sdsempty();
+
+    ctx->hint = n;
+    ctx->exact = 1;
+    ctx->append = !reverse && ctx->dst == NULL;
+    if (src->encoding == OBJ_ENCODING_LISTPACK) {
+        unsigned char *zl = src->ptr, *eptr, *sptr;
+        char buf[LONG_STR_SIZE];
+        size_t len;
+
+        eptr = lpSeek(zl, 2 * start);
+        serverAssert(eptr != NULL);
+        sptr = lpNext(zl, eptr);
+        for (unsigned long i = 0; i < n; i++) {
+            const unsigned char *raw = zzlDecodeElement(eptr, buf, sizeof(buf), &len);
+            ele = sdscpylen(ele, (const char *)raw, len);
+            zmoveAdd(ctx, ele, zzlGetScore(sptr), ZADD_IN_NONE);
+            if (reverse)
+                zzlPrev(zl, &eptr, &sptr);
+            else
+                zzlNext(zl, &eptr, &sptr);
+        }
+        src->ptr = zzlDeleteRangeByRank(zl, first + 1, first + n, NULL);
+    } else if (src->encoding == OBJ_ENCODING_BTREE) {
+        zbtreeIterator iter;
+        const unsigned char *raw;
+        size_t len;
+        double score;
+
+        serverAssert(zbtreeIteratorSeekRank(src->ptr, start, &iter));
+        for (unsigned long i = 0; i < n; i++) {
+            serverAssert(zbtreeIteratorNext(&iter, reverse, &raw, &len, &score));
+            ele = sdscpylen(ele, (const char *)raw, len);
+            zmoveAdd(ctx, ele, score, ZADD_IN_NONE);
+        }
+        serverAssert(zbtreeDeleteRangeByRank(src->ptr, first, first + n - 1) == n);
+    } else {
+        serverPanic("Unknown sorted set encoding");
+    }
+    sdsfree(ele);
+}
+
+/* ZMOVE and BZMOVE implementation: move up to 'count' members from the 'where'
+ * end of the source or, if 'range' is not NULL, the lowest ones having a score
+ * in that range. Either way the members are a range of consecutive ranks. */
+static void zmoveGenericCommand(client *c, int where, zrangespec *range, long count) {
+    zmoveCtx ctx;
+    unsigned long start = 0, n;
+    const char *event;
+
+    if (!zmoveBegin(c, &ctx)) return;
+
+    if (range) {
+        n = zsetScoreRangeToRank(ctx.src, range, &start);
+        event = "zrem";
+    } else {
+        n = ctx.srclen;
+        if (where == ZSET_MAX) start = ctx.srclen - 1;
+        event = where == ZSET_MAX ? "zpopmax" : "zpopmin";
+    }
+    n = min(n, (unsigned long)count);
+    if (n) zmoveRankRange(&ctx, start, n, where == ZSET_MAX);
+    zmoveEnd(&ctx, event);
 }
 
 /* ZMOVEMEMBER source destination [NX | XX] MEMBERS num-members member [member ...]
@@ -5758,69 +5781,22 @@ void zmovememberCommand(client *c) {
         return;
     }
 
-    robj *srckey = c->argv[1], *dstkey = c->argv[2];
-    kvobj *sobj = lookupKeyWriteOrReply(c, srckey, shared.nullarray[c->resp]);
-    if (sobj == NULL || checkType(c, sobj, OBJ_ZSET)) return;
-    kvobj *dobj = lookupKeyWrite(c->db, dstkey);
-    if (checkType(c, dobj, OBJ_ZSET)) return;
-    if (sobj == dobj || zsetLength(sobj) == 0) {
-        addReplyNullArray(c);
-        return;
-    }
+    zmoveCtx ctx;
+    if (!zmoveBegin(c, &ctx)) return;
 
-    /* Both source and destination lookups may complete a B+tree index rehash,
-     * even if every requested member is missing or fails its condition. */
-    size_t src_old_size = server.memory_tracking_enabled ? kvobjAllocSize(sobj) : 0;
-    size_t dst_old_size = server.memory_tracking_enabled && dobj ? kvobjAllocSize(dobj) : 0;
-    int64_t src_old_len = zsetLength(sobj);
-    int64_t dst_old_len = dobj ? (int64_t)zsetLength(dobj) : 0;
-
-    unsigned long moved = 0, added = 0, updated = 0;
-    void *replylen = NULL;
-    for (int j = first; j < first + num; j++) {
+    ctx.hint = min((unsigned long)num, ctx.srclen);
+    for (int j = first; j < first + num && ctx.moved < ctx.srclen; j++) {
         sds ele = c->argv[j]->ptr;
         double score;
 
         /* Skip members not in the source, including repeats of a moved one. */
-        if (zsetScore(sobj, ele, &score) == C_ERR) continue;
-
-        /* XX can't match without a destination; skip before creating one. */
-        if (condition == ZADD_IN_XX && !dobj) continue;
-        if (!dobj) {
-            robj *newobj = zsetTypeCreate(1, sdslen(ele));
-            dobj = dbAdd(c->db, dstkey, &newobj);
-            if (server.memory_tracking_enabled) dst_old_size = kvobjAllocSize(dobj);
-        }
+        if (zsetScore(ctx.src, ele, &score) == C_ERR) continue;
 
         /* zsetAdd() applies NX | XX; a member failing it stays in the source. */
-        int flags = 0;
-        serverAssert(zsetAdd(dobj, score, ele, condition, &flags, NULL));
-        if (flags & ZADD_OUT_NOP) continue;
-        if (flags & ZADD_OUT_ADDED) added++;
-        if (flags & ZADD_OUT_UPDATED) updated++;
-        serverAssertWithInfo(c, sobj, zsetDel(sobj, ele));
-
-        /* The reply length is only known once every member is checked. */
-        if (!moved) replylen = addReplyDeferredLen(c);
-        addReplyArrayLen(c, 2);
-        addReplyBulkCBuffer(c, ele, sdslen(ele));
-        addReplyDouble(c, score);
-        moved++;
+        if (zmoveAdd(&ctx, ele, score, condition))
+            serverAssertWithInfo(c, ctx.src, zsetDel(ctx.src, ele));
     }
-
-    if (moved) {
-        setDeferredArrayLen(c, replylen, moved);
-        zmoveUpdateSource(c, srckey, sobj, src_old_size, src_old_len, moved, "zrem");
-        zmoveUpdateDestination(c, dstkey, dobj, dst_old_size, dst_old_len, added, updated);
-    } else {
-        /* Nothing moved, but the lookups above may still have resized either key. */
-        if (server.memory_tracking_enabled) {
-            updateSlotAllocSize(c->db, getKeySlot(srckey->ptr), sobj, src_old_size, kvobjAllocSize(sobj));
-            if (dobj)
-                updateSlotAllocSize(c->db, getKeySlot(dstkey->ptr), dobj, dst_old_size, kvobjAllocSize(dobj));
-        }
-        addReplyNullArray(c);
-    }
+    zmoveEnd(&ctx, "zrem");
 }
 
 /* ZMOVE source destination <MIN | MAX | BYSCORE score-min score-max> [COUNT count] */
@@ -5836,15 +5812,13 @@ void zmoveCommand(client *c) {
             addReplyError(c, "min or max is not a float");
             return;
         }
-        if (zmoveParseCount(c, 6, -1, &count) != C_OK) return;
-        zmoveRangeCommand(c, &range, count);
+        if (zmoveParseCount(c, 6, LONG_MAX, &count) != C_OK) return;
+        zmoveGenericCommand(c, ZSET_MIN, &range, count);
     } else {
         int where;
         if (zsetGetPositionOrReply(c, c->argv[3], &where) != C_OK) return;
         if (zmoveParseCount(c, 4, 1, &count) != C_OK) return;
-        kvobj *sobj = lookupKeyWriteOrReply(c, c->argv[1], shared.nullarray[c->resp]);
-        if (sobj == NULL || checkType(c, sobj, OBJ_ZSET)) return;
-        zmoveGenericCommand(c, sobj, c->argv[1], c->argv[2], where, count);
+        zmoveGenericCommand(c, where, NULL, count);
     }
 }
 
@@ -5863,7 +5837,7 @@ void bzmoveCommand(client *c) {
     /* A non-empty source takes the non-blocking path, which also replies nil
      * for equal keys and checks the destination type. */
     if (sobj && zsetLength(sobj) > 0) {
-        zmoveGenericCommand(c, sobj, c->argv[1], c->argv[2], where, count);
+        zmoveGenericCommand(c, where, NULL, count);
 
         /* Propagate the non-blocking operation, retaining its explicit batch cap. */
         if (c->argc == 7)
