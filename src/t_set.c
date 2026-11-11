@@ -2799,14 +2799,19 @@ void srandmemberWithCountCommand(client *c) {
     if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.emptyarray))
         == NULL || checkType(c,set,OBJ_SET)) return;
 
+    size_t oldsize = 0;
     if (setTypeHasExpireSupport(set)) {
         /* Remove the members that are logically expired first. If they were all
-         * expired, the key is gone. */
+         * expired, the key is gone. setTypeExpire already refreshes slot
+         * allocation accounting (and may free the object under sync deletion),
+         * so do not wrap it in another updateSlotAllocSize. */
         if (setTypeExpireIfNeeded(c->db, set)) {
             addReply(c,shared.emptyarray);
             return;
         }
     }
+    if (server.memory_tracking_enabled)
+        oldsize = kvobjAllocSize(set);
     size = setTypeSize(set);
 
     /* If count is zero, serve it ASAP to avoid special cases later. */
@@ -2842,6 +2847,8 @@ void srandmemberWithCountCommand(client *c) {
                     break;
             }
             zfree(entries);
+            if (server.memory_tracking_enabled)
+                updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), set, oldsize, kvobjAllocSize(set));
             return;
         }
 
@@ -2855,6 +2862,8 @@ void srandmemberWithCountCommand(client *c) {
             if (c->flags & CLIENT_CLOSE_ASAP)
                 break;
         }
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), set, oldsize, kvobjAllocSize(set));
         return;
     }
 
@@ -2875,6 +2884,8 @@ void srandmemberWithCountCommand(client *c) {
         }
         setTypeResetIterator(&si);
         serverAssert(size==0);
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), set, oldsize, kvobjAllocSize(set));
         return;
     }
 
@@ -2903,6 +2914,8 @@ void srandmemberWithCountCommand(client *c) {
             p = lpNext(lp, p);
             i++;
         }
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), set, oldsize, kvobjAllocSize(set));
         return;
     }
 
@@ -3000,6 +3013,8 @@ void srandmemberWithCountCommand(client *c) {
         dictResetIterator(&di);
         dictRelease(d);
     }
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), set, oldsize, kvobjAllocSize(set));
 }
 
 /* SRANDMEMBER <key> [<count>] */

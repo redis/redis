@@ -1362,6 +1362,23 @@ start_cluster 1 0 {tags {external:skip cluster needs:debug} overrides {cluster-s
         r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
     }
 
+    test "SLOT-ALLOCSIZE - SRANDMEMBER with count refreshes slot alloc after rehash" {
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+        r FLUSHALL
+
+        r DEL "s{t}"
+        for {set i 0} {$i < 265} {incr i} {
+            r SADD "s{t}" [format "m-%03d-%s" $i [string repeat x 80]]
+        }
+        assert_encoding hashtable "s{t}"
+
+        for {set i 0} {$i < 50} {incr i} {
+            r SRANDMEMBER "s{t}" 4
+        }
+
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
+    }
+
     test "SLOT-ALLOCSIZE - SUNION/SDIFF family keep slot alloc tracking across rehash" {
         # Every command routed through sunionDiffGenericCommand() is exercised
         # against a source set that is mid-rehash. The DIFF commands dictFind()
