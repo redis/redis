@@ -147,6 +147,16 @@ proc check_lag_full {server dbid} {
     $server select 0
 }
 
+# Start a new generation of the rows in every db. An enable does that only
+# if a sample changed while stats were off. Creating and deleting a stream
+# is such a change: a stream counts in the groups-per-stream row from birth.
+proc new_stream_stats_generation {server} {
+    $server config set stream-stats no
+    $server xadd tick * f v
+    $server del tick
+    $server config set stream-stats yes
+}
+
 # Resolve the expected string for metric 'field': the sentinel "__EVAL__ <dbid>"
 # reconstructs from the keyspace via XINFO 'xinfo_field'; otherwise the literal,
 # with the given short 'placeholder' expanded to the field name.
@@ -1388,5 +1398,104 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
             }
             check_lag_full r 0
         } err]} { error "seed $seed: $err" }
+    }
+}
+
+# The wrap of the generation counter. It has a server of its own: the wrap is
+# recorded for the life of the process and relaxes two assertions from then on.
+start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats yes}} {
+    r select 0
+
+    test "STREAM-STATS - streams_max_lag: an old stamp passes as current after the counter wraps" {
+        r FLUSHALL
+        set dbs [lindex [r config get databases] 1]
+        # The counter never holds the never-counted sentinel, 2^32-1.
+        assert_error "*out of range*" {r debug stream-stats-generation 4294967295}
+        assert_error "*out of range*" {r debug stream-stats-generation -1}
+
+        # Generation A. A reset visits db0 first, so db0 gets base+1.
+        set base [expr {[r debug stream-stats-generation] + 1000}]
+        r debug stream-stats-generation $base
+        new_stream_stats_generation r
+        assert_equal [expr {$base + $dbs}] [r debug stream-stats-generation]
+
+        # Ten entries and entries_added raised to 20: a group that has read n
+        # has lag 20-n. The groups are created in ascending read order, so
+        # the i-th one takes heap slot i:
+        #   gd  has read 10, slot 0    left untouched, destroyed below
+        #   ga  has read 12, slot 1    left untouched, acks below
+        #   gx1 has read 17, slot 2    left untouched, lowered by XSETID below
+        #   k1, k2, k3 have read 18, 19, 20, slots 3-5
+        #   gx2 has read 20, slot 6    left untouched, lowered by XSETID below
+        seed_stream r st 10
+        r xsetid st 10-1 entriesadded 20
+        foreach {g n} {gd 10  ga 12  gx1 17  k1 18  k2 19  k3 20  gx2 20} {
+            r xgroup create st $g 0 entriesread $n
+        }
+        check_lag_full r 0
+        assert_equal "db0_stream_distrib_streams_max_lag:8=1" [get_info_stream_field r stream_distrib_streams_max_lag]
+
+        # Generation B: only k1, k2, k3 are touched and take slots 0-2 of a
+        # new heap. The other four keep the stamp of generation A, with its
+        # in-heap bit and its slot.
+        r debug stream-stats-generation [expr {$base + 100}]
+        new_stream_stats_generation r
+        foreach g {k1 k2 k3} { r xack st $g 0-1 }
+        assert_equal "db0_stream_distrib_streams_max_lag:2=1" [get_info_stream_field r stream_distrib_streams_max_lag]
+
+        # The wrap. The next number would be the never-counted sentinel, so
+        # the counter restarts at 1 and the server records the wrap.
+        r debug stream-stats-generation 4294967294
+        new_stream_stats_generation r
+        assert_equal $dbs [r debug stream-stats-generation]
+
+        # Generation A's number again: db0 gets base+1, which the four
+        # untouched groups carry, so their stamps pass as current. The stream
+        # and k1, k2, k3 carry B's number and are stale.
+        r debug stream-stats-generation $base
+        new_stream_stats_generation r
+        assert_equal "" [get_info_stream_stripped r]
+
+        # XSETID lowers the groups that have read more than 15 before it
+        # refreshes the stream, so it checks gx1 and gx2 against B's heap,
+        # still allocated: gx1's slot 2 holds k3 and gx2's slot 6 is past its
+        # end. Neither is a member. The refresh then frees that heap.
+        r xsetid st 10-1 entriesadded 15
+        assert_equal "" [get_info_stream_field r stream_distrib_streams_max_lag]
+
+        # ga's stamp now names a slot and there is no heap. ga joins a new
+        # one. It has read 12 of 15: lag 3.
+        r xack st ga 0-1
+        assert_equal "db0_stream_distrib_streams_max_lag:2=1" [get_info_stream_field r stream_distrib_streams_max_lag]
+        # Proof that ga's stamp was believed: it says the two group rows hold
+        # ga, so nothing was entered, yet the rows were reset. A stale stamp
+        # would have put ga in both. This miscount is the price of a wrap.
+        assert_equal "" [get_info_stream_field r stream_distrib_cgroups_pel]
+        assert_equal "" [get_info_stream_field r stream_distrib_cgroups_consumers]
+
+        # gd's slot 0 now holds ga. Destroying gd must not take ga out.
+        assert_equal 1 [r xgroup destroy st gd]
+        assert_equal "db0_stream_distrib_streams_max_lag:2=1" [get_info_stream_field r stream_distrib_streams_max_lag]
+
+        # ga gets its first consumer. Its stamp says the consumers row holds
+        # ga in bin 0, which is empty: nothing leaves it, and ga enters bin 1.
+        assert_equal 1 [r xgroup createconsumer st ga c]
+        assert_equal "db0_stream_distrib_cgroups_consumers:1=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
+        assert_equal "" [get_info_stream_field r stream_distrib_cgroups_pel]
+
+        # For contrast k1, whose stamp is stale: its first command enters it
+        # in every row. It has read 15 of 15: lag 0, so ga stays the worst.
+        r xack st k1 0-1
+        assert_equal "db0_stream_distrib_cgroups_pel:0=1" [get_info_stream_field r stream_distrib_cgroups_pel]
+        assert_equal "db0_stream_distrib_cgroups_consumers:0=1,1=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
+        assert_equal "db0_stream_distrib_streams_max_lag:2=1" [get_info_stream_field r stream_distrib_streams_max_lag]
+
+        # A clean generation with a number no stamp carries. Once every group
+        # is touched the rows are exact again and the validator accepts them.
+        r debug stream-stats-generation [expr {$base + 1000}]
+        new_stream_stats_generation r
+        foreach g {ga gx1 gx2 k1 k2 k3} { r xack st $g 0-1 }
+        check_lag_full r 0
+        assert_equal "db0_stream_distrib_streams_max_lag:2=1" [get_info_stream_field r stream_distrib_streams_max_lag]
     }
 }
