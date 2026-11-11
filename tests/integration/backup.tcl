@@ -319,6 +319,34 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
         }
     }
 
+    test {A local preload symlink to an external file becomes self-contained} {
+        set local_dir [file normalize [tmpdir preload.local-source-symlink]]
+        file delete -force $local_dir
+        file mkdir $local_dir
+        set preload_dir [file normalize [tmpdir preload.local-source-target]]
+        file delete -force $preload_dir
+        file mkdir $preload_dir
+        set real_aof [file join $preload_dir real.aof]
+        set fp [open $real_aof w]
+        puts -nonewline $fp [formatCommand select 9]
+        puts -nonewline $fp [formatCommand set local-source-symlink-key value]
+        close $fp
+        set aof_dir [file join $local_dir appendonlydir]
+        file mkdir $aof_dir
+        set preload_aof [file join $aof_dir source.aof]
+        file link -symbolic $preload_aof $real_aof
+
+        start_server [list overrides [list dir $local_dir appendonly yes preload-file "aof:$preload_aof"] keep_persistence true] {
+            assert_equal value [r get local-source-symlink-key]
+            assert_equal file [file type $preload_aof]
+        }
+
+        file delete $real_aof
+        start_server [list overrides [list dir $local_dir appendonly yes]] {
+            assert_equal value [r get local-source-symlink-key]
+        }
+    }
+
     test {A symlinked preload to an obsolete AOF is rejected before cleanup} {
         set local_dir [file normalize [tmpdir preload.obsolete-source-local]]
         file delete -force $local_dir

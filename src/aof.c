@@ -839,8 +839,8 @@ static aofManifest *aofManifestFromPreloadFile(char *preload_path) {
 }
 
 /* Check or install one preload manifest entry under its existing filename.
- * Leave the file in place when source and target are the same path, otherwise
- * replace the target without changing the manifest metadata. */
+ * Leave a regular local source in place, or replace the target without
+ * changing the manifest metadata. */
 static int aofInstallPreloadFile(char *absolute_preload_dir, char *file_name, int check_only) {
     sds source_path = makePath(absolute_preload_dir, file_name);
     sds relative_path = makePath(server.aof_dirname, file_name);
@@ -849,8 +849,7 @@ static int aofInstallPreloadFile(char *absolute_preload_dir, char *file_name, in
     int ret = C_ERR;
 
     /* A path through a symlink can name the target despite a different string.
-     * A target symlink in a different directory can be replaced without
-     * removing the source entry. */
+     * A target symlink can be replaced without removing its resolved source. */
     char resolved_source[PATH_MAX], resolved_target[PATH_MAX];
     if (realpath(source_path, resolved_source) == NULL) {
         serverLog(LL_WARNING, "Can't resolve preload file %s: %s",
@@ -884,9 +883,9 @@ static int aofInstallPreloadFile(char *absolute_preload_dir, char *file_name, in
         }
     }
 
-    /* Reuse an exact local source only after checking whether it is a symlink
-     * to an AOF file that cleanup could remove. */
-    if (!strcmp(source_path, target_path)) {
+    /* A regular local source is already installed. Replace a local symlink
+     * with a link to its resolved file so the AOF survives without its source. */
+    if (!strcmp(source_path, target_path) && !source_is_symlink) {
         ret = C_OK;
         goto cleanup;
     }
@@ -894,21 +893,15 @@ static int aofInstallPreloadFile(char *absolute_preload_dir, char *file_name, in
     if (realpath(target_path, resolved_target) != NULL &&
         !strcmp(resolved_source, resolved_target))
     {
-        struct stat source_dir_stat, aof_dir_stat;
         /* Reusing an installed regular file cannot invalidate either path. */
         if (source_is_symlink && lstat(target_path, &target_stat) == 0 &&
             S_ISREG(target_stat.st_mode)) {
             ret = C_OK;
             goto cleanup;
         }
-        int distinct_target_symlink =
-            lstat(target_path, &target_stat) == 0 &&
-            S_ISLNK(target_stat.st_mode) &&
-            stat(absolute_preload_dir, &source_dir_stat) == 0 &&
-            stat(server.aof_dirname, &aof_dir_stat) == 0 &&
-            (source_dir_stat.st_dev != aof_dir_stat.st_dev ||
-             source_dir_stat.st_ino != aof_dir_stat.st_ino);
-        if (!distinct_target_symlink) {
+        /* Unlinking a destination symlink leaves the resolved file intact. */
+        if (lstat(target_path, &target_stat) != 0 ||
+            !S_ISLNK(target_stat.st_mode)) {
             serverLog(LL_WARNING, "Preload file %s aliases append-only file %s",
                       source_path, target_path);
             goto cleanup;
@@ -931,7 +924,7 @@ static int aofInstallPreloadFile(char *absolute_preload_dir, char *file_name, in
     if (link(resolved_source, target_path) == -1) {
         serverLog(LL_NOTICE, "Can't hard-link preload file %s as %s, copying it instead: %s",
                              source_path, target_path, strerror(errno));
-        if (copyFile(source_path, target_path) == -1) {
+        if (copyFile(resolved_source, target_path) == -1) {
             serverLog(LL_WARNING, "Can't copy preload file %s as %s: %s",
                                   source_path, target_path, strerror(errno));
             goto cleanup;
