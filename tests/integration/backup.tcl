@@ -213,7 +213,7 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
             puts -nonewline $fp [formatCommand set long-path-key value]
             close $fp
 
-            # Linux permits paths longer than the old getAbsolutePath buffer.
+            # Exercise AOF preload with a working directory longer than 1024 bytes.
             set local_dir [file normalize [tmpdir preload.long-path.local]]
             while {[string length $local_dir] <= 1024} {
                 set local_dir [file join $local_dir [string repeat d 120]]
