@@ -5821,27 +5821,28 @@ static int zmoveParseCountOrReply(client *c, int idx, long *count) {
 
 /* ZMOVE source destination <MIN | MAX | BYSCORE score-min score-max> [COUNT count] */
 void zmoveCommand(client *c) {
+    zrangespec range;
+    int byscore = !strcasecmp(c->argv[3]->ptr, "BYSCORE");
+    int where = ZSET_MIN;
     long count;
-    if (!strcasecmp(c->argv[3]->ptr, "BYSCORE")) {
+
+    if (byscore) {
         if (c->argc < 6) {
             addReplyErrorArity(c);
             return;
         }
-        zrangespec range;
         if (zslParseRange(c->argv[4], c->argv[5], &range) != C_OK) {
             addReplyError(c, "min or max is not a float");
             return;
         }
         count = LONG_MAX; /* The whole range, unless COUNT is given. */
-        if (zmoveParseCountOrReply(c, 6, &count) != C_OK) return;
-        zmoveGenericCommand(c, c->argv[1], c->argv[2], ZSET_MIN, &range, count);
     } else {
-        int where;
         if (zsetGetPositionOrReply(c, c->argv[3], &where) != C_OK) return;
         count = 1;
-        if (zmoveParseCountOrReply(c, 4, &count) != C_OK) return;
-        zmoveGenericCommand(c, c->argv[1], c->argv[2], where, NULL, count);
     }
+
+    if (zmoveParseCountOrReply(c, byscore ? 6 : 4, &count) != C_OK) return;
+    zmoveGenericCommand(c, c->argv[1], c->argv[2], where, byscore ? &range : NULL, count);
 }
 
 /* BZMOVE source destination <MIN | MAX> timeout [COUNT count] */
