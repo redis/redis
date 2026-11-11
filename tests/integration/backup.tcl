@@ -459,6 +459,51 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
         }
     }
 
+    test {Preload keeps an INCR source stable when BASE replacement changes its symlink chain} {
+        set local_dir [file normalize [tmpdir preload.source-chain-local]]
+        file delete -force $local_dir
+        create_local_aof $local_dir
+        set aof_dir [file join $local_dir appendonlydir]
+        set base_name appendonly.aof.1.base.aof
+        set incr_name appendonly.aof.1.incr.aof
+        set local_base [file join $aof_dir $base_name]
+
+        set preload_dir [file normalize [tmpdir preload.source-chain-external]]
+        file delete -force $preload_dir
+        file mkdir $preload_dir
+        set old_base [file join $preload_dir old-base.aof]
+        set fp [open $old_base w]
+        puts -nonewline $fp [formatCommand select 9]
+        puts -nonewline $fp [formatCommand set old-base-key value]
+        close $fp
+        file link -symbolic $local_base $old_base
+        set local_manifest [file join $aof_dir appendonly.aof.manifest]
+        set fp [open $local_manifest w]
+        puts -nonewline $fp "file $base_name seq 1 type b\nfile $incr_name seq 1 type i\n"
+        close $fp
+
+        set fp [open [file join $preload_dir $base_name] w]
+        puts -nonewline $fp [formatCommand select 9]
+        puts -nonewline $fp [formatCommand set new-base-key value]
+        close $fp
+        file link -symbolic [file join $preload_dir $incr_name] $local_base
+        set source_manifest [file join $preload_dir appendonly.aof.manifest]
+        set fp [open $source_manifest w]
+        puts -nonewline $fp "file $base_name seq 1 type b\nfile $incr_name seq 1 type i\n"
+        close $fp
+
+        start_server [list overrides [list dir $local_dir appendonly yes preload-file "aof:$source_manifest"] keep_persistence true] {
+            assert_equal value [r get new-base-key]
+            assert_equal value [r get old-base-key]
+            assert_equal 0 [r exists local-aof-key]
+        }
+        start_server [list overrides [list dir $local_dir appendonly yes]] {
+            assert_equal value [r get new-base-key]
+            assert_equal value [r get old-base-key]
+            assert_equal 0 [r exists local-aof-key]
+        }
+    }
+
     test {Preload from appendonlydir preserves its source and recreates the INCR} {
         set local_dir [file normalize [tmpdir preload.same-aof-dir]]
         create_local_aof $local_dir
