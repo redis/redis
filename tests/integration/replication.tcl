@@ -186,6 +186,45 @@ start_server {tags {"repl external:skip"}} {
             }
         }
 
+        foreach position {min max} {
+            test "BZMOVE $position replication, when blocking against empty zset" {
+                r del z1 z2
+                $A config resetstat
+                set rd [redis_deferring_client]
+                $rd bzmove z1 z2 $position 5
+                $rd flush
+                wait_for_blocked_client
+                r zadd z1 0 a
+                wait_for_ofs_sync $B $A
+                assert_equal [$A debug digest] [$B debug digest]
+                assert_match {*calls=1,*} [cmdrstat zmove $A]
+                assert_equal [$rd read] {{a 0}}
+                $rd close
+            }
+
+            test "BZMOVE $position replication, zset exists" {
+                r del z1
+                $A config resetstat
+                r zadd z1 -1 a 0 b 1 c 2 d
+                r bzmove z1 z2 $position 5
+                wait_for_ofs_sync $B $A
+                assert_equal [$A debug digest] [$B debug digest]
+                assert_match {*calls=1,*} [cmdrstat zmove $A]
+            }
+        }
+
+        test {ZMOVE BYSCORE replication preserves batch limits and destination members} {
+            r del z1 z2
+            r zadd z1 1 a 1 b 1 c 2 d
+            r zadd z2 99 a 100 retained
+            assert_equal {{a 1} {b 1}} [r zmove z1 z2 BYSCORE 1 1 COUNT 2]
+            assert_equal {{d 2}} [r zmove z1 z2 BYSCORE (1 +inf]
+            wait_for_ofs_sync $B $A
+            assert_equal [$A debug digest] [$B debug digest]
+            assert_equal {c 1} [$A zrange z1 0 -1 withscores]
+            assert_equal {a 1 b 1 d 2 retained 100} [$A zrange z2 0 -1 withscores]
+        }
+
         test {BLPOP followed by role change, issue #2473} {
             set rd [redis_deferring_client]
             $rd blpop foo 0 ; # Block while B is a master

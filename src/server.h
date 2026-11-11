@@ -1881,7 +1881,7 @@ struct sharedObjectsStruct {
     *busykeyerr, *oomerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
     *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *unlink,
     *rpop, *lpop, *lpush, *rpoplpush, *lmove, *blmove, *lmovem, *exactly,
-    *obo, *bulk, *zpopmin, *zpopmax,
+    *obo, *bulk, *zpopmin, *zpopmax, *zmove,
     *emptyscan, *multi, *exec, *left, *right, *hset, *srem, *xgroup, *xclaim, *xack,
     *script, *replconf, *eval, *persist, *set, *pexpireat, *pexpire,
     *hdel, *hpexpireat, *hpersist, *hsetex, *spexpireat, *spersist, *saddex, *restore, *replace,
@@ -4936,9 +4936,12 @@ void zremrangebylexCommand(client *c);
 void zpopminCommand(client *c);
 void zpopmaxCommand(client *c);
 void zmpopCommand(client *c);
+void zmoveCommand(client *c);
+void zmovememberCommand(client *c);
 void bzpopminCommand(client *c);
 void bzpopmaxCommand(client *c);
 void bzmpopCommand(client *c);
+void bzmoveCommand(client *c);
 void zrandmemberCommand(client *c);
 void multiCommand(client *c);
 void execCommand(client *c);
