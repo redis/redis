@@ -5500,14 +5500,14 @@ typedef struct {
     unsigned long updated;           /* ...and those that overwrote a destination score. */
 } zmoveCtx;
 
-/* Look up and validate the keys in argv[1] and argv[2]. Returns 1 if members
- * can be moved. Otherwise the client was replied to and 0 is returned: nothing
- * can be moved out of a missing source, nor from a sorted set to itself. */
-static int zmoveBegin(client *c, zmoveCtx *ctx) {
+/* Look up and validate the 'srckey' and 'dstkey' sorted sets. Returns 1 if
+ * members can be moved. Otherwise the client was replied to and 0 is returned:
+ * nothing can be moved out of a missing source, nor from a sorted set to itself. */
+static int zmoveBegin(client *c, zmoveCtx *ctx, robj *srckey, robj *dstkey) {
     memset(ctx, 0, sizeof(*ctx));
     ctx->c = c;
-    ctx->srckey = c->argv[1];
-    ctx->dstkey = c->argv[2];
+    ctx->srckey = srckey;
+    ctx->dstkey = dstkey;
 
     ctx->src = lookupKeyWriteOrReply(c, ctx->srckey, shared.nullarray[c->resp]);
     if (ctx->src == NULL || checkType(c, ctx->src, OBJ_ZSET)) return 0;
@@ -5707,12 +5707,14 @@ static void zmoveRankRange(zmoveCtx *ctx, unsigned long start, unsigned long n, 
 /* ZMOVE and BZMOVE implementation: move up to 'count' members from the 'where'
  * end of the source or, if 'range' is not NULL, the lowest ones having a score
  * in that range. Either way the members are a range of consecutive ranks. */
-static void zmoveGenericCommand(client *c, int where, zrangespec *range, long count) {
+static void zmoveGenericCommand(client *c, robj *srckey, robj *dstkey, int where,
+                                zrangespec *range, long count)
+{
     zmoveCtx ctx;
     unsigned long start = 0, n;
     const char *event;
 
-    if (!zmoveBegin(c, &ctx)) return;
+    if (!zmoveBegin(c, &ctx, srckey, dstkey)) return;
 
     if (range) {
         n = zsetScoreRangeToRank(ctx.src, range, &start);
@@ -5768,7 +5770,7 @@ void zmovememberCommand(client *c) {
     }
 
     zmoveCtx ctx;
-    if (!zmoveBegin(c, &ctx)) return;
+    if (!zmoveBegin(c, &ctx, c->argv[1], c->argv[2])) return;
 
     ctx.hint = min((unsigned long)num, ctx.srclen);
     for (int j = first; j < first + num && ctx.moved < ctx.srclen; j++) {
@@ -5812,13 +5814,13 @@ void zmoveCommand(client *c) {
         }
         count = LONG_MAX; /* The whole range, unless COUNT is given. */
         if (zmoveParseCountOrReply(c, 6, &count) != C_OK) return;
-        zmoveGenericCommand(c, ZSET_MIN, &range, count);
+        zmoveGenericCommand(c, c->argv[1], c->argv[2], ZSET_MIN, &range, count);
     } else {
         int where;
         if (zsetGetPositionOrReply(c, c->argv[3], &where) != C_OK) return;
         count = 1;
         if (zmoveParseCountOrReply(c, 4, &count) != C_OK) return;
-        zmoveGenericCommand(c, where, NULL, count);
+        zmoveGenericCommand(c, c->argv[1], c->argv[2], where, NULL, count);
     }
 }
 
@@ -5837,7 +5839,7 @@ void bzmoveCommand(client *c) {
     /* A non-empty source takes the non-blocking path, which also replies nil
      * for equal keys and checks the destination type. */
     if (sobj && zsetLength(sobj) > 0) {
-        zmoveGenericCommand(c, where, NULL, count);
+        zmoveGenericCommand(c, c->argv[1], c->argv[2], where, NULL, count);
 
         /* Propagate the non-blocking operation, retaining its explicit batch cap. */
         if (c->argc == 7)
