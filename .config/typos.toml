@@ -39,6 +39,8 @@ ser = "ser"
 fo = "fo"
 pn = "pn"
 seeked = "seeked"
+# SME: Set Member Expiration (also the prefix of the sme_* test helpers).
+sme = "sme"
 
 [default.extend-identifiers]
 # POSIX glob struct field; not a typo.

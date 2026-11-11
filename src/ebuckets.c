@@ -1870,7 +1870,12 @@ int ebDefragRax(ebuckets *eb, EbucketsType *type, unsigned long *cursor,
     }
 
     /* Defrag the bucket in the rax node. */
-    assert(raxNext(&ri));
+    if (!raxNext(&ri)) {
+        /* The buckets left to scan were removed since the previous run. */
+        *cursor = 0;
+        raxStop(&ri);
+        return 0;
+    }
     ebDefragRaxBucket(type, &ri, defragfns, privdata);
 
     /* Move to next node. */
@@ -2637,6 +2642,34 @@ int ebucketsTest(int argc, char **argv, int flags) {
                 assert(items[i]->index == i);
             ebDestroy(&eb, &myEbucketsType, NULL);
         }
+    }
+
+    TEST("item defragmentation - resume after the remaining buckets were removed") {
+        ebuckets eb = NULL;
+        int s = EB_SEG_MAX_ITEMS * 4;
+        MyItem *items[s];
+        for (int i = 0; i < s; i++) {
+            items[i] = zmalloc(sizeof(MyItem));
+            items[i]->index = i;
+            ebAdd(&eb, &myEbucketsType, items[i], i);
+        }
+        assert(!ebIsList(eb));
+        unsigned long cursor = 0;
+        ebDefragFunctions defragfns = {
+            .defragAlloc = defragCallback,
+            .defragItem = defragItemCallback,
+        };
+        assert(ebScanDefrag(&eb, &myEbucketsType, &cursor, &defragfns, items));
+        /* Remove every bucket except the first one before resuming. */
+        for (int i = 1; i < s; i++) {
+            assert(ebRemove(&eb, &myEbucketsType, items[i]));
+            zfree(items[i]);
+        }
+        assert(!ebIsList(eb));
+        assert(!ebScanDefrag(&eb, &myEbucketsType, &cursor, &defragfns, items));
+        assert(cursor == 0);
+        ebValidate(eb, &myEbucketsType);
+        ebDestroy(&eb, &myEbucketsType, NULL);
     }
 
 //    TEST("ebuckets - Create rax tree with extended-segment and add item before")

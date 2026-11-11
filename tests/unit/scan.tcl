@@ -308,7 +308,7 @@ proc test_scan {type} {
         }
     }
 
-    foreach enc {listpack skiplist} {
+    foreach enc {listpack btree} {
         test "{$type} ZSCAN with encoding $enc" {
             # Create the Sorted Set
             r del zset
@@ -346,6 +346,293 @@ proc test_scan {type} {
             set keys2 [lsort -unique $keys2]
             assert_equal $count [llength $keys2]
         }
+    }
+
+    if {$type eq {standalone}} {
+        test {B+ tree ZSCAN small and streaming replies preserve framing} {
+            foreach proto {2 3} {
+                r hello $proto
+                foreach size {1 31 32 33 129} {
+                    r del zset
+                    for {set j 0} {$j < 129} {incr j} {
+                        r zadd zset 1.25 member:$j
+                    }
+                    for {set j $size} {$j < 129} {incr j} {
+                        r zrem zset member:$j
+                    }
+                    assert_encoding btree zset
+                    r readraw 1
+                    assert_equal {*2} [r zscan zset 0 count 10000]
+                    assert_equal {$1} [r read]
+                    assert_equal 0 [r read]
+                    set header [r read]
+                    assert_equal {*} [string index $header 0]
+                    set fields [string range $header 1 end]
+                    assert {$fields % 2 == 0}
+                    set seen {}
+                    for {set j 0} {$j < $fields / 2} {incr j} {
+                        assert_match {$*} [r read]
+                        dict set seen [r read] 1
+                        assert_equal {$4} [r read]
+                        assert_equal 1.25 [r read]
+                    }
+                    assert_equal $size [dict size $seen]
+                    r readraw 0
+                    assert_equal {0 {}} [r zscan zset 0 count 10000 match absent:*]
+                    assert_equal PONG [r ping]
+                    set rd [redis_deferring_client]
+                    $rd hello $proto
+                    $rd read
+                    $rd client reply off
+                    $rd zscan zset 0 count 10000
+                    $rd client reply on
+                    assert_equal OK [$rd read]
+                    $rd client reply skip
+                    $rd zscan zset 0 count 10000
+                    $rd ping
+                    assert_equal PONG [$rd read]
+                    $rd close
+                }
+            }
+            r hello 2
+            set _ {}
+        } {} {resp3}
+
+        test {B+ tree ZSCAN headers preserve queued reply order} {
+            r del zset{t}
+            for {set j 0} {$j < 129} {incr j} {
+                r zadd zset{t} 1.25 member:$j
+            }
+            assert_encoding btree zset{t}
+            foreach proto {2 3} {
+                r hello $proto
+                foreach size {0 1024 65536} {
+                    set preceding [string repeat x $size]
+                    r set preceding{t} $preceding
+                    r multi
+                    r getrange preceding{t} 0 -1
+                    r zscan zset{t} 0 count 10000 match absent:*
+                    r zscan zset{t} 0 count 10000
+                    r ping
+                    set replies [r exec]
+                    assert_equal $preceding [lindex $replies 0]
+                    assert_equal {0 {}} [lindex $replies 1]
+                    assert_equal 0 [lindex $replies 2 0]
+                    set seen {}
+                    foreach {member score} [lindex $replies 2 1] {
+                        assert_equal 1.25 $score
+                        dict set seen $member 1
+                    }
+                    assert_equal 129 [dict size $seen]
+                    assert_equal PONG [lindex $replies 3]
+                }
+            }
+            r hello 2
+            set _ {}
+        } {} {resp3}
+
+        test {B+ tree ZSCAN keeps scores as bulk strings in RESP3} {
+            r del zset
+            set elements {}
+            for {set j 0} {$j < 129} {incr j} {
+                set score [expr {$j == 0 ? 3.3 : 1.25}]
+                lappend elements $score member:$j
+            }
+            r zadd zset {*}$elements
+            assert_encoding btree zset
+
+            r hello 3
+            r readraw 1
+            assert_equal {*2} [r zscan zset 0 count 10000]
+            assert_equal {$1} [r read]
+            assert_equal 0 [r read]
+            set array_header [r read]
+            assert_equal {*} [string index $array_header 0]
+            set fields [string range $array_header 1 end]
+            assert {$fields % 2 == 0}
+            set seen {}
+            for {set j 0} {$j < $fields / 2} {incr j} {
+                assert_match {$*} [r read]
+                set member [r read]
+                set score_header [r read]
+                set score [r read]
+                dict set seen $member 1
+                if {$member eq {member:0}} {
+                    assert_equal {$3} $score_header
+                    assert_equal 3.3 $score
+                } else {
+                    assert_equal {$4} $score_header
+                    assert_equal 1.25 $score
+                }
+            }
+            assert_equal 129 [dict size $seen]
+            r readraw 0
+            r hello 2
+            set _ {}
+        } {} {resp3}
+    }
+
+    test "{$type} ZSCAN does not skip members after deleting returned members" {
+        r del zset
+        set elements {}
+        for {set j 0} {$j < 1000} {incr j} {
+            lappend elements $j key:$j
+        }
+        r zadd zset {*}$elements
+        assert_encoding btree zset
+
+        lassign [r zscan zset 0 count 10] cursor items
+        set seen {}
+        foreach {member score} $items {
+            lappend seen $member
+            r zrem zset $member
+        }
+        while {$cursor != 0} {
+            lassign [r zscan zset $cursor count 10] cursor items
+            foreach {member score} $items {
+                lappend seen $member
+            }
+        }
+
+        assert_equal 1000 [llength [lsort -unique $seen]]
+    }
+
+    test "{$type} ZSCAN does not skip members changed between calls" {
+        r del zset
+        set elements {}
+        set members {}
+        for {set j 0} {$j < 2048} {incr j} {
+            set member [format "stable:%05d" $j]
+            lappend elements $j $member
+            lappend members $member
+        }
+        r zadd zset {*}$elements
+        assert_encoding btree zset
+
+        set cursor 0
+        set seen {}
+        set calls 0
+        while 1 {
+            lassign [r zscan zset $cursor count 1] cursor items
+            foreach {member score} $items {
+                lappend seen $member
+            }
+            if {$cursor == 0} break
+            incr calls
+
+            # Moving a member can change its score leaf, but it remains part of
+            # the set for the complete scan and must eventually be returned.
+            set member [lindex $members [expr {($calls * 31) % 2048}]]
+            r zadd zset [expr {2048 + $calls}] $member
+        }
+
+        assert_equal 2048 [llength [lsort -unique $seen]]
+    }
+
+    test "{$type} ZSCAN does not skip members while its table grows" {
+        r del zset
+        set elements {}
+        for {set j 0} {$j < 1984} {incr j} {
+            lappend elements $j [format "stable:%05d" $j]
+        }
+        r zadd zset {*}$elements
+        assert_encoding btree zset
+
+        set cursor 0
+        set seen {}
+        set calls 0
+        while 1 {
+            lassign [r zscan zset $cursor count 1] cursor items
+            foreach {member score} $items {
+                if {[string match "stable:*" $member]} {
+                    lappend seen $member
+                }
+            }
+            if {$cursor == 0} break
+
+            # A 256-bucket narrow table has 2048 slots and grows when the
+            # 1985th member is added. Further additions advance the copy.
+            incr calls
+            r zadd zset [expr {1984 + $calls}] [format "added:%05d" $calls]
+        }
+
+        assert_equal 1984 [llength [lsort -unique $seen]]
+    }
+
+    test "{$type} ZSCAN finishes while a bounded set keeps replacing its tables" {
+        # Between calls the set grows and is cut back by a large range
+        # deletion, which installs new member tables every time. A cursor
+        # tied to one table restarted forever. This one must finish and
+        # return every member that stays in the set.
+        r del zset
+        set elements {}
+        for {set j 0} {$j < 200} {incr j} {
+            lappend elements $j [format "anchor:%03d" $j]
+        }
+        r zadd zset {*}$elements
+        assert_encoding btree zset
+        set temps {}
+        for {set j 0} {$j < 3000} {incr j} {
+            lappend temps [expr {1000000 + $j}] temp:$j
+        }
+
+        set cursor 0
+        set seen {}
+        set calls 0
+        while 1 {
+            lassign [r zscan zset $cursor count 10] cursor items
+            foreach {member score} $items {
+                if {[string match "anchor:*" $member]} {
+                    lappend seen $member
+                }
+            }
+            # Clients that keep cursors as doubles need them below 2^53.
+            assert {$cursor < 9007199254740992}
+            if {$cursor == 0} break
+            incr calls
+            assert {$calls < 1000}
+            r zadd zset {*}$temps
+            r zremrangebyscore zset 1000000 +inf
+        }
+        assert_equal 200 [llength [lsort -unique $seen]]
+    }
+
+    test "{$type} ZSCAN finishes under constant size churn" {
+        # Replacing members leaves tombstones, and their cleanup installs a
+        # same-size table every few hundred calls, before a complete scan.
+        r del zset
+        set elements {}
+        for {set j 0} {$j < 5000} {incr j} {
+            lappend elements $j [format "anchor:%05d" $j]
+            lappend elements $j churn:$j
+        }
+        r zadd zset {*}$elements
+        assert_encoding btree zset
+
+        set cursor 0
+        set seen {}
+        set calls 0
+        set next 5000
+        while 1 {
+            lassign [r zscan zset $cursor count 10] cursor items
+            foreach {member score} $items {
+                if {[string match "anchor:*" $member]} {
+                    lappend seen $member
+                }
+            }
+            if {$cursor == 0} break
+            incr calls
+            assert {$calls < 2000}
+            set add {}
+            set rem {}
+            for {set j 0} {$j < 200} {incr j; incr next} {
+                lappend add $next churn:$next
+                lappend rem churn:[expr {$next - 5000}]
+            }
+            r zadd zset {*}$add
+            r zrem zset {*}$rem
+        }
+        assert_equal 5000 [llength [lsort -unique $seen]]
     }
 
     test "{$type} SCAN guarantees check under write load" {
@@ -425,7 +712,7 @@ proc test_scan {type} {
         assert {$first_score != 0}
     }
 
-    foreach enc {listpack skiplist} {
+    foreach enc {listpack btree} {
         test "{$type} ZSCAN scores match ZSCORE with encoding $enc" {
             r del mykey
             # 9.8813129168249309e-323 is the denormal from the #2175 test above;
@@ -435,7 +722,7 @@ proc test_scan {type} {
             r zadd mykey 3.3 a 1 b 1.25 c -0.1 d 1e100 e 9.8813129168249309e-323 f \
                 inf g -inf h -1.2345678901234567e23 i 1152921504606846976 j \
                 123456789.12345679 k
-            if {$enc eq {skiplist}} {
+            if {$enc eq {btree}} {
                 # Push the set past zset-max-listpack-entries (default 128).
                 set elements {}
                 for {set j 0} {$j < 200} {incr j} {
@@ -482,9 +769,9 @@ proc test_scan {type} {
             lappend elements $j $member
         }
         r zadd mykey {*}$elements
-        assert_encoding skiplist mykey
+        assert_encoding btree mykey
 
-        # Exceed the stack vector's capacity and delete the nodes before
+        # Exercise a large streaming reply and delete the nodes before
         # EXEC flushes the reply. The output buffer must own the returned bytes.
         r multi
         r zscan mykey 0 COUNT 1000

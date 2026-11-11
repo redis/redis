@@ -111,6 +111,18 @@ test "Cluster consistency during live resharding" {
     }
 }
 
+# The masters must hold exactly our logical content: checking only our keys would
+# miss leftovers, e.g. an old dataset resurrected by an AOF restart.
+proc verify_no_extra_keys {expected} {
+    set total 0
+    for {set id 0} {$id < [llength $::servers]} {incr id} {
+        if {[lindex [R $id role] 0] eq {master}} {
+            incr total [R $id dbsize]
+        }
+    }
+    assert_equal $expected $total
+}
+
 test "Verify $numkeys keys for consistency with logical content" {
     # Check that the Redis Cluster content matches our logical content.
     foreach {key value} [array get content] {
@@ -118,6 +130,7 @@ test "Verify $numkeys keys for consistency with logical content" {
             fail "Key $key expected to hold '$value' but actual content is [$cluster lrange $key 0 -1]"
         }
     }
+    verify_no_extra_keys [array size content]
 }
 
 test "Terminate and restart all the instances" {
@@ -141,6 +154,7 @@ test "Verify $numkeys keys after the restart" {
             fail "Key $key expected to hold '$value' but actual content is [$cluster lrange $key 0 -1]"
         }
     }
+    verify_no_extra_keys [array size content]
 }
 
 test "Disable AOF in all the instances" {

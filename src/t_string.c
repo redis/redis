@@ -101,7 +101,8 @@ void setGenericCommand(client *c, int flags, robj *key, robj **valref, robj *exp
     }
 
     dictEntryLink link = NULL;
-    found = (lookupKeyWriteWithLink(c->db,key,&link) != NULL);
+    kvobj *current = lookupKeyWriteWithLink(c->db,key,&link);
+    found = (current != NULL);
 
     if ((flags & OBJ_SET_NX && found) ||
         (flags & (OBJ_SET_XX | OBJ_SET_IFEQ | OBJ_SET_IFDEQ) && !found))
@@ -115,7 +116,8 @@ void setGenericCommand(client *c, int flags, robj *key, robj **valref, robj *exp
     /* Handle conditional set operations - only set if key is found and condition
      * is met - otherwise return nil. */
     if (found && (flags & (OBJ_SET_IFEQ | OBJ_SET_IFNE | OBJ_SET_IFDEQ | OBJ_SET_IFDNE))) {
-        kvobj *current = lookupKeyRead(c->db, key);
+        /* Reuse the kvobj found above: another lookup could run a rehash step
+         * and invalidate `link`. */
         if (checkType(c, current, OBJ_STRING)) {
             return;
         }
@@ -180,8 +182,12 @@ void setGenericCommand(client *c, int flags, robj *key, robj **valref, robj *exp
 
     setKeyByLink(c, c->db, key, valref, setkey_flags, &link);
     /* If there's an expiration, setExpireByLink may reallocate the object.
-     * We must update valref to reflect the new object if that happens. */
-    if (expire) *valref = setExpireByLink(c, c->db, key->ptr, milliseconds, link);
+     * We must update valref to reflect the new object if that happens.
+     * setKeyByLink() fired KSN, so check the link first. */
+    if (expire) {
+        dbRefreshLink(c->db, key->ptr, &link, *valref);
+        *valref = setExpireByLink(c, c->db, key->ptr, milliseconds, link);
+    }
     /* The client still holds a reference to the original object via c->argv[i],
      * and will call decrRefCount() at the end of call(). We increment the refcount
      * from 1 to 2 to ensure both DB and client have valid references. */
@@ -882,11 +888,23 @@ void msetexCommand(client *c) {
 
     /* Handle replication rewriting for relative expiration times */
     if (args.expire && !(args.flags & OBJ_PXAT) && !(args.flags & OBJ_EXAT) && args.expire_pos != -1) {
-        /* Convert EX/PX (relative) to PXAT (absolute) for consistent replication */
+        /* Convert EX/PX (relative) to PXAT (absolute) for consistent replication.
+         * Keep everything before the options (MSETEX, numkeys and the key-value
+         * pairs), rewrite the option slots as [NX|XX] PXAT <ms>, and drop the
+         * remaining tail. This also removes repeated EX/PX (last one wins). */
+        int pos = kv_count * 2 + 2; /* First option slot. */
+        if (args.flags & (OBJ_SET_NX|OBJ_SET_XX)) {
+            robj *cond_obj = createStringObject((args.flags & OBJ_SET_NX) ? "NX" : "XX", 2);
+            rewriteClientCommandArgument(c, pos++, cond_obj);
+            decrRefCount(cond_obj);
+        }
         robj *milliseconds_obj = createStringObjectFromLongLong(milliseconds);
-        rewriteClientCommandArgument(c, args.expire_pos, shared.pxat);
-        rewriteClientCommandArgument(c, args.expire_pos + 1, milliseconds_obj);
+        rewriteClientCommandArgument(c, pos++, shared.pxat);
+        rewriteClientCommandArgument(c, pos++, milliseconds_obj);
         decrRefCount(milliseconds_obj);
+        /* Remove from the tail so no arguments need to be shifted. */
+        while (c->argc > pos)
+            rewriteClientCommandArgument(c, c->argc - 1, NULL);
     }
 
     server.dirty += kv_count;

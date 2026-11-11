@@ -591,7 +591,13 @@ void kvstoreIteratorInit(kvstoreIterator *kvs_it, kvstore *kvs) {
     kvs_it->kvs = kvs;
     kvs_it->didx = -1;
     kvs_it->next_didx = kvstoreGetFirstNonEmptyDictIndex(kvs_it->kvs); /* Finds first non-empty dict index. */
+    kvs_it->prefetch = 0;
     dictInitSafeIterator(&kvs_it->di, NULL);
+}
+
+/* Prefetch entries ahead of the iteration, see dictIteratorEnablePrefetch(). */
+void kvstoreIteratorEnablePrefetch(kvstoreIterator *kvs_it) {
+    kvs_it->prefetch = 1;
 }
 
 /* Free the kvs_it returned by kvstoreIteratorInit. */
@@ -643,6 +649,7 @@ dictEntry *kvstoreIteratorNext(kvstoreIterator *kvs_it) {
             return NULL;
 
         dictInitSafeIterator(&kvs_it->di, d);
+        if (kvs_it->prefetch) dictIteratorEnablePrefetch(&kvs_it->di);
         de = dictNext(&kvs_it->di);
     }
     return de;
@@ -737,6 +744,11 @@ void kvstoreResetDictIterator(kvstoreDictIterator *kvs_di)
         /* In the safe iterator context, we may delete entries. */
         freeDictIfNeeded(kvs_di->kvs, kvs_di->didx);
     }
+}
+
+/* Prefetch entries ahead of the iteration, see dictIteratorEnablePrefetch(). */
+void kvstoreDictIteratorEnablePrefetch(kvstoreDictIterator *kvs_di) {
+    dictIteratorEnablePrefetch(&kvs_di->di);
 }
 
 /* Get the next element of the dict through kvstoreDictIterator and dictNext. */
@@ -849,7 +861,9 @@ dictEntry *kvstoreDictFind(kvstore *kvs, int didx, void *key) {
  * After calling kvstoreDictFindLink(), any necessary updates based on returned 
  * link or bucket must be made immediately after, commonly by kvstoreDictSetAtLink() 
  * without any operations in between that might modify the dict. Otherwise, 
- * the link or bucket may become invalid. Example usage:
+ * the link or bucket may become invalid. A lookup in the same dict counts as
+ * such an operation, since it may perform a rehash step (see dictFindLink()).
+ * Example usage:
  *
  *      link = kvstoreDictFindLink(kvs, didx, key, &bucket);
  *      ... Do something, but don't modify kvs->dicts[didx] ...

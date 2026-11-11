@@ -166,7 +166,7 @@ start_server {tags {"aofrw external:skip debug_defrag:skip"} overrides {aof-use-
     }
 
     foreach d {string int} {
-        foreach e {listpack skiplist} {
+        foreach e {listpack btree} {
             test "AOF rewrite of zset with $e encoding, $d data" {
                 r flushall
                 if {$e eq {listpack}} {set len 10} else {set len 1000}
@@ -189,6 +189,28 @@ start_server {tags {"aofrw external:skip debug_defrag:skip"} overrides {aof-use-
                 }
             }
         }
+    }
+
+    test {AOF rewrite of zset with external members} {
+        r flushall
+        set members {}
+        for {set j 0} {$j < 600} {incr j} {
+            set len [lindex {319 320 321 4096} [expr {$j % 4}]]
+            set prefix [format "%04d:" $j]
+            set member "$prefix[string repeat x [expr {$len-[string length $prefix]}]]"
+            lappend members $member
+            r zadd key $j $member
+        }
+        assert_encoding btree key
+        set expected [r zrange key 0 -1 withscores]
+
+        r bgrewriteaof
+        waitForBgrewriteaof r
+        r debug loadaof
+
+        assert_encoding btree key
+        assert_equal $expected [r zrange key 0 -1 withscores]
+        assert_equal 599 [r zscore key [lindex $members 599]]
     }
 
     test "AOF rewrite functions" {

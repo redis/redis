@@ -24,3 +24,15 @@
    fun:ztrymalloc_usable
    fun:ztrymalloc
 }
+
+# The only pointer to a long zset member stored outside a B+ tree leaf lives
+# unaligned inside a packed leaf record, where the leak checker does not look.
+# Every such member is allocated by zbtExternalDup(), so match only that frame.
+{
+   <zset_btree_external_member>
+   Memcheck:Leak
+   match-leak-kinds: definite
+   ...
+   fun:zbtAlloc
+   fun:zbtExternalDup
+}

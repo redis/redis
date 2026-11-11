@@ -46,6 +46,9 @@
 #define BITOPS_USE_AVX512_POPCOUNT  0
 #endif
 
+static void normalizeBitRange(long long *start, long long *end, uint64_t *bit_start,
+                              uint64_t *bit_end, unsigned char *first_byte_neg_mask,
+                              unsigned char *last_byte_neg_mask, long long strlen, int isbit);
 
 /* -----------------------------------------------------------------------------
  * Helpers and low level bit functions.
@@ -2034,11 +2037,184 @@ void bitroaropCommand(client *c) {
     bitopCommandGeneric(c, 1);
 }
 
+typedef struct bitroarIntArrayReply {
+    client *c;
+    long long emitted;
+    long long limit; /* LIMIT count, or LLONG_MAX without LIMIT. */
+    int isbit;       /* The range is in BIT units. */
+    uint64_t end;    /* Offsets at or beyond this are not returned. */
+} bitroarIntArrayReply;
+
+/* Add 'offset' to the reply, and return 0 if no more offsets should follow. */
+static int bitrangeintarrayAddOffset(bitroarIntArrayReply *reply, uint64_t offset) {
+    addReplyLongLong(reply->c, (long long)offset);
+    /* Once LIMIT is reached, a BIT range stops at once. A BYTE range goes on
+     * to the end of the byte holding 'offset', returning up to 7 offsets more
+     * than LIMIT, so the next page can start at the following byte without
+     * repeating or skipping offsets. BYTE ranges end on a byte boundary, so
+     * this never extends past the range. */
+    if (++reply->emitted == reply->limit) {
+        if (reply->isbit) return 0;
+        reply->end = (offset | 7) + 1;
+    }
+    return !(reply->c->flags & CLIENT_CLOSE_ASAP);
+}
+
+/* Stream bit offsets into the reply without allocating a second array
+ * proportional to the result. */
+static int bitroarReplyBits(const uint64_t *values, size_t count, void *privdata) {
+    bitroarIntArrayReply *reply = privdata;
+    for (size_t i = 0; i < count; i++) {
+        if (values[i] >= reply->end) return 0;
+        if (!bitrangeintarrayAddOffset(reply, values[i])) return 0;
+    }
+    return 1;
+}
+
+/* Stream the offsets of the bits set to 'bit' in a string, in the half-open
+ * bit interval [start, end). Offsets follow GETBIT: bit 0 is the most
+ * significant bit of the first byte. */
+static void bitrangeintarrayString(const unsigned char *p, int bit, uint64_t start,
+                                   uint64_t end, bitroarIntArrayReply *reply)
+{
+    uint64_t last = (end + 7) >> 3; /* One past the last byte in the range. */
+    uint64_t i = start >> 3;
+    /* XOR with this sets the wanted bits: it inverts the words when looking
+     * for clear bits, so only set bits need to be visited. */
+    uint64_t flip = bit ? 0 : ~0ULL;
+
+    while (i < last) {
+        uint64_t word = 0;
+        /* Skip 64-bit words without wanted bits in a tight loop, kept apart
+         * from the reply calls below so the compiler can keep it in
+         * registers. */
+        while (last - i >= 8) {
+            memcpy(&word, p + i, sizeof(word));
+            word ^= flip;
+            if (word != 0) break;
+            i += 8;
+        }
+        if (word != 0) {
+            /* Big-endian, so the most significant bit is the lowest offset. */
+            word = htonu64(word);
+        } else {
+            /* Fewer than 8 bytes remain: zero-pad them on the right. */
+            for (uint64_t j = 0; i + j < last; j++)
+                word |= (uint64_t)(p[i + j] ^ (unsigned char)flip) << (56 - 8 * j);
+            if (word == 0) break;
+        }
+
+        /* Clear the bits before 'start' and from 'end' within this word. */
+        uint64_t base = i * 8;
+        if (start > base) word &= ~0ULL >> (start - base);
+        if (end < base + 64) word &= ~(~0ULL >> (end - base));
+
+        /* Visit only the set bits, lowest offset first. */
+        while (word) {
+            int pos = __builtin_clzll(word);
+            if (base + pos >= reply->end) return;
+            if (!bitrangeintarrayAddOffset(reply, base + pos)) return;
+            word &= ~((1ULL << 63) >> pos);
+        }
+        /* Reaching LIMIT ends the range within this word. */
+        if (reply->emitted >= reply->limit) return;
+        i += 8;
+    }
+}
+
+/* BITRANGEINTARRAY key start end [BIT|BYTE] [LIMIT count] [ZEROS]
+ * Returns the offsets of the set bits in the range, in ascending order.
+ * Strings are read in place and native bitmaps are iterated directly.
+ *
+ * start end: the inclusive range, interpreted as in BITCOUNT, so both
+ *            commands cover the same bits. It is clamped to the bitmap:
+ *            unlike BITPOS, no clear bits are assumed past its end.
+ * BIT|BYTE:  the unit of 'start' and 'end', BYTE by default.
+ * LIMIT:     return only the lowest 'count' offsets in the range. In BYTE
+ *            units the reply also completes the byte holding the last of
+ *            them, so a page ends on a byte boundary.
+ * ZEROS:     return the offsets of the clear bits instead. */
+void bitrangeintarrayCommand(client *c) {
+    kvobj *o;
+    long long start, end, strlen;
+    long slen;
+    unsigned char *p = NULL;
+    char llbuf[LONG_STR_SIZE];
+    uint64_t bit_start, bit_end;
+    int isbit = 0;
+    int value = 1; /* The value of the bits to return. */
+    long long limit = LLONG_MAX;
+
+    if (getLongLongFromObjectOrReply(c,c->argv[2],&start,NULL) != C_OK)
+        return;
+    if (getLongLongFromObjectOrReply(c,c->argv[3],&end,NULL) != C_OK)
+        return;
+
+    /* Parse the options, in any order. */
+    for (int j = 4; j < c->argc; j++) {
+        int moreargs = (c->argc - 1) - j;
+        if (!strcasecmp(c->argv[j]->ptr,"bit")) {
+            isbit = 1;
+        } else if (!strcasecmp(c->argv[j]->ptr,"byte")) {
+            isbit = 0;
+        } else if (!strcasecmp(c->argv[j]->ptr,"limit") && moreargs) {
+            if (getLongLongFromObjectOrReply(c,c->argv[++j],&limit,NULL) != C_OK)
+                return;
+            if (limit < 0) {
+                addReplyError(c,"LIMIT can't be negative");
+                return;
+            }
+        } else if (!strcasecmp(c->argv[j]->ptr,"zeros")) {
+            value = 0;
+        } else {
+            addReplyErrorObject(c,shared.syntaxerr);
+            return;
+        }
+    }
+
+    /* Lookup, check for type. */
+    o = lookupKeyRead(c->db, c->argv[1]);
+    if (checkStringOrBitmapType(c, o)) return;
+    if (o == NULL) {
+        addReply(c, shared.emptyarray);
+        return;
+    }
+    if (o->type == OBJ_BITMAP) {
+        strlen = (long long)bitroarLen(o);
+    } else {
+        p = getObjectReadOnlyString(o,&slen,llbuf);
+        strlen = slen;
+    }
+
+    /* An empty value has no bits. Like BITCOUNT, a range with both ends
+     * negative and reversed is empty even when both ends would clamp to the
+     * first byte or bit. */
+    if (strlen == 0 || (start < 0 && end < 0 && start > end)) {
+        addReply(c, shared.emptyarray);
+        return;
+    }
+    normalizeBitRange(&start, &end, &bit_start, &bit_end, NULL, NULL, strlen, isbit);
+    if (start > end || limit == 0) {
+        addReply(c, shared.emptyarray);
+        return;
+    }
+
+    void *arraylen = addReplyDeferredLen(c);
+    bitroarIntArrayReply reply = {c, 0, limit, isbit, bit_end};
+    if (o->type == OBJ_BITMAP)
+        bitroarVisitBits(o, value, bit_start, bit_end, bitroarReplyBits, &reply);
+    else
+        bitrangeintarrayString(p, value, bit_start, bit_end, &reply);
+    /* Resolve the placeholder even if an output limit scheduled async close. */
+    setDeferredArrayLen(c, arraylen, reply.emitted);
+}
+
 /* Normalize the raw START/END arguments against a value of 'strlen' bytes,
  * clamping 'start'/'end' to byte coordinates, and derive the half-open bit
  * interval used by Roaring bitmap range operations ('bit_start'/'bit_end')
  * along with the bits to ignore in the first/last byte of byte-backed values
- * for bit-addressed ranges. */
+ * for bit-addressed ranges. Callers that only need the bit interval may pass
+ * NULL for 'first_byte_neg_mask' and 'last_byte_neg_mask'. */
 static void normalizeBitRange(long long *start, long long *end, uint64_t *bit_start,
                               uint64_t *bit_end, unsigned char *first_byte_neg_mask,
                               unsigned char *last_byte_neg_mask, long long strlen, int isbit)
@@ -2054,8 +2230,8 @@ static void normalizeBitRange(long long *start, long long *end, uint64_t *bit_st
     if (*end < 0) *end = 0;
     if (*end >= totlen) *end = totlen-1;
 
-    *first_byte_neg_mask = 0;
-    *last_byte_neg_mask = 0;
+    if (first_byte_neg_mask) *first_byte_neg_mask = 0;
+    if (last_byte_neg_mask) *last_byte_neg_mask = 0;
     *bit_start = 0;
     *bit_end = 0;
     if (*start > *end) return;
@@ -2063,8 +2239,10 @@ static void normalizeBitRange(long long *start, long long *end, uint64_t *bit_st
     if (isbit) {
         *bit_start = (uint64_t)*start;
         *bit_end = (uint64_t)*end + 1;
-        *first_byte_neg_mask = ~((1<<(8-(*start&7)))-1) & 0xFF;
-        *last_byte_neg_mask = (1<<(7-(*end&7)))-1;
+        if (first_byte_neg_mask)
+            *first_byte_neg_mask = ~((1<<(8-(*start&7)))-1) & 0xFF;
+        if (last_byte_neg_mask)
+            *last_byte_neg_mask = (1<<(7-(*end&7)))-1;
         *start >>= 3;
         *end >>= 3;
     } else {

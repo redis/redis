@@ -4214,8 +4214,15 @@ void replDataBufReadFromConn(connection *conn, replDataBuf *buf, void (*error_ha
 /* Replication: Replica side.
  * Main channel read error handler */
 static void readReplBufferErrorHandler(connection *conn) {
-    serverLog(LL_WARNING, "Main channel error while reading from master: %s",
-              connGetLastError(conn));
+    if (connGetState(conn) == CONN_STATE_CLOSED) {
+        // if the connection is closed, there is no last error.
+        // RAM buffer size counts allocated capacity; used counts unapplied bytes
+        serverLog(LL_WARNING, "Main channel closed by master while reading replication data "
+                  "(%zu bytes accumulated, not yet applied).", server.repl_full_sync_buffer.used);
+    } else {
+        serverLog(LL_WARNING, "Main channel error while reading from master: %s",
+                  connGetLastError(conn));
+    }
     cancelReplicationHandshake(1);
 }
 
@@ -4290,6 +4297,14 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
             /* We don't expect error return value but just in case. */
             ret = processInputBuffer(c);
             if (ret != C_OK) break;
+
+            /* Applying a command may get an error reply, e.g. the write is
+             * rejected by min-replicas-to-write. For an ASM import, this fails
+             * the task and clears this buffer, the task is retried later. */
+            if (!ctx->should_continue(ctx)) {
+                ret = C_ERR;
+                break;
+            }
 
             processed += consumed;
             buf->used -= consumed;

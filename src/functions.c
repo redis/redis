@@ -916,6 +916,15 @@ int functionExtractLibMetaData(sds payload, functionsLibMetaData *md, sds *err) 
         sdsfreesplitres(parts, numparts);
         return C_ERR;
     }
+    /* sdssplitargs decodes escapes in quoted arguments. Reject CR/LF before
+     * metadata, including the engine name, can be included in an error reply. */
+    for (int i = 0; i < numparts; i++) {
+        if (memchr(parts[i], '\r', sdslen(parts[i])) ||
+            memchr(parts[i], '\n', sdslen(parts[i]))) {
+            *err = sdsnew("Invalid symbols in library metadata");
+            goto error;
+        }
+    }
     engine = sdsdup(parts[0]);
     sdsrange(engine, 2, -1);
     for (int i = 1 ; i < numparts ; ++i) {
