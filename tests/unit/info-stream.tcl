@@ -615,6 +615,26 @@ proc test_all_stream_stats { {replMode 0} } {
         verify_streams_max_lag {$server xsetid st 8-1 entriesadded 4} {db0_LAG:1=1}
     }
 
+    # XADD stops incrementing entries_added at 2^63-1, a value only XSETID
+    # sets. The stream still grows there, and so does the lag of a group that
+    # is capped at the length, while entries_added stands still. The second
+    # start value is one below, so that an XADD is what reaches the stop.
+    test "STREAM-STATS - streams_max_lag: XADD moves the sample when entries_added has stopped counting $suffix" {
+        foreach added {9223372036854775807 9223372036854775806} {
+            verify_streams_max_lag {$server FLUSHALL} {}
+            seed_stream $server st 2
+            $server xsetid st 2-1 entriesadded $added
+            # The group has read 0 entries, so its lag is the length: 2.
+            verify_streams_max_lag {$server xgroup create st g 0 entriesread 0} {db0_LAG:2=1}
+            # Every XADD adds one to the length and to the lag: the sample
+            # moves to bin 4 at 4 entries and to bin 8 at 8.
+            for {set i 3} {$i <= 9} {incr i} {
+                verify_streams_max_lag {$server xadd st $i-1 f v} "db0_LAG:[hist_label $i]=1"
+            }
+            assert_equal 9223372036854775807 [dict get [$server xinfo stream st] entries-added]
+        }
+    }
+
     test "STREAM-STATS - randomized sequence matches keyspace cross-check $suffix" {
         verify_pel {$server FLUSHALL} {}
         for {set s 0} {$s < 6} {incr s} {

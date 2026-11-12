@@ -413,12 +413,21 @@ static int64_t streamLagSample(stream *s) {
 /* The entries_added value at which the worst lag next changes bin, assuming
  * only XADDs happen: each raises both terms of the min by one, so the lag
  * rises by one per entry and reaches the next power of two, 1 << bin, after
- * that many entries. UINT64_MAX while there is no sample. */
+ * that many entries. UINT64_MAX while there is no sample.
+ *
+ * The assumption fails in one place. streamAppendItem() stops incrementing
+ * entries_added at LLONG_MAX, a value XSETID can set. An XADD there still
+ * grows the length, and with it a lag that is capped at the length, so no
+ * entries_added value marks the next bin. The threshold is therefore capped
+ * at LLONG_MAX: entries_added + 1 is then never below it once the counter is
+ * one short of the stop, and every such XADD takes the slow path. */
 static uint64_t streamLagThreshold(stream *s) {
     int64_t lag = streamLagSample(s);
     if (lag < 0) return UINT64_MAX;
     uint64_t boundary = 1ull << streamDistribBin(lag);
-    return s->entries_added + (boundary - (uint64_t) lag);
+    /* No wrap: entries_added is at most LLONG_MAX and the step at most 2^63. */
+    uint64_t threshold = s->entries_added + (boundary - (uint64_t) lag);
+    return threshold > (uint64_t) LLONG_MAX ? (uint64_t) LLONG_MAX : threshold;
 }
 
 static void streamLagFreeHeap(stream *s) {
