@@ -705,6 +705,10 @@ proc test_all_stream_stats { {replMode 0} } {
             verify_streams_max_lag {} {__EVAL__ 0}
         } err]} { error "seed $seed: $err" }
     }
+
+    # The verify_* helpers read replicaMode. Turn it off again, so that they
+    # also work in the single-server blocks after the replica run.
+    set replicaMode 0
 }
 
 start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats yes}} {
