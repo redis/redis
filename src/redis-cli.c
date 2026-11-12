@@ -7487,6 +7487,14 @@ static int clusterManagerCommandCreate(int argc, char **argv) {
                              3 * (replicas + 1));
         return 0;
     }
+    if (masters_count > CLUSTER_MANAGER_SLOTS) {
+        clusterManagerLogErr(
+            "*** ERROR: Invalid configuration for cluster creation.\n"
+            "*** Redis Cluster supports at most %d master nodes, "
+            "but %d nodes and %d replicas per node would create %d.\n",
+            CLUSTER_MANAGER_SLOTS, node_len, replicas, masters_count);
+        return 0;
+    }
     clusterManagerLogInfo(">>> Performing hash slots allocation "
                           "on %d nodes...\n", node_len);
     int interleaved_len = 0, ip_count = 0;
