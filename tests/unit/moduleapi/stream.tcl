@@ -196,6 +196,43 @@ start_server {tags {"modules external:skip"}} {
         r DEBUG KEYSIZES-HIST-ASSERT 0
     } {OK} {needs:debug}
 
+    # The module stream API must move the INFO streams max-lag row like XADD,
+    # XDEL and XTRIM do. The group below has read nothing, so the stream's lag
+    # equals its length and every call shows in the row. A row prints a bin
+    # by its lower bound: lengths 4 to 7 read as "4". The validator armed at
+    # the top of this file also checks the row after each command.
+    test {Module stream API keeps the INFO streams max-lag row in sync} {
+        # The row of whichever db the test client is on, e.g. "4=1".
+        proc module_stream_lag_row {} {
+            regexp {db\d+_stream_distrib_streams_max_lag:(\S+)} [r info streams] -> row
+            return $row
+        }
+        r del mystream
+        # RM_StreamAdd, the fast path below the next bin and across it.
+        r stream.add mystream item 1 value a
+        r xgroup create mystream g 0 entriesread 0
+        assert_equal "1=1" [module_stream_lag_row]
+        set id [r stream.add mystream item 2 value b]
+        assert_equal "2=1" [module_stream_lag_row]
+        r stream.addn mystream 6 item x value y
+        assert_equal "8=1" [module_stream_lag_row]
+        # RM_StreamDelete: 7 entries left.
+        r stream.delete mystream $id
+        assert_equal "4=1" [module_stream_lag_row]
+        # RM_StreamIteratorDelete: stream.range deletes the "selfdestruct"
+        # entry, taking the stream from 8 entries back to 7.
+        r xadd mystream * selfdestruct yes
+        assert_equal "8=1" [module_stream_lag_row]
+        r stream.range mystream - +
+        assert_equal "4=1" [module_stream_lag_row]
+        # RM_StreamTrimByLength: 3 entries left.
+        r stream.trim mystream maxlen = 3
+        assert_equal "2=1" [module_stream_lag_row]
+        # RM_StreamTrimByID: the stream is empty, so nothing is left to read.
+        r stream.trim mystream minid = +
+        assert_equal "0=1" [module_stream_lag_row]
+    } {} {needs:debug}
+
     test "Unload the module - stream" {
         assert_equal {OK} [r module unload stream]
     }
