@@ -326,7 +326,7 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
             set local_dir [file normalize [tmpdir preload.root-target-local]]
             file delete -force $preload_dir $local_dir
             file mkdir $preload_dir $local_dir
-            try {
+            set failed [catch {
                 set fp [open $root_aof {WRONLY CREAT EXCL}]
                 puts -nonewline $fp [formatCommand select 9]
                 puts -nonewline $fp [formatCommand set root-target-key value]
@@ -336,9 +336,9 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
                 start_server [list overrides [list dir $local_dir appendonly yes preload-file "aof:$preload_aof"]] {
                     assert_equal value [r get root-target-key]
                 }
-            } finally {
-                file delete -force $root_aof
-            }
+            } test_error]
+            file delete -force $root_aof
+            if {$failed} { error $test_error }
         }
     }
 
