@@ -36,13 +36,6 @@ typedef struct {
     unsigned int pos;
 } zbtreeIterator;
 
-/* An element returned by zbtreeIteratorNextBatch(). */
-typedef struct {
-    const unsigned char *ele;
-    size_t len;
-    double score;
-} zbtreeIteratorElement;
-
 /* This state exists only while active defragmentation is visiting a large
  * sorted set. It is kept by the defragmenter, not in every zset. */
 typedef struct {
@@ -143,12 +136,6 @@ int zbtreeIteratorStart(const zbtreeSet *zs, int reverse,
                         zbtreeIterator *iter);
 int zbtreeIteratorNext(zbtreeIterator *iter, int reverse,
                        const unsigned char **ele, size_t *len, double *score);
-/* Return up to 'max' elements of the current leaf, as zbtreeIteratorNext()
- * would, and advance past them. Return zero at the end or for a zero 'max'.
- * Scores are left unset without 'withscores'. */
-unsigned int zbtreeIteratorNextBatch(zbtreeIterator *iter, int reverse,
-                                     zbtreeIteratorElement *out,
-                                     unsigned int max, int withscores);
 unsigned long zbtreeCountByScore(const zbtreeSet *zs, double min, int minex,
                                  double max, int maxex);
 

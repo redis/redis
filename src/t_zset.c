@@ -2812,7 +2812,6 @@ int zuiNext(zsetopsrc *op, zsetopval *val) {
         } else if (op->encoding == OBJ_ENCODING_BTREE) {
             const unsigned char *ele;
             size_t len;
-            /* Keep zuiNextBatched() in sync. */
             if (!zbtreeIteratorNext(&it->bt.iter, 1, &ele, &len,
                                     op->noscore ? NULL : &val->score))
                 return 0;
@@ -2825,52 +2824,6 @@ int zuiNext(zsetopsrc *op, zsetopval *val) {
         serverPanic("Unsupported type");
     }
     return 1;
-}
-
-/* Members of a B+ tree input decoded a batch at a time. They point into the
- * set and are valid only while it is not modified. */
-#define ZUI_BATCH_SIZE 16
-typedef struct {
-    zbtreeIteratorElement ele[ZUI_BATCH_SIZE];
-    unsigned int pos, len;
-} zuiBatch;
-
-/* zuiNext() for a B+ tree input, taking members from 'batch'. A nonzero
- * 'remaining' (LIMIT) caps a refill at the number of matches still needed. */
-static inline int zuiNextBatched(zsetopsrc *op, zsetopval *val,
-                                 zuiBatch *batch, unsigned long remaining)
-{
-    if (batch->pos == batch->len) {
-        unsigned int want = ZUI_BATCH_SIZE;
-        if (remaining && remaining < ZUI_BATCH_SIZE)
-            want = (unsigned int)remaining;
-        batch->len = zbtreeIteratorNextBatch(&op->iter.zset.bt.iter, 1,
-                                             batch->ele, want, !op->noscore);
-        batch->pos = 0;
-        if (batch->len == 0) return 0;
-    }
-    const zbtreeIteratorElement *e = &batch->ele[batch->pos++];
-
-    /* Set what zuiNext() would. The fields it zeroes and that are not set
-     * here are read only once a flag says they are valid. */
-    zuiDiscardDirtyValue(val);
-    val->flags = 0;
-    val->ele = NULL;
-    val->estr = (unsigned char *)e->ele;
-    val->elen = e->len;
-    val->ell = 0;
-    val->score = op->noscore ? 0 : e->score;
-    return 1;
-}
-
-/* zuiNext() for the input ZINTER iterates, using zuiNextBatched() when
- * 'batch' is not NULL. 'limit' and 'cardinality' are those of ZINTERCARD. */
-static inline int zuiInterNext(zsetopsrc *op, zsetopval *val, zuiBatch *batch,
-                               long limit, unsigned long cardinality)
-{
-    if (batch == NULL) return zuiNext(op, val);
-    return zuiNextBatched(op, val, batch,
-                          limit ? (unsigned long)limit - cardinality : 0);
 }
 
 int zuiLongLongFromValue(zsetopval *val) {
@@ -3435,17 +3388,8 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
             /* Sharing the member hash pays off from three inputs. */
             int reuse_hash = setnum > 2;
             zuiInitIterator(&src[0]);
-            /* Read a B+ tree src[0] in batches, see zuiNextBatched(). */
-            zuiBatch batchbuf;
-            zuiBatch *batch = NULL;
-            if (src[0].type == OBJ_ZSET &&
-                src[0].encoding == OBJ_ENCODING_BTREE)
-            {
-                batch = &batchbuf;
-                batch->pos = batch->len = 0;
-            }
             memset(&zval, 0, sizeof(zval));
-            while (zuiInterNext(&src[0], &zval, batch, limit, cardinality)) {
+            while (zuiNext(&src[0],&zval)) {
                 double score, value;
 
                 score = zuiWeightedScore(zval.score, src[0].weight, aggregate);

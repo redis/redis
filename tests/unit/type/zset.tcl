@@ -1121,7 +1121,7 @@ start_server {tags {"zset"}} {
         }
 
         test "ZINTER/ZINTERCARD iterating a large B+ tree input - $encoding" {
-            # More than one leaf and one batch; the first half builds
+            # More than one leaf; the first half builds
             # reversed leaves.
             r del zbig{t} zother{t}
             for {set i 1} {$i <= 400} {incr i} {
