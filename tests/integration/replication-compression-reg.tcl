@@ -1,5 +1,6 @@
 if {$::compression} {
-    set overrides [list save "" io-threads 4 repl-compression 1]
+    set overrides [list save "" io-threads 4 repl-compression 1 \
+        repl-compression-max-latency 100 repl-ping-replica-period 60]
     start_server [list tags {repl external:skip} overrides $overrides] {
         start_server [list overrides $overrides] {
             set master [srv -1 client]
@@ -7,6 +8,21 @@ if {$::compression} {
             $replica replicaof [srv -1 host] [srv -1 port]
             wait_for_sync $replica
             wait_replica_online $master
+
+            test {Idle replication compression does not emit empty frames} {
+                $master set compression-idle [string repeat x 1024]
+                assert_equal 1 [$master wait 1 5000]
+                wait_for_ofs_sync $master $replica
+
+                # Let the catch-up flush finish before measuring idle traffic.
+                after 300
+                $master config resetstat
+                set repl_bytes_before [status $master total_net_repl_output_bytes]
+                after 500
+                set repl_bytes_after [status $master total_net_repl_output_bytes]
+
+                assert_equal $repl_bytes_before $repl_bytes_after
+            }
 
             foreach data_type {compressible random} {
                 test "Replication compression stays connected with 100 KiB $data_type values" {
