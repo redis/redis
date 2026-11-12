@@ -5526,9 +5526,17 @@ void xdelexCommand(client *c) {
 
         int can_delete = 1;
         if (args.delete_strategy == DELETE_STRATEGY_ACKED) {
-            /* Only delete if acknowledged by all consumer groups */
-            if (streamEntryIsReferenced(s, id))
+            /* Only delete if acknowledged by all consumer groups. An ID past
+             * the last one delivered to some group counts as referenced even
+             * when there is no such entry, so report it as still referenced
+             * only if it is in the stream or in a PEL. Otherwise it is a
+             * missing ID, as with the other strategies. */
+            if (streamEntryIsReferenced(s, id) &&
+                (streamEntryExists(s, id) ||
+                 (s->cgroups_ref && raxFind(s->cgroups_ref, buf, sizeof(buf), NULL))))
+            {
                 can_delete = 0;
+            }
         } else if (args.delete_strategy == DELETE_STRATEGY_DELREF) {
             modified = streamCleanupEntryCGroupRefs(c->db, s, id);
         }

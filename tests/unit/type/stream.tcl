@@ -4058,6 +4058,23 @@ start_server {tags {"stream"}} {
         assert_equal 0 [r XLEN mystream]
     }
 
+    test "XDELEX with ACKED option returns -1 for IDs that are not in the stream" {
+        r DEL mystream
+        r XADD mystream 1-0 f v
+        r XADD mystream 2-0 f v
+        r XGROUP CREATE mystream group1 0
+
+        # 5-0 was never added. It is past the last ID delivered to group1,
+        # but there is no entry to keep: the reply is -1, as without ACKED.
+        assert_equal {-1} [r XDELEX mystream KEEPREF IDS 1 5-0]
+        assert_equal {-1} [r XDELEX mystream ACKED IDS 1 5-0]
+
+        # The same for an entry that was deleted before any group read it.
+        assert_equal 1 [r XDEL mystream 2-0]
+        assert_equal {2 -1 -1} [r XDELEX mystream ACKED IDS 3 1-0 2-0 5-0]
+        assert_equal 1 [r XLEN mystream]
+    }
+
     test "XDELEX with ACKED option won't delete messages when new consumer groups are created" {
         r DEL mystream
         r XADD mystream 1-0 f v
