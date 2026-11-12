@@ -2241,7 +2241,8 @@ static sds cliFormatReplyJson(sds out, redisReply *r, int mode) {
         out = sdscatprintf(out,"%lld",r->integer);
         break;
     case REDIS_REPLY_DOUBLE:
-        out = sdscatprintf(out,"%s",r->str);
+        if (isfinite(r->dval)) out = sdscatprintf(out,"%s",r->str);
+        else out = jsonStringOutput(out,r->str,r->len,mode);
         break;
     case REDIS_REPLY_STRING:
     case REDIS_REPLY_VERB:
