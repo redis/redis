@@ -2392,6 +2392,7 @@ void createSharedObjects(void) {
     shared.hsetex = createStringObject("HSETEX",6);
     shared.spexpireat = createStringObject("SPEXPIREAT",10);
     shared.spersist = createStringObject("SPERSIST",8);
+    shared.sadd = createStringObject("SADD", 4);
     shared.saddex = createStringObject("SADDEX",6);
     shared.restore = createStringObject("RESTORE",7);
     shared.replace = createStringObject("REPLACE",7);

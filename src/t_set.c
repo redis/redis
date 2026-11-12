@@ -2472,8 +2472,7 @@ static void spopPropagateRemaining(client *c, kvobj *set) {
 
     const unsigned long batchsize = 1024;
     robj **saddargv = zmalloc(sizeof(robj *) * (2 + batchsize));
-    robj *saddcmd = createStringObject("SADD", 4);
-    saddargv[0] = saddcmd;
+    saddargv[0] = shared.sadd;
     saddargv[1] = key;
     unsigned long saddlen = 2;
     robj *members = createStringObject("MEMBERS", 7);
@@ -2516,7 +2515,6 @@ static void spopPropagateRemaining(client *c, kvobj *set) {
         alsoPropagate(c->db->id, argv, 3, PROPAGATE_AOF | PROPAGATE_REPL);
         decrRefCount(expire);
     }
-    decrRefCount(saddcmd);
     decrRefCount(members);
     decrRefCount(one);
     zfree(saddargv);
