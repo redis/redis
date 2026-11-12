@@ -7535,9 +7535,9 @@ static int clusterManagerCommandCreate(int argc, char **argv) {
     clusterManagerNode **masters = interleaved;
     interleaved += masters_count;
     interleaved_len -= masters_count;
-    float slots_per_node = CLUSTER_MANAGER_SLOTS / (float) masters_count;
+    double slots_per_node = CLUSTER_MANAGER_SLOTS / (double) masters_count;
     long first = 0;
-    float cursor = 0.0f;
+    double cursor = 0.0;
     for (i = 0; i < masters_count; i++) {
         clusterManagerNode *master = masters[i];
         long last = lround(cursor + slots_per_node - 1);
