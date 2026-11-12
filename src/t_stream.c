@@ -2199,12 +2199,14 @@ void streamPropagateGroupID(client *c, robj *key, streamCG *group, robj *groupna
     decrRefCount(argv[6]);
 }
 
-/* Propagate creation of a consumer that was implicitly created by XREADGROUP.
+/* Propagate creation of a consumer that was implicitly created by XREADGROUP,
+ * XCLAIM or XAUTOCLAIM.
  * Called only when no XCLAIM commands were propagated for this consumer,
  * since XCLAIM implicitly creates the consumer on the replica.  This covers
- * two cases:
+ * three cases:
  * (1) NOACK, where the PEL/XCLAIM path is skipped entirely.
  * (2) no messages were available to deliver (see #7140).
+ * (3) XCLAIM or XAUTOCLAIM claimed no entry.
  *
  * XGROUP CREATECONSUMER <key> <groupname> <consumername>
  */
@@ -2870,8 +2872,13 @@ void xaddCommand(client *c) {
         /* Create entry for lookup and potential insertion */
         entry = idmpEntryCreate(iid_str, iid_len, &s->alloc_size);
         
-        /* Check if IID already exists and reply if found */
-        if (idmpLookupAndReply(s, producer, entry, c)) {
+        /* Check if IID already exists and reply if found. Skipped for an
+         * explicit ID: IDMP accepts one only from a master or the AOF, where
+         * the * was replaced with the ID of an entry the upstream node did
+         * append, so it must be applied even if the IID is still tracked here.
+         * Duplicates are propagated with *, so they are still filtered here. */
+        serverAssert(!parsed_args.id_given || mustObeyClient(c));
+        if (!parsed_args.id_given && idmpLookupAndReply(s, producer, entry, c)) {
             /* IID already exists, free the entry and return */
             idmpEntryFree(entry, &s->alloc_size);
             keyModified(c,c->db,c->argv[1],kv,0);
@@ -4215,7 +4222,9 @@ void xidmprecordCommand(client *c) {
     idmpProducer *producer = idmpGetOrCreateProducer(s, pid_str, pid_len);
     idmpEntry *entry = idmpEntryCreate(iid_str, iid_len, &s->alloc_size);
     int found = idmpLookup(producer, entry, &id);
-    if (found) {
+    if (found == 1 || (found == -1 && !mustObeyClient(c))) {
+        /* Same stream ID: nothing to record. A different stream ID is an
+         * error, unless it comes from a master or the AOF. */
         idmpEntryFree(entry, &s->alloc_size);
         if (found == 1)
             addReply(c, shared.ok);
@@ -4226,6 +4235,8 @@ void xidmprecordCommand(client *c) {
         return;
     }
 
+    /* From a master or the AOF a different stream ID replaces the stale
+     * mapping: the upstream node already expired it. */
     idmpInsertEntry(s, producer, entry, &id);
     trackStreamIdmpEntries(c, c->argv[1]);
     addReply(c, shared.ok);
@@ -4954,8 +4965,10 @@ void xclaimCommand(client *c) {
     int64_t old_pel = streamCGroupSample(group, STREAM_DISTRIB_CGROUPS_PEL);
     int64_t old_consumers = streamCGroupSample(group, STREAM_DISTRIB_CGROUPS_CONSUMERS); /* the claimer may be created below */
     streamConsumer *consumer = streamLookupConsumer(group,c->argv[3]->ptr);
+    int consumer_created = 0;
     if (consumer == NULL) {
         consumer = streamCreateConsumer(o->ptr,group,c->argv[3]->ptr,c->argv[1],c->db->id,SCC_DEFAULT);
+        consumer_created = 1;
     }
     consumer->seen_time = commandTimeSnapshot();
 
@@ -5072,6 +5085,13 @@ void xclaimCommand(client *c) {
         streamPropagateGroupID(c,c->argv[1],group,c->argv[2]);
         server.dirty++;
     }
+    /* Propagate consumer creation only when no entry was claimed, since
+     * the XCLAIM generated for a claimed entry implicitly creates the
+     * consumer on the replica. Dropping a deleted entry is propagated as
+     * an XCLAIM naming its previous owner, or as an XACK if it has none,
+     * so it does not create the consumer either. */
+    if (consumer_created && arraylen == 0)
+        streamPropagateConsumerCreation(c,c->argv[1],c->argv[2],consumer->name);
     setDeferredArrayLen(c,arraylenptr,arraylen);
     preventCommandPropagation(c);
     keyModified(c,c->db,c->argv[1],o,0);
@@ -5218,8 +5238,10 @@ void xautoclaimCommand(client *c) {
     int64_t old_pel = streamCGroupSample(group, STREAM_DISTRIB_CGROUPS_PEL);
     int64_t old_consumers = streamCGroupSample(group, STREAM_DISTRIB_CGROUPS_CONSUMERS); /* the claimer may be created below */
     streamConsumer *consumer = streamLookupConsumer(group,c->argv[3]->ptr);
+    int consumer_created = 0;
     if (consumer == NULL) {
         consumer = streamCreateConsumer(o->ptr,group,c->argv[3]->ptr,c->argv[1],c->db->id,SCC_DEFAULT);
+        consumer_created = 1;
     }
     consumer->seen_time = commandTimeSnapshot();
 
@@ -5374,6 +5396,10 @@ void xautoclaimCommand(client *c) {
     }
     zfree(deleted_ids);
 
+    /* Propagate consumer creation only when no entry was claimed, see
+     * xclaimCommand(). */
+    if (consumer_created && arraylen == 0)
+        streamPropagateConsumerCreation(c,c->argv[1],c->argv[2],consumer->name);
     preventCommandPropagation(c);
     /* Update LRM but don't signal. */
     keyModified(c,c->db,c->argv[1],o,0);
@@ -6509,15 +6535,70 @@ static int idmpLookup(idmpProducer *producer, idmpEntry *entry, streamID *id) {
     return streamCompareID(&existing->id, id) == 0 ? 1 : -1;
 }
 
+/* Remove 'target' from the producer's linked list. The list is singly linked,
+ * so to avoid a walk the next node is copied into 'target', its dict entry is
+ * pointed at 'target', and the next node is freed. The list is walked only
+ * when the next node's IID does not fit in 'target'. */
+static void idmpListRemoveEntry(stream *s, idmpProducer *producer, idmpEntry *target) {
+    idmpEntry *following = target->next;
+
+    if (following != NULL &&
+        following->iid_len <= zmalloc_usable_size(target) - sizeof(idmpEntry)) {
+        dictEntry *de = dictFind(producer->idmp_dict, following);
+        serverAssert(de != NULL);
+        memcpy(target, following, sizeof(idmpEntry) + following->iid_len);
+        dictSetKey(producer->idmp_dict, de, target);
+        if (producer->idmp_tail == following) producer->idmp_tail = target;
+        idmpEntryFree(following, &s->alloc_size);
+        return;
+    }
+
+    idmpEntry *prev = NULL;
+    idmpEntry *it = producer->idmp_head;
+    while (it != target) {
+        serverAssert(it != NULL);
+        prev = it;
+        it = it->next;
+    }
+    if (prev) prev->next = target->next;
+    else producer->idmp_head = target->next;
+    if (producer->idmp_tail == target) producer->idmp_tail = prev;
+    idmpEntryFree(target, &s->alloc_size);
+}
+
 /* Insert an idmpEntry into the producer's dict and linked list with the given stream ID. */
 static void idmpInsertEntry(stream *s, idmpProducer *producer, idmpEntry *entry, const streamID *id) {
     /* Set the stream ID and initialize next pointer */
     entry->next = NULL;
     entry->id = *id;
 
-    /* Insert into dict (should always succeed since we already checked with lookup) */
-    serverAssert(dictAdd(producer->idmp_dict, entry, NULL) == DICT_OK);
-    
+    /* From a master or the AOF the IID may still be tracked here, because the
+     * replica's cron did not expire it yet or because nothing expires while
+     * the AOF is loading. The upstream append is authoritative, so replace
+     * the stale mapping. dictAddRaw returns the existing entry, if any, so no
+     * second lookup is needed. */
+    dictEntry *existing = NULL;
+    dictEntry *de = dictAddRaw(producer->idmp_dict, entry, &existing);
+
+    if (de != NULL) {
+        /* dictAddRaw leaves the value unset. */
+        dictSetVal(producer->idmp_dict, de, NULL);
+    } else {
+        idmpEntry *stale = dictGetKey(existing);
+
+        if (stale->next == NULL) {
+            /* The stale mapping is the tail: just update its stream ID */
+            stale->id = *id;
+            idmpEntryFree(entry, &s->alloc_size);
+            s->iids_added++;
+            return;
+        }
+
+        /* Remove the stale mapping from the list and reuse its dict entry */
+        idmpListRemoveEntry(s, producer, stale);
+        dictSetKey(producer->idmp_dict, existing, entry);
+    }
+
     /* Add to linked list tail */
     if (producer->idmp_tail == NULL) {
         producer->idmp_head = producer->idmp_tail = entry;

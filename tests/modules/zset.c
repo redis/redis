@@ -1,6 +1,7 @@
 #include "redismodule.h"
 #include <math.h>
 #include <errno.h>
+#include <string.h>
 #include <strings.h>
 
 /* ZSET.REM key element
@@ -261,6 +262,42 @@ int zset_delall(RedisModuleCtx *ctx, REDISMODULE_ATTR_UNUSED RedisModuleString *
     return RedisModule_ReplyWithLongLong(ctx, deleted_count);
 }
 
+/* A ZPOPMIN/ZPOPMAX notification fires after the last member is popped but
+ * before the emptied key is deleted. The reads below count how many of them
+ * found it empty, until ZSET.EMPTYREADS replies with the count and resets it. */
+static long long empty_reads = 0;
+
+static void zset_count_empty_read(RedisModuleCallReply *reply) {
+    if (reply == NULL) return;
+    if (RedisModule_CallReplyLength(reply) == 0) empty_reads++;
+    RedisModule_FreeCallReply(reply);
+}
+
+static int zset_pop_notification(RedisModuleCtx *ctx, int type, const char *event,
+                                 RedisModuleString *key) {
+    REDISMODULE_NOT_USED(type);
+    if (strcmp(event, "zpopmin") && strcmp(event, "zpopmax")) return REDISMODULE_OK;
+
+    zset_count_empty_read(RedisModule_Call(ctx, "SORT_RO", "scc", key, "BY", "nosort"));
+    zset_count_empty_read(RedisModule_Call(ctx, "SORT_RO", "sccc", key, "BY", "nosort", "DESC"));
+    zset_count_empty_read(RedisModule_Call(ctx, "ZRANDMEMBER", "s", key));
+    zset_count_empty_read(RedisModule_Call(ctx, "ZRANDMEMBER", "sc", key, "-2"));
+    zset_count_empty_read(RedisModule_Call(ctx, "SORT_RO", "sc", key, "ALPHA"));
+    zset_count_empty_read(RedisModule_Call(ctx, "ZRANK", "sc", key, "a"));
+    zset_count_empty_read(RedisModule_Call(ctx, "ZREVRANK", "scc", key, "a", "WITHSCORE"));
+    RedisModule_FreeCallReply(RedisModule_Call(ctx, "DEBUG", "cs", "DIGEST-VALUE", key));
+    RedisModule_FreeCallReply(RedisModule_Call(ctx, "DEBUG", "c", "DIGEST"));
+    return REDISMODULE_OK;
+}
+
+int zset_emptyreads(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    if (argc != 1) return RedisModule_WrongArity(ctx);
+    RedisModule_ReplyWithLongLong(ctx, empty_reads);
+    empty_reads = 0;
+    return REDISMODULE_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -289,6 +326,14 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx, "zset.delall", zset_delall, "write touches-arbitrary-keys",
                                   0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "zset.emptyreads", zset_emptyreads, "",
+                                  0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_ZSET,
+                                              zset_pop_notification) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

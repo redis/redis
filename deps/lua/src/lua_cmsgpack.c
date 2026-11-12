@@ -628,10 +628,10 @@ void mp_decode_to_lua_type(lua_State *L, mp_cur *c) {
     case 0xd2:  /* int 32 */
         mp_cur_need(c,5);
         lua_pushinteger(L,
-            ((int32_t)c->p[1] << 24) |
-            ((int32_t)c->p[2] << 16) |
-            ((int32_t)c->p[3] << 8) |
-             (int32_t)c->p[4]);
+            (int32_t)(((uint32_t)c->p[1] << 24) |
+                      ((uint32_t)c->p[2] << 16) |
+                      ((uint32_t)c->p[3] << 8) |
+                       (uint32_t)c->p[4]));
         mp_cur_consume(c,5);
         break;
     case 0xcf:  /* uint 64 */
@@ -654,14 +654,14 @@ void mp_decode_to_lua_type(lua_State *L, mp_cur *c) {
 #else
         lua_pushinteger(L,
 #endif
-            ((int64_t)c->p[1] << 56) |
-            ((int64_t)c->p[2] << 48) |
-            ((int64_t)c->p[3] << 40) |
-            ((int64_t)c->p[4] << 32) |
-            ((int64_t)c->p[5] << 24) |
-            ((int64_t)c->p[6] << 16) |
-            ((int64_t)c->p[7] << 8) |
-             (int64_t)c->p[8]);
+            (int64_t)(((uint64_t)c->p[1] << 56) |
+                      ((uint64_t)c->p[2] << 48) |
+                      ((uint64_t)c->p[3] << 40) |
+                      ((uint64_t)c->p[4] << 32) |
+                      ((uint64_t)c->p[5] << 24) |
+                      ((uint64_t)c->p[6] << 16) |
+                      ((uint64_t)c->p[7] << 8) |
+                       (uint64_t)c->p[8]));
         mp_cur_consume(c,9);
         break;
     case 0xc0:  /* nil */

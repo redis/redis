@@ -436,6 +436,55 @@ start_server {tags {"scripting"}} {
         assert_match {_NIL_ _NIL_ _NIL_} $res
     } {}
 
+    test {EVAL maximum pattern match depth} {
+        r script flush
+
+        # No problem below maximum depth
+        set res [run_script {
+            return string.find(string.rep("a", 199), string.rep(".?", 199))
+        } 0]
+        assert_equal $res 1
+
+        # No problem below maximum depth even with longer string
+        set res [run_script {
+            return string.find(redis.call("info"), string.rep(".?", 199))
+        } 0]
+        assert_equal $res 1
+
+        set res [run_script {
+            return string.match(redis.call("info"), "connected_slaves:0")
+        } 0]
+        assert_equal $res "connected_slaves:0"
+
+        catch {run_script {
+            return string.find(string.rep("a", 200), string.rep(".?", 200))
+        } 0 } e
+        assert_match {*pattern too complex*} $e
+
+        catch {run_script {
+            return string.match(string.rep("a", 200), string.rep(".?", 200))
+        } 0 } e
+        assert_match {*pattern too complex*} $e
+
+        catch {run_script {
+            for _ in string.gmatch(string.rep("a", 200), string.rep(".?", 200)) do end
+            return 1
+        } 0 } e
+        assert_match {*pattern too complex*} $e
+
+        catch {run_script {
+            return string.gsub(string.rep("a", 200), string.rep(".?", 200), "b")
+        } 0 } e
+        assert_match {*pattern too complex*} $e
+    } {}
+
+    test {EVAL - JSON string encoding a string larger than 2GB} {
+        run_script {
+            local s = string.rep("a", 1024 * 1024 * 1024)
+            return #cjson.encode(s..s..s)
+        } 0
+    } {3221225474} {large-memory} ;# length includes two double quotes at both ends
+
     test {EVAL - JSON numeric decoding} {
         # We must return the table as a string because otherwise
         # Redis converts floats to ints and we get 0 and 1023 instead
@@ -591,6 +640,16 @@ start_server {tags {"scripting"}} {
                 return h
         } 0
     } {d3ffffff0000000000}
+
+    test {EVAL - cmsgpack can unpack negative int32 and int64?} {
+        run_script {local i32 = cmsgpack.unpack(string.char(0xd2, 0x80, 0, 0, 0))
+                local i64 = cmsgpack.unpack(string.char(0xd3, 0x80, 0, 0, 0, 0, 0, 0, 0))
+                if i32 == -2147483648 and i64 == -9223372036854775808 then
+                    return 1
+                end
+                return 0
+        } 0
+    } {1}
 
     test {EVAL - cmsgpack pack/unpack smoke test} {
         run_script {

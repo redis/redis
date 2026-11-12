@@ -1,0 +1,123 @@
+{
+    "BZMOVE": {
+        "summary": "Moves highest- or lowest-scoring members from one sorted set to another, preserving scores. Blocks until a member is available otherwise. Deletes the source sorted set if the last member was moved.",
+        "complexity": "O(K*(log(N)+log(M))) where K is the number of moved members and N and M are the source and destination sizes.",
+        "group": "sorted_set",
+        "since": "8.12.0",
+        "arity": -5,
+        "function": "bzmoveCommand",
+        "command_flags": [
+            "WRITE",
+            "DENYOOM",
+            "BLOCKING"
+        ],
+        "acl_categories": [
+            "SORTEDSET"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "ACCESS",
+                    "DELETE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            },
+            {
+                "flags": [
+                    "RW",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 2
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "No members were moved: the timeout expired, blocking was denied and the source was empty, source and destination are the same sorted set.",
+                    "type": "null"
+                },
+                {
+                    "description": "Moved member and score pairs, nested even for one member. MIN uses ascending score order; MAX uses descending score order. Equal scores use the corresponding lexicographical member order.",
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "items": [
+                            {
+                                "description": "Member",
+                                "type": "string"
+                            },
+                            {
+                                "description": "Score",
+                                "type": "number"
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+        "arguments": [
+            {
+                "name": "source",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "destination",
+                "type": "key",
+                "key_spec_index": 1
+            },
+            {
+                "name": "where",
+                "type": "oneof",
+                "arguments": [
+                    {
+                        "name": "min",
+                        "type": "pure-token",
+                        "token": "MIN"
+                    },
+                    {
+                        "name": "max",
+                        "type": "pure-token",
+                        "token": "MAX"
+                    }
+                ]
+            },
+            {
+                "name": "timeout",
+                "type": "double"
+            },
+            {
+                "name": "count",
+                "type": "integer",
+                "token": "COUNT",
+                "optional": true
+            }
+        ]
+    }
+}

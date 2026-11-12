@@ -4298,6 +4298,14 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
             ret = processInputBuffer(c);
             if (ret != C_OK) break;
 
+            /* Applying a command may get an error reply, e.g. the write is
+             * rejected by min-replicas-to-write. For an ASM import, this fails
+             * the task and clears this buffer, the task is retried later. */
+            if (!ctx->should_continue(ctx)) {
+                ret = C_ERR;
+                break;
+            }
+
             processed += consumed;
             buf->used -= consumed;
 
