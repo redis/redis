@@ -2915,6 +2915,11 @@ void srandmemberWithCountCommand(client *c) {
     /* For CASE 3 and CASE 4 we need an auxiliary dictionary. */
     d = dictCreate(&sdsReplyDictType);
 
+    /* Borrow hashtable members: expired members were removed above, and the set
+     * is unchanged during sampling. Other encodings need SDS copies.
+     * sdsReplyDictType has no key destructor; explicitly free only copies. */
+    int copy_members = set->encoding != OBJ_ENCODING_HT;
+
     /* CASE 3:
      * The number of elements inside the set is not greater than
      * SRANDMEMBER_SUB_STRATEGY_MUL times the number of requested elements.
@@ -2933,7 +2938,9 @@ void srandmemberWithCountCommand(client *c) {
         while (setTypeNext(&si, &str, &len, &llele) != -1) {
             int retval = DICT_ERR;
 
-            if (str == NULL) {
+            if (!copy_members) {
+                retval = dictAdd(d, (sds)str, NULL);
+            } else if (str == NULL) {
                 retval = dictAdd(d,sdsfromlonglong(llele),NULL);
             } else {
                 retval = dictAdd(d, sdsnewlen(str, len), NULL);
@@ -2948,7 +2955,7 @@ void srandmemberWithCountCommand(client *c) {
             dictEntry *de;
             de = dictGetFairRandomKey(d);
             dictUnlink(d,dictGetKey(de));
-            sdsfree(dictGetKey(de));
+            if (copy_members) sdsfree(dictGetKey(de));
             dictFreeUnlinkedEntry(d,de);
             size--;
         }
@@ -2965,7 +2972,9 @@ void srandmemberWithCountCommand(client *c) {
         dictExpand(d, count);
         while (added < count) {
             setTypeRandomElement(set, &str, &len, &llele);
-            if (str == NULL) {
+            if (!copy_members) {
+                sdsele = (sds)str;
+            } else if (str == NULL) {
                 sdsele = sdsfromlonglong(llele);
             } else {
                 sdsele = sdsnewlen(str, len);
@@ -2975,7 +2984,7 @@ void srandmemberWithCountCommand(client *c) {
              * in the result dictionary. */
             if (dictAdd(d,sdsele,NULL) == DICT_OK)
                 added++;
-            else
+            else if (copy_members)
                 sdsfree(sdsele);
         }
     }
@@ -2987,8 +2996,13 @@ void srandmemberWithCountCommand(client *c) {
 
         addReplyArrayLen(c,count);
         dictInitIterator(&di, d);
-        while((de = dictNext(&di)) != NULL)
-            addReplyBulkSds(c,dictGetKey(de));
+        while((de = dictNext(&di)) != NULL) {
+            sds ele = dictGetKey(de);
+            if (copy_members)
+                addReplyBulkSds(c, ele);
+            else
+                addReplyBulkCBuffer(c, ele, sdslen(ele));
+        }
         dictResetIterator(&di);
         dictRelease(d);
     }

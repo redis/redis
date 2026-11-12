@@ -3695,6 +3695,7 @@ struct zrange_result_handler {
     void                                *userdata;
     int                                  withscores;
     int                                  reverse;
+    int                                  source_encoding;
     int                                  should_emit_array_length;
     zbtreeAppendBatch                   *append_batch;
     zrangeResultBeginFunction            beginResultEmission;
@@ -3794,8 +3795,17 @@ static void zrangeResultEmitCBufferForStore(zrange_result_handler *handler,
      * reverse-order emission both keep the original, always-correct path.
      * The batch is created lazily on the first fast-path emit (the
      * destination may start as LISTPACK and convert mid-stream) and flushed
-     * once in zrangeResultFinalizeStore(). */
-    if (!handler->reverse && handler->dstobj->encoding == OBJ_ENCODING_BTREE) {
+     * once in zrangeResultFinalizeStore().
+     *
+     * Only a btree source is sorted by construction. A listpack source may be
+     * a restored payload that validation accepted unsorted or, without deep
+     * sanitization, with a repeated member. It takes the checked path, which
+     * places each element by (score, member) and asserts that each one was
+     * new. That costs nothing in practice: a listpack source feeds a btree
+     * destination only when the limits were lowered after it was built. */
+    if (!handler->reverse && handler->source_encoding == OBJ_ENCODING_BTREE &&
+        handler->dstobj->encoding == OBJ_ENCODING_BTREE)
+    {
         if (!handler->append_batch)
             handler->append_batch = zbtreeAppendBatchCreate(handler->dstobj->ptr);
         zbtreeAppendBatchAdd(handler->append_batch, score, value, value_length_in_bytes);
@@ -3806,7 +3816,7 @@ static void zrangeResultEmitCBufferForStore(zrange_result_handler *handler,
     sds ele = sdsnewlen(value, value_length_in_bytes);
     int retval = zsetAdd(handler->dstobj, score, ele, ZADD_IN_NONE, &retflags, &newscore);
     sdsfree(ele);
-    serverAssert(retval);
+    serverAssert(retval && (retflags & ZADD_OUT_ADDED));
 }
 
 static void zrangeResultEmitLongLongForStore(zrange_result_handler *handler,
@@ -3816,7 +3826,9 @@ static void zrangeResultEmitLongLongForStore(zrange_result_handler *handler,
      * the integer member directly into a stack buffer instead of an sds --
      * zbtreeAppendBatchAdd() copies the bytes out synchronously, so the
      * stack buffer doesn't need to outlive this call. */
-    if (!handler->reverse && handler->dstobj->encoding == OBJ_ENCODING_BTREE) {
+    if (!handler->reverse && handler->source_encoding == OBJ_ENCODING_BTREE &&
+        handler->dstobj->encoding == OBJ_ENCODING_BTREE)
+    {
         char buf[LONG_STR_SIZE];
         size_t len = ll2string(buf, sizeof(buf), value);
         if (!handler->append_batch)
@@ -3829,7 +3841,7 @@ static void zrangeResultEmitLongLongForStore(zrange_result_handler *handler,
     sds ele = sdsfromlonglong(value);
     int retval = zsetAdd(handler->dstobj, score, ele, ZADD_IN_NONE, &retflags, &newscore);
     sdsfree(ele);
-    serverAssert(retval);
+    serverAssert(retval && (retflags & ZADD_OUT_ADDED));
 }
 
 static void zrangeResultFinalizeStore(zrange_result_handler *handler, size_t result_count)
@@ -4638,6 +4650,10 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
 
     if (checkType(c,zobj,OBJ_ZSET)) goto cleanup;
 
+    /* The STORE fast path trusts the order of a btree source only.
+     * See zrangeResultEmitCBufferForStore(). */
+    handler->source_encoding = zobj->encoding;
+
     /* Step 4: Pass this to the command-specific handler. The listpack and
      * B+tree range readers never resize zobj (no member index lookup or rehash
      * step), so there is no alloc size to update; a handler that does must
@@ -5142,7 +5158,7 @@ static void zrandmemberReplyWithListpack(client *c, unsigned int count, listpack
 }
 
 /* How many times bigger should be the zset compared to the requested size
- * for us to not use the "remove elements" strategy? Read later in the
+ * for us to not use the "walk the whole zset" strategy? Read later in the
  * implementation for more info. */
 #define ZRANDMEMBER_SUB_STRATEGY_MUL 3
 
@@ -5150,6 +5166,20 @@ static void zrandmemberReplyWithListpack(client *c, unsigned int count, listpack
  * queuing may consume an unlimited amount of memory, so we want to limit
  * the number of randoms per time. */
 #define ZRANDMEMBER_RANDOM_SAMPLE_LIMIT 1000
+
+/* Return a uniform random integer in [0, n). Unlike randomULong() % n it
+ * draws 64 bits on every build (where long is 32 bits, randomULong() is the
+ * 31-bit random()) and rejects the last, partial multiple of n, so there is
+ * no modulo bias. */
+static unsigned long zrandmemberRandBelow(unsigned long n) {
+    uint64_t r, x;
+    debugServerAssert(n > 0);
+    do {
+        r = genrand64_int64();
+        x = r % n;
+    } while (r - x > UINT64_MAX - (n - 1));
+    return (unsigned long)x;
+}
 
 void zrandmemberWithCountCommand(client *c, long l, int withscores) {
     unsigned long count, size;
@@ -5293,51 +5323,52 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
     /* CASE 3:
      * The number of elements inside the zset is not greater than
      * ZRANDMEMBER_SUB_STRATEGY_MUL times the number of requested elements.
-     * In this case we create a dict from scratch with all the elements, and
-     * subtract random elements to reach the requested number of elements.
+     * In this case we walk the B+ tree once in descending score order, like
+     * CASE 2, and emit each member with probability needed/remaining
+     * (selection sampling). The result is a uniform sample, with no
+     * temporary dict and no member copies.
      *
      * This is done because if the number of requested elements is just
      * a bit less than the number of elements in the set, the natural approach
-     * used into CASE 4 is highly inefficient. */
-    if (count*ZRANDMEMBER_SUB_STRATEGY_MUL > size) {
-        /* Hashtable encoding (generic implementation) */
-        dict *d = dictCreate(&sdsReplyDictType);
-        dictExpand(d, size);
-        /* Add all the elements into the temporary dictionary. */
-        while (zuiNext(&src, &zval)) {
-            sds key = zuiNewSdsFromValue(&zval);
-            dictEntry *de = dictAddRaw(d, key, NULL);
-            serverAssert(de);
-            if (withscores)
-                dictSetDoubleVal(de, zval.score);
+     * used into CASE 4 is highly inefficient. Listpack is served by CASE 2.5;
+     * other encodings fall through to CASE 4. */
+    if (zsetobj->encoding == OBJ_ENCODING_BTREE &&
+        count*ZRANDMEMBER_SUB_STRATEGY_MUL > size)
+    {
+        unsigned long needed = count, remaining = size;
+        zbtreeIterator iter;
+        const unsigned char *ele;
+        size_t len;
+        double score;
+        int aborted = 0;
+        /* A separate iterator, not src's: zuiNext() decodes every member,
+         * and this walk skips the ones it does not select. */
+        int started = zbtreeIteratorStart(zsetobj->ptr, 1, &iter);
+        serverAssert(started);
+        while (needed) {
+            if (zrandmemberRandBelow(remaining) >= needed) {
+                /* Not selected: step over it without decoding it. */
+                if (!zbtreeIteratorNext(&iter, 1, NULL, NULL, NULL)) break;
+            } else {
+                if (!zbtreeIteratorNext(&iter, 1, &ele, &len,
+                                        withscores ? &score : NULL)) break;
+                if (withscores && c->resp > 2)
+                    addReplyArrayLen(c,2);
+                addReplyBulkCBuffer(c, ele, len);
+                if (withscores)
+                    addReplyDouble(c, score);
+                needed--;
+                if (c->flags & CLIENT_CLOSE_ASAP) {
+                    aborted = 1;
+                    break;
+                }
+            }
+            remaining--;
         }
-        serverAssert(dictSize(d) == size);
-
-        /* Remove random elements to reach the right count. */
-        while (size > count) {
-            dictEntry *de;
-            de = dictGetFairRandomKey(d);
-            dictUnlink(d,dictGetKey(de));
-            sdsfree(dictGetKey(de));
-            dictFreeUnlinkedEntry(d,de);
-            size--;
-        }
-
-        /* Reply with what's in the dict and release memory */
-        dictIterator di;
-        dictEntry *de;
-
-        dictInitIterator(&di, d);
-        while ((de = dictNext(&di)) != NULL) {
-            if (withscores && c->resp > 2)
-                addReplyArrayLen(c,2);
-            addReplyBulkSds(c, dictGetKey(de));
-            if (withscores)
-                addReplyDouble(c, dictGetDoubleVal(de));
-        }
-
-        dictResetIterator(&di);
-        dictRelease(d);
+        /* The reply length was already sent, so a short walk would corrupt
+         * the protocol. Stopping for a client being closed is the only
+         * allowed early exit. */
+        serverAssert(needed == 0 || aborted);
     }
 
     /* CASE 4: We have a big zset compared to the requested number of elements.

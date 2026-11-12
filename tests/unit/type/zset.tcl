@@ -3455,8 +3455,8 @@ start_server {tags {"zset"}} {
             }
 
             # PATH 3: Ask almost as elements as there are in the set.
-            # In this case the implementation will duplicate the original
-            # set and will remove random elements up to the requested size.
+            # For btree the implementation walks the set once and selects
+            # each element with probability needed/remaining.
             #
             # PATH 4: Ask a number of elements definitely smaller than
             # the set size.
@@ -3507,6 +3507,65 @@ start_server {tags {"zset"}} {
             }
         }
         r config set zset-max-ziplist-value $original_max_value
+    }
+
+    test "ZRANDMEMBER count > size/3 - btree" {
+        # PATH 2 and PATH 3 on a btree large enough for PATH 3 to sample
+        # (67 is the smallest PATH 3 count for 200 members), in both
+        # protocols. Every fourth member is long enough to be stored outside
+        # the tree node, and scores repeat.
+        set original_max [lindex [r config get zset-max-listpack-entries] 1]
+        r config set zset-max-listpack-entries 0
+        set code [catch {
+            r del myzset
+            for {set i 0} {$i < 200} {incr i} {
+                set m "member:$i"
+                if {$i % 4 == 0} {append m [string repeat x 330]}
+                r zadd myzset [expr {$i % 7}] $m
+            }
+            assert_encoding btree myzset
+
+            foreach proto {2 3} {
+                r hello $proto
+                set mydict [dict create {*}[concat {*}[r zrange myzset 0 -1 withscores]]]
+                foreach count {67 120 200 300} {
+                    set want [expr {min($count, 200)}]
+                    set res [r zrandmember myzset $count withscores]
+                    if {$proto == 3} {
+                        assert_equal 2 [llength [lindex $res 0]]
+                        set res [concat {*}$res]
+                    }
+                    assert_equal [expr {$want * 2}] [llength $res]
+                    assert_equal $want [dict size [dict create {*}$res]]
+                    check_member_and_score $mydict $res
+                    if {$count < 200} {
+                        # Only the PATH 3 walk returns a sample in descending
+                        # score order; PATH 4 returns it in random order.
+                        set prev [lindex $res 1]
+                        foreach {m score} $res {
+                            assert {$score <= $prev}
+                            set prev $score
+                        }
+                    }
+                }
+            }
+            r hello 2
+
+            # Each of 200 members is in a reply with probability 120/200, so
+            # after 1000 calls the chi-square value of a uniform sampler is
+            # about 80 (sd about 8).
+            set allkey {}
+            for {set i 0} {$i < 1000} {incr i} {
+                set res [r zrandmember myzset 120]
+                assert_equal 120 [llength [lsort -unique $res]]
+                lappend allkey {*}$res
+            }
+            assert_lessthan [chi_square_value $allkey] 200
+        } err opts]
+        # Restore the config even when an assertion fails (catch rather than
+        # try/finally, since the suite still supports Tcl 8.5).
+        r config set zset-max-listpack-entries $original_max
+        if {$code} {error $err [dict get $opts -errorinfo]}
     }
 
     test {zset score double range} {

@@ -375,6 +375,18 @@ endif
 
 REDIS_CC=$(QUIET_CC)$(CC) $(FINAL_CFLAGS)
 REDIS_LD=$(QUIET_LINK)$(CC) $(FINAL_LDFLAGS)
+# GCC's LTO linker invokes make and needs the parent's jobserver descriptors.
+# A '+' recipe prefix passes them through, but must not execute the linker in
+# dry-run, touch or query mode. Short flags occupy the first MAKEFLAGS word.
+REDIS_MAKE_SHORT_FLAGS = $(firstword -$(MAKEFLAGS))
+
+REDIS_LD_RECURSIVE = +
+ifneq (,$(or \
+    $(findstring n,$(REDIS_MAKE_SHORT_FLAGS)), \
+    $(findstring t,$(REDIS_MAKE_SHORT_FLAGS)), \
+    $(findstring q,$(REDIS_MAKE_SHORT_FLAGS))))
+REDIS_LD_RECURSIVE =
+endif
 REDIS_INSTALL=$(QUIET_INSTALL)$(INSTALL)
 
 CCCOLOR="\033[34m"
@@ -462,7 +474,7 @@ endif
 
 # redis-server
 $(REDIS_SERVER_NAME): $(REDIS_SERVER_OBJ) $(REDIS_VEC_SETS_OBJ)
-	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/lua/src/liblua.a ../deps/hdr_histogram/libhdrhistogram.a ../deps/fpconv/libfpconv.a ../deps/xxhash/libxxhash.a ../deps/tre/libtre.a ../deps/croaring/libroaring.a $(FINAL_LIBS)
+	$(REDIS_LD_RECURSIVE)$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/lua/src/liblua.a ../deps/hdr_histogram/libhdrhistogram.a ../deps/fpconv/libfpconv.a ../deps/xxhash/libxxhash.a ../deps/tre/libtre.a ../deps/croaring/libroaring.a $(FINAL_LIBS)
 
 # redis-sentinel
 $(REDIS_SENTINEL_NAME): $(REDIS_SERVER_NAME)
@@ -478,15 +490,15 @@ $(REDIS_CHECK_AOF_NAME): $(REDIS_SERVER_NAME)
 
 # redis-tls.so
 $(TLS_MODULE_NAME): $(REDIS_SERVER_NAME)
-	$(QUIET_CC)$(CC) -o $@ tls.c -shared -fPIC $(TLS_MODULE_CFLAGS) $(TLS_CLIENT_LIBS)
+	$(REDIS_LD_RECURSIVE)$(QUIET_CC)$(CC) -o $@ tls.c -shared -fPIC $(TLS_MODULE_CFLAGS) $(TLS_CLIENT_LIBS)
 
 # redis-cli
 $(REDIS_CLI_NAME): $(REDIS_CLI_OBJ)
-	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/linenoise/linenoise.o ../deps/hdr_histogram/libhdrhistogram.a $(FINAL_LIBS) $(TLS_CLIENT_LIBS)
+	$(REDIS_LD_RECURSIVE)$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/linenoise/linenoise.o ../deps/hdr_histogram/libhdrhistogram.a $(FINAL_LIBS) $(TLS_CLIENT_LIBS)
 
 # redis-benchmark
 $(REDIS_BENCHMARK_NAME): $(REDIS_BENCHMARK_OBJ)
-	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/hdr_histogram/libhdrhistogram.a $(FINAL_LIBS) $(TLS_CLIENT_LIBS)
+	$(REDIS_LD_RECURSIVE)$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/hdr_histogram/libhdrhistogram.a $(FINAL_LIBS) $(TLS_CLIENT_LIBS)
 
 DEP = $(REDIS_SERVER_OBJ:%.o=%.d) $(REDIS_VEC_SETS_OBJ:%.o=%.d) $(REDIS_CLI_OBJ:%.o=%.d) $(REDIS_BENCHMARK_OBJ:%.o=%.d)
 -include $(DEP)
@@ -544,7 +556,9 @@ lcov:
 	# geninfo_unexecuted_blocks=1 count partially executed lines as uncovered.
 	# May lower coverage but gives a strict result
 	@geninfo --rc geninfo_unexecuted_blocks=1 -o redis.info .
-	@genhtml --legend -o lcov-html redis.info
+	# Optimized builds can report zero function hits despite covered lines (e.g. after inlining).
+	# Keep these inconsistencies as warnings so HTML generation can finish without changing redis.info.
+	@genhtml --ignore-errors inconsistent --legend -o lcov-html redis.info
 
 .PHONY: lcov
 
