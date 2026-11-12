@@ -190,6 +190,7 @@ REDIS_STATIC quicklistNode *quicklistCreateNode(quicklist *quicklist) {
     node->encoding = QUICKLIST_NODE_ENCODING_RAW;
     node->container = QUICKLIST_NODE_CONTAINER_PACKED;
     node->recompress = 0;
+    node->attempted_compress = 0;
     node->dont_compress = 0;
     return node;
 }
