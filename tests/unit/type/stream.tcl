@@ -4073,6 +4073,16 @@ start_server {tags {"stream"}} {
         assert_equal 1 [r XDEL mystream 2-0]
         assert_equal {2 -1 -1} [r XDELEX mystream ACKED IDS 3 1-0 2-0 5-0]
         assert_equal 1 [r XLEN mystream]
+
+        # An entry deleted while still pending in a group is still referenced,
+        # also when another group has not read that far.
+        r DEL mystream
+        r XADD mystream 1-0 f v
+        r XGROUP CREATE mystream group1 0
+        r XGROUP CREATE mystream group2 0
+        r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
+        assert_equal 1 [r XDEL mystream 1-0]
+        assert_equal {2} [r XDELEX mystream ACKED IDS 1 1-0]
     }
 
     test "XDELEX with ACKED option won't delete messages when new consumer groups are created" {
