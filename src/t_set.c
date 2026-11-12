@@ -2596,8 +2596,9 @@ void spopWithCountCommand(client *c) {
     robj **propargv = NULL;
     unsigned long propindex = 0;
     unsigned long batchsize;
-    if ((remaining*SPOP_MOVE_STRATEGY_MUL > count) &&
-        (set->encoding == OBJ_ENCODING_LISTPACK)) {
+    if (remaining*SPOP_MOVE_STRATEGY_MUL > count &&
+        set->encoding == OBJ_ENCODING_LISTPACK)
+    {
         batchsize = count > 1024 ? 1024 : count;
         propargv = zmalloc(sizeof(robj *) * (2 + batchsize));
         propargv[0] = shared.srem;
