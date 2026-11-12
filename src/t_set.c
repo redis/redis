@@ -2595,73 +2595,89 @@ void spopWithCountCommand(client *c) {
      * set size. We can just extract random elements and return them to
      * the set. The command is propagated as SREM commands of the popped
      * members. */
-    if (remaining*SPOP_MOVE_STRATEGY_MUL > count) {
-        unsigned long batchsize = count > 1024 ? 1024 : count;
-        robj **propargv = zmalloc(sizeof(robj *) * (2 + batchsize));
+    robj **propargv = NULL;
+    unsigned long propindex = 0;
+    unsigned long batchsize;
+    if ((remaining*SPOP_MOVE_STRATEGY_MUL > count) &&
+        (set->encoding == OBJ_ENCODING_LISTPACK)) {
+        batchsize = count > 1024 ? 1024 : count;
+        propargv = zmalloc(sizeof(robj *) * (2 + batchsize));
         propargv[0] = shared.srem;
         propargv[1] = c->argv[1];
-        unsigned long propindex = 2;
+        propindex = 2;
+        /* Specialized case for listpack. Traverse it only once. */
+        if (server.memory_tracking_enabled)
+            oldsize = kvobjAllocSize(set);
+        unsigned char *lp = set->ptr;
+        unsigned char *p = lpFirst(lp);
+        unsigned int index = 0;
+        unsigned char **ps = zmalloc(sizeof(char *) * count);
+        for (unsigned long i = 0; i < count; i++) {
+            p = lpNextRandom(lp, p, &index, count - i, 1);
+            unsigned int len = 0;
+            str = (char *)lpGetValue(p, &len, (long long *)&llele);
 
-        if (set->encoding == OBJ_ENCODING_LISTPACK) {
-            /* Specialized case for listpack. Traverse it only once. */
-            if (server.memory_tracking_enabled)
-                oldsize = kvobjAllocSize(set);
-            unsigned char *lp = set->ptr;
-            unsigned char *p = lpFirst(lp);
-            unsigned int index = 0;
-            unsigned char **ps = zmalloc(sizeof(char *) * count);
-            for (unsigned long i = 0; i < count; i++) {
-                p = lpNextRandom(lp, p, &index, count - i, 1);
-                unsigned int len = 0;
-                str = (char *)lpGetValue(p, &len, (long long *)&llele);
-
-                if (str) {
-                    addReplyBulkCBuffer(c, str, len);
-                    propargv[propindex++] = createStringObject(str, len);
-                } else {
-                    addReplyBulkLongLong(c, llele);
-                    propargv[propindex++] = createStringObjectFromLongLong(llele);
-                }
-                /* Replicate/AOF this command as an SREM operation */
-                if (propindex == 2 + batchsize) {
-                    alsoPropagate(c->db->id, propargv, propindex, PROPAGATE_AOF | PROPAGATE_REPL);
-                    for (unsigned long j = 2; j < propindex; j++) {
-                        decrRefCount(propargv[j]);
-                    }
-                    propindex = 2;
-                }
-
-                /* Store pointer for later deletion and move to next. */
-                ps[i] = p;
-                p = lpNext(lp, p);
-                index++;
+            if (str) {
+                addReplyBulkCBuffer(c, str, len);
+                propargv[propindex++] = createStringObject(str, len);
+            } else {
+                addReplyBulkLongLong(c, llele);
+                propargv[propindex++] = createStringObjectFromLongLong(llele);
             }
-            lp = lpBatchDelete(lp, ps, count);
-            zfree(ps);
-            set->ptr = lp;
-            updateKeysizesHist(c->db, OBJ_SET, size, size - count);
-            if (server.memory_tracking_enabled)
-                updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), set, oldsize, kvobjAllocSize(set));
-        } else {
-            if (server.memory_tracking_enabled)
-                oldsize = kvobjAllocSize(set);
-            for (unsigned long i = 0; i < count; i++) {
-                propargv[propindex] = setTypePopRandom(set);
-                addReplyBulk(c, propargv[propindex]);
-                propindex++;
-                /* Replicate/AOF this command as an SREM operation */
-                if (propindex == 2 + batchsize) {
-                    alsoPropagate(c->db->id, propargv, propindex, PROPAGATE_AOF | PROPAGATE_REPL);
-                    for (unsigned long j = 2; j < propindex; j++) {
-                        decrRefCount(propargv[j]);
-                    }
-                    propindex = 2;
+            /* Replicate/AOF this command as an SREM operation */
+            if (propindex == 2 + batchsize) {
+                alsoPropagate(c->db->id, propargv, propindex, PROPAGATE_AOF | PROPAGATE_REPL);
+                for (unsigned long j = 2; j < propindex; j++) {
+                    decrRefCount(propargv[j]);
                 }
+                propindex = 2;
             }
-            updateKeysizesHist(c->db, OBJ_SET, size, size - count);
-            if (server.memory_tracking_enabled)
-                updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), set, oldsize, kvobjAllocSize(set));
+
+            /* Store pointer for later deletion and move to next. */
+            ps[i] = p;
+            p = lpNext(lp, p);
+            index++;
         }
+        lp = lpBatchDelete(lp, ps, count);
+        zfree(ps);
+        set->ptr = lp;
+        updateKeysizesHist(c->db, OBJ_SET, size, size - count);
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), set, oldsize, kvobjAllocSize(set));
+
+        /* Replicate/AOF the remaining popped elements as an SREM operation */
+        if (propindex != 2) {
+            alsoPropagate(c->db->id, propargv, propindex, PROPAGATE_AOF | PROPAGATE_REPL);
+            for (unsigned long i = 2; i < propindex; i++) {
+                decrRefCount(propargv[i]);
+            }
+        }
+        zfree(propargv);
+    } else if (remaining*SPOP_MOVE_STRATEGY_MUL > count) {
+        batchsize = count > 1024 ? 1024 : count;
+        propargv = zmalloc(sizeof(robj *) * (2 + batchsize));
+        propargv[0] = shared.srem;
+        propargv[1] = c->argv[1];
+        propindex = 2;
+
+        if (server.memory_tracking_enabled)
+            oldsize = kvobjAllocSize(set);
+        for (unsigned long i = 0; i < count; i++) {
+            propargv[propindex] = setTypePopRandom(set);
+            addReplyBulk(c, propargv[propindex]);
+            propindex++;
+            /* Replicate/AOF this command as an SREM operation */
+            if (propindex == 2 + batchsize) {
+                alsoPropagate(c->db->id, propargv, propindex, PROPAGATE_AOF | PROPAGATE_REPL);
+                for (unsigned long j = 2; j < propindex; j++) {
+                    decrRefCount(propargv[j]);
+                }
+                propindex = 2;
+            }
+        }
+        updateKeysizesHist(c->db, OBJ_SET, size, size - count);
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), set, oldsize, kvobjAllocSize(set));
 
         /* Replicate/AOF the remaining popped elements as an SREM operation */
         if (propindex != 2) {
