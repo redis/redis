@@ -1773,7 +1773,7 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
     vec *keys = data->keys;
     robj *o = data->o;
     sds val = NULL;
-    void *key = NULL;  /* zskiplistNode for zsets, field/member/key pointer otherwise. */
+    void *key = NULL;
     void *keyStr;
     data->sampled++;
 
@@ -1781,16 +1781,12 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
     serverAssert(!((data->type != LLONG_MAX) && o));
 
     kvobj *kv = NULL;
-    zskiplistNode *znode = NULL;
     if (!o) { /* If scanning keyspace */
         kv = dictGetKV(de);
         keyStr = kvobjGetKey(kv);
     } else if (o->type == OBJ_HASH) {
         hEntry = dictGetKey(de);
         keyStr = hEntryGetField(hEntry);
-    } else if (o->type == OBJ_ZSET) {
-        znode = dictGetKey(de);
-        keyStr = zslGetNodeElement(znode);
     } else {
         keyStr = dictGetKey(de);
     }
@@ -1833,9 +1829,6 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
         if (hEntryIsExpired(hEntry))
             return;
 
-    } else if (o->type == OBJ_ZSET) {
-        /* Nodes remain live throughout synchronous reply construction. */
-        key = znode;
     } else {
         serverPanic("Type not handled in SCAN callback.");
     }
@@ -1998,9 +1991,6 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         ht = o->ptr;
     } else if (o->type == OBJ_HASH && o->encoding == OBJ_ENCODING_HT) {
         ht = o->ptr;
-    } else if (o->type == OBJ_ZSET && o->encoding == OBJ_ENCODING_SKIPLIST) {
-        zset *zs = o->ptr;
-        ht = zs->dict;
     }
 
     vec keys;
@@ -2266,22 +2256,10 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
     addReplyArrayLen(c, 2);
     addReplyBulkLongLong(c,cursor);
 
-    if (o && o->type == OBJ_ZSET) {
-        addReplyArrayLen(c, vecSize(&keys) * 2);
-        char buf[MAX_D2STRING_CHARS];
-        for (size_t i = 0; i < vecSize(&keys); i++) {
-            zskiplistNode *node = vecGet(&keys, i);
-            sds member = zslGetNodeElement(node);
-            addReplyBulkCBuffer(c, member, sdslen(member));
-            int len = d2string(buf, sizeof(buf), node->score);
-            addReplyBulkCBuffer(c, buf, len);
-        }
-    } else {
-        addReplyArrayLen(c, vecSize(&keys));
-        for (size_t i = 0; i < vecSize(&keys); i++) {
-            sds key = vecGet(&keys, i);
-            addReplyBulkCBuffer(c, key, sdslen(key));
-        }
+    addReplyArrayLen(c, vecSize(&keys));
+    for (size_t i = 0; i < vecSize(&keys); i++) {
+        sds key = vecGet(&keys, i);
+        addReplyBulkCBuffer(c, key, sdslen(key));
     }
 
     vecRelease(&keys);

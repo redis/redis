@@ -5518,11 +5518,6 @@ int zsetInitScoreRange(RedisModuleKey *key, double min, double max, int minex, i
     if (key->kv->encoding == OBJ_ENCODING_LISTPACK) {
         key->u.zset.current = first ? zzlFirstInRange(key->kv->ptr,zrs) :
                                       zzlLastInRange(key->kv->ptr,zrs);
-    } else if (key->kv->encoding == OBJ_ENCODING_SKIPLIST) {
-        zset *zs = key->kv->ptr;
-        zskiplist *zsl = zs->zsl;
-        key->u.zset.current = first ? zslNthInRange(zsl, zrs, 0, NULL) :
-                                      zslNthInRange(zsl, zrs, -1, NULL);
     } else if (key->kv->encoding == OBJ_ENCODING_BTREE) {
         zbtreeIterator iter;
         unsigned long rank;
@@ -5595,11 +5590,6 @@ int zsetInitLexRange(RedisModuleKey *key, RedisModuleString *min, RedisModuleStr
     if (key->kv->encoding == OBJ_ENCODING_LISTPACK) {
         key->u.zset.current = first ? zzlFirstInLexRange(key->kv->ptr,zlrs) :
                                       zzlLastInLexRange(key->kv->ptr,zlrs);
-    } else if (key->kv->encoding == OBJ_ENCODING_SKIPLIST) {
-        zset *zs = key->kv->ptr;
-        zskiplist *zsl = zs->zsl;
-        key->u.zset.current = first ? zslNthInLexRange(zsl,zlrs,0,NULL) :
-                                      zslNthInLexRange(zsl,zlrs,-1,NULL);
     } else if (key->kv->encoding == OBJ_ENCODING_BTREE) {
         zbtreeIterator iter;
         unsigned long rank;
@@ -5664,11 +5654,6 @@ RedisModuleString *RM_ZsetRangeCurrentElement(RedisModuleKey *key, double *score
             *score = zzlGetScore(sptr);
         }
         str = createObject(OBJ_STRING,ele);
-    } else if (key->kv->encoding == OBJ_ENCODING_SKIPLIST) {
-        zskiplistNode *ln = key->u.zset.current;
-        if (score) *score = ln->score;
-        sds ele = zslGetNodeElement(ln);
-        str = createStringObject(ele,sdslen(ele));
     } else if (key->kv->encoding == OBJ_ENCODING_BTREE) {
         const unsigned char *ele;
         size_t len;
@@ -5718,27 +5703,6 @@ int RM_ZsetRangeNext(RedisModuleKey *key) {
                 next = saved_next;
             } else if (key->u.zset.type == REDISMODULE_ZSET_RANGE_LEX) {
                 if (!zzlLexValueLteMax(next,&key->u.zset.lrs)) {
-                    key->u.zset.er = 1;
-                    return 0;
-                }
-            }
-            key->u.zset.current = next;
-            return 1;
-        }
-    } else if (key->kv->encoding == OBJ_ENCODING_SKIPLIST) {
-        zskiplistNode *ln = key->u.zset.current, *next = ln->level[0].forward;
-        if (next == NULL) {
-            key->u.zset.er = 1;
-            return 0;
-        } else {
-            /* Are we still within the range? */
-            if (key->u.zset.type == REDISMODULE_ZSET_RANGE_SCORE &&
-                !zslValueLteMax(next->score,&key->u.zset.rs))
-            {
-                key->u.zset.er = 1;
-                return 0;
-            } else if (key->u.zset.type == REDISMODULE_ZSET_RANGE_LEX) {
-                if (!zslLexValueLteMax(zslGetNodeElement(next),&key->u.zset.lrs)) {
                     key->u.zset.er = 1;
                     return 0;
                 }
@@ -5804,27 +5768,6 @@ int RM_ZsetRangePrev(RedisModuleKey *key) {
                 prev = saved_prev;
             } else if (key->u.zset.type == REDISMODULE_ZSET_RANGE_LEX) {
                 if (!zzlLexValueGteMin(prev,&key->u.zset.lrs)) {
-                    key->u.zset.er = 1;
-                    return 0;
-                }
-            }
-            key->u.zset.current = prev;
-            return 1;
-        }
-    } else if (key->kv->encoding == OBJ_ENCODING_SKIPLIST) {
-        zskiplistNode *ln = key->u.zset.current, *prev = ln->backward;
-        if (prev == NULL) {
-            key->u.zset.er = 1;
-            return 0;
-        } else {
-            /* Are we still within the range? */
-            if (key->u.zset.type == REDISMODULE_ZSET_RANGE_SCORE &&
-                !zslValueGteMin(prev->score,&key->u.zset.rs))
-            {
-                key->u.zset.er = 1;
-                return 0;
-            } else if (key->u.zset.type == REDISMODULE_ZSET_RANGE_LEX) {
-                if (!zslLexValueGteMin(zslGetNodeElement(prev),&key->u.zset.lrs)) {
                     key->u.zset.er = 1;
                     return 0;
                 }
@@ -12685,11 +12628,6 @@ static void moduleScanKeyCallback(void *privdata, const dictEntry *de, dictEntry
 
         field = createStringObject(fieldStr, sdslen(fieldStr));
         value = createStringObject(val, sdslen(val));
-    } else if (kv->type == OBJ_ZSET) {
-        zskiplistNode *znode = (zskiplistNode *) key;
-        sds fieldStr = zslGetNodeElement(znode);
-        field = createStringObject(fieldStr, sdslen(fieldStr));
-        value = createStringObjectFromLongDouble(znode->score, 0);
     }
     
     serverAssert(field != NULL);
@@ -12754,10 +12692,7 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
     } else if (kv->type == OBJ_HASH) {
         if (kv->encoding == OBJ_ENCODING_HT)
             ht = kv->ptr;
-    } else if (kv->type == OBJ_ZSET) {
-        if (kv->encoding == OBJ_ENCODING_SKIPLIST)
-            ht = ((zset *)kv->ptr)->dict;
-    } else {
+    } else if (kv->type != OBJ_ZSET) {
         errno = EINVAL;
         return 0;
     }
