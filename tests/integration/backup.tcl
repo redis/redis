@@ -327,7 +327,7 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
             file delete -force $preload_dir $local_dir
             file mkdir $preload_dir $local_dir
             set failed [catch {
-                set fp [open $root_aof {WRONLY CREAT EXCL}]
+                set fp [open $root_aof {RDWR CREAT EXCL}]
                 puts -nonewline $fp [formatCommand select 9]
                 puts -nonewline $fp [formatCommand set root-target-key value]
                 close $fp
