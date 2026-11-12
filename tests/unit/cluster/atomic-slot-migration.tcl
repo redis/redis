@@ -229,6 +229,8 @@ proc stream_cgroups_hist {node_id metric {dbnum 0}} {
     return ""
 }
 proc stream_pel_hist {node_id {dbnum 0}} { return [stream_cgroups_hist $node_id stream_distrib_cgroups_pel $dbnum] }
+# The per-stream max-lag row, read the same way.
+proc stream_lag_hist {node_id {dbnum 0}} { return [stream_cgroups_hist $node_id stream_distrib_streams_max_lag $dbnum] }
 
 start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 60000 cluster-allow-replica-migration no}} {
     foreach trim_method {"active" "bg"} {
@@ -1847,7 +1849,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
 start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 60000 cluster-allow-replica-migration no}} {
     foreach trim_method {"active" "bg"} {
-        test "Slot trim updates stream_distrib_cgroups_pel histogram (trim method: $trim_method)" {
+        test "Slot trim updates the stream_distrib histograms (trim method: $trim_method)" {
             R 0 debug asm-trim-method $trim_method
             R 0 flushall
             R 1 flushall
@@ -1855,11 +1857,12 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             R 1 config set stream-stats yes
 
             # Streams in slots migrated away (0-100) and one that stays (101).
-            # Each has a group with a partial read, giving distinct PEL bins:
-            #   key   entries read -> PEL
-            #   s0    4       1       1
-            #   s1    8       4       4
-            #   s101  2       1       1
+            # Each has a group with a partial read, giving distinct PEL bins.
+            # The group's lag, entries minus read, is the stream's max lag:
+            #   key   entries read -> PEL  lag
+            #   s0    4       1       1    3
+            #   s1    8       4       4    4
+            #   s101  2       1       1    1
             set s0 [slot_key 0 strm]
             set s1 [slot_key 1 strm]
             set s101 [slot_key 101 strm]
@@ -1869,6 +1872,8 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
                 R 0 xreadgroup group g c count $r streams $key >
             }
             assert_equal "1=2,4=1" [stream_pel_hist 0]     ;# PEL 1,4,1
+            # A row prints a bin by its lower bound: lag 3 is in bin "2".
+            assert_equal "1=1,2=1,4=1" [stream_lag_hist 0] ;# lag 1,3,4
 
             # Migrate slots 0-100 to R 1; slot 101 stays on R 0.
             R 1 CLUSTER MIGRATION IMPORT 0 100
@@ -1876,15 +1881,18 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
             # Trimming the migrated slots frees their stream keys (and groups) --
             # with the bg method off-thread, bypassing streamKeyRemoved -- so
-            # R 0's histogram must drop to just the slot-101 group.
+            # R 0's histograms must drop to just the slot-101 group and stream.
+            # The bg method reads each stream's max lag from its lag heap on
+            # the BIO thread.
             wait_for_condition 1000 50 {
-                [stream_pel_hist 0] eq "1=1"
+                [stream_pel_hist 0] eq "1=1" && [stream_lag_hist 0] eq "1=1"
             } else {
-                fail "R0 histogram not trimmed: pel=[stream_pel_hist 0]"
+                fail "R0 histograms not trimmed: pel=[stream_pel_hist 0] lag=[stream_lag_hist 0]"
             }
 
             # The importing node counts the migrated groups as they load.
             assert_equal "1=1,4=1" [stream_pel_hist 1]
+            assert_equal "2=1,4=1" [stream_lag_hist 1]     ;# lag 3,4
 
             # cleanup: flush and migrate the slots back to R 0.
             R 0 flushall
@@ -1915,12 +1923,14 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 0 config set stream-stats yes
 
         # Create a group in a slot that will be migrated. Give it one pending entry
-        # so its PEL histogram contribution is in bin "1".
+        # so its PEL histogram contribution is in bin "1". It has read one of
+        # three entries, so the stream's max-lag sample is in bin "2".
         set mig [slot_key 3 strm]
         for {set i 1} {$i <= 3} {incr i} { R 0 xadd $mig $i-1 f v }
         R 0 xgroup create $mig g 0
         R 0 xreadgroup group g c count 1 streams $mig >
         assert_equal "1=1" [stream_pel_hist 0]
+        assert_equal "2=1" [stream_lag_hist 0]
 
         # Keep the background trim busy long enough to cross the synchronous
         # FLUSH: one hash with many fields gives the BIO thread a long free
@@ -1963,8 +1973,8 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # reset and this run would not exercise the bug.
         assert {[getInfoProperty [R 0 info memory] lazyfree_pending_objects] > 0}
 
-        # Add a fresh group in the same PEL bin that the stale delta would
-        # decrement.
+        # Add a fresh group in the same PEL bin, on a stream in the same lag
+        # bin, that the stale delta would decrement.
         set keep [slot_key 101 strm]
         for {set i 1} {$i <= 3} {incr i} {
             R 0 xadd $keep $i-1 f v
@@ -1972,6 +1982,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 0 xgroup create $keep g 0
         R 0 xreadgroup group g c count 1 streams $keep >
         assert_equal "1=1" [stream_pel_hist 0]
+        assert_equal "2=1" [stream_lag_hist 0]
 
         # Wait for the BIO thread to finish freeing the trimmed slot, then give
         # the main thread time to run the completion callback that performs the
@@ -1985,6 +1996,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         after 100
 
         assert_equal "1=1" [stream_pel_hist 0]
+        assert_equal "2=1" [stream_lag_hist 0]
         # Same for INFO keysizes: the fresh 3-entry stream is the only key, so the
         # hashes row (the trimmed 400k-field filler) must stay absent and the
         # streams row must still hold the fresh sample, bin "2" for 3 entries.
