@@ -3736,6 +3736,7 @@ void freeReplicaReferencedReplBuffer(client *replica);
 void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv, int argc);
 void updateSlavesWaitingBgsave(int bgsaveerr, int type);
 void replicationCron(void);
+void replicationResumeMasterClient(void);
 void setReplCompression(int level);
 void enableMasterClientDecompressionIfNeeded(client *c);
 void replicationStartPendingFork(void);

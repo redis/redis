@@ -317,11 +317,14 @@ int isClientMustHandledByMainThread(client *c) {
     /* If RDB replication is done it's safe to move the master client to an IO thread.
      * Note that we keep the master client in main thread during failover so as
      * not to slow down the failover process by waiting the master replication
-     * cron in IO thread. */
+     * cron in IO thread. Keep it here while BUSY or while a command is
+     * deferred, so that IO threads can continue parsing without checking BUSY. */
     if (c->flags & CLIENT_MASTER &&
         server.repl_state == REPL_STATE_CONNECTED &&
         server.repl_rdb_ch_state == REPL_RDB_CH_STATE_NONE &&
-        server.failover_state == NO_FAILOVER)
+        server.failover_state == NO_FAILOVER &&
+        !isInsideYieldingLongCommand() &&
+        !(c->flags & CLIENT_PENDING_COMMAND))
     {
         return 0;
     }

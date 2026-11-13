@@ -58,6 +58,23 @@ static void rdbChannelCleanup(void);
  * the instance is configured to have no persistence. */
 int RDBGeneratedByReplication = 0;
 
+/* Resume buffered replication after a yielding long command ends. Nested yields
+ * may still be BUSY. Clients owned by an IO thread (including those in transit)
+ * need no recovery: IO threads never stop parsing because of BUSY.
+ *
+ * Use tid, not running_tid: only a main-thread-owned client can safely join
+ * unblocked_clients. Module cleanup can run on a background thread holding the
+ * GIL, like unblockPostponedClients; do not use the IO-thread handoff protocol
+ * here. Queue execution for a safe point in beforeSleep, outside cleanup and
+ * processEventsWhileBlocked. CLIENT_UNBLOCKED keeps the client on the main
+ * thread until then. */
+void replicationResumeMasterClient(void) {
+    if (isInsideYieldingLongCommand()) return;
+    if (!server.masterhost || !server.master) return;
+    if (server.master->tid != IOTHREAD_MAIN_THREAD_ID) return;
+    queueClientForReprocessing(server.master);
+}
+
 /* Set the replication compression level. When Redis is built without
  * compression support (BUILD_COMPRESSION=yes enables it) the level is always
  * forced to 0, so replication compression stays completely disabled and the
@@ -4706,6 +4723,10 @@ void replicationCacheMaster(client *c) {
     c->bufpos = 0;
     resetClient(c, -1);
     resetClientQbufState(c);
+    /* The discarded command may have been deferred during BUSY. A resumed
+     * connection must parse it again from the last applied replication offset. */
+    c->flags &= ~CLIENT_PENDING_COMMAND;
+    c->io_flags &= ~CLIENT_IO_PENDING_COMMAND;
 
     /* Save the master. Server.master will be set to null later by
      * replicationHandleMasterDisconnection(). */

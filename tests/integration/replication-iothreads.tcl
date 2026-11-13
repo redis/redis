@@ -478,3 +478,221 @@ start_server {overrides {io-threads 4 save ""}} {
 }
 
 }
+
+
+# Observe a BUSY replica through a test-only command. CLIENT LIST pauses the
+# IO threads while taking its snapshot; RM_Call also lets us inspect the data.
+proc busy_master_client_field {replica field} {
+    set clients [$replica do_rm_call_allow_busy client list type master]
+    if {![regexp [format {(?:^| )%s=([^ \r\n]+)} $field] $clients -> value]} {
+        fail "Missing master client field $field: $clients"
+    }
+    return $value
+}
+
+proc start_replication_busy {replica kind} {
+    set rd [redis_deferring_client]
+    switch $kind {
+        EVAL - EVAL_RO { $rd $kind {while true do end} 0 }
+        FCALL - FCALL_RO { $rd $kind replication_busy 0 }
+        module { $rd slow_fg_command 0 }
+        background {
+            $replica set_slow_bg_operation 1
+            $rd do_bg_rm_call ping
+        }
+    }
+    wait_for_condition 100 10 {
+        [catch {$replica ping} reply] && [string match {BUSY*} $reply]
+    } else {
+        fail "Replica did not enter BUSY"
+    }
+    return $rd
+}
+
+proc stop_replication_busy {replica rd kind} {
+    switch $kind {
+        EVAL - EVAL_RO {
+            $replica script kill
+            assert_error {ERR*Script killed*} {$rd read}
+        }
+        FCALL - FCALL_RO {
+            $replica function kill
+            assert_error {ERR*Script killed*} {$rd read}
+        }
+        module {
+            $replica stop_slow_fg_command
+            assert_equal 1 [$rd read]
+        }
+        background {
+            $replica set_slow_bg_operation 0
+            assert_equal PONG [$rd read]
+        }
+    }
+    $rd close
+}
+
+# Exercise main-thread and IO-thread ownership. Compression runs use IO threads
+# at both ends so the replication connection actually negotiates compression.
+foreach threads {1 4} {
+    set compression [expr {$::compression && $threads > 1}]
+    set upstream_overrides {save "" repl-timeout 300 repl-ping-replica-period 3600 repl-diskless-sync-delay 0}
+    set replica_overrides [list save "" io-threads $threads io-threads-client-types all busy-reply-threshold 10]
+    if {$compression} {
+        lappend upstream_overrides io-threads 4 repl-compression 1 repl-compression-max-latency 10
+        lappend replica_overrides repl-compression 1 repl-compression-max-latency 10
+    }
+    start_server [list tags {iothreads repl modules external:skip} overrides $upstream_overrides] {
+        set master [srv 0 client]
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+        start_server [list overrides $replica_overrides] {
+            set replica [srv 0 client]
+            $replica module load [file normalize tests/modules/blockedclient.so]
+            $master function load {#!lua name=replication_busy_lib
+                redis.register_function{
+                    function_name='replication_busy',
+                    callback=function() while true do end end,
+                    flags={'no-writes'}
+                }
+            }
+            $replica replicaof $master_host $master_port
+            wait_for_sync $replica
+            set variant "io-threads=$threads compression=$compression"
+
+            foreach kind {EVAL EVAL_RO FCALL FCALL_RO module} {
+                test "Replication resumes after $kind BUSY without upstream traffic ($variant)" {
+                    if {$compression} {
+                        assert {[count_log_message 0 "Master agreed to compression level 1"] > 0}
+                    }
+                    $master set busy-counter 0
+                    $master del busy-marker
+                    assert_equal 1 [$master wait 1 5000]
+                    if {$threads > 1} {
+                        wait_for_condition 100 50 {
+                            [busy_master_client_field $replica io-thread] > 0
+                        } else {
+                            fail "Master client was not assigned to an IO thread"
+                        }
+                    }
+                    set master_id [busy_master_client_field $replica id]
+                    set offset [status $master master_repl_offset]
+                    set rd [start_replication_busy $replica $kind]
+                    $master incr busy-counter
+                    wait_for_condition 100 10 {
+                        [busy_master_client_field $replica io-thread] == 0
+                    } else {
+                        fail "BUSY master client was not kept on the main thread"
+                    }
+                    # Send GETACK before the marker below. Receiving the marker
+                    # then proves GETACK arrived too, so it cannot wake replication
+                    # after BUSY ends and hide a missing explicit resume.
+                    assert_equal 0 [$master wait 1 100]
+                    assert {[regexp {slave0:[^\r\n]*,offset=([0-9]+)} [$master info replication] -> ack]}
+                    assert {$ack <= $offset}
+                    # IO threads may parse ahead before handoff. Only assert
+                    # parsing stops after the client belongs to the main thread.
+                    set parsed [busy_master_client_field $replica avg-pipeline-len-sum]
+                    set qbuf [busy_master_client_field $replica qbuf]
+                    $master incr busy-counter
+                    set marker [string repeat x 65536]
+                    $master set busy-marker $marker
+                    wait_for_condition 100 10 {
+                        [busy_master_client_field $replica qbuf] > $qbuf + 65536
+                    } else {
+                        fail "Replica stopped receiving buffered input during BUSY"
+                    }
+                    assert_equal $parsed [busy_master_client_field $replica avg-pipeline-len-sum]
+                    assert_equal 0 [$replica do_rm_call_allow_busy get busy-counter]
+                    assert_equal {} [$replica do_rm_call_allow_busy get busy-marker]
+
+                    stop_replication_busy $replica $rd $kind
+                    # No upstream write or WAIT from here until data and offsets
+                    # catch up. Polling the replica cannot wake its master socket.
+                    wait_for_condition 100 50 {
+                        [$replica get busy-marker] eq $marker
+                    } else {
+                        fail "Buffered replication did not resume after $kind BUSY"
+                    }
+                    wait_for_ofs_sync $master $replica
+                    assert_equal 2 [$replica get busy-counter]
+                    assert_equal $master_id [busy_master_client_field $replica id]
+                    assert_equal 0 [status $replica unexpected_error_replies]
+                    assert_equal [$master debug digest] [$replica debug digest]
+                    if {$threads > 1} {
+                        wait_for_condition 100 50 {
+                            [busy_master_client_field $replica io-thread] > 0
+                        } else {
+                            fail "Master client did not return to an IO thread"
+                        }
+                    }
+                }
+            }
+
+            # These lifecycle paths only need one threaded configuration.
+            if {$threads > 1} {
+                test "Replication resumes after background module BUSY without upstream traffic ($variant)" {
+                    $master set busy-counter 0
+                    assert_equal 1 [$master wait 1 5000]
+                    # Frequent yields bound the GIL scheduling time for snapshots.
+                    set old_hz [lindex [$replica config get hz] 1]
+                    $replica config set hz 100
+                    set rd [start_replication_busy $replica background]
+                    $master incr busy-counter
+                    wait_for_condition 100 10 {
+                        [busy_master_client_field $replica io-thread] == 0
+                    } else {
+                        fail "Background BUSY did not keep the master on the main thread"
+                    }
+                    assert_equal 0 [$replica do_rm_call_allow_busy get busy-counter]
+                    # RM_ThreadSafeContextUnlock performs module cleanup on the
+                    # background thread. It must queue recovery without pulling an
+                    # IO-thread-owned client into the main thread's unblocked list.
+                    stop_replication_busy $replica $rd background
+                    $replica config set hz $old_hz
+                    wait_for_ofs_sync $master $replica
+                    assert_equal 1 [$replica get busy-counter]
+                }
+
+                test "Replication discards deferred command flags on BUSY disconnect ($variant)" {
+                    $master set busy-counter 0
+                    assert_equal 1 [$master wait 1 5000]
+                    set syncs [status $master sync_partial_ok]
+                    set rd [start_replication_busy $replica EVAL]
+                    $master incr busy-counter
+                    wait_for_condition 100 10 {
+                        [busy_master_client_field $replica io-thread] == 0
+                    } else {
+                        fail "Master client did not move to main thread"
+                    }
+                    assert_equal 0 [$replica do_rm_call_allow_busy get busy-counter]
+                    assert_equal 1 [$replica do_rm_call_allow_busy client kill type master]
+                    stop_replication_busy $replica $rd EVAL
+                    wait_for_sync $replica
+                    wait_for_ofs_sync $master $replica
+                    assert_equal 1 [$replica get busy-counter]
+                    assert {[status $master sync_partial_ok] > $syncs}
+                    $master incr busy-counter
+                    assert_equal 1 [$master wait 1 5000]
+                    assert_equal 2 [$replica get busy-counter]
+                }
+
+                test "Replication resumes after module yield without CLIENTS ($variant)" {
+                    $master set busy-counter 0
+                    assert_equal 1 [$master wait 1 5000]
+                    set rd [redis_deferring_client]
+                    $rd slow_fg_command 1000000
+                    # This mode postpones even allow-busy commands. As in the module
+                    # API tests, allow the command to start before sending writes.
+                    after 100
+                    $master incr busy-counter
+                    set start [clock milliseconds]
+                    assert_equal 1 [$rd read]
+                    assert_morethan_equal [expr {[clock milliseconds]-$start}] 100
+                    $rd close
+                    wait_for_ofs_sync $master $replica
+                    assert_equal 1 [$replica get busy-counter]
+                }
+            }
+        }
+    }
+}
