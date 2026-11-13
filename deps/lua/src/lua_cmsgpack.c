@@ -18,6 +18,11 @@
     #define LUACMSGPACK_MAX_NESTING  16 /* Max tables nesting. */
 #endif
 
+/* Workaround for Solaris platforms missing isinf() */
+#if !defined(isinf) && (defined(USE_INTERNAL_ISINF) || defined(MISSING_ISINF))
+#define isinf(x) (!isnan(x) && isnan((x) - (x)))
+#endif
+
 /* Check if float or double can be an integer without loss of precision */
 #define IS_INT_TYPE_EQUIVALENT(x, T) (!isinf(x) && (T)(x) == (x))
 
