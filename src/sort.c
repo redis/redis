@@ -175,10 +175,16 @@ int sortCompare(const void *s1, const void *s2) {
 }
 
 /* Create a sort vector element from a value read in place: the 'len' bytes
- * at 'str', or the integer 'll' when 'str' is NULL. */
-static robj *createSortElement(const char *str, size_t len, long long ll) {
+ * at 'str', or the integer 'll' when 'str' is NULL. When 'decode' is set the
+ * integer is formatted once here, as ALPHA without BY compares the elements
+ * as strings and would otherwise format it again on every comparison. */
+static robj *createSortElement(const char *str, size_t len, long long ll, int decode) {
+    char buf[LONG_STR_SIZE];
+
     if (str) return createStringObject(str,len);
-    return createStringObjectFromLongLong(ll);
+    if (!decode) return createStringObjectFromLongLong(ll);
+    len = ll2string(buf,sizeof(buf),ll);
+    return createStringObject(buf,len);
 }
 
 /* The SORT command is the most complex command in Redis. Warning: this code
@@ -446,7 +452,7 @@ void sortCommandGeneric(client *c, int readonly) {
         int64_t llele;
         setTypeInitIterator(&si, sortval, SET_ITER_SKIP_EXPIRED);
         while(setTypeNext(&si, &str, &len, &llele) != -1) {
-            vector[j].obj = createSortElement(str,len,llele);
+            vector[j].obj = createSortElement(str,len,llele,alpha && !sortby);
             vector[j].u.score = 0;
             vector[j].u.cmpobj = NULL;
             j++;
@@ -476,7 +482,7 @@ void sortCommandGeneric(client *c, int readonly) {
             while (rangelen--) {
                 serverAssertWithInfo(c,sortval,eptr != NULL);
                 vstr = lpGetValue(eptr,&vlen,&vlong);
-                vector[j].obj = createSortElement((char *)vstr,vlen,vlong);
+                vector[j].obj = createSortElement((char *)vstr,vlen,vlong,alpha && !sortby);
                 vector[j].u.score = 0;
                 vector[j].u.cmpobj = NULL;
                 j++;
@@ -497,7 +503,7 @@ void sortCommandGeneric(client *c, int readonly) {
             serverAssertWithInfo(c,sortval,sptr != NULL);
             while (eptr) {
                 vstr = lpGetValue(eptr,&vlen,&vlong);
-                vector[j].obj = createSortElement((char *)vstr,vlen,vlong);
+                vector[j].obj = createSortElement((char *)vstr,vlen,vlong,alpha && !sortby);
                 vector[j].u.score = 0;
                 vector[j].u.cmpobj = NULL;
                 j++;
