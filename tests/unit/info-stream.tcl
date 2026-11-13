@@ -1342,6 +1342,46 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         check_lag_full r 0
     }
 
+    test "STREAM-STATS - a group command or an XSETID clamp while off frees the lag heap" {
+        r config set stream-stats yes
+        r FLUSHALL
+        # Two streams of ten entries with entries_added raised to 20. In
+        # each, g1 has read 20 and g2 has read 12: g2's lag is 8. Both groups
+        # are in their stream's heap.
+        foreach s {sg sx} {
+            seed_stream r $s 10
+            r xsetid $s 10-1 entriesadded 20
+            r xgroup create $s g1 0 entriesread 20
+            r xgroup create $s g2 0 entriesread 12
+        }
+        assert_equal "db0_stream_distrib_streams_max_lag:8=2" [get_info_stream_field r stream_distrib_streams_max_lag]
+
+        # While off nothing keeps a heap up to date. A command that changes
+        # no group position leaves it alone: XDEL of a missing entry frees
+        # nothing.
+        r config set stream-stats no
+        set before [r memory usage sg]
+        assert_equal 0 [r xdel sg 99-1]
+        assert_equal $before [r memory usage sg]
+        # A group command frees it, here an XACK that acknowledges nothing.
+        assert_equal 0 [r xack sg g1 0-1]
+        assert {[r memory usage sg] < $before}
+        # So does an XSETID that lowers a group's read count: g1 goes from
+        # 20 to 15.
+        set before [r memory usage sx]
+        r xsetid sx 10-1 entriesadded 15
+        assert {[r memory usage sx] < $before}
+
+        # The enable starts a new generation. Each group joins a new heap on
+        # its next command. In sg, g2's lag is still 8. In sx, 15 were added
+        # and g2 has read 12: lag 3, in the bucket for 2 to 3.
+        r config set stream-stats yes
+        assert_equal "" [get_info_stream_stripped r]
+        foreach s {sg sx} { foreach g {g1 g2} { r xack $s $g 0-1 } }
+        assert_equal "db0_stream_distrib_streams_max_lag:2=1,8=1" [get_info_stream_field r stream_distrib_streams_max_lag]
+        check_lag_full r 0
+    }
+
     test "STREAM-STATS - streams_max_lag: generation churn with hundreds of groups" {
         # Every path that starts a generation or rebuilds the heap whole, with
         # 520 groups. After a lazy enable the row must reflect exactly the
@@ -1633,6 +1673,75 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats yes}}
         r debug stream-stats-generation [expr {$base + 1000}]
         new_stream_stats_generation r
         r xack st g2 0-1
+        # The exact row is the one the wrap left: g2's lag of 9.
+        assert_equal "db0_stream_distrib_streams_max_lag:8=1" [get_info_stream_field r stream_distrib_streams_max_lag]
+        check_lag_full r 0
+    }
+
+    test "STREAM-STATS - streams_max_lag: a heap does not outlive a group position changed while stats are off" {
+        r FLUSHALL
+        # Generation A, on a number the test can come back to.
+        set base [expr {[r debug stream-stats-generation] + 1000}]
+        r debug stream-stats-generation $base
+        new_stream_stats_generation r
+        set db0_epoch_a [r debug stream-stats-epoch]
+
+        # Three streams of ten entries, each with two groups in its heap. In
+        # sr and ss, ga has read none: lag 10. In sx, entries_added is raised
+        # to 20 and gb has read 12: lag 8. All three are in the bucket for 8
+        # to 15.
+        foreach s {sr ss} {
+            seed_stream r $s 10
+            r xgroup create $s ga 0 entriesread 0
+            r xgroup create $s gb 0 entriesread 8
+        }
+        seed_stream r sx 10
+        r xsetid sx 10-1 entriesadded 20
+        r xgroup create sx ga 0 entriesread 20
+        r xgroup create sx gb 0 entriesread 12
+        assert_equal "db0_stream_distrib_streams_max_lag:8=3" [get_info_stream_field r stream_distrib_streams_max_lag]
+
+        # The number the next generation, B, will get.
+        r debug stream-stats-generation [expr {$base + 100}]
+
+        # Stats are switched off. ga's position then changes in each stream:
+        # by a read in sr, by XGROUP SETID in ss and by the XSETID clamp in
+        # sx. The heap would keep ga's old position, so each command frees it.
+        r config set stream-stats no
+        r xreadgroup group ga c count 10 streams sr >
+        r xgroup setid ss ga $ entriesread 10
+        r xsetid sx 10-1 entriesadded 14
+
+        # Stats are switched on again. The changes made while off make this
+        # enable start generation B.
+        r config set stream-stats yes
+        assert_equal "" [get_info_stream_stripped r]
+
+        # The wrap, then db0 back on generation A's number. Commands made
+        # while stats are off do not touch stamps, so the stamps of the three
+        # streams and of all six groups pass as current.
+        r debug stream-stats-generation 4294967294
+        new_stream_stats_generation r
+        r debug stream-stats-generation $base
+        new_stream_stats_generation r
+        assert_equal $db0_epoch_a [r debug stream-stats-epoch]
+
+        # Every group's stamp names a slot and there is no heap. gb joins a
+        # new one in each stream: its lag is 2. A heap kept from generation A
+        # would be taken for a current one, with ga at its old position.
+        foreach s {sr ss sx} { r xack $s gb 0-1 }
+        assert_equal "db0_stream_distrib_streams_max_lag:2=3" [get_info_stream_field r stream_distrib_streams_max_lag]
+        # ga joins at its real position: lag 0. gb stays the worst.
+        foreach s {sr ss sx} { r xack $s ga 0-1 }
+        assert_equal "db0_stream_distrib_streams_max_lag:2=3" [get_info_stream_field r stream_distrib_streams_max_lag]
+
+        # A clean generation with a number no stamp carries. Once every group
+        # is touched the rows are exact and the validator accepts them.
+        r debug stream-stats-generation [expr {$base + 1000}]
+        new_stream_stats_generation r
+        foreach s {sr ss sx} { foreach g {ga gb} { r xack $s $g 0-1 } }
+        # The exact row is the one the wrap left: gb's lag of 2 in each stream.
+        assert_equal "db0_stream_distrib_streams_max_lag:2=3" [get_info_stream_field r stream_distrib_streams_max_lag]
         check_lag_full r 0
     }
 }
