@@ -300,9 +300,31 @@ tags "modules external:skip" {
         }
 
         test {Test configchange hooks} {
-            r config set rdbcompression no 
+            set rdbcompression [lindex [r config get rdbcompression] 1]
+            set dynamic_hz [lindex [r config get dynamic-hz] 1]
+
+            r config set rdbcompression yes dynamic-hz yes
+
+            # Only configs whose values changed are included in the event.
+            set events_before [r hooks.event_count config-change-count]
+            r config set rdbcompression no dynamic-hz yes
+            assert_equal [r hooks.event_count config-change-count] [expr {$events_before + 1}]
             assert_equal [r hooks.event_last config-change-count] 1
             assert_equal [r hooks.event_last config-change-first] rdbcompression
+
+            # Also verify that an unchanged config before a changed one is filtered out.
+            set events_before [r hooks.event_count config-change-count]
+            r config set rdbcompression no dynamic-hz no
+            assert_equal [r hooks.event_count config-change-count] [expr {$events_before + 1}]
+            assert_equal [r hooks.event_last config-change-count] 1
+            assert_equal [r hooks.event_last config-change-first] dynamic-hz
+
+            # No event is fired when none of the specified configs changed.
+            set events_before [r hooks.event_count config-change-count]
+            r config set rdbcompression no dynamic-hz no
+            assert_equal [r hooks.event_count config-change-count] $events_before
+
+            r config set rdbcompression $rdbcompression dynamic-hz $dynamic_hz
         }
 
         # look into the log file of the server that just exited
