@@ -49,6 +49,7 @@ endif
 TEST_MODULES = \
     commandfilter.so \
     basics.so \
+    registration_errno.so \
     testrdb.so \
     fork.so \
     infotest.so \
