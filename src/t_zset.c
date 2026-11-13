@@ -2569,6 +2569,7 @@ typedef struct {
     int encoding;
     double weight;
     size_t oldsize;
+    int noscore; /* Skip B+ tree score decoding when reading this input. */
 
     union {
         /* Set iterators. */
@@ -2615,10 +2616,12 @@ typedef struct {
 #define OPVAL_DIRTY_SDS 1
 #define OPVAL_DIRTY_LL 2
 #define OPVAL_VALID_LL 4
+#define OPVAL_VALID_HASH 8
 
 /* Store value retrieved from the iterator. */
 typedef struct {
     int flags;
+    uint32_t hash; /* B+ tree member hash, valid with OPVAL_VALID_HASH. */
     unsigned char _buf[32]; /* Private buffer. */
     sds ele;
     unsigned char *estr;
@@ -2626,6 +2629,9 @@ typedef struct {
     long long ell;
     double score;
 } zsetopval;
+
+/* zuiNext() clears a zsetopval per member, so keep it small. */
+static_assert(sizeof(zsetopval) <= 80, "zsetopval grew past 80 bytes");
 
 typedef union _iterset iterset;
 typedef union _iterzset iterzset;
@@ -2818,7 +2824,8 @@ int zuiNext(zsetopsrc *op, zsetopval *val) {
         } else if (op->encoding == OBJ_ENCODING_BTREE) {
             const unsigned char *ele;
             size_t len;
-            if (!zbtreeIteratorNext(&it->bt.iter, 1, &ele, &len, &val->score))
+            if (!zbtreeIteratorNext(&it->bt.iter, 1, &ele, &len,
+                                    op->noscore ? NULL : &val->score))
                 return 0;
             val->estr = (unsigned char *)ele;
             val->elen = len;
@@ -2879,7 +2886,7 @@ sds zuiNewSdsFromValue(zsetopval *val) {
     }
 }
 
-int zuiBufferFromValue(zsetopval *val) {
+static inline int zuiBufferFromValue(zsetopval *val) {
     if (val->estr == NULL) {
         if (val->ele != NULL) {
             val->elen = sdslen(val->ele);
@@ -2892,9 +2899,21 @@ int zuiBufferFromValue(zsetopval *val) {
     return 1;
 }
 
+/* Return the member hash of the value, computing it on first use. */
+static inline uint32_t zuiMemberHash(zsetopval *val) {
+    if (!(val->flags & OPVAL_VALID_HASH)) {
+        zuiBufferFromValue(val);
+        val->hash = zbtreeMemberHash(val->estr, val->elen);
+        val->flags |= OPVAL_VALID_HASH;
+    }
+    return val->hash;
+}
+
 /* Find value pointed to by val in the source pointer to by op. When found,
- * return 1 and store its score in target. Return 0 otherwise. */
-int zuiFind(zsetopsrc *op, zsetopval *val, double *score) {
+ * return 1 and store its score in *score, unless score is NULL. Return 0
+ * otherwise. With 'reuse_hash', compute the member hash on first use and
+ * cache it in 'val' for the other inputs. */
+int zuiFind(zsetopsrc *op, zsetopval *val, double *score, int reuse_hash) {
     if (op->subject == NULL)
         return 0;
 
@@ -2902,7 +2921,7 @@ int zuiFind(zsetopsrc *op, zsetopval *val, double *score) {
         char *str = val->ele ? val->ele : (char *)val->estr;
         size_t len = val->ele ? sdslen(val->ele) : val->elen;
         if (setTypeIsMemberAux(op->subject, str, len, val->ell, val->ele != NULL)) {
-            *score = 1.0;
+            if (score) *score = 1.0;
             return 1;
         } else {
             return 0;
@@ -2910,7 +2929,13 @@ int zuiFind(zsetopsrc *op, zsetopval *val, double *score) {
     } else if (op->type == OBJ_ZSET) {
         if (op->encoding == OBJ_ENCODING_BTREE) {
             zuiBufferFromValue(val);
-            return zbtreeScoreRaw(op->subject->ptr, val->estr, val->elen, score);
+            if (reuse_hash) {
+                uint32_t hash = zuiMemberHash(val);
+                return zbtreeScoreRawWithHash(op->subject->ptr, hash,
+                                              val->estr, val->elen, score);
+            }
+            return zbtreeScoreRaw(op->subject->ptr, val->estr, val->elen,
+                                  score);
         }
 
         zuiSdsFromValue(val);
@@ -2927,7 +2952,7 @@ int zuiFind(zsetopsrc *op, zsetopval *val, double *score) {
             dictEntry *de;
             if ((de = dictFind(zs->dict,val->ele)) != NULL) {
                 zskiplistNode *znode = dictGetKey(de);
-                *score = znode->score;
+                if (score) *score = znode->score;
                 return 1;
             } else {
                 return 0;
@@ -3066,7 +3091,7 @@ static void zdiffAlgorithm1(zsetopsrc *src, long setnum, zset *dstzset, size_t *
              * check for a duplicate set in the zsetChooseDiffAlgorithm
              * function, but we're leaving it for future-proofing. */
             if (src[j].subject == src[0].subject ||
-                zuiFind(&src[j],&zval,&value)) {
+                zuiFind(&src[j],&zval,&value,0)) {
                 exists = 1;
                 break;
             }
@@ -3356,15 +3381,27 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
         dstobj = createZsetObject();
         dstzset = dstobj->ptr;
     }
-    memset(&zval, 0, sizeof(zval));
 
     if (op == SET_OP_INTER) {
-        /* Skip everything if the smallest input is empty. */
-        if (zuiLength(&src[0]) > 0) {
-            /* Precondition: as src[0] is non-empty and the inputs are ordered
-             * by size, all src[i > 0] are non-empty too. */
+        /* Counting with a single distinct input: no need to iterate. */
+        int single_input = cardinality_only;
+        for (j = 1; j < setnum && single_input; j++)
+            single_input = src[j].subject == src[0].subject;
+
+        if (single_input) {
+            cardinality = zuiLength(&src[0]);
+            if (limit && cardinality > (unsigned long)limit)
+                cardinality = (unsigned long)limit;
+        } else if (zuiLength(&src[0]) > 0) {
+            /* Skip everything if the smallest input is empty. Precondition:
+             * as src[0] is non-empty and the inputs are ordered by size, all
+             * src[i > 0] are non-empty too. */
+            src[0].noscore = cardinality_only;
+            /* Cache the hash when there may be multiple B+ tree probes. */
+            int reuse_hash = setnum > 2;
             zuiInitIterator(&src[0]);
-            while (zuiNext(&src[0],&zval)) {
+            memset(&zval, 0, sizeof(zval));
+            while (zuiNext(&src[0], &zval)) {
                 double score, value;
 
                 score = zuiWeightedScore(zval.score, src[0].weight, aggregate);
@@ -3376,11 +3413,15 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                     if (src[j].subject == src[0].subject) {
                         value = zuiWeightedScore(zval.score, src[j].weight, aggregate);
                         zunionInterAggregate(&score,value,aggregate);
-                    } else if (zuiFind(&src[j],&zval,&value)) {
+                        continue;
+                    }
+                    /* ZINTERCARD needs membership only. */
+                    double *target = cardinality_only ? NULL : &value;
+                    int found = zuiFind(&src[j], &zval, target, reuse_hash);
+                    if (!found) break;
+                    if (!cardinality_only) {
                         value = zuiWeightedScore(value, src[j].weight, aggregate);
                         zunionInterAggregate(&score,value,aggregate);
-                    } else {
-                        break;
                     }
                 }
 
@@ -3388,12 +3429,8 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                 if (j == setnum && cardinality_only) {
                     cardinality++;
 
-                    /* We stop the searching after reaching the limit. */
-                    if (limit && cardinality >= (unsigned long)limit) {
-                        /* Cleanup before we break the zuiNext loop. */
-                        zuiDiscardDirtyValue(&zval);
-                        break;
-                    }
+                    /* Stop searching after reaching the limit. */
+                    if (limit && cardinality >= (unsigned long)limit) break;
                 } else if (j == setnum) {
                     tmp = zuiNewSdsFromValue(&zval);
                     znode = zslInsert(dstzset->zsl,score,tmp);
@@ -3403,12 +3440,15 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                     sdsfree(tmp); /* zslInsert copied it, we can free our copy */
                 }
             }
+            zuiDiscardDirtyValue(&zval);
             zuiClearIterator(&src[0]);
         }
     } else if (op == SET_OP_UNION) {
         dictIterator di;
         dictEntry *de;
         double score;
+
+        memset(&zval, 0, sizeof(zval));
 
         if (setnum) {
             /* Our union is at least as large as the largest set.
@@ -5240,7 +5280,8 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
         goto out;
     }
 
-    zsetopsrc src;
+    /* Zero the fields this caller does not set, such as 'noscore'. */
+    zsetopsrc src = {0};
     zsetopval zval;
     src.subject = zsetobj;
     src.type = zsetobj->type;

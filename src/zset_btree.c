@@ -3270,6 +3270,20 @@ int zbtreeScoreRaw(zbtreeSet *zs, const unsigned char *ele,
                         NULL, NULL, NULL, NULL);
 }
 
+/* Return the hash the member index uses for 'ele'. */
+uint32_t zbtreeMemberHash(const unsigned char *ele, size_t elelen) {
+    return (uint32_t)dictGenHashFunction(ele, elelen);
+}
+
+/* Look up a member using a hash returned by zbtreeMemberHash(). */
+int zbtreeScoreRawWithHash(zbtreeSet *zs, uint32_t hash,
+                           const unsigned char *ele, size_t elelen,
+                           double *score)
+{
+    return zbtIndexFind(zs, hash, ele, elelen, score,
+                        NULL, NULL, NULL, NULL);
+}
+
 /* Find an sds member and optionally return its score. */
 int zbtreeScore(zbtreeSet *zs, sds ele, double *score) {
     return zbtreeScoreRaw(zs, (unsigned char *)ele, sdslen(ele), score);
