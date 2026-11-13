@@ -25,6 +25,20 @@ proc default_set_get_checks {} {
     assert_match  {} [cmdstat lrange]
 }
 
+proc benchmark_new_client_ids {known_ids} {
+    set ids {}
+    foreach line [split [r client list] "\n"] {
+        if {[regexp {^id=([0-9]+)} $line -> id] && "id=$id" ni $known_ids} {
+            lappend ids $id
+        }
+    }
+    return $ids
+}
+
+proc benchmark_new_client_id {known_ids} {
+    return [lindex [benchmark_new_client_ids $known_ids] 0]
+}
+
 tags {"benchmark network external:skip logreqres:skip"} {
     start_server {} {
         set master_host [srv 0 host]
@@ -105,6 +119,195 @@ tags {"benchmark network external:skip logreqres:skip"} {
 
             # ensure only one key was populated
             assert_match  {1} [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
+        }
+
+        test {benchmark: target request rate} {
+            r config resetstat
+            set cmd [redisbenchmark $master_host $master_port "-c 8 -n 32 --rate 32 PING"]
+            set start [clock milliseconds]
+            exec {*}$cmd
+            set elapsed [expr {[clock milliseconds] - $start}]
+
+            # An empty bucket needs roughly one second for 32 requests at 32 RPS.
+            # Leave room for timer granularity and process startup differences.
+            assert_morethan_equal $elapsed 600
+            assert_lessthan $elapsed 5000
+            assert_match {*calls=32,*} [cmdstat ping]
+        }
+
+        test {benchmark: target request rate is shared across threads} {
+            r config resetstat
+            set cmd [redisbenchmark $master_host $master_port "--threads 4 -c 8 -n 32 --rate 32 PING"]
+            set start [clock milliseconds]
+            exec {*}$cmd
+            set elapsed [expr {[clock milliseconds] - $start}]
+
+            assert_morethan_equal $elapsed 600
+            assert_lessthan $elapsed 5000
+            assert_match {*calls=32,*} [cmdstat ping]
+        }
+
+        test {benchmark: pipeline consumes request rate per command} {
+            r config resetstat
+            set cmd [redisbenchmark $master_host $master_port "-c 8 -P 4 -n 32 --rate 32 PING"]
+            set start [clock milliseconds]
+            exec {*}$cmd
+            set elapsed [expr {[clock milliseconds] - $start}]
+
+            assert_morethan_equal $elapsed 600
+            assert_lessthan $elapsed 5000
+            assert_match {*calls=32,*} [cmdstat ping]
+        }
+
+        test {benchmark: target request rate with fewer requests than clients} {
+            r config resetstat
+            set cmd [redisbenchmark $master_host $master_port "-c 8 -n 4 --rate 8 PING"]
+            set start [clock milliseconds]
+            exec {*}$cmd
+            set elapsed [expr {[clock milliseconds] - $start}]
+
+            assert_lessthan $elapsed 5000
+            assert_match {*calls=4,*} [cmdstat ping]
+        }
+
+        test {benchmark: target request rate without keepalive} {
+            r config resetstat
+            set cmd [redisbenchmark $master_host $master_port "-k 0 -c 4 -n 8 --rate 16 PING"]
+            set start [clock milliseconds]
+            exec {*}$cmd 2>@1
+            set elapsed [expr {[clock milliseconds] - $start}]
+
+            assert_lessthan $elapsed 5000
+            assert_match {*calls=8,*} [cmdstat ping]
+        }
+
+        test {benchmark: disconnect while waiting for target request rate} {
+            r config resetstat
+            set known_ids [regexp -all -inline {id=[0-9]+} [r client list]]
+            set output_file [tmpfile benchmark-rate-disconnect]
+            set cmd [redisbenchmark $master_host $master_port "-c 1 -P 4 -n 4 --rate 1 PING"]
+            set pid [exec {*}$cmd > $output_file 2>@1 &]
+
+            set rc [catch {
+                set benchmark_id {}
+                wait_for_condition 100 10 {
+                    [set benchmark_id [benchmark_new_client_id $known_ids]] ne {}
+                } else {
+                    fail "redis-benchmark did not connect"
+                }
+
+                # Its first pipeline cannot be sent until the empty rate bucket
+                # has accumulated four tokens. An idle second confirms the client
+                # is waiting, before the four-second send deadline.
+                wait_for_condition 250 10 {
+                    [regexp {idle=([1-9][0-9]*)} [r client list id $benchmark_id]]
+                } else {
+                    fail "redis-benchmark did not wait for rate tokens"
+                }
+                assert_match {} [cmdstat ping]
+                assert_equal 1 [r client kill id $benchmark_id]
+
+                wait_for_condition 120 100 {![is_alive $pid]} else {
+                    fail "redis-benchmark did not finish after the disconnect"
+                }
+                set fh [open $output_file r]
+                set output [read $fh]
+                close $fh
+                assert_match {*4 requests completed in*} $output
+                assert_match {*calls=4,*} [cmdstat ping]
+            } error options]
+            if {[is_alive $pid]} {catch {exec kill $pid}}
+            file delete -force $output_file
+            if {$rc} {return -options $options $error}
+        }
+
+        test {benchmark: multi-thread disconnect while waiting for target request rate} {
+            r config resetstat
+            set known_ids [regexp -all -inline {id=[0-9]+} [r client list]]
+            set output_file [tmpfile benchmark-rate-thread-disconnect]
+            set cmd [redisbenchmark $master_host $master_port "--threads 2 -c 2 -P 8 -n 8 --rate 2 PING"]
+            set pid [exec {*}$cmd > $output_file 2>@1 &]
+
+            set rc [catch {
+                set original_ids {}
+                wait_for_condition 100 10 {
+                    [llength [set original_ids [benchmark_new_client_ids $known_ids]]] == 2
+                } else {
+                    fail "redis-benchmark did not connect both clients"
+                }
+
+                # Both clients must be waiting for the first pipeline's eight
+                # tokens before disconnecting them. Replacing both original
+                # clients exercises reconnects from both worker threads.
+                foreach id $original_ids {
+                    wait_for_condition 250 10 {
+                        [regexp {idle=([1-9][0-9]*)} [r client list id $id]]
+                    } else {
+                        fail "redis-benchmark client $id did not wait for rate tokens"
+                    }
+                }
+                assert_match {} [cmdstat ping]
+
+                set replacements {}
+                foreach id $original_ids {
+                    assert_equal 1 [r client kill id $id]
+                    set expected [expr {[llength $replacements] + 1}]
+                    wait_for_condition 100 10 {
+                        [llength [set replacements [benchmark_new_client_ids [concat $known_ids $original_ids]]]] == $expected
+                    } else {
+                        fail "redis-benchmark did not replace client $id"
+                    }
+                }
+
+                wait_for_condition 120 100 {![is_alive $pid]} else {
+                    fail "redis-benchmark did not finish after the disconnects"
+                }
+                set fh [open $output_file r]
+                set output [read $fh]
+                close $fh
+                assert_match {*8 requests completed in*} $output
+                assert_match {*calls=8,*} [cmdstat ping]
+            } error options]
+            if {[is_alive $pid]} {catch {exec kill $pid}}
+            file delete -force $output_file
+            if {$rc} {return -options $options $error}
+        }
+
+        test {benchmark: target request rate resets for each test} {
+            r config resetstat
+            set cmd [redisbenchmark $master_host $master_port "-c 8 -n 4 --rate 8 -t ping"]
+            set start [clock milliseconds]
+            exec {*}$cmd
+            set elapsed [expr {[clock milliseconds] - $start}]
+
+            # -t ping runs both PING_INLINE and PING_MBULK at the target rate.
+            assert_morethan_equal $elapsed 600
+            assert_lessthan $elapsed 5000
+            assert_match {*calls=8,*} [cmdstat ping]
+        }
+
+        test {benchmark: target request rate rejects invalid values} {
+            foreach value {0 -1 abc} {
+                set cmd [redisbenchmark $master_host $master_port "-n 1 --rate $value PING"]
+                if {![catch {exec {*}$cmd 2>@1} error]} {
+                    fail "redis-benchmark accepted invalid --rate value '$value'"
+                }
+                assert_match *rate* [string tolower $error]
+            }
+
+            set cmd [redisbenchmark $master_host $master_port "--rate"]
+            if {![catch {exec {*}$cmd 2>@1} error]} {
+                fail "redis-benchmark accepted --rate without a value"
+            }
+            assert_match *rate* [string tolower $error]
+        }
+
+        test {benchmark: target request rate rejects idle mode} {
+            set cmd [redisbenchmark $master_host $master_port "-I --rate 1"]
+            if {![catch {exec {*}$cmd 2>@1} error]} {
+                fail "redis-benchmark accepted --rate with idle mode"
+            }
+            assert_match {*--rate cannot be used with idle mode (-I).*} $error
         }
 
         test {benchmark: keyspace length} {
