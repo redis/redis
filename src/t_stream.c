@@ -355,6 +355,13 @@ static void streamStatsReenterStructural(redisDb *db, stream *s, streamCG *cg) {
  *   groups. Both commands change a stream input too, so the helpers run
  *   between a capture and its streamLagChanged(). That call updates the row
  *   once, for the heap and the input together.
+ * - A path that updates a group's own rows with streamUpdateCGStat(), and
+ *   may end without streamLagGroupTouched() or streamLagChanged(), calls
+ *   streamLagNewGeneration() first. The update moves a group's stamp from an
+ *   older generation to the current one and clears its in-heap bit. A heap
+ *   left from that older generation would still hold the group, and it can
+ *   pass as current again once the generation counter has wrapped. So it is
+ *   freed before the update. streamCleanupEntryCGroupRefs() is such a path.
  * - A stream that appears or vanishes as a whole needs none of these:
  *   streamUpdateStreamSamples() enters or drops its sample.
  * -------------------------------------------------------------------------- */
@@ -494,7 +501,9 @@ static void streamLagFreeHeap(stream *s) {
 
 /* Called by the stream-stamp wrappers before they move the stamp: a heap
  * belongs to the generation its stream is stamped with, and is freed when
- * that generation ends. Groups then re-join one by one as they are touched. */
+ * that generation ends. Groups then re-join one by one as they are touched.
+ * Also called by streamCleanupEntryCGroupRefs(), which moves group stamps
+ * and leaves the stream's alone. */
 static inline void streamLagNewGeneration(redisDb *db, stream *s) {
     if (!server.stream_stats || !s->cgroups) return;
     if (s->distrib_epoch == streamStatsEpochOf(db)) return;
@@ -548,15 +557,15 @@ static void streamLagGroupTouched(redisDb *db, stream *s, streamCG *cg) {
  * Nothing to do for a group that is not a member, or whose stamp is from an
  * old generation: its in-heap bit and slot mean nothing then. While stats
  * are on, a member of the current generation always has a heap to be in,
- * because the heap is freed in three places: when the stream moves to a new
- * generation, which makes every in-heap bit stale; in
- * streamUpdateStreamSamples(), which clears the bits before it rebuilds; and
- * in streamLagGroupLeaving() with stats off, which leaves the bits set but
- * in a generation that ends before stats are on again. Hence the checks
- * below, the same ones streamLagGroupTouched() makes: stats are on (here,
- * the caller's STREAM_LAG_OFF gate), the member's slot holds it
- * (streamLagIsMember()), and a current member's stream is in this
- * generation too. */
+ * because the heap is freed in three places: in streamLagNewGeneration(),
+ * when the stream's stamp is from an older generation, which makes every
+ * in-heap bit stale; in streamUpdateStreamSamples(), which clears the bits
+ * before it rebuilds; and in streamLagGroupLeaving() with stats off, which
+ * leaves the bits set but in a generation that ends before stats are on
+ * again. Hence the checks below, the same ones streamLagGroupTouched()
+ * makes: stats are on (here, the caller's STREAM_LAG_OFF gate), the member's
+ * slot holds it (streamLagIsMember()), and a current member's stream is in
+ * this generation too. */
 static void streamLagMemberMoved(redisDb *db, stream *s, streamCG *cg) {
     streamLagState *ls = streamLagStateOf(s);
     streamDistribStamp *st = streamCGStamp(cg);
@@ -4059,6 +4068,12 @@ int streamCleanupEntryCGroupRefs(redisDb *db, stream *s, streamID *id) {
     /* If message is not in any consumer group, nothing to do */
     if (!raxFind(s->cgroups_ref, buf, sizeof(streamID), (void **)&cglist))
         return 0;
+
+    /* The PEL updates below refresh group stamps, and nothing here refreshes
+     * the stream's. A lag heap of an older generation is freed first, as the
+     * stream-stamp wrappers do: it must not hold a group whose stamp has
+     * moved on. */
+    streamLagNewGeneration(db, s);
 
     listRewind(cglist, &li);
     while ((ln = listNext(&li))) {
