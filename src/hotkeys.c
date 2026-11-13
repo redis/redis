@@ -74,6 +74,17 @@ static inline int isSlotSelected(hotkeyStats *hotkeys, int slot) {
     return slotRangeArrayContains(hotkeys->slots, slot);
 }
 
+/* Scale a sampled output value to estimate the corresponding unsampled
+ * value for the same slot scope. Saturate instead of wrapping if the
+ * estimated value would exceed the counter range. */
+static inline counter_t scaleSampledValue(counter_t value, int sample_ratio) {
+    if (sample_ratio <= 1 || value == 0) return value;
+
+    counter_t ratio = (counter_t)sample_ratio;
+    if (value > UINT64_MAX / ratio) return UINT64_MAX;
+    return value * ratio;
+}
+
 /* Preparation for updates of the hotkeyStats for the current command, f.e
  * cache the current client and the getKeysResult. */
 void hotkeyStatsPreCurrentCmd(hotkeyStats *hotkeys, client *c) {
@@ -630,7 +641,8 @@ void hotkeysCommand(client *c) {
         /* total-net-bytes - only if NET tracking is enabled */
         if (server.hotkeys->tracked_metrics & HOTKEYS_TRACK_NET) {
             addReplyBulkCString(c, "total-net-bytes");
-            addReplyLongLong(c, total_net_bytes);
+            addReplyUnsignedLongLong(
+                c, scaleSampledValue(total_net_bytes, server.hotkeys->sample_ratio));
 
             ++total_len;
         }
@@ -642,8 +654,9 @@ void hotkeysCommand(client *c) {
             addReplyArrayLen(c, 2 * cpu_count);
             for (int i = 0; i < cpu_count; ++i) {
                 addReplyBulkCBuffer(c, cpu[i].item, sdslen(cpu[i].item));
-                /* Return raw microsec value */
-                addReplyLongLong(c, cpu[i].count);
+                /* Return estimated full-stream microseconds. */
+                addReplyUnsignedLongLong(
+                    c, scaleSampledValue(cpu[i].count, server.hotkeys->sample_ratio));
             }
             zfree(cpu);
 
@@ -657,8 +670,9 @@ void hotkeysCommand(client *c) {
             addReplyArrayLen(c, 2 * net_count);
             for (int i = 0; i < net_count; ++i) {
                 addReplyBulkCBuffer(c, net[i].item, sdslen(net[i].item));
-                /* Return raw byte value */
-                addReplyLongLong(c, net[i].count);
+                /* Return estimated full-stream bytes. */
+                addReplyUnsignedLongLong(
+                    c, scaleSampledValue(net[i].count, server.hotkeys->sample_ratio));
             }
             zfree(net);
 
