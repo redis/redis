@@ -616,6 +616,11 @@ void debugCommand(client *c) {
 "STREAM-STATS-EPOCH",
 "    Return the generation the INFO streams histograms of the selected",
 "    database were last reset in, 0 if never.",
+"STREAM-STATS-LAG-GROUPS-LIMIT [<n>]",
+"    Return the number of groups above which a stream has no sample in the",
+"    max-lag histogram, or set it to <n>, from 1 to 16777216. Setting it",
+"    rebuilds the INFO streams histograms, or resets them at the next enable",
+"    while stream-stats is off. For testing the limit.",
 "KEYMETA-AOF-DUMP <key>",
 "    Return a DUMP payload without KeyMeta for an AOF rewrite.",
 "LOADAOF",
@@ -787,6 +792,21 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"STREAM-STATS-EPOCH") && c->argc == 2) {
         kvstoreMetadata *meta = kvstoreGetMetadata(c->db->keys);
         addReplyLongLong(c, meta->stream_stats_epoch);
+    } else if (!strcasecmp(c->argv[1]->ptr,"STREAM-STATS-LAG-GROUPS-LIMIT") &&
+               (c->argc == 2 || c->argc == 3))
+    {
+        if (c->argc == 2) {
+            addReplyLongLong(c, dbgStreamLagGroupsLimit());
+            return;
+        }
+        long long limit;
+        if (getLongLongFromObjectOrReply(c, c->argv[2], &limit, NULL) != C_OK)
+            return;
+        if (!dbgStreamLagSetGroupsLimit(limit)) {
+            addReplyError(c, "The limit is out of range");
+            return;
+        }
+        addReply(c, shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"ALLOCSIZE-SLOTS-ASSERT") && c->argc == 3) {
         long long flag;
         if (getLongLongFromObjectOrReply(c, c->argv[2], &flag, NULL) != C_OK)
