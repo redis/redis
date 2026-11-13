@@ -640,11 +640,13 @@ int VADD_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
      * the master, while with CAS the timing would be different.
      *
      * Also for Lua scripts and MULTI/EXEC, we want to run the command
-     * on the main thread. */
+     * on the main thread. The same goes for clients that can't be blocked,
+     * like the AOF loading client. */
     if (RedisModule_GetContextFlags(ctx) &
             (REDISMODULE_CTX_FLAGS_REPLICATED|
              REDISMODULE_CTX_FLAGS_LUA|
-             REDISMODULE_CTX_FLAGS_MULTI))
+             REDISMODULE_CTX_FLAGS_MULTI|
+             REDISMODULE_CTX_FLAGS_DENY_BLOCKING))
     {
         cas = 0;
     }
