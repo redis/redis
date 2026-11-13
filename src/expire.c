@@ -826,6 +826,8 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
         int deleted = dbGenericDelete(c->db,key,server.lazyfree_lazy_expire,DB_FLAG_KEY_EXPIRED);
         serverAssertWithInfo(c,key,deleted);
         server.dirty++;
+        /* Count it as expired, like SET/RESTORE with an elapsed expire time. */
+        server.stat_expiredkeys++;
 
         /* Replicate/AOF this as an explicit DEL or UNLINK. */
         aux = server.lazyfree_lazy_expire ? shared.unlink : shared.del;
