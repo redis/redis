@@ -67,6 +67,7 @@ static int64_t streamStreamSample(stream *s, streamDistribMetric metric);
 static int64_t streamLagSample(stream *s);
 static void streamLagFreeHeap(stream *s);
 static inline void streamLagNewGeneration(redisDb *db, stream *s);
+static inline void streamLagFreeHeapWhileOff(stream *s);
 static void streamLagGroupTouched(redisDb *db, stream *s, streamCG *cg);
 
 /* -----------------------------------------------------------------------
@@ -285,9 +286,13 @@ void streamRemoveStreamStat(redisDb *db, stream *s, streamDistribMetric metric) 
  * max lag, which also enrols the group in the lag heap or moves it to its
  * current position. An equal-value update is a no-op when the row holds the
  * sample and enters it otherwise. Called by every group command, after its
- * own updates for that group. */
+ * own updates for that group. While stats are off it only frees the
+ * stream's lag heap, which would miss what the command did to the group. */
 static void streamStatsReenterStructural(redisDb *db, stream *s, streamCG *cg) {
-    if (!server.stream_stats) return;
+    if (!server.stream_stats) {
+        streamLagFreeHeapWhileOff(s);
+        return;
+    }
     streamUpdateStreamStat(db, s, STREAM_DISTRIB_STREAMS_CGROUPS,
                            streamStreamSample(s, STREAM_DISTRIB_STREAMS_CGROUPS));
     streamUpdateCGStat(db, cg, STREAM_DISTRIB_CGROUPS_CONSUMERS,
@@ -310,8 +315,19 @@ static void streamStatsReenterStructural(redisDb *db, stream *s, streamCG *cg) {
  *
  * Membership is lazy like the other rows: a group joins on its first group
  * command after an enable. The heap belongs to the generation stamped on the
- * stream; the two stream-stamp wrappers free it when the stream moves to a
- * new generation, so a stale heap is never read for its items.
+ * stream. It stays when a newer generation starts, and the two stream-stamp
+ * wrappers free it when they move the stream to that generation.
+ *
+ * The generation counter has 32 bits. Once it has wrapped, a stream's old
+ * stamp can pass as current, and its old heap is then taken for a current
+ * one. A heap must therefore never be left holding a destroyed group, a
+ * group whose stamp has moved on, or a group at an outdated position. With
+ * stats on, the hooks below see to that: they update the heap or refresh
+ * the stream's stamp, which frees an old heap. Two more rules cover the
+ * rest. streamCleanupEntryCGroupRefs() refreshes group stamps without the
+ * stream's, so it frees an old heap first. And while stats are off, a group
+ * command or the XSETID clamp frees the heap, which would miss the change:
+ * see streamLagFreeHeapWhileOff(). XGROUP DESTROY frees it too.
  *
  * The lag here does not account for tombstones between the group's position
  * and the end of the stream, so it is an upper bound of the undelivered
@@ -362,6 +378,10 @@ static void streamStatsReenterStructural(redisDb *db, stream *s, streamCG *cg) {
  *   left from that older generation would still hold the group, and it can
  *   pass as current again once the generation counter has wrapped. So it is
  *   freed before the update. streamCleanupEntryCGroupRefs() is such a path.
+ * - While stats are off, a path that changes a group's position calls
+ *   streamLagFreeHeapWhileOff(). Group commands do it through
+ *   streamStatsReenterStructural(), and XSETID does it for the groups it
+ *   clamps.
  * - A stream that appears or vanishes as a whole needs none of these:
  *   streamUpdateStreamSamples() enters or drops its sample.
  * -------------------------------------------------------------------------- */
@@ -499,6 +519,19 @@ static void streamLagFreeHeap(stream *s) {
     ls->xadd_threshold = UINT64_MAX;
 }
 
+/* While stats are off nothing keeps a heap up to date. A group command or
+ * the XSETID clamp can change a group's position, which the heap would miss,
+ * so they free it. A heap that is kept then never holds an outdated
+ * position, which matters once the generation counter has wrapped and an
+ * old heap can pass as current. The members keep their in-heap bits, so the
+ * generation is condemned as well, as in streamLagGroupLeaving(): the next
+ * enable must not trust those bits. */
+static inline void streamLagFreeHeapWhileOff(stream *s) {
+    if (!s->cgroups || !streamLagStateOf(s)->heap) return;
+    if (!server.stream_stats_needs_reset) server.stream_stats_needs_reset = 1;
+    streamLagFreeHeap(s);
+}
+
 /* Called by the stream-stamp wrappers before they move the stamp: a heap
  * belongs to the generation its stream is stamped with, and is freed when
  * that generation ends. Groups then re-join one by one as they are touched.
@@ -557,15 +590,15 @@ static void streamLagGroupTouched(redisDb *db, stream *s, streamCG *cg) {
  * Nothing to do for a group that is not a member, or whose stamp is from an
  * old generation: its in-heap bit and slot mean nothing then. While stats
  * are on, a member of the current generation always has a heap to be in,
- * because the heap is freed in three places: in streamLagNewGeneration(),
+ * because the heap is freed in three cases: in streamLagNewGeneration(),
  * when the stream's stamp is from an older generation, which makes every
  * in-heap bit stale; in streamUpdateStreamSamples(), which clears the bits
- * before it rebuilds; and in streamLagGroupLeaving() with stats off, which
- * leaves the bits set but in a generation that ends before stats are on
- * again. Hence the checks below, the same ones streamLagGroupTouched()
- * makes: stats are on (here, the caller's STREAM_LAG_OFF gate), the member's
- * slot holds it (streamLagIsMember()), and a current member's stream is in
- * this generation too. */
+ * before it rebuilds; and with stats off, in streamLagGroupLeaving() and
+ * streamLagFreeHeapWhileOff(), which leave the bits set but in a generation
+ * that ends before stats are on again. Hence the checks below, the same
+ * ones streamLagGroupTouched() makes: stats are on (here, the caller's
+ * STREAM_LAG_OFF gate), the member's slot holds it (streamLagIsMember()),
+ * and a current member's stream is in this generation too. */
 static void streamLagMemberMoved(redisDb *db, stream *s, streamCG *cg) {
     streamLagState *ls = streamLagStateOf(s);
     streamDistribStamp *st = streamCGStamp(cg);
@@ -586,8 +619,9 @@ static void streamLagMemberMoved(redisDb *db, stream *s, streamCG *cg) {
  * memory now rather than at the stream's first touch after the enable. The
  * surviving members keep an in-heap bit with no heap behind it; every
  * reader of that bit runs with stats on, and the enable that turns them on
- * makes the bit stale first. This is the one place a heap is freed without
- * first invalidating its members' bits; see streamLagMemberMoved().
+ * makes the bit stale first. streamLagFreeHeapWhileOff() frees a heap the
+ * same way, without first invalidating its members' bits; see
+ * streamLagMemberMoved().
  *
  * With stats on the group's stamp is current, since streamRemoveCGStat() has
  * just refreshed it, clearing the bits if it was stale. A set bit that the
@@ -4695,7 +4729,10 @@ void xsetidCommand(client *c) {
                     (uint64_t)cg->entries_read > s->entries_added)
                 {
                     cg->entries_read = s->entries_added;
-                    if (old_lag != STREAM_LAG_OFF) streamLagMemberMoved(c->db, s, cg);
+                    if (old_lag != STREAM_LAG_OFF)
+                        streamLagMemberMoved(c->db, s, cg);
+                    else /* stats are off: the heap would miss this move */
+                        streamLagFreeHeapWhileOff(s);
                 }
             }
             raxStop(&ri);
