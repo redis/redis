@@ -1212,6 +1212,17 @@ int ACLSetSelector(aclSelector *selector, const char* op, size_t oplen) {
                  * block DEBUG except DEBUG OBJECT (DEBUG subcommands are not considered
                  * subcommands for now) we use the allowed_firstargs mechanism. */
 
+                /* The rule is saved in the selector's command_rules, which is
+                 * split again with sdssplitargs() to describe the user (ACL
+                 * LIST, ACL GETUSER, ACL SAVE, CONFIG REWRITE) and to recompute
+                 * its command bits. Spaces or quotes in the first-arg would
+                 * make that split fail or change the rule, so reject them. */
+                if (ACLStringHasSpaces(sub,strlen(sub)) || strpbrk(sub,"\"'")) {
+                    zfree(copy);
+                    errno = EINVAL;
+                    return C_ERR;
+                }
+
                 /* Add the first-arg to the list of valid ones. */
                 serverLog(LL_WARNING, "Deprecation warning: Allowing a first arg of an otherwise "
                                       "blocked command is a misuse of ACL and may get disabled "

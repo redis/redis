@@ -684,6 +684,23 @@ start_server {tags {"acl external:skip"}} {
         assert_match "*Unknown command or category name in ACL*" $e
     } {}
 
+    test {ACLs reject a first-arg with spaces or quotes} {
+        # The first-arg is kept in the user's command rules, which are split
+        # again with sdssplitargs() to describe the user (ACL LIST, ACL GETUSER,
+        # ACL SAVE, CONFIG REWRITE). Spaces or quotes there used to make that
+        # split fail and crash the server.
+        r ACL setuser firstarg-user on nopass -@all +select|0
+        foreach rule [list {+select|a b} "+select|a\tb" {+select|a"b} \
+                           {+select|"0"} {+select|it's} \
+                           {(+select|"a b")} {(+select|"a\"b")}] {
+            catch {r ACL setuser firstarg-user $rule} e
+            assert_match {*Syntax error*} $e
+        }
+        assert_equal {-@all +select|0} [dict get [r ACL getuser firstarg-user] commands]
+        assert_match {*user firstarg-user on nopass sanitize-payload resetchannels -@all +select|0*} [r ACL list]
+        r ACL deluser firstarg-user
+    } {1}
+
     test {ACLs including of a type includes also subcommands} {
         r ACL setuser newuser -@all +del +acl +@stream
         r DEL key
