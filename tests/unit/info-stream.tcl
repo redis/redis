@@ -1314,6 +1314,34 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         assert_equal "db0_stream_distrib_streams_max_lag:0=1" [get_info_stream_field r stream_distrib_streams_max_lag]
     }
 
+    test "STREAM-STATS - XGROUP DESTROY of a member in a new generation, before its stream is touched" {
+        r config set stream-stats yes
+        r FLUSHALL
+        # Ten entries. g1 has read none of them, lag 10. g2 has read 5, lag 5.
+        seed_stream r st 10
+        r xgroup create st g1 0 entriesread 0
+        r xgroup create st g2 0 entriesread 5
+        assert_equal "db0_stream_distrib_streams_max_lag:8=1" [get_info_stream_field r stream_distrib_streams_max_lag]
+
+        # A new generation. The heap of the old one is still attached to the
+        # stream and holds both groups.
+        new_stream_stats_generation r
+        assert_equal "" [get_info_stream_stripped r]
+
+        # DESTROY refreshes g1's stamp first, which clears its in-heap bit, so
+        # g1 is not taken out of the old heap. The command then refreshes the
+        # stream's stamp, which frees that heap. No group is a member now.
+        assert_equal 1 [r xgroup destroy st g1]
+        assert_equal "db0_stream_distrib_streams_cgroups:1=1" [get_info_stream_field r stream_distrib_streams_cgroups]
+        assert_equal "" [get_info_stream_field r stream_distrib_streams_max_lag]
+
+        # g2 joins a new heap on its next command. Its lag is 5, in the bucket
+        # for 4 to 7.
+        r xack st g2 0-1
+        assert_equal "db0_stream_distrib_streams_max_lag:4=1" [get_info_stream_field r stream_distrib_streams_max_lag]
+        check_lag_full r 0
+    }
+
     test "STREAM-STATS - streams_max_lag: generation churn with hundreds of groups" {
         # Every path that starts a generation or rebuilds the heap whole, with
         # 520 groups. After a lazy enable the row must reflect exactly the
@@ -1548,6 +1576,64 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats yes}}
         assert_equal "db0_stream_distrib_cgroups_pel:0=6" [get_info_stream_field r stream_distrib_cgroups_pel]
         assert_equal "db0_stream_distrib_cgroups_consumers:0=5,1=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
         assert_equal "db0_stream_distrib_streams_max_lag:2=1" [get_info_stream_field r stream_distrib_streams_max_lag]
+    }
+
+    test "STREAM-STATS - streams_max_lag: a heap does not outlive a group stamp that XDELEX DELREF refreshed" {
+        r FLUSHALL
+        # Generation A, on a number the test can come back to.
+        set base [expr {[r debug stream-stats-generation] + 1000}]
+        r debug stream-stats-generation $base
+        new_stream_stats_generation r
+        set db0_epoch_a [r debug stream-stats-epoch]
+
+        # Ten entries and two groups, both in the heap. gp reads the first
+        # entry, which is then deleted. gp's PEL keeps a reference to it. gp
+        # has read 1 of 10 and nine entries are left: lag 9. gp is the root
+        # of the heap and g2, which has read 8, is below it.
+        seed_stream r st 10
+        r xgroup create st gp 0 entriesread 0
+        r xgroup create st g2 0 entriesread 8
+        r xreadgroup group gp c count 1 streams st >
+        assert_equal 1 [r xdel st 1-1]
+        assert_equal "db0_stream_distrib_streams_max_lag:8=1" [get_info_stream_field r stream_distrib_streams_max_lag]
+
+        # Generation B. XDELEX DELREF removes the PEL reference and updates
+        # gp's PEL sample. That moves gp's stamp to B and clears its in-heap
+        # bit. The entry is gone already, so nothing is deleted and the
+        # stream's stamp is not refreshed. The heap of generation A still
+        # holds gp, so it must be freed here.
+        r debug stream-stats-generation [expr {$base + 100}]
+        new_stream_stats_generation r
+        assert_equal {-1} [r xdelex st delref ids 1 1-1]
+        assert_equal "db0_stream_distrib_cgroups_pel:0=1" [get_info_stream_field r stream_distrib_cgroups_pel]
+
+        # The wrap, then db0 back on generation A's number. The stamps of the
+        # stream and of g2 pass as current.
+        r debug stream-stats-generation 4294967294
+        new_stream_stats_generation r
+        r debug stream-stats-generation $base
+        new_stream_stats_generation r
+        assert_equal $db0_epoch_a [r debug stream-stats-epoch]
+
+        # g2's stamp names a slot and there is no heap, so g2 joins a new one
+        # alone. It has read 8 of 10: lag 2. A heap kept from generation A
+        # would still hold gp, and the sample would be gp's lag of 9.
+        r xack st g2 0-1
+        assert_equal "db0_stream_distrib_streams_max_lag:2=1" [get_info_stream_field r stream_distrib_streams_max_lag]
+
+        # gp is destroyed, then g2's read count drops to 0. In a heap kept
+        # from generation A, gp's entry would have outlived gp, and g2 would
+        # now sort above it: the swap would read the freed group.
+        assert_equal 1 [r xgroup destroy st gp]
+        r xgroup setid st g2 0 entriesread 0
+        assert_equal "db0_stream_distrib_streams_max_lag:8=1" [get_info_stream_field r stream_distrib_streams_max_lag]
+
+        # A clean generation with a number no stamp carries. Once g2 is
+        # touched the rows are exact and the validator accepts them.
+        r debug stream-stats-generation [expr {$base + 1000}]
+        new_stream_stats_generation r
+        r xack st g2 0-1
+        check_lag_full r 0
     }
 }
 
