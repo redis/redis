@@ -1224,6 +1224,8 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         # Hidden while off; non-stream traffic does not disturb the rows.
         assert_equal "" [get_info_stream_stripped r]
         r set unrelated 1
+        # Nor does a group creation that is rejected.
+        assert_error "*BUSYGROUP*" {r xgroup create st g 0}
         r config set stream-stats yes
         assert_equal "db0_stream_distrib_cgroups_pel:4=1" [get_info_stream_field r stream_distrib_cgroups_pel]
         assert_equal [eval_stream_histogram r 0 stream_distrib_cgroups_pel pending] [get_info_stream_field r stream_distrib_cgroups_pel]
@@ -1546,5 +1548,119 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats yes}}
         assert_equal "db0_stream_distrib_cgroups_pel:0=6" [get_info_stream_field r stream_distrib_cgroups_pel]
         assert_equal "db0_stream_distrib_cgroups_consumers:0=5,1=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
         assert_equal "db0_stream_distrib_streams_max_lag:2=1" [get_info_stream_field r stream_distrib_streams_max_lag]
+    }
+}
+
+# The group limit of the max-lag row, lowered so that a test can reach it. It
+# has a server of its own, which leaves the limit at 2^24 everywhere else.
+start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats yes}} {
+    r select 0
+    r debug stream-stats-assert 1
+
+    test "STREAM-STATS - DEBUG STREAM-STATS-LAG-GROUPS-LIMIT reads and sets the group limit" {
+        r FLUSHALL
+        assert_equal 16777216 [r debug stream-stats-lag-groups-limit]
+        assert_error "*out of range*" {r debug stream-stats-lag-groups-limit 0}
+        assert_error "*out of range*" {r debug stream-stats-lag-groups-limit 16777217}
+        assert_equal 16777216 [r debug stream-stats-lag-groups-limit]
+
+        # Ten entries and two groups. g1 has read none of them: lag 10, which
+        # falls in the bucket for 8 to 15.
+        seed_stream r st 10
+        r xgroup create st g1 0 entriesread 0
+        r xgroup create st g2 0 entriesread 10
+        verify_streams_max_lag {} {db0_LAG:8=1}
+        # A new limit rebuilds the rows. The stream has no sample under a
+        # limit of one group, and has it again under a limit of two.
+        verify_streams_max_lag {r debug stream-stats-lag-groups-limit 1} {}
+        verify_streams_max_lag {r debug stream-stats-lag-groups-limit 2} {db0_LAG:8=1}
+        assert_equal 2 [r debug stream-stats-lag-groups-limit]
+    }
+
+    test "STREAM-STATS - streams_max_lag: the sample leaves when the stream goes over the group limit" {
+        r FLUSHALL
+        r debug stream-stats-lag-groups-limit 4
+        # Ten entries. g1 has read none of them: lag 10, in the bucket for 8
+        # to 15. The other three groups have read them all.
+        seed_stream r st 10
+        verify_streams_max_lag {r xgroup create st g1 0 entriesread 0} {db0_LAG:8=1}
+        foreach g {g2 g3 g4} {
+            verify_streams_max_lag {r xgroup create st $g 0 entriesread 10} {db0_LAG:8=1}
+        }
+        # The fifth group takes the stream over the limit, and the sample
+        # leaves the row. It returns when a group is destroyed. Doing this
+        # again must not leave a sample behind, nor enter one twice.
+        for {set i 0} {$i < 3} {incr i} {
+            verify_streams_max_lag {r xgroup create st g5 0 entriesread 10} {}
+            verify_streams_max_lag {r xgroup destroy st g5} {db0_LAG:8=1}
+        }
+        # Deleting the stream while it is over the limit leaves nothing.
+        verify_streams_max_lag {r xgroup create st g5 0 entriesread 10} {}
+        r del st
+        assert_equal "" [get_info_stream_stripped r]
+    }
+
+    test "STREAM-STATS - streams_max_lag: the sample returns from over the group limit with its current value" {
+        r FLUSHALL
+        seed_stream r st 10
+        r xgroup create st g1 0 entriesread 0
+        foreach g {g2 g3 g4} { r xgroup create st $g 0 entriesread 10 }
+        verify_streams_max_lag {r xgroup create st g5 0 entriesread 10} {}
+        # Over the limit no command enters a sample. Six more entries take
+        # g1's lag from 10 to 16, across a bin boundary the row does not see.
+        for {set i 11} {$i <= 16} {incr i} {
+            verify_streams_max_lag {r xadd st $i-1 f v} {}
+        }
+        verify_streams_max_lag {r xdel st 16-1} {}
+        verify_streams_max_lag {r xack st g1 1-1} {}
+        verify_streams_max_lag {r xgroup setid st g2 0 entriesread 3} {}
+        # Back at the limit the sample is the current one. 16 entries were
+        # added and one was deleted, so g1's lag is capped at the length, 15.
+        verify_streams_max_lag {r xgroup destroy st g5} {db0_LAG:8=1}
+        # XADD moves it from here on: one more entry makes the lag 16.
+        verify_streams_max_lag {r xadd st 17-1 f v} {db0_LAG:16=1}
+    }
+
+    test "STREAM-STATS - streams_max_lag: a group created over the group limit joins on its next command" {
+        r FLUSHALL
+        seed_stream r st 10
+        r xgroup create st g1 0 entriesread 0
+        foreach g {g2 g3 g4} { r xgroup create st $g 0 entriesread 10 }
+        # g5 has read 5 of 10. It is created over the limit, so it is not in
+        # the heap.
+        verify_streams_max_lag {r xgroup create st g5 0 entriesread 5} {}
+        # Destroying g1 brings the stream back to the limit. The row holds
+        # the worst lag among the members, g2 to g4, which is 0.
+        verify_streams_max_lag {r xgroup destroy st g1} {db0_LAG:0=1}
+        # g5's next command enrols it. Its lag is 5, in the bucket for 4 to 7.
+        verify_streams_max_lag {r xack st g5 1-1} {db0_LAG:4=1}
+    }
+
+    test "STREAM-STATS - streams_max_lag: a stream loaded over the group limit has no sample" {
+        r FLUSHALL
+        seed_stream r st 10
+        r xgroup create st g1 0 entriesread 0
+        foreach g {g2 g3 g4 g5} { r xgroup create st $g 0 entriesread 10 }
+        verify_streams_max_lag {} {}
+        verify_streams_max_lag {r debug reload} {}
+        # The load built no heap. Back at the limit the groups join one by
+        # one, each on its next command: g2 with lag 0, then g1 with lag 10.
+        verify_streams_max_lag {r xgroup destroy st g5} {}
+        verify_streams_max_lag {r xack st g2 1-1} {db0_LAG:0=1}
+        verify_streams_max_lag {r xack st g1 1-1} {db0_LAG:8=1}
+    }
+
+    test "STREAM-STATS - a group limit set while stats are off starts a new generation at the next enable" {
+        r FLUSHALL
+        # While stats are off there is nothing to rebuild, so the change is
+        # only noted. The validator is disarmed: while it is armed, an enable
+        # rebuilds the rows whether or not a change was noted.
+        r debug stream-stats-assert 0
+        r config set stream-stats no
+        set epoch [r debug stream-stats-epoch]
+        r debug stream-stats-lag-groups-limit 8
+        r config set stream-stats yes
+        assert {[r debug stream-stats-epoch] != $epoch}
+        assert_equal 8 [r debug stream-stats-lag-groups-limit]
     }
 }
