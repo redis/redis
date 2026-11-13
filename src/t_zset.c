@@ -4071,8 +4071,7 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
      * so don't drop it as unstable did. Skip it only when ZRANGESTORE
      * overwrites its own source: setKey()/dbDelete() already accounted for
      * the destination and replaced or freed zobj. */
-    if (server.memory_tracking_enabled &&
-        !(store && equalStringObjects(key, handler->dstkey)))
+    if (server.memory_tracking_enabled && !(store && equalStringObjects(key, handler->dstkey)))
         updateSlotAllocSize(c->db, getKeySlot(key->ptr), zobj, oldsize, kvobjAllocSize(zobj));
 
     /* Instead of returning here, we'll just fall-through the clean-up. */
