@@ -3580,12 +3580,20 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
         serverPanic("Unknown operator");
     }
     if (server.memory_tracking_enabled) {
+        /* A caller may name the same input key more than once. The size of an
+         * input is recorded once per argument but the object is shared, so
+         * applying every argument's change would count it again each time it
+         * repeats. Use object identity to settle each distinct input once,
+         * without a quadratic scan of the preceding arguments. */
+        dictType seenDictType = { .hashFunction = dictPtrHash };
+        dict *seen = dictCreate(&seenDictType);
         for (i = 0; i < setnum; i++) {
             robj *obj = src[i].subject;
-            if (obj == NULL) continue;
+            if (obj == NULL || dictAdd(seen, obj, NULL) != DICT_OK) continue;
             updateSlotAllocSize(c->db, getKeySlot(kvobjGetKey(obj)), obj,
                                 src[i].oldsize, kvobjAllocSize(obj));
         }
+        dictRelease(seen);
     }
 
     if (dstkey) {
