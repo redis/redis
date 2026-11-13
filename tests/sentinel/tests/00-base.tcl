@@ -118,6 +118,147 @@ test "The old master eventually gets reconfigured as a slave" {
     }
 }
 
+test "Sentinels converge after a master event-loop stall" {
+    set stalled_port [RPort $master_id]
+    set stalled_client [redis_deferring_client redis $master_id]
+    $stalled_client DEBUG SLEEP 5
+
+    wait_for_condition 1000 50 {
+        [lindex [S 0 SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] 1] != $stalled_port
+    } else {
+        fail "Sentinels did not fail over after the master event-loop stall"
+    }
+
+    set converged_port [lindex [S 0 SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] 1]
+    foreach_sentinel_id id {
+        wait_for_condition 1000 50 {
+            [lindex [S $id SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] 1] == $converged_port &&
+            [dict get [S $id SENTINEL MASTER mymaster] flags] eq "master"
+        } else {
+            fail "Sentinel $id did not converge after the master event-loop stall"
+        }
+    }
+    catch {$stalled_client read}
+    $stalled_client close
+    set master_id [get_instance_id_by_port redis $converged_port]
+}
+
+test "A newer HELLO cancels an older local failover" {
+    set original_master_id $master_id
+    set original_master_port [RPort $original_master_id]
+    set promoted_id -1
+    set paused_id -1
+
+    foreach_sentinel_id id {
+        set master_info [S $id SENTINEL MASTER mymaster]
+        if {[dict exists $master_info failover-state] ||
+            [dict get $master_info flags] ne {master}} {
+            fail "Sentinel $id did not finish the previous failover"
+        }
+    }
+
+    foreach_sentinel_id id {
+        S $id SENTINEL DEBUG info-period 100
+        S $id SENTINEL SET mymaster parallel-syncs 1
+    }
+
+    foreach_redis_id id {
+        if {$id != $original_master_id} {
+            if {$promoted_id == -1} {
+                set promoted_id $id
+                R $id CONFIG SET replica-priority 1
+            } elseif {$paused_id == -1} {
+                set paused_id $id
+                R $id CONFIG SET replica-priority 0
+            } else {
+                R $id CONFIG SET replica-priority 100
+            }
+        }
+    }
+
+    foreach_sentinel_id id {
+        S $id SENTINEL SET mymaster parallel-syncs 1
+        S $id SENTINEL SET mymaster down-after-milliseconds 60000
+        S $id SENTINEL SET mymaster failover-timeout 60000
+    }
+
+    set priorities_updated 0
+    for {set tries 0} {$tries < 1000 && !$priorities_updated} {incr tries} {
+        set priorities_updated 1
+        foreach slave [S 0 SENTINEL SLAVES mymaster] {
+            set port [dict get $slave port]
+            set priority [dict get $slave slave-priority]
+            if {$port == [RPort $promoted_id]} {
+                if {$priority != 1} {set priorities_updated 0}
+            } elseif {$port == [RPort $paused_id]} {
+                if {$priority != 0} {set priorities_updated 0}
+            }
+        }
+        if {!$priorities_updated} {after 10}
+    }
+    if {!$priorities_updated} {
+        fail "Sentinel did not refresh replica priorities"
+    }
+
+    pause_process [get_instance_attrib redis $paused_id pid]
+    assert_match {*OK*} [S 0 SENTINEL FAILOVER mymaster]
+
+    wait_for_condition 1000 10 {
+        [RI $promoted_id role] eq {master}
+    } else {
+        resume_process [get_instance_attrib redis $paused_id pid]
+        fail "Sentinel did not promote the selected replica"
+    }
+
+    set failover_sentinel -1
+    for {set tries 0} {$tries < 1000 && $failover_sentinel == -1} {incr tries} {
+        foreach_sentinel_id id {
+            set master_info [S $id SENTINEL MASTER mymaster]
+            if {[dict exists $master_info failover-state] &&
+                [dict get $master_info failover-state] eq {reconf_slaves}} {
+                set failover_sentinel $id
+                break
+            }
+        }
+        if {$failover_sentinel == -1} {after 10}
+    }
+    if {$failover_sentinel == -1} {
+        resume_process [get_instance_attrib redis $paused_id pid]
+        fail "No Sentinel remained in the replica reconfiguration state"
+    }
+
+    set sender_id [S 1 SENTINEL MYID]
+    set sender_port [get_instance_attrib sentinel 1 port]
+    set hello "127.0.0.1,$sender_port,$sender_id,1000,mymaster,127.0.0.1,$original_master_port,1000"
+    assert_equal 1 [S $failover_sentinel PUBLISH __sentinel__:hello $hello]
+
+    wait_for_condition 1000 10 {
+        ![dict exists [S $failover_sentinel SENTINEL MASTER mymaster] failover-state] &&
+        [dict get [S $failover_sentinel SENTINEL MASTER mymaster] config-epoch] == 1000 &&
+        [lindex [S $failover_sentinel SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] 1] == $original_master_port
+    } else {
+        resume_process [get_instance_attrib redis $paused_id pid]
+        fail "Newer HELLO did not cancel the older local failover"
+    }
+
+    resume_process [get_instance_attrib redis $paused_id pid]
+    foreach_sentinel_id id {
+        wait_for_condition 1000 50 {
+            ![dict exists [S $id SENTINEL MASTER mymaster] failover-state] &&
+            [dict get [S $id SENTINEL MASTER mymaster] config-epoch] == 1000 &&
+            [lindex [S $id SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] 1] == $original_master_port
+        } else {
+            fail "Sentinel $id did not converge on the newer configuration"
+        }
+    }
+
+    foreach_sentinel_id id {
+        S $id SENTINEL SET mymaster parallel-syncs 10
+        S $id SENTINEL SET mymaster down-after-milliseconds 2000
+        S $id SENTINEL SET mymaster failover-timeout 10000
+    }
+}
+
 test "ODOWN is not possible without N (quorum) Sentinels reports" {
     foreach_sentinel_id id {
         S $id SENTINEL SET mymaster quorum [expr $sentinels+1]
