@@ -420,7 +420,34 @@ REDIS_BENCHMARK_NAME=redis-benchmark$(PROG_SUFFIX)
 REDIS_BENCHMARK_OBJ=ae.o anet.o redis-benchmark.o adlist.o dict.o zmalloc.o redisassert.o release.o crcspeed.o crccombine.o crc64.o siphash.o crc16.o monotonic.o cli_common.o mt19937-64.o strl.o
 REDIS_CHECK_RDB_NAME=redis-check-rdb$(PROG_SUFFIX)
 REDIS_CHECK_AOF_NAME=redis-check-aof$(PROG_SUFFIX)
-ALL_SOURCES=$(sort $(patsubst %.o,%.c,$(REDIS_SERVER_OBJ) $(REDIS_VEC_SETS_OBJ) $(REDIS_CLI_OBJ) $(REDIS_BENCHMARK_OBJ)))
+CRC16_PMULL?=yes
+CRC16_SHA3?=yes
+CRC16_SVE?=yes
+CRC16_XMODEM_ASM_OBJ=crc16_xmodem_pmull.o crc16_xmodem_pmull_8way.o crc16_xmodem_short.o
+ifeq ($(uname_S),Linux)
+ifeq ($(uname_M),aarch64)
+ifeq ($(CRC16_PMULL),yes)
+# 同时检查编译器目标，避免交叉编译时仅凭宿主机架构误选汇编。
+CRC16_TARGET := $(shell printf '%s\n' '$(NUMBER_SIGN_CHAR)if defined(__linux__) && defined(__aarch64__) && defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__' 'crc16_target_supported' '$(NUMBER_SIGN_CHAR)endif' | $(CC) $(STD) $(CFLAGS) $(REDIS_CFLAGS) -E -P -x c - 2>/dev/null)
+ifeq ($(strip $(CRC16_TARGET)),crc16_target_supported)
+FINAL_CFLAGS+=-DREDIS_CRC16_PMULL
+ifeq ($(CRC16_SHA3),yes)
+FINAL_CFLAGS+=-DREDIS_CRC16_SHA3
+CRC16_ASM_FLAGS+=-DCRC16_USE_SHA3
+endif
+ifeq ($(CRC16_SVE),yes)
+FINAL_CFLAGS+=-DREDIS_CRC16_SVE
+crc16_xmodem_pmull_8way.o: CRC16_ASM_FLAGS+=-DCRC16_USE_SVE
+endif
+CRC16_XMODEM_OBJ=crc16_xmodem_dispatch.o $(CRC16_XMODEM_ASM_OBJ)
+REDIS_SERVER_OBJ+=$(CRC16_XMODEM_OBJ)
+REDIS_CLI_OBJ+=$(CRC16_XMODEM_OBJ)
+REDIS_BENCHMARK_OBJ+=$(CRC16_XMODEM_OBJ)
+endif
+endif
+endif
+endif
+ALL_SOURCES=$(filter-out $(CRC16_XMODEM_ASM_OBJ:.o=.c),$(sort $(patsubst %.o,%.c,$(REDIS_SERVER_OBJ) $(REDIS_VEC_SETS_OBJ) $(REDIS_CLI_OBJ) $(REDIS_BENCHMARK_OBJ))))
 
 all: $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME) $(TLS_MODULE) module_tests
 	@echo ""
@@ -509,6 +536,9 @@ DEP = $(REDIS_SERVER_OBJ:%.o=%.d) $(REDIS_VEC_SETS_OBJ:%.o=%.d) $(REDIS_CLI_OBJ:
 %.o: %.c .make-prerequisites
 	$(REDIS_CC) -MMD -o $@ -c $<
 
+$(CRC16_XMODEM_ASM_OBJ): %.o: %.S .make-prerequisites
+	$(REDIS_CC) $(CRC16_ASM_FLAGS) -MMD -o $@ -c $<
+
 # The following files are checked in and don't normally need to be rebuilt. They
 # are built only if python is available and their prereqs are modified.
 ifneq (,$(PYTHON))
@@ -524,7 +554,7 @@ endif
 commands.c: $(COMMANDS_DEF_FILENAME).def
 
 clean:
-	rm -rf $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME) *.o *.gcda *.gcno *.gcov redis.info lcov-html Makefile.dep *.so
+	rm -rf $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME) *.o *.gcda *.gcno *.gcov redis.info lcov-html Makefile.dep *.so crc16-test
 	rm -f $(DEP)
 	-(cd ../tests/modules && $(MAKE) clean)
 
@@ -537,6 +567,16 @@ distclean: clean
 	-(rm -f .make-*)
 
 .PHONY: distclean
+
+# 独立校验 CRC16 的标量和当前硬件支持的汇编路径。
+# Linux ARM64 可用 CRC16_SHA3=no CRC16_SVE=no 分别验证回退构建。
+crc16-test: crc16.c .make-prerequisites $(CRC16_XMODEM_OBJ)
+	$(REDIS_CC) -DCRC16_TEST_MAIN -o $@ crc16.c $(CRC16_XMODEM_OBJ) $(FINAL_LDFLAGS)
+
+test-crc16: crc16-test
+	./crc16-test
+
+.PHONY: test-crc16
 
 test: $(REDIS_SERVER_NAME) $(REDIS_CHECK_AOF_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) module_tests
 	@(cd ..; ./runtest)
