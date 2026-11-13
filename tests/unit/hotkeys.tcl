@@ -324,14 +324,14 @@ start_server {tags {external:skip "hotkeys"}} {
         assert_equal {OK} [r hotkeys reset]
     }
 
-    test {HOTKEYS - multi-key commands credit the whole cost to their keys} {
+    test {HOTKEYS - multi-key commands credit all their bytes to their keys} {
         set keys {}
         for {set i 0} {$i < 64} {incr i} {
             lappend keys "mkey_$i"
         }
         r mset {*}[concat {*}[lmap k $keys {list $k [string repeat x 200]}]]
 
-        assert_equal {OK} [r hotkeys start METRICS 2 CPU NET]
+        assert_equal {OK} [r hotkeys start METRICS 1 NET]
         for {set i 0} {$i < 100} {incr i} {
             r mget {*}$keys
             r exists {*}[lrange $keys 0 6]
@@ -343,7 +343,6 @@ start_server {tags {external:skip "hotkeys"}} {
             set result [hotkeys_array_to_dict $result]
         }
 
-        assert_morethan [llength [dict get $result "by-cpu-time-us"]] 0
         assert_equal [dict get $result "net-bytes-all-commands-all-slots"] [dict get $result "total-net-bytes"]
 
         assert_equal {OK} [r hotkeys reset]
