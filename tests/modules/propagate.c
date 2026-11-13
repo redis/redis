@@ -67,7 +67,7 @@ int propagateTestTimerCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
 /* Timer callback. */
 void timerNestedHandler(RedisModuleCtx *ctx, void *data) {
-    int repl = (long long)data;
+    int repl = (int) (uintptr_t) data;
 
     /* The goal is the trigger a module command that calls RM_Replicate
      * in order to test MULTI/EXEC structure */
