@@ -387,7 +387,7 @@ static int getColumns(int ifd, int ofd) {
         /* Go to right margin and get position. */
         if (write(ofd,"\x1b[999C",6) != 6) goto failed;
         cols = getCursorPosition(ifd,ofd);
-        if (cols == -1) goto failed;
+        if (cols <= 0) goto failed;
 
         /* Restore position. */
         if (cols > start) {
