@@ -4,7 +4,7 @@
         "complexity": "O(1)",
         "group": "connection",
         "since": "6.2.0",
-        "arity": 1,
+        "arity": -1,
         "function": "resetCommand",
         "command_flags": [
             "NOSCRIPT",
@@ -16,6 +16,20 @@
         ],
         "acl_categories": [
             "CONNECTION"
+        ],
+        "arguments": [
+            {
+                "name": "keep-auth",
+                "type": "pure-token",
+                "token": "KEEP-AUTH",
+                "optional": true
+            },
+            {
+                "name": "keep-proto",
+                "type": "pure-token",
+                "token": "KEEP-PROTO",
+                "optional": true
+            }
         ],
         "reply_schema": {
             "const": "RESET"

@@ -2665,12 +2665,20 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
                 config.in_multi = 0;
                 config.conn_info.input_dbnum = config.dbnum = config.pre_multi_dbnum;
                 cliRefreshPrompt();
-            } else if (!strcasecmp(command,"reset") && argc == 1 &&
+            } else if (!strcasecmp(command,"reset") &&
                                      config.last_cmd_type != REDIS_REPLY_ERROR) {
                 config.in_multi = 0;
                 config.dbnum = 0;
                 config.conn_info.input_dbnum = 0;
-                config.current_resp3 = 0;
+                int keep_proto = 0;
+                for (int j = 1; j < argc; j++) {
+                    if (!strcasecmp(argv[j], "KEEP-PROTO")) {
+                        keep_proto = 1;
+                        break;
+                    }
+                }
+                if (!keep_proto)
+                    config.current_resp3 = 0;
                 if (config.pubsub_mode && config.push_output) {
                     redisSetPushCallback(context, cliPushHandler);
                 }
