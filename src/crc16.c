@@ -1,8 +1,40 @@
+#ifdef CRC16_TEST_MAIN
+#define _GNU_SOURCE
+#include <stdint.h>
+#else
 #include "server.h"
+#endif
+
+#if defined(REDIS_CRC16_PMULL) && defined(__linux__) && defined(__aarch64__) && \
+    defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#include <sys/auxv.h>
+#include <asm/hwcap.h>
+extern uint16_t crc16_xmodem(uint16_t, const uint8_t *, uint64_t);
+static int crc16_has_optimized;
+#ifdef REDIS_CRC16_SVE
+int crc16_use_sve_wide;
+#endif
+__attribute__((constructor)) static void crc16InitOptimized(void) {
+    unsigned long hw = getauxval(AT_HWCAP);
+    unsigned long required = HWCAP_PMULL;
+#ifdef REDIS_CRC16_SHA3
+    required |= HWCAP_SHA3;
+#endif
+    int available = (hw & required) == required;
+#ifdef REDIS_CRC16_SVE
+    unsigned long hw2 = getauxval(AT_HWCAP2);
+    crc16_use_sve_wide = available && (hw & HWCAP_SVE) &&
+        (hw2 & (HWCAP2_SVE2 | HWCAP2_SVEPMULL)) == (HWCAP2_SVE2 | HWCAP2_SVEPMULL);
+#endif
+    crc16_has_optimized = available;
+}
+#define CRC16_USE_OPTIMIZED
+#endif
 
 /*
  * Copyright 2001-2010 Georges Menie (www.menie.org)
  * Copyright 2010-current Redis Ltd.
+ * Copyright 2010-2012 Salvatore Sanfilippo (adapted to Redis coding style)
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -79,10 +111,155 @@ static const uint16_t crc16tab[256]= {
     0x6e17,0x7e36,0x4e55,0x5e74,0x2e93,0x3eb2,0x0ed1,0x1ef0
 };
 
-uint16_t crc16(const char *buf, int len) {
-    int counter;
-    uint16_t crc = 0;
-    for (counter = 0; counter < len; counter++)
-            crc = (crc<<8) ^ crc16tab[((crc>>8) ^ *buf++)&0x00FF];
+#ifdef CRC16_USE_OPTIMIZED
+uint16_t crc16_xmodem_scalar(uint16_t crc, const uint8_t *buf, uint64_t len) {
+#else
+static uint16_t crc16_xmodem_scalar(uint16_t crc, const uint8_t *buf, uint64_t len) {
+#endif
+    for (uint64_t i = 0; i < len; i++)
+        crc = (uint16_t)((crc << 8) ^ crc16tab[((crc >> 8) ^ buf[i]) & 0xff]);
     return crc;
 }
+
+uint16_t crc16(const char *buf, int len) {
+    if (len <= 0) return 0;
+#ifdef CRC16_USE_OPTIMIZED
+    if (crc16_has_optimized)
+        return crc16_xmodem(0, (const uint8_t *)buf, (uint64_t)len);
+#endif
+    return crc16_xmodem_scalar(0, (const uint8_t *)buf, (uint64_t)len);
+}
+
+#ifdef CRC16_TEST_MAIN
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#ifdef __linux__
+#include <sys/mman.h>
+#include <unistd.h>
+#endif
+
+/* 独立的逐位参考算法，避免测试和生产路径共享查表错误。 */
+static uint16_t crc16Reference(uint16_t crc, const uint8_t *buf, size_t len) {
+    for (size_t i = 0; i < len; i++) {
+        crc ^= (uint16_t)buf[i] << 8;
+        for (int bit = 0; bit < 8; bit++)
+            crc = (uint16_t)((crc << 1) ^ ((crc & 0x8000) ? 0x1021 : 0));
+    }
+    return crc;
+}
+
+static void crc16Check(const char *path, uint16_t actual, uint16_t expected,
+                       size_t len, unsigned int seed, unsigned int offset) {
+    if (actual != expected) {
+        fprintf(stderr, "%s: len=%zu seed=%04x offset=%u actual=%04x expected=%04x\n",
+                path, len, seed, offset, actual, expected);
+        exit(1);
+    }
+}
+
+#ifdef CRC16_USE_OPTIMIZED
+extern uint16_t crc16_xmodem_short(uint16_t, const uint8_t *, uint64_t);
+extern uint16_t crc16_xmodem_pmull(uint16_t, const uint8_t *, uint64_t);
+extern uint16_t crc16_xmodem_pmull_8way_neon(uint16_t, const uint8_t *, uint64_t);
+#ifdef REDIS_CRC16_SVE
+extern uint16_t crc16_xmodem_pmull_8way(uint16_t, const uint8_t *, uint64_t);
+#endif
+#endif
+
+static void crc16CheckPaths(const uint8_t *buf, size_t len, uint16_t seed,
+                            uint16_t expected, unsigned int offset) {
+    crc16Check("scalar", crc16_xmodem_scalar(seed, buf, len), expected, len, seed, offset);
+    if (seed == 0)
+        crc16Check("public", crc16((const char *)buf, (int)len), expected, len, seed, offset);
+#ifdef CRC16_USE_OPTIMIZED
+    /* 硬件能力不足时不直接调用包含可选指令的入口。 */
+    if (crc16_has_optimized) {
+        crc16Check("dispatch", crc16_xmodem(seed, buf, len), expected, len, seed, offset);
+        if (len >= 16)
+            crc16Check("short", crc16_xmodem_short(seed, buf, len), expected, len, seed, offset);
+        crc16Check("pmull", crc16_xmodem_pmull(seed, buf, len), expected, len, seed, offset);
+        crc16Check("neon", crc16_xmodem_pmull_8way_neon(seed, buf, len), expected, len, seed, offset);
+#ifdef REDIS_CRC16_SVE
+        if (crc16_use_sve_wide)
+            crc16Check("sve", crc16_xmodem_pmull_8way(seed, buf, len), expected, len, seed, offset);
+#endif
+    }
+#endif
+}
+
+static void crc16CheckBuffer(const uint8_t *buf, size_t len, unsigned int offset) {
+    static const uint16_t seeds[] = {0, 1, 0x1021, 0x8000, 0xffff};
+    for (size_t i = 0; i < sizeof(seeds) / sizeof(seeds[0]); i++) {
+        uint16_t expected = crc16Reference(seeds[i], buf, len);
+        crc16CheckPaths(buf, len, seeds[i], expected, offset);
+    }
+}
+
+int main(void) {
+    static const size_t large_lengths[] = {4097, 8191, 8192, 8193, 16383,
+                                           16384, 16385, 32767, 32768, 32769};
+    uint8_t buf[32769 + 16];
+    uint32_t random = 0x12345678;
+    for (size_t i = 0; i < sizeof(buf); i++) {
+        random ^= random << 13;
+        random ^= random >> 17;
+        random ^= random << 5;
+        buf[i] = (uint8_t)random;
+    }
+    crc16Check("XMODEM vector", crc16("123456789", 9), 0x31c3, 9, 0, 0);
+    crc16Check("negative length", crc16(NULL, -1), 0, 0, 0, 0);
+    crc16Check("zero length", crc16(NULL, 0), 0, 0, 0, 0);
+    for (unsigned int offset = 0; offset < 16; offset++) {
+        /* 逐步扩展参考值，覆盖每个长度而不重复执行整段逐位运算。 */
+        static const uint16_t seeds[] = {0, 1, 0x1021, 0x8000, 0xffff};
+        for (size_t s = 0; s < sizeof(seeds) / sizeof(seeds[0]); s++) {
+            uint16_t expected = seeds[s];
+            for (size_t len = 0; len <= 4096; len++) {
+                crc16CheckPaths(buf + offset, len, seeds[s], expected, offset);
+                expected = crc16Reference(expected, buf + offset + len, 1);
+            }
+        }
+        for (size_t i = 0; i < sizeof(large_lengths) / sizeof(large_lengths[0]); i++)
+            crc16CheckBuffer(buf + offset, large_lengths[i], offset);
+    }
+    memset(buf, 0, sizeof(buf));
+    crc16CheckBuffer(buf, 32769, 0);
+    memset(buf, 0xff, sizeof(buf));
+    crc16CheckBuffer(buf, 32769, 0);
+#ifdef __linux__
+    /* 两端保护页分别捕获越界前读和越界后读，包括零长度输入。 */
+    long page = sysconf(_SC_PAGESIZE);
+    if (page <= 0) return 1;
+    size_t span = ((32769 + (size_t)page - 1) / (size_t)page) * (size_t)page;
+    uint8_t *mapping = mmap(NULL, span + 2 * (size_t)page, PROT_NONE,
+                            MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (mapping == MAP_FAILED) { perror("mmap"); return 1; }
+    uint8_t *data = mapping + page;
+    if (mprotect(data, span, PROT_READ | PROT_WRITE)) { perror("mprotect"); return 1; }
+    memset(data, 0xa5, span);
+    for (size_t len = 0; len <= 4096; len++) {
+        crc16CheckBuffer(data, len, 0);
+        crc16CheckBuffer(data + span - len, len, 0);
+    }
+    for (size_t i = 0; i < sizeof(large_lengths) / sizeof(large_lengths[0]); i++) {
+        size_t len = large_lengths[i];
+        crc16CheckBuffer(data, len, 0);
+        crc16CheckBuffer(data + span - len, len, 0);
+    }
+    munmap(mapping, span + 2 * (size_t)page);
+#endif
+#ifdef CRC16_USE_OPTIMIZED
+    if (!crc16_has_optimized)
+        puts("SKIP: assembly paths (required CPU features unavailable)");
+#ifdef REDIS_CRC16_SVE
+    if (!crc16_use_sve_wide)
+        puts("SKIP: SVE path (required CPU features unavailable)");
+#endif
+#else
+    puts("SKIP: assembly paths (not built on this target)");
+#endif
+    puts("CRC16 correctness tests passed");
+    return 0;
+}
+#endif
