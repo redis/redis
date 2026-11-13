@@ -3385,7 +3385,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
              * as src[0] is non-empty and the inputs are ordered by size, all
              * src[i > 0] are non-empty too. */
             src[0].noscore = cardinality_only;
-            /* Sharing the member hash pays off from three inputs. */
+            /* Cache the hash when there may be multiple B+ tree probes. */
             int reuse_hash = setnum > 2;
             zuiInitIterator(&src[0]);
             memset(&zval, 0, sizeof(zval));
