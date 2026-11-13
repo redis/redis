@@ -6938,7 +6938,7 @@ struct COMMAND_STRUCT SCRIPT_Subcommands[] = {
 {MAKE_CMD("flush","Removes all server-side Lua scripts from the script cache.","O(N) with N being the number of scripts in cache","2.6.0",CMD_DOC_NONE,NULL,NULL,"scripting",COMMAND_GROUP_SCRIPTING,SCRIPT_FLUSH_History,1,SCRIPT_FLUSH_Tips,2,scriptCommand,-2,CMD_NOSCRIPT,ACL_CATEGORY_SCRIPTING,SCRIPT_FLUSH_Keyspecs,0,NULL,1),.args=SCRIPT_FLUSH_Args},
 {MAKE_CMD("help","Returns helpful text about the different subcommands.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"scripting",COMMAND_GROUP_SCRIPTING,SCRIPT_HELP_History,0,SCRIPT_HELP_Tips,0,scriptCommand,2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_SCRIPTING,SCRIPT_HELP_Keyspecs,0,NULL,0)},
 {MAKE_CMD("kill","Terminates a server-side Lua script during execution.","O(1)","2.6.0",CMD_DOC_NONE,NULL,NULL,"scripting",COMMAND_GROUP_SCRIPTING,SCRIPT_KILL_History,0,SCRIPT_KILL_Tips,2,scriptCommand,2,CMD_NOSCRIPT|CMD_ALLOW_BUSY,ACL_CATEGORY_SCRIPTING,SCRIPT_KILL_Keyspecs,0,NULL,0)},
-{MAKE_CMD("load","Loads a server-side Lua script to the script cache.","O(N) with N being the length in bytes of the script body.","2.6.0",CMD_DOC_NONE,NULL,NULL,"scripting",COMMAND_GROUP_SCRIPTING,SCRIPT_LOAD_History,0,SCRIPT_LOAD_Tips,2,scriptCommand,3,CMD_NOSCRIPT|CMD_STALE,ACL_CATEGORY_SCRIPTING,SCRIPT_LOAD_Keyspecs,0,NULL,1),.args=SCRIPT_LOAD_Args},
+{MAKE_CMD("load","Loads a server-side Lua script to the script cache.","O(N) with N being the length in bytes of the script body.","2.6.0",CMD_DOC_NONE,NULL,NULL,"scripting",COMMAND_GROUP_SCRIPTING,SCRIPT_LOAD_History,0,SCRIPT_LOAD_Tips,2,scriptCommand,3,CMD_NOSCRIPT|CMD_STALE|CMD_DENYOOM,ACL_CATEGORY_SCRIPTING,SCRIPT_LOAD_Keyspecs,0,NULL,1),.args=SCRIPT_LOAD_Args},
 {0}
 };
 
