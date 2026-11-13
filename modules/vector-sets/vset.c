@@ -640,11 +640,17 @@ int VADD_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
      * the master, while with CAS the timing would be different.
      *
      * Also for Lua scripts and MULTI/EXEC, we want to run the command
-     * on the main thread. */
+     * on the main thread.
+     *
+     * Same while the server is loading: the AOF loader replays commands on
+     * a fake client that must never block, while CAS blocks its client and
+     * defers the insertion to the reply callback. So replayed VADD commands
+     * must take the synchronous insertion path. */
     if (RedisModule_GetContextFlags(ctx) &
             (REDISMODULE_CTX_FLAGS_REPLICATED|
              REDISMODULE_CTX_FLAGS_LUA|
-             REDISMODULE_CTX_FLAGS_MULTI))
+             REDISMODULE_CTX_FLAGS_MULTI|
+             REDISMODULE_CTX_FLAGS_LOADING))
     {
         cas = 0;
     }
