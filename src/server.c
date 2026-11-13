@@ -2968,7 +2968,14 @@ int listenToPort(connListener *sfd) {
             closeListener(sfd);
             return C_ERR;
         }
-        if (server.socket_mark_id > 0) anetSetSockMarkId(NULL, sfd->fd[sfd->count], server.socket_mark_id);
+        if (server.socket_mark_id > 0) {
+            char markerr[ANET_ERR_LEN];
+            if (anetSetSockMarkId(markerr, sfd->fd[sfd->count], server.socket_mark_id) == ANET_ERR) {
+                serverLog(LL_WARNING,
+                    "Warning: Could not apply socket mark %u to listening socket %s:%d: %s",
+                    server.socket_mark_id, addr, port, markerr);
+            }
+        }
         anetNonBlock(NULL,sfd->fd[sfd->count]);
         anetCloexec(sfd->fd[sfd->count]);
         sfd->count++;
