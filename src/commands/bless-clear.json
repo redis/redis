@@ -12,7 +12,7 @@
             "FAST"
         ],
         "acl_categories": [
-            "KEYSPACE"
+            "DANGEROUS"
         ],
         "key_specs": [
             {
