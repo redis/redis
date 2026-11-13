@@ -34,9 +34,6 @@ a number of reasons. Including, offering fast response times to researchers and
 opportunities for us to invite those with exceptional reports into closed paid 
 engagements.  
 
-For those averse to using our chosen platform, we will also accept reports directly
-via GitHub's "Report a Vulnerability".  
-
 To contact the security team directly with questions use: [security@redis.com](mailto:security@redis.com)
 
 
