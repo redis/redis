@@ -177,3 +177,63 @@ start_server {tags {"querybuf"}} {
         $rd close
     } 
 }
+
+start_server {tags {"querybuf"}} {
+    # The query buffer limit also covers commands that are queued inside a
+    # MULTI but not executed yet, since they hold memory just the same. The
+    # check lives in readQueryFromClient() and sums mstate.argv_len_sums with
+    # the current query buffer length.
+    test "query buffer limit accounts for queued MULTI commands" {
+        set org_limit [lindex [r config get client-query-buffer-limit] 1]
+        r config resetstat
+        r config set client-query-buffer-limit 1048576
+
+        set rd [redis_client]
+        $rd client setname multi_qbuf
+
+        # Each queued command is only ~100kb, well under the 1mb limit on its
+        # own, so a disconnect here can only come from the queued commands
+        # being accounted for together.
+        set payload [string repeat A 102400]
+        $rd multi
+        set queued 0
+        catch {
+            for {set i 0} {$i < 20} {incr i} {
+                $rd set key:$i{t} $payload
+                incr queued
+            }
+        } e
+
+        # The client is killed with freeClientAsync() and gets no error reply,
+        # so the write simply fails once the server is gone.
+        assert {$queued < 20}
+
+        # Make sure it was the query buffer limit that killed it, and not the
+        # output buffer limit or anything else.
+        set info [r info stats]
+        assert_equal [getInfoProperty $info client_query_buffer_limit_disconnections] {1}
+
+        catch {$rd close}
+        r config set client-query-buffer-limit $org_limit
+    }
+
+    test "query buffer limit is not reached by a MULTI below the limit" {
+        set org_limit [lindex [r config get client-query-buffer-limit] 1]
+        r config resetstat
+        r config set client-query-buffer-limit 1048576
+
+        set rd [redis_client]
+        set payload [string repeat A 102400]
+        $rd multi
+        for {set i 0} {$i < 5} {incr i} {
+            $rd set key:$i{t} $payload
+        }
+        assert_equal [llength [$rd exec]] 5
+
+        set info [r info stats]
+        assert_equal [getInfoProperty $info client_query_buffer_limit_disconnections] {0}
+
+        $rd close
+        r config set client-query-buffer-limit $org_limit
+    }
+}
