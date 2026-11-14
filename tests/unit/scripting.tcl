@@ -1438,6 +1438,11 @@ start_server {tags {"scripting"}} {
         # enable AOF to also expose an assertion if the bug would happen
         r flushall
         r config set appendonly yes
+        # Wait for the initial AOF rewrite to complete (it may be slow, e.g. due
+        # to a slow fsync), otherwise aof_state may still be AOF_WAIT_REWRITE
+        # when the "SHUTDOWN NOSAVE" test below runs, and the shutdown will be
+        # refused with "Writing initial AOF, can't exit".
+        waitForBgrewriteaof r
 
         # create clients, and set one to block waiting for key 'x'
         set rd [redis_deferring_client]
