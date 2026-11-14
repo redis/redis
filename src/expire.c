@@ -240,8 +240,10 @@ uint64_t activeSubexpires(redisDb *db, int slot, uint32_t maxElementssToExpire) 
  *
  * Note that releasing elements is expected to be more predictable and rewarding
  * than releasing keys because it is stored in `ebuckets` DS which optimized for
- * active expiration and in addition the deletion of elements is simple to handle. */
-static inline void activeSubexpiresCycle(int type) {
+ * active expiration and in addition the deletion of elements is simple to handle.
+ *
+ * Returns 1 if it tried to expire elements, 0 if there was nothing to do. */
+static inline int activeSubexpiresCycle(int type) {
     /* Remember current db across calls */
     static unsigned int currentDb = 0;
     static int currentSlot = -1;
@@ -260,7 +262,7 @@ static inline void activeSubexpiresCycle(int type) {
     if (estoreIsEmpty(db->subexpires)) {
         activeExpirySequence = 0;
         currentDb = (currentDb + 1) % server.dbnum;
-        return;
+        return 0;
     }
     if (currentSlot == -1)
         currentSlot = estoreGetFirstNonEmptyBucket(db->subexpires);
@@ -272,7 +274,7 @@ static inline void activeSubexpiresCycle(int type) {
         currentSlot = estoreGetNextNonEmptyBucket(db->subexpires, currentSlot);
         if (currentSlot == -1)
             currentDb = (currentDb + 1) % server.dbnum; /* Move to next db */
-        return;
+        return 0;
     }
 
     /* Maximum number of elements to actively expire on a single call */
@@ -298,6 +300,7 @@ static inline void activeSubexpiresCycle(int type) {
         if (currentSlot == -1)
             currentDb = (currentDb + 1) % server.dbnum;
     }
+    return 1;
 }
 
 void activeExpireCycle(int type) {
@@ -400,7 +403,7 @@ void activeExpireCycle(int type) {
 
         /* Interleaving sub-expiration with key expiration. Better call it before
          * handling expired keys because ebuckets is optimized for active expiration */
-        activeSubexpiresCycle(type);
+        int subexpires_done = activeSubexpiresCycle(type);
 
         if (kvstoreSize(db->expires))
             dbs_performed++;
@@ -505,6 +508,13 @@ void activeExpireCycle(int type) {
                 }
             }
         } while (repeat);
+
+        /* activeSubexpiresCycle() runs on every iteration, but the time limit
+         * above is skipped for DBs without volatile keys. */
+        if (subexpires_done && !timelimit_exit && ustime()-start > timelimit) {
+            timelimit_exit = 1;
+            server.stat_expired_time_cap_reached_count++;
+        }
     }
 
     elapsed = ustime()-start;
