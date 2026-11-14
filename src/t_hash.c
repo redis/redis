@@ -6803,10 +6803,6 @@ void hpersistCommand(client *c) {
         return;
     }
 
-    /* Track which fields were successfully persisted for subkey notification. */
-    fieldvec fvpersisted;
-    vec *vpersisted = fieldvecInit(&fvpersisted, numFields);
-
     if (hashObj->encoding == OBJ_ENCODING_LISTPACK) {
         addReplyArrayLen(c, numFields);
         for (int i = 0 ; i < numFields ; i++) {
@@ -6822,9 +6818,26 @@ void hpersistCommand(client *c) {
             else
                 addReplyLongLong(c, HFE_PERSIST_NO_TTL);
         }
-        vecRelease(vpersisted);
         return;
-    } else if (hashObj->encoding == OBJ_ENCODING_LISTPACK_EX) {
+    }
+
+    /* A command of the master, or replayed from the AOF, is applied as the
+     * master executed it: a field that is already expired by this node's clock
+     * is not considered expired, it was still alive when the master ran
+     * HPERSIST. Expired fields are left to the master's explicit deletion. */
+    const int obey = mustObeyClient(c);
+
+    /* Fields that are not persisted are removed from the command as we go, so
+     * that a replica (or the AOF) persists exactly the fields the master did:
+     * a field that is already expired here but not yet deleted is not
+     * considered expired there (see 'obey' above), and must not be revived by
+     * the propagated command. Once done, the persisted fields are the ones
+     * left in argv, from the first field position up to argIdx.
+     *
+     * argIdx is pos in argv of i'th field, as removals shift the following fields left. */
+    int argIdx = numFieldsAt + 1;
+
+    if (hashObj->encoding == OBJ_ENCODING_LISTPACK_EX) {
         long long prevExpire;
         unsigned char *fptr, *vptr, *tptr;
         listpackEx *lpt = hashObj->ptr;
@@ -6832,39 +6845,41 @@ void hpersistCommand(client *c) {
 
         addReplyArrayLen(c, numFields);
         for (int i = 0 ; i < numFields ; i++) {
-            sds field = c->argv[numFieldsAt + 1 + i]->ptr;
+            sds field = c->argv[argIdx]->ptr;
+            int res;
 
             fptr = lpFirst(lpt->lp);
             if (fptr != NULL)
                 fptr = lpFind(lpt->lp, fptr, (unsigned char*)field, sdslen(field), 2);
 
             if (!fptr) {
-                addReplyLongLong(c, HFE_PERSIST_NO_FIELD);
-                continue;
+                res = HFE_PERSIST_NO_FIELD;
+            } else {
+                vptr = lpNext(lpt->lp, fptr);
+                serverAssert(vptr);
+                tptr = lpNext(lpt->lp, vptr);
+                serverAssert(tptr && lpGetIntegerValue(tptr, &prevExpire));
+
+                if (prevExpire == HASH_LP_NO_TTL) {
+                    res = HFE_PERSIST_NO_TTL;
+                } else if (!obey && prevExpire < commandTimeSnapshot()) {
+                    /* Already expired. Pretend there is no such field. */
+                    res = HFE_PERSIST_NO_FIELD;
+                } else {
+                    if (server.memory_tracking_enabled)
+                        oldsize = kvobjAllocSize(hashObj);
+                    listpackExUpdateExpiry(hashObj, field, fptr, vptr, HASH_LP_NO_TTL);
+                    if (server.memory_tracking_enabled)
+                        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), hashObj, oldsize, kvobjAllocSize(hashObj));
+                    res = HFE_PERSIST_OK;
+                }
             }
 
-            vptr = lpNext(lpt->lp, fptr);
-            serverAssert(vptr);
-            tptr = lpNext(lpt->lp, vptr);
-            serverAssert(tptr && lpGetIntegerValue(tptr, &prevExpire));
-
-            if (prevExpire == HASH_LP_NO_TTL) {
-                addReplyLongLong(c, HFE_PERSIST_NO_TTL);
-                continue;
-            }
-
-            if (prevExpire < commandTimeSnapshot()) {
-                addReplyLongLong(c, HFE_PERSIST_NO_FIELD);
-                continue;
-            }
-
-            if (server.memory_tracking_enabled)
-                oldsize = kvobjAllocSize(hashObj);
-            listpackExUpdateExpiry(hashObj, field, fptr, vptr, HASH_LP_NO_TTL);
-            if (server.memory_tracking_enabled)
-                updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), hashObj, oldsize, kvobjAllocSize(hashObj));
-            addReplyLongLong(c, HFE_PERSIST_OK);
-            vecPush(vpersisted, c->argv[numFieldsAt + 1 + i]);
+            if (res == HFE_PERSIST_OK)
+                argIdx++;
+            else
+                rewriteClientCommandArgument(c, argIdx, NULL);
+            addReplyLongLong(c, res);
         }
     } else if (hashObj->encoding == OBJ_ENCODING_HT) {
         dict *d = hashObj->ptr;
@@ -6874,29 +6889,31 @@ void hpersistCommand(client *c) {
 
         addReplyArrayLen(c, numFields);
         for (int i = 0 ; i < numFields ; i++) {
-            sds field = c->argv[numFieldsAt + 1 + i]->ptr;
+            sds field = c->argv[argIdx]->ptr;
             dictEntry *de = dictFind(d, field);
+            int res;
+
             if (de == NULL) {
-                addReplyLongLong(c, HFE_PERSIST_NO_FIELD);
-                continue;
+                res = HFE_PERSIST_NO_FIELD;
+            } else {
+                HashEntry *hEntry = dictGetKey(de);
+                uint64_t expire = hEntryGetExpiry(hEntry);
+                if (expire == EB_EXPIRE_TIME_INVALID) {
+                    res = HFE_PERSIST_NO_TTL;
+                } else if (!obey && (long long) expire < commandTimeSnapshot()) {
+                    /* Already expired. Pretend there is no such field. */
+                    res = HFE_PERSIST_NO_FIELD;
+                } else {
+                    hfieldPersist(hashObj, hEntry);
+                    res = HFE_PERSIST_OK;
+                }
             }
 
-            HashEntry *hEntry = dictGetKey(de);
-            uint64_t expire = hEntryGetExpiry(hEntry);
-            if (expire == EB_EXPIRE_TIME_INVALID) {
-                addReplyLongLong(c, HFE_PERSIST_NO_TTL);
-                continue;
-            }
-
-            /* Already expired. Pretend there is no such field */
-            if ( (long long) expire < commandTimeSnapshot()) {
-                addReplyLongLong(c, HFE_PERSIST_NO_FIELD);
-                continue;
-            }
-
-            hfieldPersist(hashObj, hEntry);
-            addReplyLongLong(c, HFE_PERSIST_OK);
-            vecPush(vpersisted, c->argv[numFieldsAt + 1 + i]);
+            if (res == HFE_PERSIST_OK)
+                argIdx++;
+            else
+                rewriteClientCommandArgument(c, argIdx, NULL);
+            addReplyLongLong(c, res);
         }
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), hashObj, oldsize, kvobjAllocSize(hashObj));
@@ -6906,11 +6923,19 @@ void hpersistCommand(client *c) {
 
     /* Generates a hpersist event if the expiry time associated with any field
      * has been successfully deleted. */
-    if (vecSize(vpersisted)) {
+    long persisted = argIdx - (numFieldsAt + 1);
+    if (persisted) {
         notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hpersist", c->argv[1],
-                                       c->db->id, (robj**)vecData(vpersisted), vecSize(vpersisted));
+                                       c->db->id, c->argv + numFieldsAt + 1, persisted);
         keyModified(c, c->db, c->argv[1], hashObj, 1);
         server.dirty++;
+
+        /* Partial result: not persisted fields were removed from the command,
+         * fix the fields count of the propagated command accordingly. */
+        if (persisted < numFields) {
+            robj *count = createStringObjectFromLongLong(persisted);
+            rewriteClientCommandArgument(c, numFieldsAt, count);
+            decrRefCount(count);
+        }
     }
-    vecRelease(vpersisted);
 }
