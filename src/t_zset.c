@@ -3583,6 +3583,16 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
         for (i = 0; i < setnum; i++) {
             robj *obj = src[i].subject;
             if (obj == NULL) continue;
+            /* A repeated key is the same object; applying the delta twice
+             * undercounts the slot when a lookup finished a rehash. */
+            int seen = 0;
+            for (int k = 0; k < i; k++) {
+                if (src[k].subject == obj) {
+                    seen = 1;
+                    break;
+                }
+            }
+            if (seen) continue;
             updateSlotAllocSize(c->db, getKeySlot(kvobjGetKey(obj)), obj,
                                 src[i].oldsize, kvobjAllocSize(obj));
         }
