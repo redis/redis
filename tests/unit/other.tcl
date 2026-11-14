@@ -17,6 +17,25 @@ start_server {tags {"other"}} {
         assert_match "*FUNCTION <subcommand> *" [r FUNCTION HELP]
         assert_match "*MODULE <subcommand> *" [r MODULE HELP]
         assert_match "*HOTKEYS <subcommand> *" [r HOTKEYS HELP]
+        assert_match "*HIMPORT <subcommand> *" [r HIMPORT HELP]
+        assert_match "*BLESS <subcommand> *" [r BLESS HELP]
+    }
+
+    test {Container commands answer HELP} {
+        # Every COMMAND LIST entry that has subcommands (except CLUSTER on
+        # standalone, which reports cluster-disabled) must answer HELP.
+        set cmds [r command list]
+        foreach cmd $cmds {
+            set info [r command info $cmd]
+            if {$info eq {{}} || $info eq {}} continue
+            set entry [lindex $info 0]
+            # COMMAND INFO: index 0 name, 1 arity, ..., 9 subcommands list
+            set subcmds [lindex $entry 9]
+            if {[llength $subcmds] == 0} continue
+            if {[string equal -nocase $cmd cluster]} continue
+            set help [r $cmd HELP]
+            assert_match "*[string toupper $cmd] <subcommand> *" $help
+        }
     }
 
     test {Coverage: MEMORY MALLOC-STATS} {
