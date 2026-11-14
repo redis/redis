@@ -141,6 +141,31 @@
                                 "type": "string"
                             }
                         ]
+                    },
+                    {
+                        "name": "range",
+                        "type": "block",
+                        "arguments": [
+                            {
+                                "name": "range",
+                                "type": "pure-token",
+                                "token": "RANGE"
+                            },
+                            {
+                                "name": "min",
+                                "type": "string"
+                            },
+                            {
+                                "name": "max",
+                                "type": "string"
+                            },
+                            {
+                                "name": "exclusive",
+                                "type": "pure-token",
+                                "token": "EXCLUSIVE",
+                                "optional": true
+                            }
+                        ]
                     }
                 ]
             },
