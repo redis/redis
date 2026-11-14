@@ -852,6 +852,102 @@ run_solo {defrag} {
             }
         }
 
+        test "Active defrag streams with a populated lag heap: $type" {
+            r flushdb
+            r config set hz 100
+            r config set activedefrag no
+            wait_for_defrag_stop 500 100
+            r config resetstat
+            r config set active-defrag-threshold-lower 5
+            r config set active-defrag-cycle-min 65
+            r config set active-defrag-cycle-max 75
+            r config set active-defrag-ignore-bytes 500kb
+            r config set maxmemory 0
+            r config set stream-stats yes
+
+            # One stream with 20000 groups created at a known position, so
+            # XGROUP CREATE enrols each in the stream's lag heap, which holds
+            # the groups by pointer. Destroying every other group leaves the
+            # survivors interleaved with holes of their own size classes, which
+            # active defrag moves; streamLagGroupMoved() must repoint each
+            # moved group's heap entry.
+            set n 20000
+            for {set j 1} {$j <= 100} {incr j} { r xadd st $j-1 f v }
+            # Use batching to avoid TCP deadlock
+            set rd [redis_deferring_client]
+            for {set j 0} {$j < $n} {incr j} {
+                $rd xgroup create st g$j 0 entriesread [expr {$j % 100}]
+                if {($j + 1) % 1000 == 0} {
+                    for {set i 0} {$i < 1000} {incr i} { $rd read }
+                }
+            }
+            set destroyed 0
+            for {set j 1} {$j < $n} {incr j 2} {
+                $rd xgroup destroy st g$j
+                if {[incr destroyed] % 1000 == 0} {
+                    for {set i 0} {$i < 1000} {incr i} { $rd read }
+                }
+            }
+            $rd close
+            after 120 ;# serverCron only updates the info once in 100ms
+            if {$::verbose} {
+                puts "frag [s allocator_frag_ratio]"
+                puts "frag_bytes [s allocator_frag_bytes]"
+            }
+            assert_morethan [s allocator_frag_ratio] 1.2
+
+            # The heap is consistent before defrag: the armed validator walks
+            # every group and the heap after each command from here on. The
+            # digest covers the entries only, so the groups are captured too.
+            r debug stream-stats-assert 1
+            assert_equal 100 [r xlen st]
+            set digest [debug_digest]
+            set groups [r xinfo groups st]
+
+            catch {r config set activedefrag yes} e
+            if {[r config get activedefrag] eq "activedefrag yes"} {
+                # wait for the active defrag to start working (decision once a second)
+                wait_for_condition 50 100 {
+                    [s total_active_defrag_time] ne 0
+                } else {
+                    after 120 ;# serverCron only updates the info once in 100ms
+                    puts [r info memory]
+                    puts [r info stats]
+                    puts [r memory malloc-stats]
+                    fail "defrag not started."
+                }
+
+                # Wait until the survivors have moved: at least one hit per
+                # surviving group. Earlier tests can leave fragmentation this
+                # run cannot remove, which keeps defrag cycling, so it is
+                # stopped explicitly rather than waited out.
+                wait_for_condition 500 100 {
+                    [s active_defrag_hits] > $n / 2
+                } else {
+                    fail "defrag moved [s active_defrag_hits] allocations, fewer than the [expr {$n / 2}] surviving groups"
+                }
+                r config set activedefrag no
+                wait_for_defrag_stop 500 100
+                after 120 ;# serverCron only updates the info once in 100ms
+                if {$::verbose} {
+                    puts "frag [s allocator_frag_ratio]"
+                    puts "hits: [s active_defrag_hits]"
+                }
+            }
+
+            # Only addresses changed, and every survivor is still held where
+            # its slot says: XREADGROUP's member check compares the heap entry
+            # with the group, and the validator checks all of them after each.
+            assert_equal $digest [debug_digest]
+            assert_equal $groups [r xinfo groups st]
+            for {set j 0} {$j < $n} {incr j 2000} {
+                r xreadgroup group g$j c count 1 streams st >
+            }
+            r save ;# saving an rdb iterates over all the data / pointers
+            r debug stream-stats-assert 0
+            r config set stream-stats no
+        } {OK}
+
         foreach {eb_container fields n} {eblist 16 3000 ebrax 30 1600 large_ebrax 500 100} {
         test "Active Defrag HFE with $eb_container: $type" {
             r flushdb

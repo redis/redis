@@ -2,6 +2,7 @@
 #define STREAM_H
 
 #include "rax.h"
+#include "iheap.h"
 #include "listpack.h"
 #include "dict.h"
 #include "xxhash.h"
@@ -36,6 +37,34 @@ extern dictType idmpDictType;
 /* Epoch of a stream or group never counted into the INFO Streams histograms.
  * A db's epoch starts at 0 and never reaches this value. */
 #define STREAM_DISTRIB_NEVER_COUNTED UINT32_MAX
+
+/* A consumer group's INFO Streams stamp, kept in the metadata of its PEL rax
+ * so that streamCG stays one cache line. */
+typedef struct {
+    uint32_t epoch;   /* Generation the bits refer to. After 2^32 generations
+                         an untouched stamp can pass as current again: a row
+                         may then miscount by one sample, and the lag heap
+                         checks the slot before believing the bit
+                         (streamLagIsMember() in t_stream.c). */
+    uint8_t counted;  /* Bit per metric with a sample in its row. A group has
+                         no sample in the per-stream rows, so the bit of
+                         STREAM_DISTRIB_STREAMS_MAX_LAG says instead whether the
+                         group is in its stream's max-lag heap (defined as
+                         STREAM_CG_IN_LAG_HEAP in t_stream.c). */
+    uint8_t slot[3];  /* The group's index in its stream's max-lag heap
+                         (streamLagState.heap), as a 24-bit little-endian
+                         number; meaningful only while the in-heap bit above
+                         is set. */
+} streamDistribStamp;
+
+/* Per-stream state of the max-lag row, kept in the metadata of the groups
+ * rax (t_stream.c, "the max-lag row"). */
+typedef struct {
+    iheap *heap;              /* Member groups keyed by position; NULL until
+                                 the first join. */
+    uint64_t xadd_threshold;  /* entries_added at which the worst lag next
+                                 changes bin; UINT64_MAX while no sample. */
+} streamLagState;
 
 typedef struct stream {
     rax *rax;               /* The radix tree holding the stream. */
@@ -234,7 +263,19 @@ void streamTallyStreamSamples(stream *s, streamStatsHist tally, uint32_t only_ep
 extern const char *const streamDistribMetricNames[STREAM_DISTRIB_MAX];
 void streamStatsResetMeta(kvstoreMetadata *meta);
 void streamStatsRebuild(void);
+uint32_t dbgStreamLagGroupsLimit(void);
+int dbgStreamLagSetGroupsLimit(long long limit);
 void dbgAssertStreamStats(redisDb *db);
+
+/* Max-lag row hooks for paths that change entries_added, length or the number
+ * of groups. Capture before the change, pass the result to streamLagChanged()
+ * after it. While stats are off the capture only notes that the rows fell
+ * behind. See "WHICH HOOK TO CALL" in t_stream.c. */
+#define STREAM_LAG_OFF INT64_MIN
+int64_t streamLagBeforeAppend(stream *s);
+int64_t streamLagCaptureSample(stream *s);
+void streamLagChanged(redisDb *db, stream *s, int64_t old);
+void streamLagGroupMoved(stream *s, streamCG *from, streamCG *to);
 
 listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, unsigned char *key);
 
