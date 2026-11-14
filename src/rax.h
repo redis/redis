@@ -236,6 +236,9 @@ int raxInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old);
 int raxTryInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old);
 int raxRemove(rax *rax, unsigned char *s, size_t len, void **old);
 int raxFind(rax *rax, unsigned char *s, size_t len, void **value);
+size_t raxFindPrefixes(rax *rax, unsigned char *s, size_t len,
+                       void (*cb)(void *data, size_t keylen, void *privdata),
+                       void *privdata);
 
 int raxFindLink(rax *rax, unsigned char *s, size_t len,
                 void **value, raxNodeLink *link);
