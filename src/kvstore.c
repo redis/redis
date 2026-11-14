@@ -37,7 +37,7 @@ struct _kvstore {
     int allocated_dicts;                   /* The number of allocated dicts. */
     int non_empty_dicts;                   /* The number of non-empty dicts. */
     unsigned long long key_count;          /* Total number of keys in this kvstore. */
-    unsigned long long bucket_count;       /* Total number of buckets in this kvstore across dictionaries. */
+    unsigned long long bucket_count;       /* Total number of buckets (top-level and child) in this kvstore across dictionaries. */
     fenwickTree *dict_sizes;               /* Binary indexed tree (BIT) that describes cumulative key frequencies up until given dict-index. */
     size_t overhead_hashtable_rehashing;   /* The overhead of dictionaries rehashing. */
     void *metadata[];                      /* conditionally allocated based on "flags" */
@@ -142,9 +142,8 @@ void kvstoreFreeDictIfNeeded(kvstore *kvs, int didx) {
 /* Adds dictionary to the rehashing list, which allows us
  * to quickly find rehash targets during incremental rehashing.
  *
- * If there are multiple dicts, updates the bucket count for the given dictionary
- * in a DB, bucket count incremented with the new ht size during the rehashing phase.
- * If there's one dict, bucket count can be retrieved directly from single dict bucket. */
+ * Adds the old ht size of the dictionary to the rehashing overhead of the
+ * kvstore. */
 static void kvstoreDictRehashingStarted(dict *d) {
     kvstore *kvs = d->type->userdata;
     kvstoreDictMetaBase *metadata = (kvstoreDictMetaBase *)dictMetadata(d);
@@ -158,8 +157,8 @@ static void kvstoreDictRehashingStarted(dict *d) {
 
 /* Remove dictionary from the rehashing list.
  *
- * Updates the bucket count for the given dictionary in a DB. It removes
- * the old ht size of the dictionary from the total sum of buckets for a DB.  */
+ * Removes the old ht size of the dictionary from the rehashing overhead of
+ * the kvstore. */
 static void kvstoreDictRehashingCompleted(dict *d) {
     kvstore *kvs = d->type->userdata;
     kvstoreDictMetaBase *metadata = (kvstoreDictMetaBase *)dictMetadata(d);
@@ -173,9 +172,9 @@ static void kvstoreDictRehashingCompleted(dict *d) {
     kvs->overhead_hashtable_rehashing -= from;
 }
 
-/* Updates the bucket count for the given dictionary in a DB. It adds the new ht size
- * of the dictionary or removes the old ht size of the dictionary from the total
- * sum of buckets for a DB. */
+/* Updates the bucket count for the given dictionary in a DB. It adds the buckets
+ * (top-level and child) that the dictionary allocated to the total sum of
+ * buckets for a DB, or removes the ones it freed. */
 static void kvstoreDictBucketChanged(dict *d, long long delta) {
     kvstore *kvs = d->type->userdata;
     kvs->bucket_count += delta;
@@ -293,13 +292,9 @@ unsigned long long int kvstoreSize(kvstore *kvs) {
 }
 
 /* This method provides the cumulative sum of all the dictionary buckets
- * across dictionaries in a database. */
+ * (top-level and child) across dictionaries in a database. */
 unsigned long kvstoreBuckets(kvstore *kvs) {
-    if (kvs->num_dicts != 1) {
-        return kvs->bucket_count;
-    } else {
-        return kvs->dicts[0]? dictBuckets(kvs->dicts[0]) : 0;
-    }
+    return kvs->bucket_count;
 }
 
 size_t kvstoreMemUsage(kvstore *kvs) {
@@ -307,7 +302,7 @@ size_t kvstoreMemUsage(kvstore *kvs) {
     size_t metaSize = kvs->dtype.dictMetadataBytes(NULL);
     unsigned long long keys_count = kvstoreSize(kvs);
     mem += keys_count * dictEntryMemUsage(kvs->dtype.no_value) +
-           kvstoreBuckets(kvs) * sizeof(dictEntry*) +
+           kvstoreBuckets(kvs) * DICT_BUCKET_BYTES +
            kvs->allocated_dicts * (sizeof(dict) + metaSize);
 
     /* Values are dict* shared with kvs->dicts */
@@ -565,7 +560,7 @@ void kvstoreMoveDict(kvstore *kvs, kvstore *dst, int didx) {
     /* Adjust source kvstore */
     kvs->allocated_dicts -= 1;
     cumulativeKeyCountAdd(kvs, didx, -((long long)dictSize(d)));
-    kvstoreDictBucketChanged(d, -((long long) dictBuckets(d)));
+    kvstoreDictBucketChanged(d, -((long long) (dictBuckets(d) + dictChildBuckets(d))));
     /* If rehashing, stop it. */
     if (dictIsRehashing(d))
         kvstoreDictRehashingCompleted(d);
@@ -579,7 +574,7 @@ void kvstoreMoveDict(kvstore *kvs, kvstore *dst, int didx) {
     dst->dicts[didx]->type = &dst->dtype;
     dst->allocated_dicts += 1;
     cumulativeKeyCountAdd(dst, didx, dictSize(d));
-    kvstoreDictBucketChanged(d, dictBuckets(d));
+    kvstoreDictBucketChanged(d, dictBuckets(d) + dictChildBuckets(d));
     if (dictIsRehashing(dst->dicts[didx]))
         kvstoreDictRehashingStarted(dst->dicts[didx]);
 }
@@ -702,11 +697,11 @@ uint64_t kvstoreIncrementallyRehash(kvstore *kvs, uint64_t threshold_us) {
 }
 
 size_t kvstoreOverheadHashtableLut(kvstore *kvs) {
-    return kvs->bucket_count * sizeof(dictEntry *);
+    return kvs->bucket_count * DICT_BUCKET_BYTES;
 }
 
 size_t kvstoreOverheadHashtableRehashing(kvstore *kvs) {
-    return kvs->overhead_hashtable_rehashing * sizeof(dictEntry *);
+    return kvs->overhead_hashtable_rehashing * DICT_BUCKET_BYTES;
 }
 
 unsigned long kvstoreDictRehashingCount(kvstore *kvs) {
@@ -852,7 +847,7 @@ dictEntry *kvstoreDictFind(kvstore *kvs, int didx, void *key) {
  * from a kvstore. 
  *
  * The caller may provide a bucket pointer to receive the reference to the bucket 
- * where the key is stored or need to be added.
+ * where the key needs to be added.
  *
  * Returns:
  *   A reference to the dictEntry if found, otherwise NULL.
