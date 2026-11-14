@@ -3499,6 +3499,50 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         assert_roaring_bitop_raws_match_string mixed:not not [list $a] {0}
     }
 
+    test {BITOP OR on strings builds native chunks with zero padding} {
+        r del bitop:chunks:missing
+        r set bitop:chunks:empty ""
+        foreach len {7 8 9 8191 8192 8193 16391} {
+            # A sparse operand, a shorter dense operand, and a longer zero
+            # operand cover ARRAY/BITSET containers, partial words and chunks,
+            # and a trailing empty container that still contributes length.
+            set sparse [string repeat "\x00" $len]
+            set sparse [string replace $sparse 0 0 "\x80"]
+            set sparse [string replace $sparse end end "\x01"]
+            set dense [string repeat "\x24" [expr {$len / 2}]]
+            set zeros [string repeat "\x00" [expr {$len + 8195}]]
+            foreach alias {no yes} {
+                r set bitop:chunks:a $sparse
+                r set bitop:chunks:b $dense
+                r set bitop:chunks:c $zeros
+                r config set bitmap-default-roaring no
+                set sources {bitop:chunks:missing bitop:chunks:empty bitop:chunks:a bitop:chunks:a bitop:chunks:missing bitop:chunks:a bitop:chunks:b bitop:chunks:c bitop:chunks:a}
+                set reply [r bitop or bitop:chunks:string {*}$sources]
+                set expected [r get bitop:chunks:string]
+
+                r config set bitmap-default-roaring yes
+                set dest [expr {$alias eq "yes" ? "bitop:chunks:a" : "bitop:chunks:native"}]
+                assert_equal $reply [r bitop or $dest {*}$sources]
+                assert_equal bitmap [r type $dest]
+                assert_equal $expected [r debug bitmap-raw $dest]
+                if {$alias eq "no"} {assert_equal $sparse [r get bitop:chunks:a]}
+                assert_equal $dense [r get bitop:chunks:b]
+                assert_equal $zeros [r get bitop:chunks:c]
+                assert_equal string [r type bitop:chunks:empty]
+                assert_equal "" [r get bitop:chunks:empty]
+            }
+        }
+        # Retiring the short first source must still process the long source
+        # swapped into its slot, including when that source is the destination.
+        set tail "[string repeat "\x00" 8192]\x01"
+        r set bitop:chunks:a "\x80"
+        r set bitop:chunks:b $tail
+        assert_equal 8193 [r bitop or bitop:chunks:b bitop:chunks:a bitop:chunks:b]
+        assert_equal "\x80[string range $tail 1 end]" [r debug bitmap-raw bitop:chunks:b]
+        assert_equal "\x80" [r get bitop:chunks:a]
+        r config set bitmap-default-roaring no
+    }
+
     test {BITOP mixed dense string chunks match string results} {
         set roaring [binary format H* [string repeat aa 8194]]
         set dense [binary format H* "[string repeat ff 8192]8001"]
