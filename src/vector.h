@@ -1,3 +1,13 @@
+/* vector.h - Simple append-only vector interface
+ *
+ * Copyright (c) 2026-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+ */
+
 #ifndef REDIS_VECTOR_H
 #define REDIS_VECTOR_H
 
@@ -15,20 +25,22 @@
  *
  * Memory:
  * -------
+ * - Allocation goes through the Redis allocator (zmalloc / zrealloc / zfree).
  * - vecRelease() frees heap memory if used.
  * - Stack buffer is never freed.
- * - Stored elements are never freed.
+ * - Stored elements are not freed unless a free method is set via
+ *   vecSetFreeMethod().
  *
  * Modes:
- * ------- 
+ * -------
  * 1. Start On Stack (grow to heap): vec v;
  *                                   void *vstack[8];
  *                                   ...
  *                                   vecInit(&v, vstack, 8);
  *
- *   Start Embedded (grow to heap):  typedef struct { 
- *                                     vec v; 
- *                                     void *vembedded[8]; 
+ *   Start Embedded (grow to heap):  typedef struct {
+ *                                     vec v;
+ *                                     void *vembedded[8];
  *                                   } obj;
  *                                   ...
  *                                   vecInit(&obj->v, obj->vembedded, 8);
@@ -51,9 +63,11 @@
  * - Not thread-safe.
  * - If stack == NULL and initcap > 0, initcap is treated as an initial
  *   heap-capacity hint.
- * - When used in Redis core, the implementation should use the Redis allocator
- *   wrappers (zmalloc / zrealloc / zfree) rather than libc allocation APIs.
  */
+
+#include  "config.h"
+
+#define VEC_DEFAULT_INITCAP 8
 
 typedef struct vec {
     size_t size;       /* Number of elements in the vector. */
@@ -69,6 +83,9 @@ static inline void **vecData(const vec *v) { return v->data; }
 
 /* Return the number of elements in the vector. */
 static inline size_t vecSize(const vec *v) { return v->size; }
+
+/* Get element at index. index must be < vecSize(v). */
+static inline void *vecGet(const vec *v, size_t index) { return v->data[index]; }
 
 /* Initialize a vector */
 void vecInit(vec *v, void **stack, size_t initcap);
@@ -87,14 +104,17 @@ void vecRelease(vec *v);
  * If a free method is set, it is applied to every element before reset. */
 void vecClear(vec *v);
 
-/* Requires index < vecSize(v). */
-void *vecGet(const vec *v, size_t index);
-
 /* Ensure capacity is at least mincap. */
 void vecReserve(vec *v, size_t mincap);
 
-/* Append one element, growing storage as needed. */
-void vecPush(vec *v, void *value);
+/* Push one element, growing storage as needed. */
+static inline void vecPush(vec *v, void *value) {
+    if (unlikely(v->size == v->cap)) {
+        size_t newcap = (v->cap > 0) ? v->cap * 2 : VEC_DEFAULT_INITCAP;
+        vecReserve(v, newcap);
+    }
+    v->data[v->size++] = value;
+}
 
 #ifdef REDIS_TEST
 int vectorTest(int argc, char **argv, int flags);
