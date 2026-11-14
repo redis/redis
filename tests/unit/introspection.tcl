@@ -693,6 +693,54 @@ start_server {tags {"introspection"}} {
         }
     } {} {external:skip}
 
+    test {CONFIG save rules accumulate after nested includes} {
+        set leaf_file [file normalize [tmpfile save-leaf.conf]]
+        set fd [open $leaf_file w]
+        puts $fd {save 100 1}
+        close $fd
+        set include_file [file normalize [tmpfile save-include.conf]]
+        set fd [open $include_file w]
+        puts $fd "include \"$leaf_file\""
+        puts $fd {save 200 2}
+        close $fd
+
+        start_server [list config minimal.conf config_lines [list save {50 0} include "\"$include_file\"" save {300 3} save {400 4}]] {
+            assert_equal {50 0 100 1 200 2 300 3 400 4} [lindex [r config get save] 1]
+
+            # Leaving the outermost load must restore runtime replacement semantics.
+            r config set save {500 5 600 6}
+            assert_equal {500 5 600 6} [lindex [r config get save] 1]
+            r config set save ""
+            assert_equal {} [lindex [r config get save] 1]
+        }
+    } {} {external:skip}
+
+    if {[s arch_bits] == 64} {
+        test {CONFIG REWRITE preserves narrowed included save counts after parent rules} {
+            set include_file [file normalize [tmpfile save-narrowed.conf]]
+            set fd [open $include_file w]
+            puts $fd {save 100 2147483648}
+            close $fd
+            start_server [list config minimal.conf overrides {bind 127.0.0.1} config_lines [list include "\"$include_file\"" save {200 2}]] {
+                set expected {100 -2147483648 200 2}
+                assert_equal $expected [lindex [r config get save] 1]
+                assert_error {*timeout*} {r config set save {300 3} timeout -1}
+                assert_equal $expected [lindex [r config get save] 1]
+
+                set sockfd [socket -server {apply {{chan addr port} {close $chan}}} -myaddr 127.0.0.1 0]
+                set used_port [lindex [fconfigure $sockfd -sockname] 2]
+                assert_error {*Unable to listen on this port*} {r config set save {300 3} port $used_port}
+                close $sockfd
+                assert_equal $expected [lindex [r config get save] 1]
+                assert_equal PONG [r ping]
+                r config rewrite
+                assert_no_match {*save 100 -2147483648*} [read_file [srv 0 config_file]]
+                restart_server 0 true false
+                assert_equal $expected [lindex [r config get save] 1]
+            }
+        } {} {external:skip}
+    }
+
     test {CONFIG sanity} {
         # Do CONFIG GET, CONFIG SET and then CONFIG GET again
         # Skip immutable configs, one with no get, and other complicated configs
@@ -1782,6 +1830,136 @@ test {CONFIG REWRITE compares aggregated save rules from includes} {
 
         restart_server 0 true false
         assert_equal {300 1} [lindex [r config get save] 1]
+    }
+} {} {external:skip}
+
+test {CONFIG REWRITE preserves save overrides after included number spellings} {
+    set leaf_file [file normalize [tmpfile save-spellings.conf]]
+    set wrapper_file [file normalize [tmpfile save-spellings-wrapper.conf]]
+    set fd [open $wrapper_file w]
+    puts $fd "include \"$leaf_file\""
+    close $fd
+    foreach spelling {{+100 1} {0100 1} {100 +1} {100 -0} {" 100" 1}} {
+        set fd [open $leaf_file w]
+        puts $fd "save $spelling"
+        close $fd
+        foreach include_file [list $leaf_file $wrapper_file] {
+            foreach {suffix target} {{} {} {200 2} {200 2}} {
+                start_server [list tags {external:skip} config minimal.conf overrides {config-rewrite-source-aware yes} \
+                    config_lines [list include "\"$include_file\"" save $suffix]] {
+                    r config set save $target
+                    r config rewrite
+                    assert_equal $target [lindex [r config get save] 1]
+                    restart_server 0 true false
+                    assert_equal $target [lindex [r config get save] 1]
+                    assert_equal "save $spelling\n" [read_file $leaf_file]
+                }
+            }
+        }
+    }
+} {} {external:skip}
+
+test {CONFIG REWRITE keeps included save rules stable in default mode} {
+    set include_file [file normalize [tmpfile config-save-default.conf]]
+    set fd [open $include_file w]
+    puts $fd {save 3600 1}
+    close $fd
+    foreach saves {{} {{300 100}} {{300 100} {60 10000}}} {
+        set config_lines [list include "\"$include_file\""]
+        foreach rule $saves {
+            lappend config_lines save $rule
+        }
+        start_server [list tags {external:skip} config minimal.conf config_lines $config_lines] {
+            assert_equal no [lindex [r config get config-rewrite-source-aware] 1]
+            set expected [concat {3600 1} {*}$saves]
+            assert_equal $expected [lindex [r config get save] 1]
+            for {set cycle 0} {$cycle < 2} {incr cycle} {
+                r config rewrite
+                assert_equal $expected [lindex [r config get save] 1]
+                restart_server 0 true false
+                assert_equal $expected [lindex [r config get save] 1]
+                assert_equal "save 3600 1\n" [read_file $include_file]
+            }
+        }
+    }
+} {} {external:skip}
+
+test {CONFIG REWRITE keeps replayed CLI save rules stable in default mode} {
+    set include_file [file normalize [tmpfile config-save-cli-include.conf]]
+    set fd [open $include_file w]
+    puts $fd {save 100 1}
+    close $fd
+    set config_file [file normalize [tmpfile config-save-cli-main.conf]]
+    set fd [open $config_file w]
+    puts $fd "include \"$include_file\""
+    close $fd
+    set port [find_available_port $::baseport $::portcount]
+    set dir [file normalize [tmpdir config-save-cli]]
+    set log_file [file normalize [tmpfile config-save-cli-server.log]]
+
+    set client ""
+    set test_failed [catch {
+        # Replay the same launch arguments: restart_server does not retain them.
+        set expected {100 1 200 2}
+        for {set cycle 0} {$cycle < 4} {incr cycle} {
+            exec src/redis-server $config_file --port $port --dir $dir --daemonize yes --logfile $log_file --save "200 2"
+            wait_for_condition 100 50 {
+                [count_message_lines $log_file "Ready to accept"] > $cycle
+            } else {
+                fail "Server did not start; log: $log_file"
+            }
+            set client [redis 127.0.0.1 $port 0 0]
+            assert_equal no [lindex [$client config get config-rewrite-source-aware] 1]
+            assert_equal $expected [lindex [$client config get save] 1]
+            if {$cycle == 1} {
+                $client config set save {300 3 400 4}
+                set expected {300 3 400 4 200 2}
+            } elseif {$cycle == 2} {
+                $client config set save ""
+                set expected {200 2}
+            }
+            if {$cycle == 0} {
+                assert_error {*Invalid save parameters*} {$client config set save {0 1}}
+                assert_error {*timeout*} {$client config set save {600 6} timeout -1}
+                assert_equal $expected [lindex [$client config get save] 1]
+            }
+            if {$cycle < 3} {
+                set live [lindex [$client config get save] 1]
+                $client config rewrite
+                assert_equal $live [lindex [$client config get save] 1]
+                assert_equal 0 [regexp -line {^save 200 2$} [read_file $config_file]]
+                assert_equal "save 100 1\n" [read_file $include_file]
+            }
+            catch {$client shutdown nosave}
+            $client close
+            set client ""
+            wait_for_condition 100 50 {
+                [count_message_lines $log_file "Redis is now ready to exit"] > $cycle
+            } else {
+                fail "Server did not stop; log: $log_file"
+            }
+        }
+    } test_error]
+    catch {$client shutdown nosave}
+    catch {$client close}
+    if {$test_failed} {
+        error $test_error
+    }
+} {} {external:skip}
+
+test {CONFIG REWRITE preserves runtime save clears after zero-pair directives} {
+    set include_file [file normalize [tmpfile config-save-zero-pairs.conf]]
+    set fd [open $include_file w]
+    puts $fd {save 100 1}
+    close $fd
+    foreach save_args {{} {" "}} {
+        start_server [list tags {external:skip} config minimal.conf overrides {config-rewrite-source-aware yes} \
+            config_lines [list include "\"$include_file\"" save {200 2} save $save_args]] {
+            r config set save ""
+            r config rewrite
+            restart_server 0 true false
+            assert_equal {} [lindex [r config get save] 1]
+        }
     }
 } {} {external:skip}
 
