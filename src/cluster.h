@@ -86,6 +86,7 @@ void clusterCron(void);
 void clusterBeforeSleep(void);
 void clusterCommonBeforeSleep(void);
 void clusterClaimUnassignedSlots(void);
+void clusterHandleServerShutdown(int auto_failover);
 int verifyClusterConfigWithData(void);
 
 int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uint8_t type, const char *payload, uint32_t len);
