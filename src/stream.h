@@ -224,6 +224,7 @@ robj *createObjectFromStreamID(streamID *id);
 int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_id, streamID *use_id, int seq_given);
 int streamDeleteItem(stream *s, streamID *id);
 void streamGetEdgeID(stream *s, int first, int skip_tombstones, streamID *edge_id);
+int streamBlockedClientMayBeServed(client *c, robj *key, stream *s);
 long long streamEstimateDistanceFromFirstEverEntry(stream *s, streamID *id);
 int64_t streamTrimByLength(redisDb *db, stream *s, long long maxlen, int approx);
 int64_t streamTrimByID(redisDb *db, stream *s, streamID minid, int approx);
