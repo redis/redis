@@ -2160,7 +2160,9 @@ int rdbSaveRio(int req, rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
     unsigned long long skipped = 0;
     int j;
 
-    if (server.rdb_checksum)
+    /* A rio that checksums at source (see rioInitWithFileSave) does it as
+     * the bytes leave its buffer, not at every rioWrite(). */
+    if (server.rdb_checksum && !(rdb->flags & RIO_FLAG_CKSUM_AT_SOURCE))
         rdb->update_cksum = rioGenericUpdateChecksum;
     snprintf(magic,sizeof(magic),"REDIS%04d",RDB_VERSION);
     if (rdbWriteRaw(rdb,magic,9) == -1) goto werr;
@@ -2193,7 +2195,9 @@ int rdbSaveRio(int req, rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
     if (rdbSaveType(rdb,RDB_OPCODE_EOF) == -1) goto werr;
 
     /* CRC64 checksum. It will be zero if checksum computation is disabled, the
-     * loading code skips the check in this case. */
+     * loading code skips the check in this case. A rio that checksums at
+     * source covers the bytes it still buffers only once they are flushed. */
+    if ((rdb->flags & RIO_FLAG_CKSUM_AT_SOURCE) && rioFlush(rdb) == 0) goto werr;
     cksum = rdb->cksum;
     memrev64ifbe(&cksum);
     if (rioWrite(rdb,&cksum,8) == 0) goto werr;
@@ -2257,7 +2261,7 @@ static int rdbSaveInternal(int req, const char *filename, rdbSaveInfo *rsi, int 
         return C_ERR;
     }
 
-    rioInitWithFile(&rdb,fp);
+    rioInitWithFileSave(&rdb,fp,server.rdb_checksum);
 
     if (server.rdb_save_incremental_fsync) {
         rioSetAutoSync(&rdb,REDIS_AUTOSYNC_BYTES);
@@ -2271,18 +2275,20 @@ static int rdbSaveInternal(int req, const char *filename, rdbSaveInfo *rsi, int 
     }
 
     /* Make sure data will not remain on the OS's output buffers */
-    if (fflush(fp)) { err_op = "fflush"; goto werr; }
+    if (rioFlush(&rdb) == 0) { err_op = "fflush"; goto werr; }
     if (fsync(fileno(fp))) { err_op = "fsync"; goto werr; }
     if (!(rdbflags & RDBFLAGS_KEEP_CACHE) && reclaimFilePageCache(fileno(fp), 0, 0) == -1) {
         serverLog(LL_NOTICE,"Unable to reclaim cache after saving RDB: %s", strerror(errno));
     }
     if (fclose(fp)) { fp = NULL; err_op = "fclose"; goto werr; }
+    rioFreeFileSave(&rdb);
 
     return C_OK;
 
 werr:
     saved_errno = errno;
     serverLog(LL_WARNING,"Write error while saving DB to the disk(%s): %s", err_op, strerror(errno));
+    rioFreeFileSave(&rdb);
     if (fp) fclose(fp);
     unlink(filename);
     errno = saved_errno;
