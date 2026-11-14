@@ -46,13 +46,18 @@
                                     "type": "integer"
                                 },
                                 "ip": {
-                                    "type": "string"
+                                    "type": "string",
+                                    "description": "IP address for this node. Prefer `endpoint` when present; `ip` may be empty when only a hostname/endpoint is announced.",
+                                    "optional": true
                                 },
                                 "endpoint": {
-                                    "type": "string"
+                                    "type": "string",
+                                    "description": "Preferred address to contact this node (hostname or IP). Use this field when available instead of `ip`."
                                 },
                                 "hostname": {
-                                    "type": "string"
+                                    "type": "string",
+                                    "description": "Announced hostname for this node, when configured.",
+                                    "optional": true
                                 },
                                 "role": {
                                     "oneOf": [
