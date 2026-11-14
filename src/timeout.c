@@ -98,8 +98,11 @@ void addClientToTimeoutTable(client *c) {
     uint64_t timeout = c->bstate.timeout;
     unsigned char buf[CLIENT_ST_KEYLEN];
     encodeTimeoutKey(buf,timeout,c);
-    if (raxTryInsert(server.clients_timeout_table,buf,sizeof(buf),NULL,NULL))
+    if (raxTryInsert(server.clients_timeout_table,buf,sizeof(buf),NULL,NULL)) {
         c->flags |= CLIENT_IN_TO_TABLE;
+        if (timeout < server.clients_timeout_next)
+            server.clients_timeout_next = timeout;
+    }
 }
 
 /* Remove the client from the table when it is unblocked for reasons
@@ -113,26 +116,46 @@ void removeClientFromTimeoutTable(client *c) {
     raxRemove(server.clients_timeout_table,buf,sizeof(buf),NULL);
 }
 
-/* This function is called in beforeSleep() in order to unblock clients
- * that are waiting in blocking operations with a timeout set. */
-void handleBlockedClientsTimeout(void) {
-    if (raxSize(server.clients_timeout_table) == 0) return;
-    uint64_t now = getMonotonicUs() / 1000;
+/* Unblock the clients whose timeout is earlier than 'now', and leave in
+ * server.clients_timeout_next the earliest timeout still in the table. */
+static void unblockTimedOutClients(uint64_t now) {
     raxIterator ri;
     raxStart(&ri,server.clients_timeout_table);
     raxSeek(&ri,"^",NULL,0);
 
+    /* Reset it before the loop: a timeout callback may block a client, and
+     * adding it to the table must be able to lower the value again. */
+    server.clients_timeout_next = UINT64_MAX;
     while(raxNext(&ri)) {
         uint64_t timeout;
         client *c;
         decodeTimeoutKey(ri.key,&timeout,&c);
-        if (timeout >= now) break; /* All the timeouts are in the future. */
+        if (timeout >= now) {
+            /* All the timeouts are in the future. */
+            server.clients_timeout_next = timeout;
+            break;
+        }
         c->flags &= ~CLIENT_IN_TO_TABLE;
         checkBlockedClientTimeout(c,now);
         raxRemove(server.clients_timeout_table,ri.key,ri.key_len,NULL);
         raxSeek(&ri,"^",NULL,0);
     }
     raxStop(&ri);
+}
+
+/* This function is called in beforeSleep() in order to unblock clients
+ * that are waiting in blocking operations with a timeout set.
+ *
+ * server.clients_timeout_next is never later than the earliest timeout in the
+ * table: it is lowered when a client is added and set again when the table is
+ * scanned. Removing a client for other reasons leaves it untouched, since
+ * that can only make the earliest timeout later. Until that time has passed
+ * no client can have timed out, so we return without seeking the radix tree. */
+void handleBlockedClientsTimeout(void) {
+    if (raxSize(server.clients_timeout_table) == 0) return;
+    uint64_t now = getMonotonicUs() / 1000;
+    if (server.clients_timeout_next >= now) return;
+    unblockTimedOutClients(now);
 }
 
 /* Get a timeout value from an object and store it into 'timeout'.
