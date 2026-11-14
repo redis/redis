@@ -16,6 +16,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include "sha256.h"
+#include "config.h"
+#include "endianconv.h"
 
 /****************************** MACROS ******************************/
 #define ROTLEFT(a,b) (((a) << (b)) | ((a) >> (32-(b))))
@@ -41,15 +43,30 @@ static const WORD k[64] = {
 };
 
 /*********************** FUNCTION DEFINITIONS ***********************/
+/* Load a 32-bit big-endian word from p.
+ * Using memcpy() keeps the load safe for unaligned input on all
+ * architectures and lets the compiler lower it to a single load plus
+ * a byteswap (or MOVBE) on little-endian hosts, instead of relying on
+ * the compiler to rediscover that pattern from four byte loads,
+ * shifts, and ORs (which GCC lowers to a much larger SSE sequence). */
+static inline WORD load32_be(const BYTE *p)
+{
+    WORD v;
+    memcpy(&v, p, sizeof(v));
+
+# if (BYTE_ORDER == LITTLE_ENDIAN)
+    return REDIS_BSWAP32(v);
+#else
+    return v;
+#endif
+}
+
 void sha256_transform(SHA256_CTX *ctx, const BYTE data[])
 {
 	WORD a, b, c, d, e, f, g, h, i, j, t1, t2, m[64];
 
     for (i = 0, j = 0; i < 16; ++i, j += 4) {
-        m[i] = ((WORD) data[j + 0] << 24) |
-               ((WORD) data[j + 1] << 16) |
-               ((WORD) data[j + 2] << 8) |
-               ((WORD) data[j + 3]);
+        m[i] = load32_be(data + j);
     }
 
 	for ( ; i < 64; ++i)
