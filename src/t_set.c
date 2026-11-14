@@ -2478,6 +2478,66 @@ void scardCommand(client *c) {
  * implementation for more info. */
 #define SPOP_MOVE_STRATEGY_MUL 5
 
+/* Propagates SPOP of CASE 3 as the deletion of the key, followed by the addition
+ * of the members that remain in 'set': SADD for the ones without an expiration,
+ * and SADDEX with an absolute time for each one with an expiration, and then the
+ * expiration of the key, if it has one. All of them are propagated as a
+ * transaction, see propagatePendingCommands(). */
+static void spopPropagateRemaining(client *c, kvobj *set) {
+    robj *key = c->argv[1];
+    robj *delargv[2] = { server.lazyfree_lazy_server_del ? shared.unlink : shared.del, key };
+    alsoPropagate(c->db->id, delargv, 2, PROPAGATE_AOF | PROPAGATE_REPL);
+
+    const unsigned long batchsize = 1024;
+    robj **saddargv = zmalloc(sizeof(robj *) * (2 + batchsize));
+    saddargv[0] = shared.sadd;
+    saddargv[1] = key;
+    unsigned long saddlen = 2;
+    robj *members = createStringObject("MEMBERS", 7);
+    robj *one = createStringObjectFromLongLong(1);
+
+    setTypeIterator si;
+    char *str;
+    size_t len = 0;
+    int64_t llele = 0;
+    setTypeInitIterator(&si, set, SET_ITER_RAW);
+    while (setTypeNext(&si, &str, &len, &llele) != -1) {
+        robj *member = str ? createStringObject(str, len) : createStringObjectFromLongLong(llele);
+        if (si.expire != EB_EXPIRE_TIME_INVALID) {
+            robj *expire = createStringObjectFromLongLong((long long)si.expire);
+            robj *argv[7] = { shared.saddex, key, shared.pxat, expire, members, one, member };
+            alsoPropagate(c->db->id, argv, 7, PROPAGATE_AOF | PROPAGATE_REPL);
+            decrRefCount(expire);
+            decrRefCount(member);
+            continue;
+        }
+        saddargv[saddlen++] = member;
+        if (saddlen == 2 + batchsize) {
+            alsoPropagate(c->db->id, saddargv, saddlen, PROPAGATE_AOF | PROPAGATE_REPL);
+            for (unsigned long i = 2; i < saddlen; i++) decrRefCount(saddargv[i]);
+            saddlen = 2;
+        }
+    }
+    setTypeResetIterator(&si);
+
+    if (saddlen != 2) {
+        alsoPropagate(c->db->id, saddargv, saddlen, PROPAGATE_AOF | PROPAGATE_REPL);
+        for (unsigned long i = 2; i < saddlen; i++) decrRefCount(saddargv[i]);
+    }
+
+    /* The deletion removed the expiration of the key, which the set keeps. */
+    long long keyExpire = getExpire(c->db, key->ptr, set);
+    if (keyExpire != -1) {
+        robj *expire = createStringObjectFromLongLong(keyExpire);
+        robj *argv[3] = { shared.pexpireat, key, expire };
+        alsoPropagate(c->db->id, argv, 3, PROPAGATE_AOF | PROPAGATE_REPL);
+        decrRefCount(expire);
+    }
+    decrRefCount(members);
+    decrRefCount(one);
+    zfree(saddargv);
+}
+
 void spopWithCountCommand(client *c) {
     long l;
     unsigned long count, size, toRemove;
@@ -2543,14 +2603,7 @@ void spopWithCountCommand(client *c) {
         return;
     }
 
-    /* Case 2 and 3 require to replicate SPOP as a set of SREM commands.
-     * Prepare our replication argument vector. Also send the array length
-     * which is common to both the code paths. */
-    unsigned long batchsize = count > 1024 ? 1024 : count;
-    robj **propargv = zmalloc(sizeof(robj *) * (2 + batchsize));
-    propargv[0] = shared.srem;
-    propargv[1] = c->argv[1];
-    unsigned long propindex = 2;
+    /* The reply length is common to cases 2 and 3. */
     addReplySetLen(c,count);
 
     /* Common iteration vars. */
@@ -2565,10 +2618,19 @@ void spopWithCountCommand(client *c) {
      *
      * CASE 2: The number of elements to return is small compared to the
      * set size. We can just extract random elements and return them to
-     * the set. */
+     * the set. The command is propagated as SREM commands of the popped
+     * members. */
+    robj **propargv = NULL;
+    unsigned long propindex = 0;
+    unsigned long batchsize;
     if (remaining*SPOP_MOVE_STRATEGY_MUL > count &&
         set->encoding == OBJ_ENCODING_LISTPACK)
     {
+        batchsize = count > 1024 ? 1024 : count;
+        propargv = zmalloc(sizeof(robj *) * (2 + batchsize));
+        propargv[0] = shared.srem;
+        propargv[1] = c->argv[1];
+        propindex = 2;
         /* Specialized case for listpack. Traverse it only once. */
         if (server.memory_tracking_enabled)
             oldsize = kvobjAllocSize(set);
@@ -2608,7 +2670,22 @@ void spopWithCountCommand(client *c) {
         updateKeysizesHist(c->db, OBJ_SET, size, size - count);
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), set, oldsize, kvobjAllocSize(set));
+
+        /* Replicate/AOF the remaining popped elements as an SREM operation */
+        if (propindex != 2) {
+            alsoPropagate(c->db->id, propargv, propindex, PROPAGATE_AOF | PROPAGATE_REPL);
+            for (unsigned long i = 2; i < propindex; i++) {
+                decrRefCount(propargv[i]);
+            }
+        }
+        zfree(propargv);
     } else if (remaining*SPOP_MOVE_STRATEGY_MUL > count) {
+        batchsize = count > 1024 ? 1024 : count;
+        propargv = zmalloc(sizeof(robj *) * (2 + batchsize));
+        propargv[0] = shared.srem;
+        propargv[1] = c->argv[1];
+        propindex = 2;
+
         if (server.memory_tracking_enabled)
             oldsize = kvobjAllocSize(set);
         for (unsigned long i = 0; i < count; i++) {
@@ -2627,6 +2704,15 @@ void spopWithCountCommand(client *c) {
         updateKeysizesHist(c->db, OBJ_SET, size, size - count);
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), set, oldsize, kvobjAllocSize(set));
+
+        /* Replicate/AOF the remaining popped elements as an SREM operation */
+        if (propindex != 2) {
+            alsoPropagate(c->db->id, propargv, propindex, PROPAGATE_AOF | PROPAGATE_REPL);
+            for (unsigned long i = 2; i < propindex; i++) {
+                decrRefCount(propargv[i]);
+            }
+        }
+        zfree(propargv);
     } else {
     /* CASE 3: The number of elements to return is very big, approaching
      * the size of the set itself. After some time extracting random elements
@@ -2635,7 +2721,13 @@ void spopWithCountCommand(client *c) {
      * want to return (the elements that will remain part of the set),
      * creating a new set as we do this (that will be stored as the original
      * set). Then we return the elements left in the original set and
-     * release it. */
+     * release it.
+     *
+     * The command is propagated as the deletion of the set, followed by the
+     * addition of the members that remain, which is much less than SREM of all
+     * the popped ones (the remaining members are at most 1/SPOP_MOVE_STRATEGY_MUL
+     * of the count). The commands are propagated as one transaction (MULTI/EXEC),
+     * so that a replica, or the AOF, never has the set without the members. */
         robj *newset = NULL;
         if (server.memory_tracking_enabled)
             oldsize = kvobjAllocSize(set);
@@ -2662,6 +2754,15 @@ void spopWithCountCommand(client *c) {
             set->ptr = lp;
         } else {
             const int keepExpire = setTypeHasExpireSupport(set);
+            /* The number of the members that remain is known: if they do not fit
+             * a listpack, create the hashtable, sized for them, right away instead
+             * of growing a listpack and converting it on the way. A set that is not
+             * a hashtable is small enough for its members to be added as they are. */
+            if (set->encoding == OBJ_ENCODING_HT && remaining > server.set_max_listpack_entries) {
+                newset = createSetObject();
+                dictExpand(newset->ptr, remaining);
+                if (keepExpire) setHashtableAddExpireSupport(newset);
+            }
             while(remaining--) {
                 int encoding = setTypeRandomElement(set, &str, &len, &llele);
                 uint64_t expire = EB_EXPIRE_TIME_INVALID;
@@ -2681,21 +2782,10 @@ void spopWithCountCommand(client *c) {
         setTypeIterator si;
         setTypeInitIterator(&si, set, SET_ITER_RAW);
         while (setTypeNext(&si, &str, &len, &llele) != -1) {
-            if (str == NULL) {
+            if (str == NULL)
                 addReplyBulkLongLong(c,llele);
-                propargv[propindex++] = createStringObjectFromLongLong(llele);
-            } else {
+            else
                 addReplyBulkCBuffer(c, str, len);
-                propargv[propindex++] = createStringObject(str, len);
-            }
-            /* Replicate/AOF this command as an SREM operation */
-            if (propindex == 2 + batchsize) {
-                alsoPropagate(c->db->id, propargv, propindex, PROPAGATE_AOF | PROPAGATE_REPL);
-                for (unsigned long i = 2; i < propindex; i++) {
-                    decrRefCount(propargv[i]);
-                }
-                propindex = 2;
-            }
         }
         setTypeResetIterator(&si);
 
@@ -2710,22 +2800,15 @@ void spopWithCountCommand(client *c) {
         set = newset;
         /* The new object is not registered in subexpires yet. */
         if (setTypeHasExpireSupport(set)) setTypeUpdateSubexpiry(c->db, set);
-    }
 
-    /* Replicate/AOF the remaining elements as an SREM operation */
-    if (propindex != 2) {
-        alsoPropagate(c->db->id, propargv, propindex, PROPAGATE_AOF | PROPAGATE_REPL);
-        for (unsigned long i = 2; i < propindex; i++) {
-            decrRefCount(propargv[i]);
-        }
-        propindex = 2;
+        spopPropagateRemaining(c, set);
     }
-    zfree(propargv);
 
     /* Don't propagate the command itself even if we incremented the
      * dirty counter. We don't want to propagate an SPOP command since
-     * we propagated the command as a set of SREMs operations using
-     * the alsoPropagate() API. */
+     * we propagated the command using the alsoPropagate() API: as SREMs of
+     * the popped members, or as the deletion of the set and the addition of
+     * the members that remain. */
     preventCommandPropagation(c);
     keyModified(c,c->db,c->argv[1],set,1);
 }
