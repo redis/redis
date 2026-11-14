@@ -2319,18 +2319,26 @@ void smoveCommand(client *c) {
     if (checkType(c,srcset,OBJ_SET) ||
         checkType(c,dstset,OBJ_SET)) return;
 
-    /* If srcset and dstset are equal, SMOVE is a no-op */
+    /* If srcset and dstset are equal, SMOVE is a no-op. Membership uses
+     * setTypeIsMemberLazy(), which already refreshes slot alloc tracking
+     * across rehash. Pass setDeleted so we do not touch a set that lazy
+     * expiry just removed (final expired member). */
     if (srcset == dstset) {
-        addReply(c,setTypeIsMemberLazy(c->db, srcset, ele->ptr, 0, NULL) ?
-            shared.cone : shared.czero);
+        int setDeleted = 0;
+        int ismember = setTypeIsMemberLazy(c->db, srcset, ele->ptr, 0, &setDeleted);
+        if (setDeleted) srcset = NULL;
+        addReply(c, ismember ? shared.cone : shared.czero);
         return;
     }
 
     /* The member moves with its expiration. A source member that is logically
-     * expired is not a member: it is removed, and nothing is moved. */
+     * expired is not a member: it is removed, and nothing is moved. Pass
+     * setDeleted so a final expired member that deletes the key cannot be
+     * touched afterward. */
     uint64_t srcExpire = EB_EXPIRE_TIME_INVALID;
     if (setTypeHasExpireSupport(srcset)) {
-        if (!setTypeIsMemberLazy(c->db, srcset, ele->ptr, 0, NULL)) {
+        int srcDeleted = 0;
+        if (!setTypeIsMemberLazy(c->db, srcset, ele->ptr, 0, &srcDeleted) || srcDeleted) {
             addReply(c,shared.czero);
             return;
         }
