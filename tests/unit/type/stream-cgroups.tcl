@@ -1907,6 +1907,29 @@ start_server {
             assert_equal {0 {} {} {}} [r XPENDING mystream group2]
         }
 
+        test "XACKDEL with ACKED option replies 1 for acked entries that are no longer in the stream" {
+            r DEL mystream
+            r XADD mystream 1-0 f v
+            r XADD mystream 2-0 f v
+            r XGROUP CREATE mystream group1 0
+            r XGROUP CREATE mystream group2 0
+            r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
+            r XREADGROUP GROUP group2 consumer2 COUNT 1 STREAMS mystream >
+
+            # Both entries are deleted while pending in group1. 1-0 is still
+            # pending in group2, so it stays referenced. 2-0 is past the last
+            # ID delivered to group2, but there is no entry left to keep: the
+            # reply is 1, as with KEEPREF.
+            assert_equal 2 [r XDEL mystream 1-0 2-0]
+            assert_equal {2 1} [r XACKDEL mystream group1 ACKED IDS 2 1-0 2-0]
+            assert_equal {0 {} {} {}} [r XPENDING mystream group1]
+            assert_equal {1 1-0 1-0 {{consumer2 1}}} [r XPENDING mystream group2]
+
+            assert_equal {1} [r XACKDEL mystream group2 ACKED IDS 1 1-0]
+            assert_equal {0 {} {} {}} [r XPENDING mystream group2]
+            assert_equal 0 [r XLEN mystream]
+        }
+
         test "XGROUP CREATE with ENTRIESREAD larger than stream entries should cap the value" {
             r DEL mystream
             r xadd mystream * field value
