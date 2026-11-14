@@ -3553,7 +3553,7 @@ void addExtendedReplyHelp(client *c, const char **help, const char **extended_he
 void addReplySubcommandSyntaxError(client *c);
 void addReplyLoadedModules(client *c);
 void copyReplicaOutputBuffer(client *dst, client *src);
-void addListRangeReply(client *c, robj *o, long start, long end, int reverse);
+void addListRangeReply(client *c, robj *o, robj *key, long start, long end, int reverse);
 void deferredAfterErrorReply(client *c, list *errors);
 unsigned int formatBulkStrRefPrefix(bulkStrRef *str_ref);
 size_t sdsZmallocSize(sds s);
