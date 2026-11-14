@@ -7434,6 +7434,16 @@ static void clusterManagerMode(clusterManagerCommandProc *proc) {
 
 static int clusterManagerCommandCreate(int argc, char **argv) {
     int i, j, success = 1;
+    int replicas = config.cluster_manager_command.replicas;
+    int masters_count = CLUSTER_MANAGER_MASTERS_COUNT(argc, replicas);
+    if (masters_count > CLUSTER_MANAGER_SLOTS) {
+        clusterManagerLogErr(
+            "*** ERROR: Invalid configuration for cluster creation.\n"
+            "*** Redis Cluster supports at most %d master nodes, "
+            "but %d nodes and %d replicas per node would create %d.\n",
+            CLUSTER_MANAGER_SLOTS, argc, replicas, masters_count);
+        return 0;
+    }
     cluster_manager.nodes = listCreate();
     for (i = 0; i < argc; i++) {
         char *addr = argv[i];
@@ -7475,8 +7485,6 @@ static int clusterManagerCommandCreate(int argc, char **argv) {
         listAddNodeTail(cluster_manager.nodes, node);
     }
     int node_len = cluster_manager.nodes->len;
-    int replicas = config.cluster_manager_command.replicas;
-    int masters_count = CLUSTER_MANAGER_MASTERS_COUNT(node_len, replicas);
     if (masters_count < 3) {
         clusterManagerLogErr(
             "*** ERROR: Invalid configuration for cluster creation.\n"
@@ -7485,14 +7493,6 @@ static int clusterManagerCommandCreate(int argc, char **argv) {
             node_len, replicas);
         clusterManagerLogErr("\n*** At least %d nodes are required.\n",
                              3 * (replicas + 1));
-        return 0;
-    }
-    if (masters_count > CLUSTER_MANAGER_SLOTS) {
-        clusterManagerLogErr(
-            "*** ERROR: Invalid configuration for cluster creation.\n"
-            "*** Redis Cluster supports at most %d master nodes, "
-            "but %d nodes and %d replicas per node would create %d.\n",
-            CLUSTER_MANAGER_SLOTS, node_len, replicas, masters_count);
         return 0;
     }
     clusterManagerLogInfo(">>> Performing hash slots allocation "
