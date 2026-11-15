@@ -31,7 +31,7 @@ void ldbDisable(client *c);
 void ldbEnable(client *c);
 void evalGenericCommandWithDebugging(client *c, int evalsha);
 sds ldbCatStackValue(sds s, lua_State *lua, int idx);
-listNode *luaScriptsLRUAdd(client *c, sds sha, robj *body, int evalsha);
+listNode *luaScriptsLRUAdd(client *c, sds sha, robj *body, int script_load);
 
 static void dictLuaScriptDestructor(dict *d, void *val) {
     UNUSED(d);
@@ -450,9 +450,8 @@ uint64_t evalGetCommandFlags(client *c, uint64_t cmd_flags) {
  * If 'c' is not NULL, on error the client is informed with an appropriate
  * error describing the nature of the problem and the Lua interpreter error.
  *
- * 'evalsha' indicating whether the lua function is created from the EVAL context
- * or from the SCRIPT LOAD. */
-sds luaCreateFunction(client *c, robj *body, int evalsha) {
+ * 'script_load' is non-zero when the caller is SCRIPT LOAD, zero when it is EVAL. */
+sds luaCreateFunction(client *c, robj *body, int script_load) {
     char funcname[43];
     dictEntry *de;
     uint64_t script_flags;
@@ -463,7 +462,7 @@ sds luaCreateFunction(client *c, robj *body, int evalsha) {
 
     if ((de = dictFind(lctx.lua_scripts,funcname+2)) != NULL) {
         luaScript *l = dictGetVal(de);
-        if (evalsha && l->node) luaScriptsLRUPromote(dictGetKey(de), l);
+        if (script_load && l->node) luaScriptsLRUPromote(dictGetKey(de), l);
         return dictGetKey(de);
     }
 
@@ -500,7 +499,7 @@ sds luaCreateFunction(client *c, robj *body, int evalsha) {
     l->body = body;
     l->flags = script_flags;
     sds sha = sdsnewlen(funcname+2,40);
-    l->node = luaScriptsLRUAdd(c, sha, body, evalsha);
+    l->node = luaScriptsLRUAdd(c, sha, body, script_load);
     int retval = dictAdd(lctx.lua_scripts,sha,l);
     serverAssertWithInfo(c ? c : lctx.lua_client,NULL,retval == DICT_OK);
     lctx.lua_scripts_mem += evalScriptBytes(sha, body);
@@ -548,16 +547,16 @@ void luaDeleteFunction(client *c, sds sha) {
  * have many scripts, then unlike keys, we don't need to worry about the memory
  * usage of keeping a true sorted LRU linked list.
  *
- * 'evalsha' indicating whether the lua function is added from the EVAL context
- * or from the SCRIPT LOAD.
+ * 'script_load' is non-zero when the caller is SCRIPT LOAD. Those scripts are
+ * not added to the LRU and are not evicted.
  *
  * Returns the corresponding node added, which is used to save it in luaScript
  * and use it for quick removal and re-insertion into an LRU list each time the
  * script is used. */
 #define LRU_LIST_LENGTH 500
-listNode *luaScriptsLRUAdd(client *c, sds sha, robj *body, int evalsha) {
+listNode *luaScriptsLRUAdd(client *c, sds sha, robj *body, int script_load) {
     /* Script eviction only applies to EVAL, not SCRIPT LOAD. */
-    if (evalsha) return NULL;
+    if (script_load) return NULL;
 
     /* Evict oldest. */
     while (listLength(lctx.lua_scripts_lru_list) >= LRU_LIST_LENGTH) {
@@ -624,7 +623,7 @@ void evalGenericCommand(client *c, int evalsha) {
             addReplyErrorObject(c, shared.noscripterr);
             return;
         }
-        if (luaCreateFunction(c, c->argv[1], evalsha) == NULL) {
+        if (luaCreateFunction(c, c->argv[1], 0) == NULL) {
             lua_pop(lua,1); /* remove the error handler from the stack. */
             /* The error is sent to the client by luaCreateFunction()
              * itself when it returns NULL. */
