@@ -1865,6 +1865,12 @@ start_server {tags {"external:skip needs:debug"}} {
                 # Nothing will be replicated as f4 is persisted already.
                 r hgetex h4 PERSIST FIELDS 1 f4
 
+                # Only the updated fields are replicated: f4 has no TTL to
+                # persist and f9 does not exist.
+                r hsetex h4 EX 1000 FIELDS 1 f5 v5
+                r hgetex h4 PERSIST FIELDS 3 f4 f5 f9
+                r hgetex h4 EX 10000 FIELDS 3 f4 f5 f9
+
                 # Replicated as hdel
                 r hgetdel h4 FIELDS 1 f4
 
@@ -1914,6 +1920,9 @@ start_server {tags {"external:skip needs:debug"}} {
                     {exec}
                     {hsetex h4 PXAT * FIELDS 1 f4 v4}
                     {hpersist h4 FIELDS 1 f4}
+                    {hsetex h4 PXAT * FIELDS 1 f5 v5}
+                    {hpersist h4 FIELDS 1 f5}
+                    {hpexpireat h4 * FIELDS 2 f4 f5}
                     {hdel h4 f4}
                 }
             }
@@ -2088,6 +2097,12 @@ start_server {tags {"external:skip needs:debug"}} {
             r hexpire h4 100 FIELDS 1 f2
             after 10
             assert_equal [r hpersist h4 FIELDS 4 f1 f2 f3 non_exists_field] {-2 1 -1 -2}
+            # Same, as a queued command of MULTI/EXEC
+            r hexpire h4 100 FIELDS 2 f2 f3
+            r multi
+            r hpersist h4 FIELDS 4 f1 f2 non_exists_field f3
+            r hset h4 f6 v6
+            assert_equal [r exec] {{-2 1 -2 1} 1}
 
             assert_replication_stream $repl {
                 {select *}
@@ -2103,6 +2118,11 @@ start_server {tags {"external:skip needs:debug"}} {
                 {hpexpireat h4 * FIELDS 1 f1}
                 {hpexpireat h4 * FIELDS 1 f2}
                 {hpersist h4 FIELDS 1 f2}
+                {hpexpireat h4 * FIELDS 2 f2 f3}
+                {multi}
+                {hpersist h4 FIELDS 2 f2 f3}
+                {hset h4 f6 v6}
+                {exec}
             }
             close_replication_stream $repl
             r debug set-active-expire 1

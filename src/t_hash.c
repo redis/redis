@@ -5461,7 +5461,7 @@ void hgetexCommand(client *c) {
             notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hpersist", c->argv[1],
                                            c->db->id, (robj**)vecData(vupdated), vecSize(vupdated));
             /* Build canonical HPERSIST command: HPERSIST key FIELDS numfields field1 field2 ... */
-            canonical_argc = 4 + num_fields;
+            canonical_argc = 4 + vecSize(vupdated);
             canonical_argv = zmalloc(sizeof(robj*) * canonical_argc);
             canonical_argv[idx++] = shared.hpersist;
             incrRefCount(shared.hpersist);
@@ -5471,7 +5471,7 @@ void hgetexCommand(client *c) {
             notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hexpire", c->argv[1],
                                            c->db->id, (robj**)vecData(vupdated), vecSize(vupdated));
             /* Build canonical HPEXPIREAT command: HPEXPIREAT key timestamp FIELDS numfields field1 field2 ... */
-            canonical_argc = 5 + num_fields;
+            canonical_argc = 5 + vecSize(vupdated);
             canonical_argv = zmalloc(sizeof(robj*) * canonical_argc);
             canonical_argv[idx++] = shared.hpexpireat;
             incrRefCount(shared.hpexpireat);
@@ -5480,12 +5480,14 @@ void hgetexCommand(client *c) {
             canonical_argv[idx++] = createStringObjectFromLongLong(expire_time); /* timestamp */
         }
 
+        /* Only the updated fields are propagated */
+        robj **updated = (robj**)vecData(vupdated);
         canonical_argv[idx++] = shared.fields;
         incrRefCount(shared.fields);
-        canonical_argv[idx++] = createStringObjectFromLongLong(num_fields);
-        for (int i = 0; i < num_fields; i++) {
-            canonical_argv[idx++] = c->argv[first_field_pos + i];
-            incrRefCount(c->argv[first_field_pos + i]);
+        canonical_argv[idx++] = createStringObjectFromLongLong(vecSize(vupdated));
+        for (size_t i = 0; i < vecSize(vupdated); i++) {
+            canonical_argv[idx++] = updated[i];
+            incrRefCount(updated[i]);
         }
 
         replaceClientCommandVector(c, canonical_argc, canonical_argv);
@@ -6827,15 +6829,10 @@ void hpersistCommand(client *c) {
      * HPERSIST. Expired fields are left to the master's explicit deletion. */
     const int obey = mustObeyClient(c);
 
-    /* Fields that are not persisted are removed from the command as we go, so
-     * that a replica (or the AOF) persists exactly the fields the master did:
-     * a field that is already expired here but not yet deleted is not
-     * considered expired there (see 'obey' above), and must not be revived by
-     * the propagated command. Once done, the persisted fields are the ones
-     * left in argv, from the first field position up to argIdx.
-     *
-     * argIdx is pos in argv of i'th field, as removals shift the following fields left. */
-    int argIdx = numFieldsAt + 1;
+    /* argv indexes of not-persisted fields, to strip from the propagated cmd:
+     * a field expired here but not yet deleted is still valid on a replica
+     * (see 'obey') and must not get revived. */
+    int *notPersisted = NULL, notPersistedCount = 0;
 
     if (hashObj->encoding == OBJ_ENCODING_LISTPACK_EX) {
         long long prevExpire;
@@ -6845,6 +6842,7 @@ void hpersistCommand(client *c) {
 
         addReplyArrayLen(c, numFields);
         for (int i = 0 ; i < numFields ; i++) {
+            int argIdx = numFieldsAt + 1 + i;
             sds field = c->argv[argIdx]->ptr;
             int res;
 
@@ -6875,11 +6873,12 @@ void hpersistCommand(client *c) {
                 }
             }
 
-            if (res == HFE_PERSIST_OK)
-                argIdx++;
-            else
-                rewriteClientCommandArgument(c, argIdx, NULL);
             addReplyLongLong(c, res);
+            if (res != HFE_PERSIST_OK) {
+                if (notPersisted == NULL)
+                    notPersisted = zmalloc(sizeof(int) * numFields);
+                notPersisted[notPersistedCount++] = argIdx;
+            }
         }
     } else if (hashObj->encoding == OBJ_ENCODING_HT) {
         dict *d = hashObj->ptr;
@@ -6889,6 +6888,7 @@ void hpersistCommand(client *c) {
 
         addReplyArrayLen(c, numFields);
         for (int i = 0 ; i < numFields ; i++) {
+            int argIdx = numFieldsAt + 1 + i;
             sds field = c->argv[argIdx]->ptr;
             dictEntry *de = dictFind(d, field);
             int res;
@@ -6909,11 +6909,12 @@ void hpersistCommand(client *c) {
                 }
             }
 
-            if (res == HFE_PERSIST_OK)
-                argIdx++;
-            else
-                rewriteClientCommandArgument(c, argIdx, NULL);
             addReplyLongLong(c, res);
+            if (res != HFE_PERSIST_OK) {
+                if (notPersisted == NULL)
+                    notPersisted = zmalloc(sizeof(int) * numFields);
+                notPersisted[notPersistedCount++] = argIdx;
+            }
         }
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), hashObj, oldsize, kvobjAllocSize(hashObj));
@@ -6923,19 +6924,19 @@ void hpersistCommand(client *c) {
 
     /* Generates a hpersist event if the expiry time associated with any field
      * has been successfully deleted. */
-    long persisted = argIdx - (numFieldsAt + 1);
+    long persisted = numFields - notPersistedCount;
     if (persisted) {
-        notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hpersist", c->argv[1],
-                                       c->db->id, c->argv + numFieldsAt + 1, persisted);
-        keyModified(c, c->db, c->argv[1], hashObj, 1);
-        server.dirty++;
-
-        /* Partial result: not persisted fields were removed from the command,
-         * fix the fields count of the propagated command accordingly. */
-        if (persisted < numFields) {
+        /* Partial result: propagate only the persisted fields */
+        if (notPersistedCount) {
+            rewriteClientCommandRemoveArguments(c, notPersisted, notPersistedCount);
             robj *count = createStringObjectFromLongLong(persisted);
             rewriteClientCommandArgument(c, numFieldsAt, count);
             decrRefCount(count);
         }
+        notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hpersist", c->argv[1],
+                                       c->db->id, c->argv + numFieldsAt + 1, persisted);
+        keyModified(c, c->db, c->argv[1], hashObj, 1);
+        server.dirty++;
     }
+    zfree(notPersisted);
 }

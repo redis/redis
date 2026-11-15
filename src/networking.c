@@ -5366,6 +5366,36 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval) {
     }
 }
 
+/* Remove the arguments at the given ascending indexes from the command vector
+ * in a single pass. Same as rewriteClientCommandArgument() with a NULL value
+ * for each of the indexes, but O(argc) rather than O(argc * n). */
+void rewriteClientCommandRemoveArguments(client *c, const int *idx, int n) {
+    if (n == 0) return;
+    retainOriginalCommandVector(c);
+
+    pendingCommand *pcmd = c->pending_cmds.head ? c->pending_cmds.head: NULL;
+    int update_pcmd = pcmd && pcmd->argv == c->argv;
+
+    /* Compact the retained arguments to the left, over the removed ones */
+    size_t removed_len = 0;
+    int r = 0, w = 0; /* read and write positions in argv */
+    for (int i = 0; i < n; i++) {
+        serverAssert(idx[i] >= r && idx[i] > 0 && idx[i] < c->argc);
+        while (r < idx[i]) c->argv[w++] = c->argv[r++];
+        removed_len += getStringObjectLen(c->argv[r]);
+        decrRefCount(c->argv[r++]);
+    }
+    while (r < c->argc) c->argv[w++] = c->argv[r++];
+    for (r = w; r < c->argc; r++) c->argv[r] = NULL;
+    c->argc = w;
+    c->all_argv_len_sum -= removed_len;
+
+    if (update_pcmd) {
+        pcmd->argc = c->argc;
+        pcmd->argv_len_sum -= removed_len;
+    }
+}
+
 /* This function returns the number of bytes that Redis is
  * using to store the reply still not read by the client.
  * It does NOT include any referenced bytes (neither shared nor unshared).
