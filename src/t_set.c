@@ -2463,8 +2463,8 @@ void scardCommand(client *c) {
 /* Propagates SPOP of CASE 3 as the deletion of the key, followed by the addition
  * of the members that remain in 'set': SADD for the ones without an expiration,
  * and SADDEX with an absolute time for each one with an expiration, and then the
- * expiration of the key, if it has one. All of them are propagated as a
- * transaction, see propagatePendingCommands(). */
+ * expiration and the BLESS flags of the key, if it has them. All of them are
+ * propagated as a transaction, see propagatePendingCommands(). */
 static void spopPropagateRemaining(client *c, kvobj *set) {
     robj *key = c->argv[1];
     robj *delargv[2] = { server.lazyfree_lazy_server_del ? shared.unlink : shared.del, key };
@@ -2477,7 +2477,7 @@ static void spopPropagateRemaining(client *c, kvobj *set) {
     /* Members are batched after the command name and the key. */
     robj **batch = saddargv + 2;
     unsigned long count = 0;
-    robj *members = createStringObject("MEMBERS", 7);
+    robj *members = shared.members;
     robj *one = createStringObjectFromLongLong(1);
 
     setTypeIterator si;
@@ -2517,7 +2517,12 @@ static void spopPropagateRemaining(client *c, kvobj *set) {
         alsoPropagate(c->db->id, argv, 3, PROPAGATE_AOF | PROPAGATE_REPL);
         decrRefCount(expire);
     }
-    decrRefCount(members);
+
+    /* The same for the BLESS flags: the new key on the replica is not blessed. */
+    if (blessIsNoEvict(set)) {
+        robj *argv[4] = { shared.bless, shared.set, key, shared.noevict };
+        alsoPropagate(c->db->id, argv, 4, PROPAGATE_AOF | PROPAGATE_REPL);
+    }
     decrRefCount(one);
     zfree(saddargv);
 }

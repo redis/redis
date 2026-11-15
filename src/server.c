@@ -2419,6 +2419,9 @@ void createSharedObjects(void) {
     shared.special_equals = createStringObject("=",1);
     shared.redacted = makeObjectShared(createStringObject("(redacted)",10));
     shared.fields = createStringObject("FIELDS",6);
+    shared.members = createStringObject("MEMBERS",7);
+    shared.bless = createStringObject("BLESS",5);
+    shared.noevict = createStringObject("NO-EVICT",8);
 
     for (j = 0; j < OBJ_SHARED_INTEGERS; j++) {
         shared.integers[j] =

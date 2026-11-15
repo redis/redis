@@ -1886,7 +1886,7 @@ struct sharedObjectsStruct {
     *script, *replconf, *eval, *persist, *set, *pexpireat, *pexpire,
     *hdel, *hpexpireat, *hpersist, *hsetex, *spexpireat, *spersist, *sadd, *saddex, *restore, *replace,
     *time, *pxat, *absttl, *retrycount, *force, *justid, *entriesread,
-    *lastid, *ping, *setid, *keepttl, *load, *createconsumer, *fields,
+    *lastid, *ping, *setid, *keepttl, *load, *createconsumer, *fields, *members, *bless, *noevict,
     *getack, *special_asterisk, *special_equals, *default_username, *redacted,
     *ssubscribebulk,*sunsubscribebulk, *smessagebulk,
     *select[PROTO_SHARED_SELECT_CMDS],

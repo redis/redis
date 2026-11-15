@@ -928,6 +928,23 @@ start_server {tags {"external:skip needs:debug"}} {
             close_replication_stream $repl
             assert_range [r pttl myset] 90000 100000
 
+            # So are the BLESS flags of the key.
+            r bless set myset no-evict
+            for {set i 0} {$i < 20} {incr i} {r sadd myset n$i}
+            set repl [attach_to_replication_stream]
+            assert_equal 20 [llength [r spop myset 20]]
+            assert_replication_stream $repl {
+                {multi}
+                {select *}
+                {del myset}
+                {sadd myset * *}
+                {pexpireat myset *}
+                {bless SET myset NO-EVICT}
+                {exec}
+            }
+            close_replication_stream $repl
+            assert_equal {NO-EVICT} [r bless get myset]
+
             r debug set-active-expire 1
         } {OK} {needs:repl}
 
