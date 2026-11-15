@@ -3568,6 +3568,7 @@ sds getAllClientsInfoString(int type);
 int clientSetName(client *c, robj *name, const char **err);
 void rewriteClientCommandVector(client *c, int argc, ...);
 void rewriteClientCommandArgument(client *c, int i, robj *newval);
+void rewriteClientCommandRemoveArguments(client *c, const int *idx, int n);
 void replaceClientCommandVector(client *c, int argc, robj **argv);
 void redactClientCommandArgument(client *c, int argc);
 size_t getClientOutputBufferMemoryUsage(client *c);
