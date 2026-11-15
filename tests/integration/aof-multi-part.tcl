@@ -303,6 +303,59 @@ tags {"external:skip"} {
         clean_aof_persistence $aof_dirpath
     }
 
+    test {Multi Part AOF discards an unreferenced INCR when there is no manifest} {
+        create_aof $aof_dirpath $aof_incr1_file {
+            append_to_aof [formatCommand set stale old]
+        }
+
+        start_server_aof [list dir $server_path] {
+            set client [redis [srv host] [srv port] 0 $::tls]
+            assert_equal 0 [$client dbsize]
+            assert_equal 0 [file size $aof_dirpath/${aof_basename}.1${::incr_aof_suffix}${::aof_format_suffix}]
+            assert_equal OK [$client set k1 v1]
+        }
+
+        start_server_aof [list dir $server_path] {
+            set client [redis [srv host] [srv port] 0 $::tls]
+            assert_equal v1 [$client get k1]
+            assert_equal {} [$client get stale]
+            assert_equal 1 [$client dbsize]
+        }
+
+        clean_aof_persistence $aof_dirpath
+    }
+
+    test {Multi Part AOF discards an unreferenced INCR with a BASE-only manifest} {
+        create_aof $aof_dirpath $aof_base1_file {
+            append_to_aof [formatCommand set k0 v0]
+        }
+
+        create_aof $aof_dirpath $aof_incr1_file {
+            append_to_aof [formatCommand set stale old]
+        }
+
+        create_aof_manifest $aof_dirpath $aof_manifest_file {
+            append_to_manifest "file appendonly.aof.1.base.aof seq 1 type b\n"
+        }
+
+        start_server_aof [list dir $server_path] {
+            set client [redis [srv host] [srv port] 0 $::tls]
+            assert_equal v0 [$client get k0]
+            assert_equal 0 [file size $aof_dirpath/${aof_basename}.1${::incr_aof_suffix}${::aof_format_suffix}]
+            assert_equal OK [$client set k1 v1]
+        }
+
+        start_server_aof [list dir $server_path] {
+            set client [redis [srv host] [srv port] 0 $::tls]
+            assert_equal v0 [$client get k0]
+            assert_equal v1 [$client get k1]
+            assert_equal {} [$client get stale]
+            assert_equal 2 [$client dbsize]
+        }
+
+        clean_aof_persistence $aof_dirpath
+    }
+
     test {Multi Part AOF can start when we have en empty AOF dir} {
         create_aof_dir $aof_dirpath
 
