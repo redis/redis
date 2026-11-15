@@ -2965,8 +2965,25 @@ int zuiFind(zsetopsrc *op, zsetopval *val, double *score, int reuse_hash) {
     }
 }
 
+/* Add a member that is present in every input to the intersection. */
+static inline void zinterAddResult(zset *dstzset, zsetopval *val, double score,
+                                   size_t *totelelen, size_t *maxelelen)
+{
+    sds tmp = zuiNewSdsFromValue(val);
+    zskiplistNode *znode = zslInsert(dstzset->zsl, score, tmp);
+    dictAdd(dstzset->dict, znode, NULL);
+    *totelelen += sdslen(tmp);
+    if (sdslen(tmp) > *maxelelen) *maxelelen = sdslen(tmp);
+    sdsfree(tmp); /* zslInsert copied it, we can free our copy */
+}
+
+/* Members looked up together when intersecting B+ tree inputs. */
+#define ZINTER_BATCH 8
+static_assert(ZINTER_BATCH <= ZBT_SCORE_BATCH_SIZE, "Batch too large");
+
 /* The batched intersection needs every input after the first to be a B+ tree
- * other than the one being iterated. */
+ * other than the one being iterated: members point into the iterated input,
+ * and looking up a B+ tree may advance a resize of its index. */
 static int zinterCanBatch(zsetopsrc *src, long setnum) {
     for (long j = 1; j < setnum; j++) {
         if (src[j].subject == NULL || src[j].type != OBJ_ZSET ||
@@ -3009,9 +3026,6 @@ static int zsetUnionMemberScoreCompare(const void *a, const void *b) {
 static int zuiCompareByRevCardinality(const void *s1, const void *s2) {
     return zuiCompareByCardinality(s1, s2) * -1;
 }
-
-/* Members looked up together when intersecting B+ tree inputs. */
-#define ZINTER_BATCH 8
 
 #define REDIS_AGGR_SUM 1
 #define REDIS_AGGR_MIN 2
@@ -3409,25 +3423,25 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                 cardinality = (unsigned long)limit;
         } else if (zuiLength(&src[0]) > 0 &&
                    zinterCanBatch(src, setnum)) {
-            /* Every input after the first is a distinct B+ tree: look up a
-             * batch of members in one input at a time, so the independent
-             * lookups can overlap. Members absent from an input are dropped
-             * from the batch before the next input, as in the loop below. */
+            /* Look up a batch of members in one input at a time, so that the
+             * independent lookups can overlap. Members absent from an input
+             * are dropped from the batch before the next input, like the
+             * loop below does for a single member. */
             zsetopval batch[ZINTER_BATCH];
             uint32_t hashes[ZINTER_BATCH];
             const unsigned char *eles[ZINTER_BATCH];
             size_t lens[ZINTER_BATCH];
-            double scores[ZINTER_BATCH] = {0}, values[ZINTER_BATCH];
+            double scores[ZINTER_BATCH] = {0}, values[ZINTER_BATCH] = {0};
             src[0].noscore = cardinality_only;
             zuiInitIterator(&src[0]);
             memset(batch, 0, sizeof(batch));
             int done = 0;
             while (!done) {
                 /* With LIMIT never fetch more members than can still count. */
-                unsigned int max = ZINTER_BATCH, n = 0;
-                if (limit && (unsigned long)limit - cardinality < max)
-                    max = (unsigned long)limit - cardinality;
-                while (n < max && zuiNext(&src[0], &batch[n])) {
+                unsigned int room = ZINTER_BATCH, n = 0;
+                if (limit && (unsigned long)limit - cardinality < room)
+                    room = (unsigned long)limit - cardinality;
+                while (n < room && zuiNext(&src[0], &batch[n])) {
                     hashes[n] = zuiMemberHash(&batch[n]);
                     eles[n] = batch[n].estr;
                     lens[n] = batch[n].elen;
@@ -3438,12 +3452,12 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                     }
                     n++;
                 }
-                if (n < max) done = 1;
+                if (n < room) done = 1;
                 unsigned int alive = n ? (1U << n) - 1 : 0;
                 for (j = 1; j < setnum && alive; j++) {
-                    alive = zbtreeFindBatch(src[j].subject->ptr, hashes, eles,
-                                            lens, n, alive,
-                                            cardinality_only ? NULL : values);
+                    alive = zbtreeScoresRawWithHash(src[j].subject->ptr,
+                                hashes, eles, lens, n, alive,
+                                cardinality_only ? NULL : values);
                     if (cardinality_only) continue;
                     for (unsigned int k = 0; k < n; k++) {
                         if (!(alive & (1U << k))) continue;
@@ -3458,12 +3472,8 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                 } else {
                     for (unsigned int k = 0; k < n; k++) {
                         if (!(alive & (1U << k))) continue;
-                        tmp = zuiNewSdsFromValue(&batch[k]);
-                        znode = zslInsert(dstzset->zsl,scores[k],tmp);
-                        dictAdd(dstzset->dict, znode, NULL);
-                        totelelen += sdslen(tmp);
-                        if (sdslen(tmp) > maxelelen) maxelelen = sdslen(tmp);
-                        sdsfree(tmp);
+                        zinterAddResult(dstzset, &batch[k], scores[k],
+                                        &totelelen, &maxelelen);
                     }
                 }
             }
@@ -3510,12 +3520,8 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                     /* Stop searching after reaching the limit. */
                     if (limit && cardinality >= (unsigned long)limit) break;
                 } else if (j == setnum) {
-                    tmp = zuiNewSdsFromValue(&zval);
-                    znode = zslInsert(dstzset->zsl,score,tmp);
-                    dictAdd(dstzset->dict, znode, NULL);
-                    totelelen += sdslen(tmp);
-                    if (sdslen(tmp) > maxelelen) maxelelen = sdslen(tmp);
-                    sdsfree(tmp); /* zslInsert copied it, we can free our copy */
+                    zinterAddResult(dstzset, &zval, score, &totelelen,
+                                    &maxelelen);
                 }
             }
             zuiDiscardDirtyValue(&zval);

@@ -1956,7 +1956,9 @@ static void zbtIndexTableInsertRaw(zbtIndexTable *table, uint32_t hash,
 
 /* Search one table. A matching hash still has to be checked against the
  * member in its score leaf because the stored hash is not a unique key.
- * Inline so read-only callers can omit the insertion/cursor bookkeeping. */
+ * Inline so read-only callers can omit the insertion/cursor bookkeeping.
+ * zbtIndexFirstCandidate() repeats the first step of this search: KEEP IN
+ * SYNC. */
 static inline __attribute__((always_inline))
 int zbtIndexTableFind(zbtreeSet *zs, zbtIndexTable *table,
                              uint32_t hash, const unsigned char *ele,
@@ -3289,17 +3291,51 @@ int zbtreeScore(zbtreeSet *zs, sds ele, double *score) {
     return zbtreeScoreRaw(zs, (unsigned char *)ele, sdslen(ele), score);
 }
 
-/* Look up a batch of members. The lookups are independent, so do them in
- * two passes: first resolve every home bucket to its candidate score leaf,
- * then compare the members. Each pass is a short loop whose iterations do
- * not depend on each other, which lets the CPU overlap the loads of
- * different members instead of finishing one lookup at a time. Anything
- * unusual (resize in progress, a first candidate that is not the member, a
- * possible probe continuation) uses the normal lookup. */
-unsigned int zbtreeFindBatch(zbtreeSet *zs, const uint32_t *hashes,
-                             const unsigned char **eles, const size_t *lens,
-                             unsigned int count, unsigned int want,
-                             double *scores)
+/* First step of a lookup, for zbtreeScoresRawWithHash(): return the score
+ * leaf of the first entry in the home bucket of 'hash' whose tag matches, or
+ * NULL. With NULL, '*absent' says whether the member is proven absent; if it
+ * is not, the caller must do a normal lookup. The table must not be empty
+ * and no index resize may be in progress, so that every entry refers to a
+ * live leaf.
+ *
+ * KEEP IN SYNC with zbtIndexTableFind(): this is its first candidate and its
+ * home-bucket filter. A candidate that turns out not to hold the member must
+ * also be followed by a normal lookup. */
+static inline __attribute__((always_inline))
+zbtScoreLeaf *zbtIndexFirstCandidate(zbtreeSet *zs, zbtIndexTable *table,
+                                     uint32_t hash, int *absent)
+{
+    uint8_t tag = zbtIndexTag(hash);
+    zbtIndexBucket *bucket = zbtIndexBucketAt(table,
+                                              hash & (table->size - 1));
+    uint64_t matches = zbtIndexTagMask(zbtIndexTags(bucket), tag);
+    *absent = 0;
+    if (matches == 0) {
+        *absent = !zbtIndexHomeMayContain(table, hash);
+        return NULL;
+    }
+    unsigned int pos = zbtIndexFirstTag(matches);
+    uint32_t id = zbtIndexGetId(table, bucket, pos);
+    if ((uint8_t)(zbtIndexTags(bucket) >> (pos * 8)) != tag ||
+        id == ZBT_INDEX_DELETED_ID)
+        return NULL;
+    serverAssert(id < zs->next_score_leaf_id);
+    zbtScoreLeaf *leaf = zs->score_leaf_by_id[id];
+    serverAssert(leaf != NULL && !ZBT_IS_FREE_LEAF_ID(leaf));
+    return leaf;
+}
+
+/* Look up a batch of raw members. The lookups are independent, so do them in
+ * two passes: first find the candidate score leaf of every member, then
+ * compare the members. Each pass is a short loop whose iterations do not
+ * depend on each other, so the CPU can work on several members at once
+ * instead of following one chain of loads at a time. A member whose first
+ * candidate is not conclusive gets a normal lookup, and so does every member
+ * while the index is being resized. */
+unsigned int zbtreeScoresRawWithHash(zbtreeSet *zs, const uint32_t *hashes,
+                                     const unsigned char **eles,
+                                     const size_t *lens, unsigned int count,
+                                     unsigned int want, double *scores)
 {
     serverAssert(count <= ZBT_SCORE_BATCH_SIZE);
     unsigned int found = 0;
@@ -3316,38 +3352,27 @@ unsigned int zbtreeFindBatch(zbtreeSet *zs, const uint32_t *hashes,
         return found;
     }
 
-    /* leaf[i] is the first candidate, or NULL with slow bit i saying whether
-     * the normal lookup is needed (clear means proven absent). */
+    /* Members without a candidate leaf are either proven absent or have
+     * their bit set in 'slow'. */
     zbtScoreLeaf *leaf[ZBT_SCORE_BATCH_SIZE];
     unsigned int slow = 0;
-    unsigned long mask = table->size - 1;
 
     for (unsigned int i = 0; i < count; i++) {
+        int absent;
         leaf[i] = NULL;
         if (!(want & (1U << i))) continue;
-        uint32_t hash = hashes[i];
-        uint8_t tag = zbtIndexTag(hash);
-        zbtIndexBucket *bucket = zbtIndexBucketAt(table, hash & mask);
-        uint64_t matches = zbtIndexTagMask(zbtIndexTags(bucket), tag);
-        if (matches) {
-            unsigned int pos = zbtIndexFirstTag(matches);
-            uint32_t id = zbtIndexGetId(table, bucket, pos);
-            if ((uint8_t)(zbtIndexTags(bucket) >> (pos * 8)) == tag &&
-                id != ZBT_INDEX_DELETED_ID)
-            {
-                leaf[i] = zs->score_leaf_by_id[id];
-                redis_prefetch_read(leaf[i]);
-            } else {
-                slow |= 1U << i;
-            }
-        } else if (zbtIndexHomeMayContain(table, hash)) {
+        leaf[i] = zbtIndexFirstCandidate(zs, table, hashes[i], &absent);
+        if (leaf[i])
+            redis_prefetch_read(leaf[i]);
+        else if (!absent)
             slow |= 1U << i;
-        }
     }
 
     for (unsigned int i = 0; i < count; i++) {
         double *score = scores ? &scores[i] : NULL;
         if (leaf[i]) {
+            serverAssert(leaf[i]->id < zs->next_score_leaf_id &&
+                         zs->score_leaf_by_id[leaf[i]->id] == leaf[i]);
             if (zbtScoreLeafFindMember(leaf[i], hashes[i], eles[i], lens[i],
                                        score, NULL))
             {
@@ -6289,6 +6314,64 @@ int zsetBtreeTest(int argc, char **argv, int flags) {
             zfree(seen);
             zbtreeFree(alike);
         }
+        zbtreeFree(zs);
+    }
+
+    printf("Testing B+ tree zbtreeScoresRawWithHash()\n");
+
+    {
+        /* Compare the batch lookup with single lookups while members are
+         * added and removed, so that it sees tombstones, members away from
+         * their home bucket, long members and index resizes in progress. */
+        enum { N = 6000 };
+        zbtreeSet *zs = zbtreeCreate();
+        uint64_t r = 99;
+        static char bufs[ZBT_SCORE_BATCH_SIZE][256];
+        int ok = 1, stable = 0, resizing = 0, hits = 0, misses = 0;
+
+        for (int step = 0; step < N * 3 && ok; step++) {
+            char buf[256];
+            int i = zbtTestRand(&r) % N;
+            size_t len = zbtTestMember(buf, i, i % 7 == 0 ? 200 : i % 40);
+            if (zbtTestRand(&r) % 3) {
+                zbtTestSet(zs, buf, len, (double)(zbtTestRand(&r) % 1000));
+            } else {
+                sds ele = sdsnewlen(buf, len);
+                zbtreeDelete(zs, ele);
+                sdsfree(ele);
+            }
+            if (step % 5) continue;
+
+            uint32_t hashes[ZBT_SCORE_BATCH_SIZE];
+            const unsigned char *eles[ZBT_SCORE_BATCH_SIZE];
+            size_t lens[ZBT_SCORE_BATCH_SIZE];
+            double scores[ZBT_SCORE_BATCH_SIZE];
+            unsigned int count = zbtTestRand(&r) % (ZBT_SCORE_BATCH_SIZE + 1);
+            unsigned int want = zbtTestRand(&r) & ((1U << count) - 1);
+            for (unsigned int k = 0; k < count; k++) {
+                int m = zbtTestRand(&r) % (N + N / 4); /* Some never exist. */
+                lens[k] = zbtTestMember(bufs[k], m, m % 7 == 0 ? 200 : m % 40);
+                eles[k] = (unsigned char *)bufs[k];
+                hashes[k] = zbtreeMemberHash(eles[k], lens[k]);
+                scores[k] = -1;
+            }
+            if (zs->member_rehash) resizing++; else stable++;
+            int with_scores = zbtTestRand(&r) % 2;
+            unsigned int found = zbtreeScoresRawWithHash(zs, hashes, eles,
+                lens, count, want, with_scores ? scores : NULL);
+            ok = ok && (found & ~want) == 0;
+            for (unsigned int k = 0; k < count && ok; k++) {
+                if (!(want & (1U << k))) continue;
+                double score = -1;
+                int exists = zbtreeScoreRaw(zs, eles[k], lens[k], &score);
+                ok = exists == !!(found & (1U << k)) &&
+                     (!with_scores || scores[k] == score);
+                if (exists) hits++; else misses++;
+            }
+        }
+        test_cond("Batch lookups match single lookups",
+                  ok && stable && resizing && hits && misses &&
+                  zbtTestCheck(zs));
         zbtreeFree(zs);
     }
 

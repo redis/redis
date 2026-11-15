@@ -1042,9 +1042,10 @@ start_server {tags {"zset"}} {
             assert_equal {b 3 c 5} [r zinter 2 zseta{t} zsetb{t} withscores]
         }
 
-        test "ZINTER/ZINTERSTORE/ZINTERCARD batched lookups match a member-by-member check" {
-            # Sizes around the lookup batch, several inputs, partial overlap,
-            # misses in different inputs and LIMIT values inside a batch.
+        test "ZINTER/ZINTERSTORE/ZINTERCARD in batches of members - $encoding" {
+            # The inputs after the first are large enough to be B+ trees.
+            # Use sizes around the lookup batch, misses in different inputs
+            # and LIMIT values inside and across batches.
             foreach n {1 7 8 9 16 17 200} {
                 r del za{t} zb{t} zc{t} zout{t}
                 set expected {}
@@ -1059,18 +1060,91 @@ start_server {tags {"zset"}} {
                     r zadd zb{t} $i x$i
                     r zadd zc{t} $i y$i
                 }
+                assert_encoding btree zb{t}
+                assert_encoding btree zc{t}
                 set card [expr {[llength $expected] / 2}]
                 assert_equal $card [r zintercard 3 za{t} zb{t} zc{t}]
+                assert_equal $card [r zintercard 3 za{t} zb{t} zc{t} limit 0]
                 assert_equal [expr {($n + 1) / 2}] [r zintercard 2 za{t} zb{t}]
-                foreach limit {1 2 7 8 9} {
+                foreach limit {1 2 7 8 9 16 17 33} {
                     assert_equal [expr {min($card, $limit)}] \
                         [r zintercard 3 za{t} zb{t} zc{t} limit $limit]
+                    assert_equal [expr {min(($n + 1) / 2, $limit)}] \
+                        [r zintercard 2 za{t} zb{t} limit $limit]
                 }
                 assert_equal $expected [r zinter 3 za{t} zb{t} zc{t} withscores]
                 assert_equal $card [r zinterstore zout{t} 3 za{t} zb{t} zc{t}]
                 assert_equal $expected [r zrange zout{t} 0 -1 withscores]
-                assert_equal $card [r zintercard 3 za{t} zb{t} zc{t} limit 0]
+
+                # The same input more than once, and a destination that is
+                # also an input.
+                assert_equal [r zinter 2 za{t} zb{t} withscores] \
+                    [r zinter 3 za{t} zb{t} zb{t} weights 1 1 0 withscores]
+                assert_equal [expr {($n + 1) / 2}] [r zintercard 3 za{t} zb{t} za{t}]
+                assert_equal $card [r zinterstore zc{t} 3 za{t} zb{t} zc{t}]
+                assert_equal $expected [r zrange zc{t} 0 -1 withscores]
             }
+        }
+
+        test "ZINTER batches with weights, aggregates and removed members - $encoding" {
+            r del za{t} zb{t} zc{t} sa{t}
+            for {set i 0} {$i < 400} {incr i} {
+                r zadd za{t} $i $i
+                r zadd zb{t} [expr {-$i}] $i
+                r zadd zc{t} 1 $i
+            }
+            # Removed members leave deleted entries in the member index.
+            for {set i 0} {$i < 400} {incr i 3} {r zrem zb{t} $i}
+            for {set i 0} {$i < 20} {incr i} {r sadd sa{t} [expr {$i * 2}]}
+            r zadd za{t} inf 399
+            r zadd zb{t} -inf 398
+
+            set sum {}
+            set min {}
+            set max {}
+            for {set i 0} {$i < 400} {incr i} {
+                if {$i % 3 == 0} continue
+                set a [expr {$i == 399 ? "inf" : $i}]
+                set b [expr {$i == 398 ? "-inf" : -$i}]
+                # za * 2 + zb * 1 + zc * 0, where 0 * 1 counts as 0.
+                if {$i == 399} {
+                    lappend sum [list $i inf]
+                    lappend min [list $i -399]
+                    lappend max [list $i inf]
+                } elseif {$i == 398} {
+                    lappend sum [list $i -inf]
+                    lappend min [list $i -inf]
+                    lappend max [list $i 796]
+                } else {
+                    lappend sum [list $i $i]
+                    lappend min [list $i [expr {-$i}]]
+                    lappend max [list $i [expr {$i * 2}]]
+                }
+            }
+            foreach {aggregate expected} [list sum $sum min $min max $max] {
+                set expected [lsort -command {apply {{x y} {
+                    set sx [lindex $x 1]; set sy [lindex $y 1]
+                    if {$sx != $sy} {return [expr {$sx < $sy ? -1 : 1}]}
+                    return [string compare [lindex $x 0] [lindex $y 0]]
+                }}} $expected]
+                set got {}
+                foreach {member score} [r zinter 3 za{t} zb{t} zc{t} \
+                        weights 2 1 0 aggregate $aggregate withscores] {
+                    lappend got [list $member $score]
+                }
+                assert_equal $expected $got
+            }
+
+            # A set as the first input, in front of B+ trees.
+            set card 0
+            for {set i 0} {$i < 20} {incr i} {
+                if {($i * 2) % 3 != 0} {incr card}
+            }
+            assert_equal $card [r zintercard 3 sa{t} za{t} zb{t}]
+            assert_equal $card [llength [r zinter 3 sa{t} za{t} zb{t}]]
+            # A set after the first input uses the member-by-member loop.
+            r sadd sa{t} {*}[r zrange zc{t} 0 -1]
+            assert_equal [r zcard zb{t}] [r zintercard 3 zb{t} sa{t} za{t}]
         }
 
         test "ZINTERCARD with illegal arguments" {
