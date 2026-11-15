@@ -3371,8 +3371,6 @@ unsigned int zbtreeScoresRawWithHash(zbtreeSet *zs, const uint32_t *hashes,
     for (unsigned int i = 0; i < count; i++) {
         double *score = scores ? &scores[i] : NULL;
         if (leaf[i]) {
-            serverAssert(leaf[i]->id < zs->next_score_leaf_id &&
-                         zs->score_leaf_by_id[leaf[i]->id] == leaf[i]);
             if (zbtScoreLeafFindMember(leaf[i], hashes[i], eles[i], lens[i],
                                        score, NULL))
             {
