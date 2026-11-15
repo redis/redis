@@ -6839,6 +6839,8 @@ void hpersistCommand(client *c) {
         unsigned char *fptr, *vptr, *tptr;
         listpackEx *lpt = hashObj->ptr;
         size_t oldsize = 0;
+        if (server.memory_tracking_enabled)
+            oldsize = kvobjAllocSize(hashObj);
 
         addReplyArrayLen(c, numFields);
         for (int i = 0 ; i < numFields ; i++) {
@@ -6864,11 +6866,7 @@ void hpersistCommand(client *c) {
                     /* Already expired. Pretend there is no such field. */
                     res = HFE_PERSIST_NO_FIELD;
                 } else {
-                    if (server.memory_tracking_enabled)
-                        oldsize = kvobjAllocSize(hashObj);
                     listpackExUpdateExpiry(hashObj, field, fptr, vptr, HASH_LP_NO_TTL);
-                    if (server.memory_tracking_enabled)
-                        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), hashObj, oldsize, kvobjAllocSize(hashObj));
                     res = HFE_PERSIST_OK;
                 }
             }
@@ -6880,6 +6878,8 @@ void hpersistCommand(client *c) {
                 notPersisted[notPersistedCount++] = argIdx;
             }
         }
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), hashObj, oldsize, kvobjAllocSize(hashObj));
     } else if (hashObj->encoding == OBJ_ENCODING_HT) {
         dict *d = hashObj->ptr;
         size_t oldsize = 0;
