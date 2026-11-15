@@ -365,15 +365,19 @@ iget_defrag_hint(tsdn_t *tsdn, void* ptr) {
 				/* Run on all bin shards (usually just one) */
 				for (uint32_t i=0; i< bin_info->n_shards; i++) {
 					bin_t *bb = arena_get_bin(arena, binind, i);
+					/* nonfull_slabs counts the slabs in the non-full heap, which
+					 * slabcur isn't part of, so the slabs that are neither in
+					 * that heap nor slabcur are the full ones. */
 					curslabs += bb->stats.nonfull_slabs;
-					/* Deduct the regs in full slabs (they're not part of the game) */
 					unsigned long full_slabs = bb->stats.curslabs - bb->stats.nonfull_slabs;
-					curregs += bb->stats.curregs - full_slabs * bin_info->nregs;
+					curregs += bb->stats.curregs;
 					if (bb->slabcur) {
-						/* Remove slabcur from the overall utilization (not a candidate to nove from) */
+						/* Remove slabcur from the overall utilization (not a candidate to move from) */
 						curregs -= bin_info->nregs - edata_nfree_get(bb->slabcur);
-						curslabs -= 1;
+						full_slabs -= 1;
 					}
+					/* Deduct the regs in full slabs (they're not part of the game) */
+					curregs -= full_slabs * bin_info->nregs;
 				}
 				/* Compare the utilization ratio of the slab in question to the total average
 				 * among non-full slabs. To avoid precision loss in division, we do that by
