@@ -1042,6 +1042,37 @@ start_server {tags {"zset"}} {
             assert_equal {b 3 c 5} [r zinter 2 zseta{t} zsetb{t} withscores]
         }
 
+        test "ZINTER/ZINTERSTORE/ZINTERCARD batched lookups match a member-by-member check" {
+            # Sizes around the lookup batch, several inputs, partial overlap,
+            # misses in different inputs and LIMIT values inside a batch.
+            foreach n {1 7 8 9 16 17 200} {
+                r del za{t} zb{t} zc{t} zout{t}
+                set expected {}
+                for {set i 0} {$i < $n} {incr i} {
+                    r zadd za{t} $i m$i
+                    if {$i % 2 == 0} {r zadd zb{t} [expr {$i * 10}] m$i}
+                    if {$i % 3 == 0} {r zadd zc{t} [expr {$i * 100}] m$i}
+                    if {$i % 6 == 0} {lappend expected m$i [expr {$i * 111}]}
+                }
+                # Members only in the larger inputs must not be reported.
+                for {set i 0} {$i < 300} {incr i} {
+                    r zadd zb{t} $i x$i
+                    r zadd zc{t} $i y$i
+                }
+                set card [expr {[llength $expected] / 2}]
+                assert_equal $card [r zintercard 3 za{t} zb{t} zc{t}]
+                assert_equal [expr {($n + 1) / 2}] [r zintercard 2 za{t} zb{t}]
+                foreach limit {1 2 7 8 9} {
+                    assert_equal [expr {min($card, $limit)}] \
+                        [r zintercard 3 za{t} zb{t} zc{t} limit $limit]
+                }
+                assert_equal $expected [r zinter 3 za{t} zb{t} zc{t} withscores]
+                assert_equal $card [r zinterstore zout{t} 3 za{t} zb{t} zc{t}]
+                assert_equal $expected [r zrange zout{t} 0 -1 withscores]
+                assert_equal $card [r zintercard 3 za{t} zb{t} zc{t} limit 0]
+            }
+        }
+
         test "ZINTERCARD with illegal arguments" {
             assert_error "ERR syntax error*" {r zintercard 1 zseta{t} zseta{t}}
             assert_error "ERR syntax error*" {r zintercard 1 zseta{t} bar_arg}

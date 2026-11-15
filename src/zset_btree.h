@@ -83,6 +83,14 @@ uint32_t zbtreeMemberHash(const unsigned char *ele, size_t elelen);
 int zbtreeScoreRawWithHash(zbtreeSet *zs, uint32_t hash,
                            const unsigned char *ele, size_t elelen,
                            double *score);
+/* Look up to ZBT_SCORE_BATCH_SIZE raw members whose hashes come from
+ * zbtreeMemberHash(). Only members whose bit is set in 'want' are looked up.
+ * Bit i of the result is set when member i exists; its score is stored in
+ * scores[i] when 'scores' is not NULL. */
+unsigned int zbtreeFindBatch(zbtreeSet *zs, const uint32_t *hashes,
+                             const unsigned char **eles, const size_t *lens,
+                             unsigned int count, unsigned int want,
+                             double *scores);
 /* Look up up to 16 scores. Bit i of the result says whether scores[i] exists. */
 #define ZBT_SCORE_BATCH_SIZE 16
 unsigned int zbtreeScores(zbtreeSet *zs, const sds *members, unsigned int count,

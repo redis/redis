@@ -2965,6 +2965,18 @@ int zuiFind(zsetopsrc *op, zsetopval *val, double *score, int reuse_hash) {
     }
 }
 
+/* The batched intersection needs every input after the first to be a B+ tree
+ * other than the one being iterated. */
+static int zinterCanBatch(zsetopsrc *src, long setnum) {
+    for (long j = 1; j < setnum; j++) {
+        if (src[j].subject == NULL || src[j].type != OBJ_ZSET ||
+            src[j].encoding != OBJ_ENCODING_BTREE ||
+            src[j].subject == src[0].subject)
+            return 0;
+    }
+    return setnum > 1;
+}
+
 int zuiCompareByCardinality(const void *s1, const void *s2) {
     unsigned long first = zuiLength((zsetopsrc*)s1);
     unsigned long second = zuiLength((zsetopsrc*)s2);
@@ -2997,6 +3009,9 @@ static int zsetUnionMemberScoreCompare(const void *a, const void *b) {
 static int zuiCompareByRevCardinality(const void *s1, const void *s2) {
     return zuiCompareByCardinality(s1, s2) * -1;
 }
+
+/* Members looked up together when intersecting B+ tree inputs. */
+#define ZINTER_BATCH 8
 
 #define REDIS_AGGR_SUM 1
 #define REDIS_AGGR_MIN 2
@@ -3392,6 +3407,69 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
             cardinality = zuiLength(&src[0]);
             if (limit && cardinality > (unsigned long)limit)
                 cardinality = (unsigned long)limit;
+        } else if (zuiLength(&src[0]) > 0 &&
+                   zinterCanBatch(src, setnum)) {
+            /* Every input after the first is a distinct B+ tree: look up a
+             * batch of members in one input at a time, so the independent
+             * lookups can overlap. Members absent from an input are dropped
+             * from the batch before the next input, as in the loop below. */
+            zsetopval batch[ZINTER_BATCH];
+            uint32_t hashes[ZINTER_BATCH];
+            const unsigned char *eles[ZINTER_BATCH];
+            size_t lens[ZINTER_BATCH];
+            double scores[ZINTER_BATCH] = {0}, values[ZINTER_BATCH];
+            src[0].noscore = cardinality_only;
+            zuiInitIterator(&src[0]);
+            memset(batch, 0, sizeof(batch));
+            int done = 0;
+            while (!done) {
+                /* With LIMIT never fetch more members than can still count. */
+                unsigned int max = ZINTER_BATCH, n = 0;
+                if (limit && (unsigned long)limit - cardinality < max)
+                    max = (unsigned long)limit - cardinality;
+                while (n < max && zuiNext(&src[0], &batch[n])) {
+                    hashes[n] = zuiMemberHash(&batch[n]);
+                    eles[n] = batch[n].estr;
+                    lens[n] = batch[n].elen;
+                    if (!cardinality_only) {
+                        scores[n] = zuiWeightedScore(batch[n].score,
+                                                     src[0].weight, aggregate);
+                        if (isnan(scores[n])) scores[n] = 0;
+                    }
+                    n++;
+                }
+                if (n < max) done = 1;
+                unsigned int alive = n ? (1U << n) - 1 : 0;
+                for (j = 1; j < setnum && alive; j++) {
+                    alive = zbtreeFindBatch(src[j].subject->ptr, hashes, eles,
+                                            lens, n, alive,
+                                            cardinality_only ? NULL : values);
+                    if (cardinality_only) continue;
+                    for (unsigned int k = 0; k < n; k++) {
+                        if (!(alive & (1U << k))) continue;
+                        double value = zuiWeightedScore(values[k],
+                                           src[j].weight, aggregate);
+                        zunionInterAggregate(&scores[k], value, aggregate);
+                    }
+                }
+                if (cardinality_only) {
+                    cardinality += __builtin_popcount(alive);
+                    if (limit && cardinality >= (unsigned long)limit) done = 1;
+                } else {
+                    for (unsigned int k = 0; k < n; k++) {
+                        if (!(alive & (1U << k))) continue;
+                        tmp = zuiNewSdsFromValue(&batch[k]);
+                        znode = zslInsert(dstzset->zsl,scores[k],tmp);
+                        dictAdd(dstzset->dict, znode, NULL);
+                        totelelen += sdslen(tmp);
+                        if (sdslen(tmp) > maxelelen) maxelelen = sdslen(tmp);
+                        sdsfree(tmp);
+                    }
+                }
+            }
+            for (int k = 0; k < ZINTER_BATCH; k++)
+                zuiDiscardDirtyValue(&batch[k]);
+            zuiClearIterator(&src[0]);
         } else if (zuiLength(&src[0]) > 0) {
             /* Skip everything if the smallest input is empty. Precondition:
              * as src[0] is non-empty and the inputs are ordered by size, all

@@ -3289,6 +3289,81 @@ int zbtreeScore(zbtreeSet *zs, sds ele, double *score) {
     return zbtreeScoreRaw(zs, (unsigned char *)ele, sdslen(ele), score);
 }
 
+/* Look up a batch of members. The lookups are independent, so do them in
+ * two passes: first resolve every home bucket to its candidate score leaf,
+ * then compare the members. Each pass is a short loop whose iterations do
+ * not depend on each other, which lets the CPU overlap the loads of
+ * different members instead of finishing one lookup at a time. Anything
+ * unusual (resize in progress, a first candidate that is not the member, a
+ * possible probe continuation) uses the normal lookup. */
+unsigned int zbtreeFindBatch(zbtreeSet *zs, const uint32_t *hashes,
+                             const unsigned char **eles, const size_t *lens,
+                             unsigned int count, unsigned int want,
+                             double *scores)
+{
+    serverAssert(count <= ZBT_SCORE_BATCH_SIZE);
+    unsigned int found = 0;
+    zbtIndexTable *table = &zs->member_index;
+
+    if (zs->member_rehash || table->size == 0) {
+        for (unsigned int i = 0; i < count; i++) {
+            if ((want & (1U << i)) &&
+                zbtIndexFind(zs, hashes[i], eles[i], lens[i],
+                             scores ? &scores[i] : NULL,
+                             NULL, NULL, NULL, NULL))
+                found |= 1U << i;
+        }
+        return found;
+    }
+
+    /* leaf[i] is the first candidate, or NULL with slow bit i saying whether
+     * the normal lookup is needed (clear means proven absent). */
+    zbtScoreLeaf *leaf[ZBT_SCORE_BATCH_SIZE];
+    unsigned int slow = 0;
+    unsigned long mask = table->size - 1;
+
+    for (unsigned int i = 0; i < count; i++) {
+        leaf[i] = NULL;
+        if (!(want & (1U << i))) continue;
+        uint32_t hash = hashes[i];
+        uint8_t tag = zbtIndexTag(hash);
+        zbtIndexBucket *bucket = zbtIndexBucketAt(table, hash & mask);
+        uint64_t matches = zbtIndexTagMask(zbtIndexTags(bucket), tag);
+        if (matches) {
+            unsigned int pos = zbtIndexFirstTag(matches);
+            uint32_t id = zbtIndexGetId(table, bucket, pos);
+            if ((uint8_t)(zbtIndexTags(bucket) >> (pos * 8)) == tag &&
+                id != ZBT_INDEX_DELETED_ID)
+            {
+                leaf[i] = zs->score_leaf_by_id[id];
+                redis_prefetch_read(leaf[i]);
+            } else {
+                slow |= 1U << i;
+            }
+        } else if (zbtIndexHomeMayContain(table, hash)) {
+            slow |= 1U << i;
+        }
+    }
+
+    for (unsigned int i = 0; i < count; i++) {
+        double *score = scores ? &scores[i] : NULL;
+        if (leaf[i]) {
+            if (zbtScoreLeafFindMember(leaf[i], hashes[i], eles[i], lens[i],
+                                       score, NULL))
+            {
+                found |= 1U << i;
+                continue;
+            }
+            slow |= 1U << i;
+        }
+        if ((slow & (1U << i)) &&
+            zbtIndexFind(zs, hashes[i], eles[i], lens[i], score,
+                         NULL, NULL, NULL, NULL))
+            found |= 1U << i;
+    }
+    return found;
+}
+
 /* ZMSCORE can bring several independent index buckets into cache before it
  * reads any of their members. Hash once, then reuse the normal lookup. */
 unsigned int zbtreeScores(zbtreeSet *zs, const sds *members, unsigned int count,
