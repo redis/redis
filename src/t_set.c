@@ -2474,7 +2474,9 @@ static void spopPropagateRemaining(client *c, kvobj *set) {
     robj **saddargv = zmalloc(sizeof(robj *) * (2 + batchsize));
     saddargv[0] = shared.sadd;
     saddargv[1] = key;
-    unsigned long saddlen = 2;
+    /* Members are batched after the command name and the key. */
+    robj **batch = saddargv + 2;
+    unsigned long count = 0;
     robj *members = createStringObject("MEMBERS", 7);
     robj *one = createStringObjectFromLongLong(1);
 
@@ -2493,18 +2495,18 @@ static void spopPropagateRemaining(client *c, kvobj *set) {
             decrRefCount(member);
             continue;
         }
-        saddargv[saddlen++] = member;
-        if (saddlen == 2 + batchsize) {
-            alsoPropagate(c->db->id, saddargv, saddlen, PROPAGATE_AOF | PROPAGATE_REPL);
-            for (unsigned long i = 2; i < saddlen; i++) decrRefCount(saddargv[i]);
-            saddlen = 2;
+        batch[count++] = member;
+        if (count == batchsize) {
+            alsoPropagate(c->db->id, saddargv, 2 + count, PROPAGATE_AOF | PROPAGATE_REPL);
+            for (unsigned long i = 0; i < count; i++) decrRefCount(batch[i]);
+            count = 0;
         }
     }
     setTypeResetIterator(&si);
 
-    if (saddlen != 2) {
-        alsoPropagate(c->db->id, saddargv, saddlen, PROPAGATE_AOF | PROPAGATE_REPL);
-        for (unsigned long i = 2; i < saddlen; i++) decrRefCount(saddargv[i]);
+    if (count) {
+        alsoPropagate(c->db->id, saddargv, 2 + count, PROPAGATE_AOF | PROPAGATE_REPL);
+        for (unsigned long i = 0; i < count; i++) decrRefCount(batch[i]);
     }
 
     /* The deletion removed the expiration of the key, which the set keeps. */
