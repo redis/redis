@@ -243,9 +243,23 @@ static inline robj *createEmbeddedStringObject(const char *val_ptr, size_t val_l
     char *data = (char *)(o + 1);
     
     /* Copy embedded value (EMBSTR) always as SDS TYPE 8. Account for unused
-     * memory in the SDS alloc field. */
+     * memory in the SDS alloc field. This is sdsnewplacement(TYPE_8) written
+     * inline (keep the two in sync): LTO does not inline sdsnewplacement()
+     * here, and the call costs on every argument parsed. */
     size_t remaining_size = bufsize - (data - (char *)(void *)o);
-    o->ptr = sdsnewplacement(data, remaining_size, SDS_TYPE_8, val_ptr, val_len);
+    debugServerAssert(remaining_size >= val_sds_size);
+    struct sdshdr8 *sh = (struct sdshdr8 *)data;
+    sh->len = val_len;
+    sh->alloc = remaining_size - sizeof(struct sdshdr8) - 1;
+    sh->flags = SDS_TYPE_8;
+    if (val_ptr == SDS_NOINIT)
+        ;
+    else if (!val_ptr)
+        memset(sh->buf, 0, val_len);
+    else if (val_len)
+        memcpy(sh->buf, val_ptr, val_len);
+    sh->buf[val_len] = '\0';
+    o->ptr = sh->buf;
     return o;
 }
 
@@ -661,7 +675,10 @@ void decrRefCount(robj *o) {
          * can compute the alloc size to hint jemalloc for a faster deallocation. */
         if (o->type == OBJ_STRING && o->encoding == OBJ_ENCODING_EMBSTR && !o->iskvobj) {
             serverAssert(sdsType(o->ptr) == SDS_TYPE_8); /* embstr always type_8 */
-            zfree_with_size(o, sizeof(robj) + sdsAllocSize(o->ptr));
+            /* Spelled out for TYPE_8: LTO may leave sdsAllocSize() out of line,
+             * and this runs for every freed argument. */
+            zfree_with_size(o, sizeof(robj) + sizeof(struct sdshdr8) +
+                               SDS_HDR(8, (sds)o->ptr)->alloc + 1);
             return;
         }
 

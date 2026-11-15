@@ -37,6 +37,7 @@ static inline int _writeToClientNonSlave(client *c, ssize_t *nwritten);
 static inline int _writeToClientSlave(client *c, ssize_t *nwritten);
 static pendingCommand *acquirePendingCommand(void);
 static inline void reclaimPendingCommand(client *c, pendingCommand *pcmd);
+static void releaseUnusedPendingCommand(client *c, pendingCommand *pcmd);
 static size_t getClientOutputBufferLogicalSize(client *c);
 
 int ProcessingEventsWhileBlocked = 0; /* See processEventsWhileBlocked(). */
@@ -3240,6 +3241,14 @@ void unprotectClient(client *c) {
     }
 }
 
+/* Free the recycled argv objects of 'pcmd' at positions [from, kept) and
+ * forget the rest: slots below 'from' are live arguments of the current command. */
+static inline void pcmdDropKept(pendingCommand *pcmd, int from) {
+    for (int j = from; j < pcmd->kept; j++)
+        if (pcmd->argv[j]) decrRefCount(pcmd->argv[j]);
+    pcmd->kept = 0;
+}
+
 /* Like processMultibulkBuffer(), but for the inline protocol instead of RESP,
  * this function consumes the client query buffer and creates a command ready
  * to be executed inside the client structure. Returns C_OK if the command
@@ -3310,6 +3319,7 @@ int processInlineBuffer(client *c, pendingCommand *pcmd) {
     /* Move querybuffer position to the next query in the buffer. */
     c->qb_pos += querylen+linefeed_chars;
 
+    pcmdDropKept(pcmd, 0);
     /* Setup argv array on client structure */
     if (argc) {
         /* Create new argv if space is insufficient. */
@@ -3387,6 +3397,75 @@ static void setProtocolError(const char *errstr, client *c) {
     c->flags |= (CLIENT_CLOSE_AFTER_REPLY|CLIENT_PROTOCOL_ERROR);
 }
 
+/* Fast path for a well-formed RESP length line ("*<n>" or "$<n>" header).
+ * 'p' points right after the prefix byte and 'end' at the end of the buffered
+ * data. Only 1..18 digits without a leading zero (or a lone "0") followed by
+ * '\r' and at least one more byte are accepted: exactly the inputs on which
+ * the generic path (strchr/memchr + string2ll) succeeds with the same newline
+ * and value. Anything else returns 0 and the caller runs the generic path from
+ * the start, which keeps all error reporting and its ordering unchanged. */
+static inline int parseSimpleProtoLength(const char *p, const char *end,
+                                         long long *value, char **cr) {
+    const char *s = p;
+    if (s >= end) return 0;
+    unsigned long long v = (unsigned char)*s - '0';
+    if (v > 9) return 0;
+    s++;
+    if (v != 0) {
+        const char *lim = (end - p > 18) ? p + 18 : end;
+        while (s < lim) {
+            unsigned int d = (unsigned char)*s - '0';
+            if (d > 9) break;
+            v = v * 10 + d;
+            s++;
+        }
+    }
+    /* Need '\r' plus one more byte, like the generic "buffer should also
+     * contain \n" check (which does not look at that byte either). */
+    if (end - s < 2 || *s != '\r') return 0;
+    *value = (long long)v;
+    *cr = (char *)s;
+    return 1;
+}
+
+typedef enum {
+    PROTO_LINE_OK,         /* Whole line buffered, see 'ok' for the number. */
+    PROTO_LINE_INCOMPLETE, /* Need more data. */
+    PROTO_LINE_TOO_BIG,    /* No '\r' within PROTO_INLINE_MAX_SIZE bytes. */
+} protoLineResult;
+
+/* Read the RESP length line ("*<n>\r\n" or "$<n>\r\n") at c->qb_pos. On
+ * PROTO_LINE_OK '*newline' points at its '\r' and '*ok' tells whether the
+ * digits parsed, with the value in '*ll'. The line is not checked to start
+ * with 'prefix': callers check that before looking at '*ok', so a wrong prefix
+ * is reported ahead of a bad number. */
+static inline protoLineResult readProtoLengthLine(client *c, char prefix, size_t querybuf_len,
+                                                  long long *ll, int *ok, char **newline)
+{
+    char *start = c->querybuf + c->qb_pos;
+    size_t avail = querybuf_len - c->qb_pos;
+
+    /* Note: when qb_pos == querybuf_len this reads the sds terminator. */
+    if (likely(*start == prefix &&
+               parseSimpleProtoLength(start + 1, start + avail, ll, newline)))
+    {
+        *ok = 1;
+        return PROTO_LINE_OK;
+    }
+
+    /* The length line cannot be read without a \r\n. '*' lines keep strchr(),
+     * which also stops at a NUL byte. */
+    *newline = (prefix == '*') ? strchr(start, '\r') : memchr(start, '\r', avail);
+    if (*newline == NULL)
+        return avail > PROTO_INLINE_MAX_SIZE ? PROTO_LINE_TOO_BIG : PROTO_LINE_INCOMPLETE;
+
+    /* Buffer should also contain \n */
+    if (*newline - start > (ssize_t)(avail - 2)) return PROTO_LINE_INCOMPLETE;
+
+    *ok = string2ll(start + 1, *newline - (start + 1), ll);
+    return PROTO_LINE_OK;
+}
+
 /* Process the query buffer for client 'c', setting up the client argument
  * vector for command execution. Returns C_OK if after running the function
  * the client has a well-formed ready to be processed command, otherwise
@@ -3408,25 +3487,14 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
         /* The pending command should have been reset */
         serverAssertWithInfo(c,NULL,pcmd->argc == 0);
 
-        /* Multi bulk length cannot be read without a \r\n */
-        newline = strchr(c->querybuf+c->qb_pos,'\r');
-        if (newline == NULL) {
-            if (querybuf_len-c->qb_pos > PROTO_INLINE_MAX_SIZE) {
-                pcmd->read_error = CLIENT_READ_TOO_BIG_MBULK_COUNT_STRING;
-                goto readerr;
-            }
-            return C_ERR;
+        protoLineResult line = readProtoLengthLine(c, '*', querybuf_len, &ll, &ok, &newline);
+        if (line == PROTO_LINE_INCOMPLETE) return C_ERR;
+        if (line == PROTO_LINE_TOO_BIG) {
+            pcmd->read_error = CLIENT_READ_TOO_BIG_MBULK_COUNT_STRING;
+            goto readerr;
         }
-
-        /* Buffer should also contain \n */
-        if (newline-(c->querybuf+c->qb_pos) > (ssize_t)(querybuf_len-c->qb_pos-2))
-            return C_ERR;
-
-        /* We know for sure there is a whole line since newline != NULL,
-         * so go ahead and find out the multi bulk length. */
         serverAssertWithInfo(c,NULL,c->querybuf[c->qb_pos] == '*');
         size_t multibulklen_slen = newline - (c->querybuf + 1 + c->qb_pos);
-        ok = string2ll(c->querybuf+1+c->qb_pos,newline-(c->querybuf+1+c->qb_pos),&ll);
         if (!ok || ll > INT_MAX) {
             pcmd->read_error = CLIENT_READ_INVALID_MULTIBUCK_LENGTH;
             goto readerr;
@@ -3437,7 +3505,10 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
 
         c->qb_pos = (newline-c->querybuf)+2;
 
-        if (ll <= 0) return C_OK;
+        if (ll <= 0) {
+            pcmdDropKept(pcmd, 0);
+            return C_OK;
+        }
 
         c->multibulklen = ll;
         c->bulklen = -1;
@@ -3445,6 +3516,7 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
         /* Setup argv array on pending command structure.
          * Reallocate argv array when the requested size is greater than current size. */
         if (c->multibulklen > pcmd->argv_len) {
+            pcmdDropKept(pcmd, 0);
             zfree(pcmd->argv);
             pcmd->argv_len = min(c->multibulklen, 1024);
             pcmd->argv = zmalloc(sizeof(robj*)*(pcmd->argv_len));
@@ -3489,26 +3561,17 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
     while(c->multibulklen) {
         /* Read bulk length if unknown */
         if (c->bulklen == -1) {
-            newline = memchr(c->querybuf+c->qb_pos,'\r',sdslen(c->querybuf) - c->qb_pos);
-            if (newline == NULL) {
-                if (querybuf_len-c->qb_pos > PROTO_INLINE_MAX_SIZE) {
-                    pcmd->read_error = CLIENT_READ_TOO_BIG_BUCK_COUNT_STRING;
-                    goto readerr;
-                }
-                break;
+            protoLineResult line = readProtoLengthLine(c, '$', querybuf_len, &ll, &ok, &newline);
+            if (line == PROTO_LINE_INCOMPLETE) break;
+            if (line == PROTO_LINE_TOO_BIG) {
+                pcmd->read_error = CLIENT_READ_TOO_BIG_BUCK_COUNT_STRING;
+                goto readerr;
             }
-
-            /* Buffer should also contain \n */
-            if (newline-(c->querybuf+c->qb_pos) > (ssize_t)(querybuf_len-c->qb_pos-2))
-                break;
-
             if (c->querybuf[c->qb_pos] != '$') {
                 pcmd->read_error = CLIENT_READ_EXPECTED_DOLLAR;
                 goto readerr;
             }
-
             size_t bulklen_slen = newline - (c->querybuf + c->qb_pos + 1);
-            ok = string2ll(c->querybuf+c->qb_pos+1,newline-(c->querybuf+c->qb_pos+1),&ll);
             if (!ok || ll < 0 ||
                 (!(c->flags & CLIENT_MASTER) && ll > server.proto_max_bulk_len)) {
                 pcmd->read_error = CLIENT_READ_INVALID_BUCK_LENGTH;
@@ -3571,6 +3634,10 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
                 c->bulklen >= PROTO_MBULK_BIG_ARG &&
                 querybuf_len == (size_t)(c->bulklen+2))
             {
+                if (pcmd->argc < pcmd->kept && pcmd->argv[pcmd->argc]) {
+                    decrRefCount(pcmd->argv[pcmd->argc]);
+                    pcmd->argv[pcmd->argc] = NULL;
+                }
                 (pcmd->argv)[(pcmd->argc)++] = createObject(OBJ_STRING,c->querybuf);
                 pcmd->argv_len_sum += c->bulklen;
                 c->all_argv_len_sum += c->bulklen;
@@ -3585,8 +3652,30 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
                 sdsclear(c->querybuf);
                 querybuf_len = sdslen(c->querybuf); /* Update cached length */
             } else {
-                (pcmd->argv)[(pcmd->argc)++] =
-                    createStringObject(c->querybuf+c->qb_pos,c->bulklen);
+                robj *o = NULL;
+                if (pcmd->argc < pcmd->kept && (o = pcmd->argv[pcmd->argc]) != NULL) {
+                    sds s = o->ptr;
+                    size_t alloc = sdsalloc(s);
+                    /* Recycled EMBSTR with refcount 1: overwrite it in place if
+                     * the argument fits and needs the same allocator size class
+                     * (the EMBSTR classes are 16 bytes apart), so that a short
+                     * argument the command retains does not pin a bigger block. */
+                    if ((size_t)c->bulklen <= alloc && alloc - c->bulklen < 16) {
+                        memcpy(s, c->querybuf+c->qb_pos, c->bulklen);
+                        s[c->bulklen] = '\0';
+                        sdssetlen(s, c->bulklen);
+                        /* A value argument may have taken an LRU/LFU stamp
+                         * (e.g. dbSetValue() copies the old key's lru into it).
+                         * metabits are only set on kvobjs, which are never kept. */
+                        o->lru = 0;
+                        debugServerAssert(o->metabits == 0);
+                    } else {
+                        decrRefCount(o);
+                        o = NULL;
+                    }
+                }
+                if (!o) o = createStringObject(c->querybuf+c->qb_pos,c->bulklen);
+                (pcmd->argv)[(pcmd->argc)++] = o;
                 pcmd->argv_len_sum += c->bulklen;
                 c->all_argv_len_sum += c->bulklen;
                 c->qb_pos += c->bulklen+2;
@@ -3598,6 +3687,7 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
 
     /* We're done when c->multibulk == 0 */
     if (c->multibulklen == 0) {
+        pcmdDropKept(pcmd, pcmd->argc);
         /* Per-slot network bytes-in calculation, 3rd and 4th components. */
         pcmd->input_bytes += (pcmd->argv_len_sum + (pcmd->argc * 2));
         pcmd->flags &= ~PENDING_CMD_FLAG_INCOMPLETE;
@@ -3865,7 +3955,10 @@ int processInputBuffer(client *c) {
         int pending_cmd_before_reading = c->pending_cmds.ready_len;
 
         /* Parse up to lookahead commands only if we don't have enough ready commands */
+        long long parsed_args = 0;
+        const long long max_parsed_args = (long long)lookahead * LOOKAHEAD_ARGS_PER_CMD;
         while (parse_more && c->pending_cmds.ready_len < lookahead &&
+               parsed_args < max_parsed_args &&
                c->querybuf && c->qb_pos < sdslen(c->querybuf))
         {
             /* Determine request type when unknown. */
@@ -3883,7 +3976,7 @@ int processInputBuffer(client *c) {
                 if (processInlineBuffer(c, pcmd) == C_ERR && !pcmd->read_error) {
                     /* If it fails but there are no errors, it means that it might just be
                      * that the desired content cannot be parsed. At this point, we exit and wait for the next time. */
-                    freePendingCommand(c, pcmd);
+                    releaseUnusedPendingCommand(c, pcmd);
                     break;
                 }
             } else if (c->reqtype == PROTO_REQ_MULTIBULK) {
@@ -3897,7 +3990,7 @@ int processInputBuffer(client *c) {
                 if (processMultibulkBuffer(c, pcmd) == C_ERR && !pcmd->read_error) {
                     /* If it fails but there are no errors, it means that it might just be
                      * that the desired content cannot be parsed. At this point, we exit and wait for the next time. */
-                    freePendingCommand(c, pcmd);
+                    releaseUnusedPendingCommand(c, pcmd);
                     break;
                 }
             } else {
@@ -3915,6 +4008,7 @@ int processInputBuffer(client *c) {
 
             preprocessCommand(c, pcmd);
             resetClientQbufState(c);
+            parsed_args += pcmd->argc;
         }
 
         if (c->pending_cmds.ready_len != pending_cmd_before_reading) {
@@ -5955,6 +6049,7 @@ static pendingCommand *acquirePendingCommand(void) {
         /* Shared pool is available. */
         pcmd = server.cmd_pool.pool[--server.cmd_pool.size];
         server.cmd_pool.pool[server.cmd_pool.size] = NULL;
+        server.cmd_pool.kept -= pcmd->kept;
 
         /* Track minimum pool size for utilization calculation */
         if (server.cmd_pool.size < server.cmd_pool.min_size)
@@ -5990,6 +6085,28 @@ static int tryExpandPendingCommandPool(void) {
     return 1; /* Expansion succeeded */
 }
 
+/* Add a reset 'pcmd' to the pool, which tryExpandPendingCommandPool() made room
+ * for. The recycled argv objects of all pooled commands are not owned by any
+ * client, so their number is capped by PENDING_COMMAND_POOL_MAX_KEPT: past it
+ * this command's are freed. */
+static inline void pushPendingCommandToPool(pendingCommand *pcmd) {
+    if (server.cmd_pool.kept + pcmd->kept > PENDING_COMMAND_POOL_MAX_KEPT)
+        pcmdDropKept(pcmd, 0);
+    server.cmd_pool.kept += pcmd->kept;
+    server.cmd_pool.pool[server.cmd_pool.size++] = pcmd;
+}
+
+/* Give back a pending command nothing was parsed into (the query buffer did not
+ * hold a whole header yet). It is still as acquirePendingCommand() returned it,
+ * so it goes back to the pool with its recycled argv objects. */
+static void releaseUnusedPendingCommand(client *c, pendingCommand *pcmd) {
+    serverAssert(pcmd->argc == 0 && pcmd->argv_len_sum == 0);
+    if (!server.io_threads_active && tryExpandPendingCommandPool())
+        pushPendingCommandToPool(pcmd);
+    else
+        freePendingCommand(c, pcmd);
+}
+
 /* Reclaim a pending command by adding it to the shared pool for reuse or freeing it.
  * The shared pool is only used when IO threads are inactive to avoid race conditions
  * between multiple clients. Additionally, pool reuse provides minimal benefit in
@@ -6004,9 +6121,19 @@ static inline void reclaimPendingCommand(client *c, pendingCommand *pcmd) {
                 goto free_command;
             }
 
-            /* Clean up command resources before adding to pool */
-            for (int j = 0; j < pcmd->argc; j++)
-                decrRefCount(pcmd->argv[j]);
+            /* Clean up command resources before adding to pool. Plain EMBSTR
+             * arguments nobody else references are kept for in-place reuse. */
+            pcmdDropKept(pcmd, pcmd->argc);
+            for (int j = 0; j < pcmd->argc; j++) {
+                robj *o = pcmd->argv[j];
+                if (!o) continue;
+                if (o->refcount == 1 && o->type == OBJ_STRING &&
+                    o->encoding == OBJ_ENCODING_EMBSTR && !o->iskvobj)
+                    continue;
+                decrRefCount(o);
+                pcmd->argv[j] = NULL;
+            }
+            int kept = pcmd->argc;
 
             getKeysFreeResult(&pcmd->keys_result);
 
@@ -6022,9 +6149,10 @@ static inline void reclaimPendingCommand(client *c, pendingCommand *pcmd) {
             memset(pcmd, 0, sizeof(pendingCommand));
             pcmd->argv = argv;
             pcmd->argv_len = argv_len;
+            pcmd->kept = kept;
             pcmd->slot = INVALID_CLUSTER_SLOT;
 
-            server.cmd_pool.pool[server.cmd_pool.size++] = pcmd;
+            pushPendingCommandToPool(pcmd);
             return; /* Successfully added to shared pool for reuse */
         }
     } else {
@@ -6067,7 +6195,8 @@ void freePendingCommand(client *c, pendingCommand *pcmd) {
     getKeysFreeResult(&pcmd->keys_result);
 
     if (pcmd->argv) {
-        for (int j = 0; j < pcmd->argc; j++) {
+        int n = pcmd->argc > pcmd->kept ? pcmd->argc : pcmd->kept;
+        for (int j = 0; j < n; j++) {
             robj *o = pcmd->argv[j];
             if (!o) continue; /* argv[j] may be NULL when called from reclaimPendingCommand */
             decrRefCount(o);
@@ -6170,6 +6299,7 @@ void shrinkPendingCommandPool(void) {
     while (server.cmd_pool.size > target_size) {
         pendingCommand *cmd = server.cmd_pool.pool[--server.cmd_pool.size];
         if (cmd) {
+            server.cmd_pool.kept -= cmd->kept;
             freePendingCommand(NULL, cmd);
             server.cmd_pool.pool[server.cmd_pool.size] = NULL;
         }
