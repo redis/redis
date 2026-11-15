@@ -72,6 +72,11 @@
 #define HAVE_BACKTRACE 1
 #endif
 
+/* Linux only: timer_create, and the stack collector this bounds, are both Linux-only. */
+#ifdef __linux__
+#define HAVE_CRASH_WATCHDOG 1
+#endif
+
 /* MSG_NOSIGNAL. */
 #ifdef __linux__
 #define HAVE_MSG_NOSIGNAL 1
@@ -374,6 +379,14 @@ void setcpuaffinity(const char *cpulist);
 #define HAVE_AVX512
 #define ATTRIBUTE_TARGET_AVX512 __attribute__((target("avx512f")))
 #define ATTRIBUTE_TARGET_AVX512_POPCOUNT __attribute__((target("avx512f,avx512vpopcntdq")))
+#endif
+#endif
+
+/* Check if we can compile PCLMULQDQ (carry-less multiply) code */
+#if defined (__x86_64__) && ((defined(__GNUC__) && __GNUC__ >= 5) || (defined(__clang__) && __clang_major__ >= 4))
+#if defined(__has_attribute) && __has_attribute(target)
+#define HAVE_PCLMUL
+#define ATTRIBUTE_TARGET_PCLMUL __attribute__((target("pclmul")))
 #endif
 #endif
 

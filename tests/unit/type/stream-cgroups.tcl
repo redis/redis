@@ -1,6 +1,9 @@
 start_server {
     tags {"stream"}
 } {
+    # Also cover the INFO Streams bookkeeping: every consumer-group command.
+    arm_stream_stats_assert
+
     test {XGROUP CREATE: creation and duplicate group name detection} {
         r DEL mystream
         r XADD mystream * foo bar
@@ -187,6 +190,83 @@ start_server {
         # Unknown parameters
         assert_error "*syntax error*" {r XREADGROUP GROUP mygroup consumer INVALID param STREAMS mystream >}
         assert_error "*syntax error*" {r XREADGROUP GROUP mygroup consumer TIMEOUT 1000 STREAMS mystream >}
+    }
+
+    # Count the total number of entries across all streams in an XREADGROUP reply.
+    proc xreadgroup_total_entries {res} {
+        set total 0
+        foreach stream $res {
+            incr total [llength [lindex $stream 1]]
+        }
+        return $total
+    }
+
+    test {XREADGROUP MAXCOUNT/MAXSIZE parameter validation} {
+        r DEL mystream1
+        r XGROUP CREATE mystream1 mygroup 0 MKSTREAM
+        assert_error "*MAXCOUNT must be a positive integer*" {r XREADGROUP GROUP mygroup c MAXCOUNT 0 STREAMS mystream1 >}
+        assert_error "*MAXSIZE must be a positive integer*" {r XREADGROUP GROUP mygroup c MAXSIZE -1 STREAMS mystream1 >}
+        assert_error "*MAXCOUNT must be greater than or equal to COUNT*" {r XREADGROUP GROUP mygroup c COUNT 50 MAXCOUNT 10 STREAMS mystream1 >}
+        assert_error "*not an integer*" {r XREADGROUP GROUP mygroup c MAXCOUNT foo STREAMS mystream1 >}
+    }
+
+    test {XREADGROUP MAXCOUNT caps new (">") and history (PEL) reads across streams} {
+        r DEL mystream{t}1 mystream{t}2 mystream{t}3
+        foreach s {mystream{t}1 mystream{t}2 mystream{t}3} {
+            for {set i 0} {$i < 100} {incr i} { r XADD $s * f v$i }
+            r XGROUP CREATE $s mygroup 0
+        }
+        # Per-stream COUNT 50 across 3 streams would yield 150, MAXCOUNT caps it.
+        set res [r XREADGROUP GROUP mygroup c1 COUNT 50 MAXCOUNT 80 STREAMS mystream{t}1 mystream{t}2 mystream{t}3 > > >]
+        assert_equal 80 [xreadgroup_total_entries $res]
+        # c1 now owns the 80 entries just delivered; re-read its history with a cap.
+        set res [r XREADGROUP GROUP mygroup c1 MAXCOUNT 25 STREAMS mystream{t}1 mystream{t}2 mystream{t}3 0 0 0]
+        assert_equal 25 [xreadgroup_total_entries $res]
+    }
+
+    test {XREADGROUP MAXSIZE limits the reply size across streams} {
+        r DEL stream{t}1 stream{t}2 stream{t}3
+        foreach s {stream{t}1 stream{t}2 stream{t}3} {
+            for {set i 0} {$i < 50} {incr i} { r XADD $s * f v$i }
+            r XGROUP CREATE $s g2 0
+        }
+        set full [r XREADGROUP GROUP g2 ca STREAMS stream{t}1 stream{t}2 stream{t}3 > > >]
+        r XGROUP CREATE stream{t}1 g3 0
+        r XGROUP CREATE stream{t}2 g3 0
+        r XGROUP CREATE stream{t}3 g3 0
+        set capped [r XREADGROUP GROUP g3 cb MAXSIZE 200 STREAMS stream{t}1 stream{t}2 stream{t}3 > > >]
+        assert {[xreadgroup_total_entries $capped] < [xreadgroup_total_entries $full]}
+        assert {[xreadgroup_total_entries $capped] >= 1}
+    }
+
+    test {XREADGROUP MAXSIZE still returns a single oversized message} {
+        r DEL bigstream
+        r XADD bigstream 1-1 f [string repeat x 5000]
+        r XADD bigstream 2-2 f v
+        r XGROUP CREATE bigstream bg 0
+        set res [r XREADGROUP GROUP bg c MAXSIZE 50 STREAMS bigstream >]
+        assert_equal 1 [xreadgroup_total_entries $res]
+        assert_equal 1-1 [lindex $res 0 1 0 0]
+    }
+
+    test {XREADGROUP MAXCOUNT honored after blocking unblock} {
+        r DEL stream{t}1 stream{t}2
+        r XGROUP CREATE stream{t}1 bg 0 MKSTREAM
+        r XGROUP CREATE stream{t}2 bg 0 MKSTREAM
+        set rd [redis_deferring_client]
+        $rd XREADGROUP GROUP bg c BLOCK 20000 COUNT 2 MAXCOUNT 3 STREAMS stream{t}1 stream{t}2 > >
+        wait_for_blocked_client
+        # Add the entries atomically so the unblocked client is reprocessed once
+        # with all entries present, making the MAXCOUNT cap deterministic.
+        r MULTI
+        for {set i 0} {$i < 10} {incr i} {
+            r XADD stream{t}1 * f v$i
+            r XADD stream{t}2 * f v$i
+        }
+        r EXEC
+        set res [$rd read]
+        assert_equal 3 [xreadgroup_total_entries $res]
+        $rd close
     }
 
     test {XREADGROUP will return only new elements} {
@@ -1310,9 +1390,32 @@ start_server {
             set n_consumers [lindex $grpinfo 3]
 
             # All consumers are created via XREADGROUP, regardless of whether they managed
-            # to read any entries ot not
+            # to read any entries or not
             assert_equal $n_consumers 3
             $rd close
+        }
+
+        test {XCLAIM and XAUTOCLAIM that claim no entry create the consumer in AOF} {
+            r del mystream
+            r XADD mystream 1-0 f v
+            r XADD mystream 2-0 f v
+            r XGROUP CREATE mystream mygroup 0
+            r XREADGROUP GROUP mygroup Alice STREAMS mystream ">"
+
+            # No entry is idle for that long, so nothing is claimed.
+            assert_equal {} [r XCLAIM mystream mygroup Bob 3600000 1-0]
+            assert_equal {0-0 {} {}} [r XAUTOCLAIM mystream mygroup Charlie 3600000 0]
+
+            # The entries were deleted, so they are only dropped from the PEL.
+            r XDEL mystream 1-0 2-0
+            assert_equal {} [r XCLAIM mystream mygroup Dave 0 1-0]
+            assert_equal {0-0 {} 2-0} [r XAUTOCLAIM mystream mygroup Eve 0 0]
+            set grpinfo [r xinfo groups mystream]
+
+            r debug loadaof
+            assert_equal $grpinfo [r xinfo groups mystream]
+            set names [lmap c [r xinfo consumers mystream mygroup] {dict get $c name}]
+            assert_equal {Alice Bob Charlie Dave Eve} [lsort $names]
         }
     }
 
@@ -1974,6 +2077,101 @@ start_server {
                 if {[lsearch $replica_names "c3"] < 0} {
                     fail "Consumer 'c3' not found on replica (have: $replica_names)"
                 }
+            }
+        }
+    }
+
+    start_server {tags {"repl external:skip" "stream"}} {
+        # XCLAIM and XAUTOCLAIM create the consumer even when they claim no
+        # entry. The XCLAIM generated for a claimed entry implicitly creates
+        # the consumer on the replica, so explicit propagation is needed only
+        # when no entry is claimed, and only for a consumer that is new.
+        test "XCLAIM and XAUTOCLAIM propagate a new consumer that claims no entry" {
+            r DEL mystream
+            r XADD mystream 1-0 f v
+            r XADD mystream 2-0 f v
+            r XGROUP CREATE mystream grp 0
+            r XREADGROUP GROUP grp c0 STREAMS mystream >
+
+            set repl [attach_to_replication_stream]
+
+            # New consumers that claim nothing since no entry is idle for
+            # that long, then the same consumers again.
+            assert_equal {} [r XCLAIM mystream grp c1 3600000 1-0]
+            assert_equal {} [r XCLAIM mystream grp c1 3600000 1-0]
+            assert_equal {0-0 {} {}} [r XAUTOCLAIM mystream grp c2 3600000 0]
+            assert_equal {0-0 {} {}} [r XAUTOCLAIM mystream grp c2 3600000 0]
+
+            # New consumers that claim an entry.
+            assert_equal {1-0} [r XCLAIM mystream grp c3 0 1-0 JUSTID]
+            assert_equal {2-0 1-0 {}} [r XAUTOCLAIM mystream grp c4 0 0 COUNT 1 JUSTID]
+
+            # New consumers that only drop a deleted entry from the PEL: the
+            # XCLAIM generated for it names the previous owner of the entry.
+            r XDEL mystream 1-0 2-0
+            assert_equal {} [r XCLAIM mystream grp c5 0 1-0]
+            assert_equal {0-0 {} 2-0} [r XAUTOCLAIM mystream grp c6 0 0]
+
+            assert_replication_stream $repl {
+                {select *}
+                {xgroup CREATECONSUMER mystream grp c1}
+                {xgroup CREATECONSUMER mystream grp c2}
+                {xclaim mystream grp c3 0 1-0 TIME * RETRYCOUNT 1 FORCE JUSTID LASTID 2-0}
+                {xclaim mystream grp c4 0 1-0 TIME * RETRYCOUNT 1 FORCE JUSTID LASTID 2-0}
+                {xdel mystream 1-0 2-0}
+                {multi}
+                {xclaim mystream grp c4 0 1-0 TIME * RETRYCOUNT 1 FORCE JUSTID LASTID 2-0}
+                {xgroup CREATECONSUMER mystream grp c5}
+                {exec}
+                {multi}
+                {xclaim mystream grp c0 0 2-0 TIME * RETRYCOUNT 1 FORCE JUSTID LASTID 2-0}
+                {xgroup CREATECONSUMER mystream grp c6}
+                {exec}
+            }
+            close_replication_stream $repl
+        }
+
+        # Same as above, as seen from a replica. Two cases are tested:
+        #   1. Nothing is pending, so nothing else is propagated.
+        #   2. The pending entries were deleted, so an XCLAIM that names
+        #      their previous owner is propagated.
+        test "XCLAIM and XAUTOCLAIM propagate new consumer to replica" {
+            set master [srv 0 client]
+            set master_host [srv 0 host]
+            set master_port [srv 0 port]
+
+            start_server {tags {"stream"}} {
+                set replica [srv 0 client]
+
+                $replica replicaof $master_host $master_port
+                wait_for_sync $replica
+
+                $master DEL mystream
+                $master XADD mystream 1-0 f v
+                $master XADD mystream 2-0 f v
+                $master XGROUP CREATE mystream grp 0
+
+                # Case 1: nothing is pending.
+                assert_equal {} [$master XCLAIM mystream grp c1 0 1-0]
+                assert_equal {0-0 {} {}} [$master XAUTOCLAIM mystream grp c2 0 0]
+
+                wait_for_ofs_sync $master $replica
+
+                set replica_consumers [$replica XINFO CONSUMERS mystream grp]
+                set replica_names [lmap c $replica_consumers {dict get $c name}]
+                assert_equal [lsort $replica_names] {c1 c2}
+
+                # Case 2: both entries are pending for c0, and deleted.
+                $master XREADGROUP GROUP grp c0 STREAMS mystream >
+                $master XDEL mystream 1-0 2-0
+                assert_equal {} [$master XCLAIM mystream grp c3 0 1-0]
+                assert_equal {0-0 {} 2-0} [$master XAUTOCLAIM mystream grp c4 0 0]
+
+                wait_for_ofs_sync $master $replica
+
+                set replica_consumers [$replica XINFO CONSUMERS mystream grp]
+                set replica_names [lmap c $replica_consumers {dict get $c name}]
+                assert_equal [lsort $replica_names] {c0 c1 c2 c3 c4}
             }
         }
     }
@@ -2964,11 +3162,11 @@ start_server {
             r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
             
             set rd [redis_deferring_client]
-            $rd XREADGROUP GROUP group1 consumer2 BLOCK 5000 CLAIM 1000 STREAMS mystream >
+            $rd XREADGROUP GROUP group1 consumer2 BLOCK 20000 CLAIM 10000 STREAMS mystream >
             
             wait_for_blocked_client
             
-            after 100  # Before min-idle-time
+            after 100 ;# Before min-idle-time
             r XADD mystream 2-0 f v2
             
             set result [$rd read]
@@ -2976,6 +3174,7 @@ start_server {
             # Unblock with new message immediately, not wait for CLAIM threshold
             lassign [lindex $result 0] stream_name messages
             assert_equal [llength $messages] 1
+            assert_equal [lindex $messages 0 0] 2-0
             
             $rd close
         }
@@ -3228,7 +3427,6 @@ start_server {
             set claim_before [r XREADGROUP GROUP group1 consumer2 CLAIM 500 STREAMS mystream >]
             assert_equal [llength [lindex $claim_before 0 1]] 1
             
-            r SAVE
             r DEBUG RELOAD
 
             # After reload: idle time resets, message not immediately claimable
@@ -4069,9 +4267,9 @@ start_server {
         r XGROUP CREATE mystream grp 0
         r XREADGROUP GROUP grp c1 STREAMS mystream >
 
-        # c2 blocks waiting for claimable entries with min-idle 1000ms
+        # c2 blocks waiting for claimable entries with min-idle 10000ms
         set rd [redis_deferring_client]
-        $rd XREADGROUP GROUP grp c2 BLOCK 5000 CLAIM 1000 STREAMS mystream >
+        $rd XREADGROUP GROUP grp c2 BLOCK 20000 CLAIM 10000 STREAMS mystream >
         wait_for_blocked_client
 
         # XNACK makes entries immediately claimable, waking c2
@@ -4758,3 +4956,43 @@ start_server {tags {"repl external:skip" "stream"}} {
     }
 }
 
+start_server {tags {"stream external:skip needs:debug"}} {
+    # XSETID ... ENTRIESADDED must not leave a consumer group's entries_read
+    # greater than the stream's entries_added. Otherwise XINFO GROUPS reports a
+    # negative lag, and the resulting RDB fails to load ("Stream cgroup
+    # entries_read inconsistent with entries_added"). XGROUP CREATE/SETID
+    # already clamp entries_read; XSETID must clamp it too.
+    test "XSETID ENTRIESADDED clamps group entries_read and keeps the RDB loadable" {
+        r DEL mystream
+        for {set i 1} {$i <= 10} {incr i} { r XADD mystream * f v$i }
+        r XGROUP CREATE mystream grp 0
+        r XREADGROUP GROUP grp c COUNT 10 STREAMS mystream >
+        set top [dict get [r XINFO STREAM mystream] last-generated-id]
+
+        # Shrink the stream so entries_added can be lowered below entries_read.
+        r XTRIM mystream MAXLEN 2
+        r XSETID mystream $top ENTRIESADDED 2
+
+        set ginfo [lindex [r XINFO GROUPS mystream] 0]
+        assert_equal [dict get $ginfo entries-read] 2
+        assert_equal [dict get $ginfo lag] 0
+
+        r DEBUG RELOAD
+        assert_equal [r XLEN mystream] 2
+        set ginfo [lindex [r XINFO GROUPS mystream] 0]
+        assert_equal [dict get $ginfo entries-read] 2
+        assert_equal [dict get $ginfo lag] 0
+    }
+
+    test "XSETID raising entries_added leaves group entries_read untouched" {
+        r DEL s2
+        for {set i 1} {$i <= 5} {incr i} { r XADD s2 * f v$i }
+        r XGROUP CREATE s2 g 0
+        r XREADGROUP GROUP g c COUNT 3 STREAMS s2 >
+        set top [dict get [r XINFO STREAM s2] last-generated-id]
+        r XSETID s2 $top ENTRIESADDED 100
+        set ginfo [lindex [r XINFO GROUPS s2] 0]
+        assert_equal [dict get $ginfo entries-read] 3
+        assert_equal [dict get $ginfo lag] 97
+    }
+}

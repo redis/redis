@@ -123,7 +123,12 @@ tags {"benchmark network external:skip logreqres:skip"} {
             set original_maxclients [lindex [r config get maxclients] 1]
             r config set maxclients 5
             catch { exec {*}$cmd } error
-            assert_match "*Error*" $error
+            if {$::tls} {
+                # TLS rejection may surface during the handshake or in readHandler.
+                assert {[regexp {Error|Could not negotiate a TLS connection:} $error]}
+            } else {
+                assert_match "*Error*" $error
+            }
             r config set maxclients $original_maxclients
         }
 
@@ -147,6 +152,16 @@ tags {"benchmark network external:skip logreqres:skip"} {
         if {$::tls} {
             test {benchmark: specific tls-ciphers} {
                 set cmd [redisbenchmark $master_host $master_port "-r 50 -t set -n 1000 --tls-ciphers \"DEFAULT:-AES128-SHA256\""]
+                common_bench_setup $cmd
+                assert_match  {*calls=1000,*} [cmdstat set]
+                # assert one of the non benchmarked commands is not present
+                assert_match  {} [cmdstat get]
+            }
+
+            test {benchmark: specific tls-groups} {
+                r flushall
+                r config resetstat
+                set cmd [redisbenchmark $master_host $master_port "-r 50 -t set -n 1000 --tls-groups prime256v1"]
                 common_bench_setup $cmd
                 assert_match  {*calls=1000,*} [cmdstat set]
                 # assert one of the non benchmarked commands is not present

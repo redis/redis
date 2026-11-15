@@ -23,6 +23,10 @@ start_server {tags {"obuf-limits external:skip logreqres:skip"}} {
         set res [lindex [r config get client-output-buffer-limit] 1]
         assert_equal $res "normal 1048576 2097152 60 slave 3145728 4194304 70 pubsub 5242880 6291456 80"
 
+        r config set client-output-buffer-limit "normal 18014398509481985kb 0 0 replica 0 0 0 pubsub 0 0 0"
+        set res [lindex [r config get client-output-buffer-limit] 1]
+        assert_equal $res "normal 18446744073709551615 0 0 slave 0 0 0 pubsub 0 0 0"
+
         # Set back to the original value.
         r config set client-output-buffer-limit $oldval
     }
@@ -228,6 +232,29 @@ start_server {tags {"obuf-limits external:skip logreqres:skip"}} {
         reconnect
     }
 
+    test "Obuf limit, ZRANDMEMBER with a large positive count stopped mid-run" {
+        r config set client-output-buffer-limit {normal 0 0 0}
+        r del myzset
+        for {set i 0} {$i < 20000} {incr i 1000} {
+            set args {}
+            for {set j $i} {$j < $i + 1000} {incr j} { lappend args $j member:$j }
+            r zadd myzset {*}$args
+        }
+        assert_encoding btree myzset
+        set before [s client_output_buffer_limit_disconnections]
+        r config set client-output-buffer-limit {normal 65536 0 0}
+        # A sampling walk abandoned for a closing client must neither assert
+        # nor leak. Replies to a closing client are dropped, so this does not
+        # tell the early stop apart from a full walk.
+        catch {r zrandmember myzset 15000 withscores} e
+        assert_match "*I/O error*" $e
+        reconnect
+        assert_equal [expr {$before + 1}] [s client_output_buffer_limit_disconnections]
+        r config set client-output-buffer-limit {normal 0 0 0}
+        assert_equal 15000 [llength [r zrandmember myzset 15000]]
+        r del myzset
+    }
+
     test "Obuf limit, KEYS stopped mid-run" {
         r config set client-output-buffer-limit {normal 100000 0 0}
         populate 1000 "long-key-name-prefix-of-100-chars-------------------------------------------------------------------"
@@ -260,14 +287,11 @@ start_server {tags {"obuf-limits external:skip logreqres:skip"}} {
         assert {$omem_shared >= $val_size}
         assert_equal 0 $omem_unshared
 
-        # mem_clients_normal_shared is incremented at write time, before the reply is sent
+        # mem_clients_normal_shared is updated incrementally, so it doesn't reflect the reply yet;
+        # normal.unshared is 0 since the key is still in keyspace
         set info_mem [lindex $res 2]
-        assert {[getInfoProperty $info_mem mem_clients_normal_shared] >= $val_size}
         assert_equal 0 [getInfoProperty $info_mem mem_clients_normal_unshared]
-
-        # MEMORY STATS exposes the same shared bytes; normal.unshared is 0 since the key is still in keyspace
         set mem_stats [lindex $res 3]
-        assert {[dict get $mem_stats clients.normal.shared] >= $val_size}
         assert_equal 0 [dict get $mem_stats clients.normal.unshared] ;# key still in keyspace
 
         # After the reply is fully sent, the global counter must return to 0

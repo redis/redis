@@ -1,0 +1,57 @@
+{
+    "SET": {
+        "summary": "Creates a fieldset-based hash from values supplied in the order matching a previously prepared fieldset.",
+        "complexity": "O(N) where N is the number of fields in the fieldset.",
+        "group": "hash",
+        "since": "8.10.0",
+        "arity": -5,
+        "container": "HIMPORT",
+        "function": "himportSetCommand",
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "HASH"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "OW",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 2
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "const": "OK"
+        },
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "fieldset-name",
+                "type": "string"
+            },
+            {
+                "name": "value",
+                "type": "string",
+                "multiple": true
+            }
+        ]
+    }
+}

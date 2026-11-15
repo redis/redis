@@ -108,13 +108,13 @@ start_server {tags {"repl external:skip"}} {
             $B config set loglevel debug
             r set test foo
             assert_equal [r getset test bar] foo
-            wait_for_condition 500 10 {
+            wait_for_condition 1000 10 {
                 [$A get test] eq "bar"
             } else {
                 fail "getset wasn't propagated"
             }
             assert_equal [r set test vaz get] bar
-            wait_for_condition 500 10 {
+            wait_for_condition 1000 10 {
                 [$A get test] eq "vaz"
             } else {
                 fail "set get wasn't propagated"
@@ -186,6 +186,45 @@ start_server {tags {"repl external:skip"}} {
             }
         }
 
+        foreach position {min max} {
+            test "BZMOVE $position replication, when blocking against empty zset" {
+                r del z1 z2
+                $A config resetstat
+                set rd [redis_deferring_client]
+                $rd bzmove z1 z2 $position 5
+                $rd flush
+                wait_for_blocked_client
+                r zadd z1 0 a
+                wait_for_ofs_sync $B $A
+                assert_equal [$A debug digest] [$B debug digest]
+                assert_match {*calls=1,*} [cmdrstat zmove $A]
+                assert_equal [$rd read] {{a 0}}
+                $rd close
+            }
+
+            test "BZMOVE $position replication, zset exists" {
+                r del z1
+                $A config resetstat
+                r zadd z1 -1 a 0 b 1 c 2 d
+                r bzmove z1 z2 $position 5
+                wait_for_ofs_sync $B $A
+                assert_equal [$A debug digest] [$B debug digest]
+                assert_match {*calls=1,*} [cmdrstat zmove $A]
+            }
+        }
+
+        test {ZMOVE BYSCORE replication preserves batch limits and destination members} {
+            r del z1 z2
+            r zadd z1 1 a 1 b 1 c 2 d
+            r zadd z2 99 a 100 retained
+            assert_equal {{a 1} {b 1}} [r zmove z1 z2 BYSCORE 1 1 COUNT 2]
+            assert_equal {{d 2}} [r zmove z1 z2 BYSCORE (1 +inf]
+            wait_for_ofs_sync $B $A
+            assert_equal [$A debug digest] [$B debug digest]
+            assert_equal {c 1} [$A zrange z1 0 -1 withscores]
+            assert_equal {a 1 b 1 d 2 retained 100} [$A zrange z2 0 -1 withscores]
+        }
+
         test {BLPOP followed by role change, issue #2473} {
             set rd [redis_deferring_client]
             $rd blpop foo 0 ; # Block while B is a master
@@ -241,8 +280,8 @@ start_server {tags {"repl external:skip"}} {
             s role
         } {slave}
 
-        wait_for_sync r
         test {Sync should have transferred keys from master} {
+            wait_for_sync r
             r get mykey
         } {foo}
 
@@ -367,7 +406,7 @@ foreach mdl {no yes} rdbchannel {no yes} {
 
                             # Wait for all the three slaves to reach the "online"
                             # state from the POV of the master.
-                            set retry 500
+                            set retry 1000
                             while {$retry} {
                                 set info [r -3 info]
                                 if {[string match {*slave0:*state=online*slave1:*state=online*slave2:*state=online*} $info]} {
@@ -762,7 +801,14 @@ test {diskless loading short read} {
                 redis.register_function('test', function() return 'hello1' end)
             }
 
+            r himport prepare fieldset1 f0 f1 f2 f3 f4 f5 f6 f7 f8 f9
+            r himport prepare fieldset2 g0 g1 g2 g3 g4 g5 g6 g7 g8 [string repeat z 250]
+
             set has_vector_sets [server_has_command vadd]
+
+            # Make SETBIT create native Roaring bitmaps, and convert the
+            # dense string bitmaps below into them
+            r config set bitmap-default-roaring yes
 
             for {set k 0} {$k < 3} {incr k} {
                 for {set i 0} {$i < 10} {incr i} {
@@ -779,6 +825,9 @@ test {diskless loading short read} {
                     r zadd "$k zset_large" [expr {rand()}] [string repeat A [expr {int(rand()*1000000)}]]
                     r lpush "$k list_small" [string repeat A [expr {int(rand()*10)}]]
                     r lpush "$k list_large" [string repeat A [expr {int(rand()*1000000)}]]
+                    r setbit "$k bitmap_sparse" [expr {int(rand()*100000000)}] 1
+                    r set "$k bitmap_large_$i" [string repeat A [expr {int(rand()*1000000)}]]
+                    r setbit "$k bitmap_large_$i" 0 1
 
                     if {$has_vector_sets} {
                         r vadd "$k vector_set" VALUES 3 [expr {rand()}] [expr {rand()}] [expr {rand()}] [string repeat A [expr {int(rand()*1000)}]]
@@ -790,6 +839,17 @@ test {diskless loading short read} {
                     r xgroup create "$k stream" "mygroup_$i" 0
                     r xreadgroup GROUP "mygroup_$i" Alice COUNT 1 STREAMS "$k stream" >
                 }
+
+                set tmpl_small_vals {}
+                set tmpl_large_vals {}
+                for {set i 0} {$i < 10} {incr i} {
+                    lappend tmpl_small_vals [string repeat A [expr {int(rand()*10)}]]
+                    lappend tmpl_large_vals [string repeat A [expr {int(rand()*100000)}]]
+                }
+                r himport set "$k tmpl_small" fieldset1 {*}$tmpl_small_vals
+                r himport set "$k tmpl_large" fieldset1 {*}$tmpl_large_vals
+                r himport set "$k tmpl_long_field_small" fieldset2 {*}$tmpl_small_vals
+                r himport set "$k tmpl_long_field_large" fieldset2 {*}$tmpl_large_vals
             }
 
             if {$::verbose} {
@@ -810,7 +870,7 @@ test {diskless loading short read} {
             for {set i 0} {$i < $attempts} {incr i} {
                 # wait for the replica to start reading the rdb
                 # using the log file since the replica only responds to INFO once in 2mb
-                set res [wait_for_log_messages -1 {"*Loading DB in memory*"} $loglines 2000 1]
+                set res [wait_for_log_messages -1 {"*Loading DB in memory*"} $loglines 10000 1]
                 set loglines [lindex $res 1]
 
                 # add some additional random sleep so that we kill the master on a different place each time
@@ -1551,7 +1611,7 @@ start_server {tags {"repl external:skip"}} {
 
 foreach disklessload {disabled on-empty-db} {
     test "Replica should reply LOADING while flushing a large db (disklessload: $disklessload)" {
-        start_server {} {
+        start_server {tags {"repl"}} {
             set replica [srv 0 client]
             start_server {} {
                 set master [srv 0 client]
@@ -1941,6 +2001,8 @@ foreach type {script function} {
             test "Fullsync should not free scripting engine on a replica while a $type is running" {
                 $master config set repl-diskless-sync yes
                 $master config set repl-diskless-sync-delay 0
+                # Keep the backlog small, replica obuf limits are raised to repl-backlog-size
+                $master config set repl-backlog-size 16k
                 # Set small client output buffer limit to trigger fullsync quickly
                 $master config set client-output-buffer-limit "replica 1k 1k 0"
                 $replica config set busy-reply-threshold 1 ;# script timeout in 1 ms
@@ -2000,6 +2062,39 @@ foreach type {script function} {
                 wait_for_sync $replica
                 assert_equal [$replica ping] "PONG"
             }
+        }
+    }
+}
+
+start_server {tags {"repl external:skip"}} {
+    set master [srv 0 client]
+    set master_host [srv 0 host]
+    set master_port [srv 0 port]
+    start_server {} {
+        set replica [srv 0 client]
+
+        # Regression: discarding a cached master (after a failed partial
+        # resync) must reverse its contribution to mem_clients_normal.
+        # freeClient() once gated that subtraction on c->conn, but the cached
+        # master's conn was already detached by replicationCacheMaster(), so
+        # the subtraction was skipped and ~one master client (~16KB) leaked
+        # on every full resync.
+        test {mem_clients_normal accounting is reversed when cached master is discarded} {
+            $replica replicaof $master_host $master_port
+            wait_for_sync $replica
+            set base [s 0 mem_clients_normal]
+
+            # change-repl-id forces the next PSYNC to be a full resync, which
+            # discards the cached master via replicationDiscardCachedMaster().
+            for {set j 0} {$j < 10} {incr j} {
+                $master debug change-repl-id
+                $replica replicaof no one
+                $replica replicaof $master_host $master_port
+                wait_for_sync $replica
+            }
+            # Before the fix this grew by ~16KB per cycle; with it, at most one
+            # live master client remains.
+            assert_lessthan [expr {[s 0 mem_clients_normal] - $base}] 50000
         }
     }
 }

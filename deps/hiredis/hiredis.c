@@ -731,6 +731,12 @@ void redisFree(redisContext *c) {
     if (c == NULL)
         return;
 
+     /* We need to gracefully terminate the TLS session before closing fd. */
+    if (c->funcs && c->funcs->free_privctx) {
+        c->funcs->free_privctx(c->privctx);
+        c->privctx = NULL;
+    }
+
     if (c->funcs && c->funcs->close) {
         c->funcs->close(c);
     }
@@ -746,9 +752,6 @@ void redisFree(redisContext *c) {
 
     if (c->privdata && c->free_privdata)
         c->free_privdata(c->privdata);
-
-    if (c->funcs && c->funcs->free_privctx)
-        c->funcs->free_privctx(c->privctx);
 
     memset(c, 0xff, sizeof(*c));
     hi_free(c);

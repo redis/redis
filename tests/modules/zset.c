@@ -1,6 +1,8 @@
 #include "redismodule.h"
 #include <math.h>
 #include <errno.h>
+#include <string.h>
+#include <strings.h>
 
 /* ZSET.REM key element
  *
@@ -67,6 +69,112 @@ int zset_incrby(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         return RedisModule_ReplyWithDouble(ctx, newscore);
     else
         return RedisModule_ReplyWithError(ctx, "ERR ZsetIncrby failed");
+}
+
+/* Range APIs take doubles directly, so expose NaN bounds even though
+ * RedisModule_StringToDouble() rejects them. */
+static int zset_range_bound(RedisModuleString *arg, double *value) {
+    size_t len;
+    const char *str = RedisModule_StringPtrLen(arg, &len);
+    if (len == 3 && !strncasecmp(str, "nan", 3)) {
+        *value = NAN;
+        return REDISMODULE_OK;
+    }
+    if (len == 4 && !strncasecmp(str, "-nan", 4)) {
+        *value = -NAN;
+        return REDISMODULE_OK;
+    }
+    return RedisModule_StringToDouble(arg, value);
+}
+
+/* ZSET.RANGE key score first|last min max minex maxex
+ * ZSET.RANGE key lex   first|last min max
+ *
+ * Exposes the module range iterator to the test suite. The reply contains
+ * member, score pairs in the direction selected by first or last. */
+int zset_range(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 6 && argc != 8) return RedisModule_WrongArity(ctx);
+    RedisModule_AutoMemory(ctx);
+
+    size_t mode_len, direction_len;
+    const char *mode = RedisModule_StringPtrLen(argv[2], &mode_len);
+    const char *direction = RedisModule_StringPtrLen(argv[3], &direction_len);
+    int reverse;
+    if (direction_len == 5 && !strncasecmp(direction, "first", 5))
+        reverse = 0;
+    else if (direction_len == 4 && !strncasecmp(direction, "last", 4))
+        reverse = 1;
+    else
+        return RedisModule_ReplyWithError(ctx, "ERR invalid direction");
+
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
+    int status;
+    if (mode_len == 5 && !strncasecmp(mode, "score", 5) && argc == 8) {
+        double min, max;
+        long long minex, maxex;
+        if (zset_range_bound(argv[4], &min) == REDISMODULE_ERR ||
+            zset_range_bound(argv[5], &max) == REDISMODULE_ERR ||
+            RedisModule_StringToLongLong(argv[6], &minex) == REDISMODULE_ERR ||
+            RedisModule_StringToLongLong(argv[7], &maxex) == REDISMODULE_ERR ||
+            (minex != 0 && minex != 1) || (maxex != 0 && maxex != 1))
+            return RedisModule_ReplyWithError(ctx, "ERR invalid score range");
+        status = reverse ?
+            RedisModule_ZsetLastInScoreRange(key, min, max, minex, maxex) :
+            RedisModule_ZsetFirstInScoreRange(key, min, max, minex, maxex);
+    } else if (mode_len == 3 && !strncasecmp(mode, "lex", 3) && argc == 6) {
+        status = reverse ?
+            RedisModule_ZsetLastInLexRange(key, argv[4], argv[5]) :
+            RedisModule_ZsetFirstInLexRange(key, argv[4], argv[5]);
+    } else {
+        return RedisModule_ReplyWithError(ctx, "ERR invalid range mode");
+    }
+    if (status == REDISMODULE_ERR)
+        return RedisModule_ReplyWithError(ctx, "ERR range setup failed");
+
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    long count = 0;
+    while (!RedisModule_ZsetRangeEndReached(key)) {
+        double score;
+        RedisModuleString *member = RedisModule_ZsetRangeCurrentElement(key, &score);
+        if (member == NULL) break;
+        RedisModule_ReplyWithString(ctx, member);
+        RedisModule_ReplyWithDouble(ctx, score);
+        RedisModule_FreeString(ctx, member);
+        count += 2;
+        if (reverse)
+            RedisModule_ZsetRangePrev(key);
+        else
+            RedisModule_ZsetRangeNext(key);
+    }
+    RedisModule_ZsetRangeStop(key);
+    RedisModule_ReplySetArrayLength(ctx, count);
+    return REDISMODULE_OK;
+}
+
+/* Invalidate the rank saved by a B+ tree range iterator. The iterator API
+ * should report the end of the range rather than aborting Redis. */
+int zset_range_mutate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 2) return RedisModule_WrongArity(ctx);
+    RedisModule_AutoMemory(ctx);
+
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ | REDISMODULE_WRITE);
+    if (RedisModule_ZsetLastInScoreRange(key, REDISMODULE_NEGATIVE_INFINITE,
+                                         REDISMODULE_POSITIVE_INFINITE, 0, 0) == REDISMODULE_ERR)
+        return RedisModule_ReplyWithError(ctx, "ERR range setup failed");
+
+    /* Keep one member so the open key handle itself remains valid. */
+    RedisModuleCallReply *reply = RedisModule_Call(ctx, "ZREMRANGEBYRANK", "sll",
+                                                   argv[1], (long long)0, (long long)-2);
+    if (reply == NULL || RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ERROR)
+        return RedisModule_ReplyWithError(ctx, "ERR range mutation failed");
+
+    RedisModuleString *member = RedisModule_ZsetRangeCurrentElement(key, NULL);
+    if (member != NULL || RedisModule_ZsetRangePrev(key) != 0 ||
+        !RedisModule_ZsetRangeEndReached(key))
+        return RedisModule_ReplyWithError(ctx, "ERR invalid iterator state");
+
+    RedisModule_ZsetRangeStop(key);
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
 /* Structure to hold data for the delall scan callback */
@@ -154,6 +262,42 @@ int zset_delall(RedisModuleCtx *ctx, REDISMODULE_ATTR_UNUSED RedisModuleString *
     return RedisModule_ReplyWithLongLong(ctx, deleted_count);
 }
 
+/* A ZPOPMIN/ZPOPMAX notification fires after the last member is popped but
+ * before the emptied key is deleted. The reads below count how many of them
+ * found it empty, until ZSET.EMPTYREADS replies with the count and resets it. */
+static long long empty_reads = 0;
+
+static void zset_count_empty_read(RedisModuleCallReply *reply) {
+    if (reply == NULL) return;
+    if (RedisModule_CallReplyLength(reply) == 0) empty_reads++;
+    RedisModule_FreeCallReply(reply);
+}
+
+static int zset_pop_notification(RedisModuleCtx *ctx, int type, const char *event,
+                                 RedisModuleString *key) {
+    REDISMODULE_NOT_USED(type);
+    if (strcmp(event, "zpopmin") && strcmp(event, "zpopmax")) return REDISMODULE_OK;
+
+    zset_count_empty_read(RedisModule_Call(ctx, "SORT_RO", "scc", key, "BY", "nosort"));
+    zset_count_empty_read(RedisModule_Call(ctx, "SORT_RO", "sccc", key, "BY", "nosort", "DESC"));
+    zset_count_empty_read(RedisModule_Call(ctx, "ZRANDMEMBER", "s", key));
+    zset_count_empty_read(RedisModule_Call(ctx, "ZRANDMEMBER", "sc", key, "-2"));
+    zset_count_empty_read(RedisModule_Call(ctx, "SORT_RO", "sc", key, "ALPHA"));
+    zset_count_empty_read(RedisModule_Call(ctx, "ZRANK", "sc", key, "a"));
+    zset_count_empty_read(RedisModule_Call(ctx, "ZREVRANK", "scc", key, "a", "WITHSCORE"));
+    RedisModule_FreeCallReply(RedisModule_Call(ctx, "DEBUG", "cs", "DIGEST-VALUE", key));
+    RedisModule_FreeCallReply(RedisModule_Call(ctx, "DEBUG", "c", "DIGEST"));
+    return REDISMODULE_OK;
+}
+
+int zset_emptyreads(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    if (argc != 1) return RedisModule_WrongArity(ctx);
+    RedisModule_ReplyWithLongLong(ctx, empty_reads);
+    empty_reads = 0;
+    return REDISMODULE_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -172,8 +316,24 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                                   1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    if (RedisModule_CreateCommand(ctx, "zset.range", zset_range, "readonly",
+                                  1, 1, 1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "zset.range-mutate", zset_range_mutate, "write",
+                                  1, 1, 1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
     if (RedisModule_CreateCommand(ctx, "zset.delall", zset_delall, "write touches-arbitrary-keys",
                                   0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "zset.emptyreads", zset_emptyreads, "",
+                                  0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_ZSET,
+                                              zset_pop_notification) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

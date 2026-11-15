@@ -33,6 +33,10 @@ typedef struct idmpProducer {
 /* Dictionary type for IDMP entries - uses IID as key */
 extern dictType idmpDictType;
 
+/* Epoch of a stream or group never counted into the INFO Streams histograms.
+ * A db's epoch starts at 0 and never reaches this value. */
+#define STREAM_DISTRIB_NEVER_COUNTED UINT32_MAX
+
 typedef struct stream {
     rax *rax;               /* The radix tree holding the stream. */
     uint64_t length;        /* Current number of elements inside this stream. */
@@ -45,6 +49,8 @@ typedef struct stream {
     rax *cgroups_ref;       /* Index mapping message IDs to their consumer groups. */
     streamID min_cgroup_last_id;  /* The minimum ID of consume group. */
     unsigned int min_cgroup_last_id_valid: 1;
+    uint8_t distrib_counted; /* INFO Streams: bit per metric with a sample. */
+    uint32_t distrib_epoch;  /* INFO Streams: generation of the bits above. */
     uint64_t idmp_duration; /* IDMP duration in seconds. */
     uint64_t idmp_max_entries; /* Max number of IID for tracking. */
     rax *idmp_producers;   /* IDMP producers radix tree: pid -> idmpProducer */
@@ -155,6 +161,30 @@ typedef struct streamPropInfo {
     robj *groupname;
 } streamPropInfo;
 
+/* Parameters controlling how streamReplyWithRange() fetches and emits entries.
+ * Bundled into a struct so callers can use designated initializers and avoid a
+ * long, error-prone positional argument list. Fields left unset are zero, which
+ * matches "no group", "no propagation", "no limit", etc.; note that
+ * 'min_idle_time' must be set to -1 to disable the idle-time filter. */
+typedef struct streamReplyRangeArgs {
+    streamID *start;            /* Inclusive range start (NULL for open start). */
+    streamID *end;              /* Inclusive range end (NULL for open end). */
+    size_t count;               /* Max entries to emit (0 means unlimited). */
+    int rev;                    /* Iterate in reverse order if non-zero. */
+    long long min_idle_time;    /* Only serve PEL entries idle for this long;
+                                   -1 disables idle-time filtering. */
+    streamCG *group;            /* Consumer group, or NULL. */
+    streamConsumer *consumer;   /* Consumer within the group, or NULL. */
+    int flags;                  /* STREAM_RWR_* flags. */
+    streamPropInfo *spi;        /* Propagation info, or NULL for no propagation. */
+    unsigned long *propCount;   /* Out: number of propagated commands, or NULL. */
+    long long maxsize;          /* Byte budget for the reply (0 means unlimited).
+                                   Already includes the output-bytes baseline, so
+                                   MAXSIZE is checked against the absolute
+                                   c->net_output_bytes_curr_cmd. */
+    size_t emitted_before;      /* Entries already emitted before this call. */
+} streamReplyRangeArgs;
+
 /* Prototypes of exported APIs. */
 struct client;
 
@@ -168,7 +198,7 @@ struct client;
 stream *streamNew(void);
 void freeStream(stream *s);
 unsigned long streamLength(const robj *subject);
-size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end, size_t count, int rev, long long min_idle_time, streamCG *group, streamConsumer *consumer, int flags, streamPropInfo *spi, unsigned long *propCount);
+size_t streamReplyWithRange(client *c, stream *s, streamReplyRangeArgs *args);
 void streamIteratorStart(streamIterator *si, stream *s, streamID *start, streamID *end, int rev);
 int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields);
 void streamIteratorGetField(streamIterator *si, unsigned char **fieldptr, unsigned char **valueptr, int64_t *fieldlen, int64_t *valuelen);
@@ -195,11 +225,16 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
 int streamDeleteItem(stream *s, streamID *id);
 void streamGetEdgeID(stream *s, int first, int skip_tombstones, streamID *edge_id);
 long long streamEstimateDistanceFromFirstEverEntry(stream *s, streamID *id);
-int64_t streamTrimByLength(stream *s, long long maxlen, int approx);
-int64_t streamTrimByID(stream *s, streamID minid, int approx);
+int64_t streamTrimByLength(redisDb *db, stream *s, long long maxlen, int approx);
+int64_t streamTrimByID(redisDb *db, stream *s, streamID minid, int approx);
 int streamEntryExists(stream *s, streamID *id);
 void streamKeyLoaded(redisDb *db, robj *key, robj *val);
 void streamKeyRemoved(redisDb *db, robj *key, robj *val);
+void streamTallyStreamSamples(stream *s, streamStatsHist tally, uint32_t only_epoch);
+extern const char *const streamDistribMetricNames[STREAM_DISTRIB_MAX];
+void streamStatsResetMeta(kvstoreMetadata *meta);
+void streamStatsRebuild(void);
+void dbgAssertStreamStats(redisDb *db);
 
 listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, unsigned char *key);
 

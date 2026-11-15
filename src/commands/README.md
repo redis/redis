@@ -4,7 +4,7 @@ Each JSON contains all the information about the command itself, but these JSON 
 Any third party who needs access to command information must get it from `COMMAND INFO` and `COMMAND DOCS`.
 The output can be extracted in a JSON format by using `redis-cli --json`, in the same manner as in `utils/generate-commands-json.py`.
 
-The JSON files are used to generate commands.def (and https://github.com/redis/redis-doc/blob/master/commands.json) in Redis, and
+The JSON files are used to generate commands.def (and https://github.com/redis/docs/blob/main/data/commands.json) in Redis, and
 despite looking similar to the output of `COMMAND` there are some fields and flags that are implicitly populated, and that's the
 reason one shouldn't rely on the raw files.
 

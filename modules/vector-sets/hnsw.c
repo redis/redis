@@ -117,7 +117,8 @@
 /* Algorithm parameters. */
 
 #define HNSW_P 0.25         /* Probability of level increase. */
-#define HNSW_MAX_LEVEL 16   /* Max level nodes can reach. */
+/* HNSW_MAX_LEVEL is defined in hnsw.h (needed by callers to bound
+ * deserialization). */
 #define HNSW_EF_C 200       /* Default size of dynamic candidate list while
                              * inserting a new node, in case 0 is passed to
                              * the 'ef' argument while inserting. This is also
@@ -794,7 +795,7 @@ uint32_t random_level(void) {
     static const int threshold = HNSW_P * RAND_MAX;
     uint32_t level = 0;
 
-    while (rand() < threshold && level < HNSW_MAX_LEVEL)
+    while (rand() < threshold && level < HNSW_MAX_LEVEL - 1)
         level += 1;
     return level;
 }
@@ -903,6 +904,13 @@ uint32_t hnsw_quants_bytes(HNSW *index) {
  * after the node creation (see later for the serialization API that
  * handles this and more). */
 hnswNode *hnsw_node_new(HNSW *index, uint64_t id, const float *vector, const int8_t *qvector, float qrange, uint32_t level, int normalize) {
+    /* Defense in depth: every node level must stay within the architectural
+     * cap. Untrusted input (e.g. a tampered serialized stream) is already
+     * rejected by the caller before reaching this point, so a violation here
+     * can only be an internal bug: fail fast instead of over-allocating the
+     * node and poisoning index->max_level. */
+    assert(level < HNSW_MAX_LEVEL);
+
     hnswNode *node = hmalloc(sizeof(hnswNode)+(sizeof(hnswNodeLayer)*(level+1)));
     if (!node) return NULL;
 
@@ -1701,13 +1709,13 @@ void hnsw_reconnect_nodes(HNSW *index, hnswNode **nodes, int count, uint32_t lay
 
     // Step 5: Pair nodes greedily based on scores.
     int *used = hmalloc(count*sizeof(int));
-    memset(used,0,count*sizeof(int));
     if (!used) {
         hfree(distances);
         hfree(row_avgs);
         hfree(scores);
         return;
     }
+    memset(used,0,count*sizeof(int));
 
     /* Scan the matrix looking each time for the potential
      * link with the best score. */
@@ -2593,6 +2601,12 @@ hnswNode *hnsw_insert_serialized(HNSW *index, void *vector, uint64_t *params, ui
     uint32_t version = (params[1] & 0xff000000) >> 24;  // Format version.
 
     if (version > HNSW_SERIALIZATION_VERSION) return NULL;
+
+    /* A serialized stream coming from an untrusted source (e.g. a tampered
+     * RDB file) could encode an out of range level: reject it here, otherwise
+     * we would over-allocate the node layers and poison index->max_level with
+     * an illegal value. */
+    if (level >= HNSW_MAX_LEVEL) return NULL;
     int has_worst_link_info = version > 0;
 
     /* Keep track of maximum ID seen while loading. */
@@ -2619,9 +2633,12 @@ hnswNode *hnsw_insert_serialized(HNSW *index, void *vector, uint64_t *params, ui
         uint32_t num_links = params[param_idx++];
         uint32_t max_links = params[param_idx++];
 
-        /* Sanity check: links should be less than max links and
-         * in general a reasonable amount. */
-        if (num_links > max_links || max_links > HNSW_MAX_M*4) {
+        /* Sanity check: links should be less than max links, and max links
+         * must not exceed what select_neighbors() can ever grow a layer to.
+         * A larger fan-out can only come from tampered data, and deleting
+         * such a node makes hnsw_reconnect_nodes() quadratic in its size. */
+        uint32_t links_limit = i == 0 ? index->M * 3 : index->M * 2;
+        if (num_links > max_links || max_links > links_limit) {
             hnsw_node_free(node);
             return NULL;
         }
@@ -2703,15 +2720,19 @@ hnswNode *hnsw_insert_serialized(HNSW *index, void *vector, uint64_t *params, ui
     return node;
 }
 
-/* Integer hashing, used by hnsw_deserialize_index().
- * MurmurHash3's 64-bit finalizer function. */
-uint64_t hnsw_hash_node_id(uint64_t id) {
+/* MurmurHash3's 64-bit finalizer function. */
+static inline uint64_t hnsw_fmix64(uint64_t id) {
     id ^= id >> 33;
     id *= 0xff51afd7ed558ccd;
     id ^= id >> 33;
     id *= 0xc4ceb9fe1a85ec53;
     id ^= id >> 33;
     return id;
+}
+
+/* Salted integer hashing, used by hnsw_deserialize_index(). */
+static inline uint64_t hnsw_hash_node_id(uint64_t id, uint64_t salt0, uint64_t salt1) {
+    return hnsw_fmix64(hnsw_fmix64(id ^ salt0) ^ salt1);
 }
 
 /* Helper for duplicated link detection in hnsw_deserialize_index(). */
@@ -2750,7 +2771,7 @@ int hnsw_deserialize_index(HNSW *index, uint64_t salt0, uint64_t salt1) {
     /* First pass: populate the ID -> pointer hash table. */
     hnswNode *node = index->head;
     while(node) {
-        uint64_t bucket = hnsw_hash_node_id(node->id) & (table_size-1);
+        uint64_t bucket = hnsw_hash_node_id(node->id, salt0, salt1) & (table_size-1);
         for (uint64_t j = 0; j < table_size; j++) {
             if (table[bucket] == NULL) {
                 table[bucket] = node;
@@ -2815,10 +2836,16 @@ int hnsw_deserialize_index(HNSW *index, uint64_t salt0, uint64_t salt1) {
                 accumulator[1] ^= mixed_h2;
 
                 // Fix links.
-                uint64_t bucket = hnsw_hash_node_id(linked_id) & (table_size-1);
+                uint64_t bucket = hnsw_hash_node_id(linked_id, salt0, salt1) & (table_size-1);
                 hnswNode *neighbor = NULL;
                 for (uint64_t k = 0; k < table_size; k++) {
-                    if (table[bucket] && table[bucket]->id == linked_id) {
+                    /* The table is insert-only, so every slot between an
+                     * ID's home bucket and its position is occupied: an
+                     * empty slot means the ID is not in the table. This is
+                     * only an early exit, the result is the same as
+                     * scanning the whole table. */
+                    if (table[bucket] == NULL) break;
+                    if (table[bucket]->id == linked_id) {
                         neighbor = table[bucket];
                         break;
                     }
@@ -3097,7 +3124,7 @@ int hnsw_validate_graph(HNSW *index, uint64_t *connected_nodes, int *reciprocal_
     }
 
     printf("Total connected nodes: %llu\n", (unsigned long long)*connected_nodes);
-    printf("All links are bi-directiona? %s\n", (*reciprocal_links)?"yes":"no");
+    printf("All links are bi-directional? %s\n", (*reciprocal_links)?"yes":"no");
     return 0;
 }
 

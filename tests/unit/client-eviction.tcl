@@ -206,6 +206,27 @@ start_server {} {
         r config set maxmemory-clients $maxmemory_clients
     }
 
+    test "client evicted due to large watched key and pubsub names" {
+        r flushdb
+        set temp_maxmemory_clients 200000
+        r config set maxmemory-clients $temp_maxmemory_clients
+
+        # Each name is well below the limit, only the names held by the client add up to it
+        foreach cmd {watch subscribe psubscribe ssubscribe} {
+            lassign [gen_client] rr cname
+            catch {
+                for {set j 0} {$j < 10} {incr j} {
+                    $rr $cmd "$j[string repeat x 50000]"
+                }
+            } e
+            assert {![client_exists $cname]}
+            $rr close
+        }
+
+        # Restore config for next tests
+        r config set maxmemory-clients $maxmemory_clients
+    }
+
     test "client evicted due to tracking redirection" {
         r flushdb
         set rr [redis_client]
@@ -265,6 +286,7 @@ start_server {} {
 
     test "client evicted due to output buf" {
         r flushdb
+        r debug reply-copy-avoidance 0
         r setrange k 200000 v
         set rr [redis_deferring_client]
         $rr client setname test_client
@@ -291,7 +313,8 @@ start_server {} {
             }
         }
         $rr close
-    }
+        r debug reply-copy-avoidance 1
+    } {OK} {needs:debug}
 
     foreach {no_evict} {on off} {
         test "client no-evict $no_evict" {
@@ -637,6 +660,220 @@ start_server {} {
         r EXEC
         r PING
         $rd close
+    }
+}
+
+start_server {} {
+    test "Evicting the next client while serving blocked clients is safe" {
+        r flushall
+        r client no-evict on
+        r config set maxmemory-clients 0
+
+        set rd1 [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+        $rd2 CLIENT SETNAME client-to-evict
+        assert_equal OK [$rd2 read]
+
+        # Block two clients on the same key in a known order.
+        $rd1 BLPOP mylist 0
+        wait_for_blocked_clients_count 1
+        $rd2 BLPOP mylist 0
+        wait_for_blocked_clients_count 2
+
+        # Queue a large request behind the second client's blocking command so
+        # it will be selected for eviction while the first client is processed.
+        $rd2 get [string repeat Q [kb 2048]]
+        wait_for_condition 50 100 {
+            [client_field client-to-evict tot-mem] > [mb 1]
+        } else {
+            fail "Failed to increase the second blocked client's memory usage"
+        }
+
+        # Apply the client-memory limit and make the key ready in one transaction.
+        # Eviction then runs while rd1 is being reprocessed, selecting rd2 while
+        # it is still in the blocked-client list.
+        r MULTI
+        r CONFIG SET MAXMEMORY-CLIENTS [kb 128]
+        r LPUSH mylist x
+        r EXEC
+
+        assert_equal {mylist x} [$rd1 read]
+        assert {![client_exists client-to-evict]} ;# rd2 is evicted
+        $rd1 close
+        $rd2 close
+    }
+}
+
+# Sum of tot-mem of the clients counted in mem_clients_normal
+proc normal_clients_tot_mem {} {
+    set sum 0
+    foreach type {normal pubsub} {
+        foreach c [split [string trim [r client list type $type]] "\r\n"] {
+            regexp {tot-mem=([0-9]+)} $c - mem
+            incr sum $mem
+        }
+    }
+    return $sum
+}
+
+start_server {} {
+    set name_len 40000
+    set names_count 10
+
+    test "shared pubsub channel names are counted once in the clients memory total" {
+        r config set maxmemory-clients 1000000
+        set clients {}
+        set cnames {}
+        for {set i 0} {$i < 3} {incr i} {
+            lassign [gen_client] rr cname
+            lappend clients $rr
+            lappend cnames $cname
+        }
+
+        # The names are allocated once but each subscriber is charged for them, so
+        # the sum of the clients tot-mem is over the limit while their real usage is not.
+        for {set j 0} {$j < $names_count} {incr j} {
+            foreach rr $clients { $rr subscribe "$j[string repeat x $name_len]" }
+        }
+        foreach cname $cnames { assert {[client_exists $cname]} }
+        wait_for_condition 50 100 {
+            [normal_clients_tot_mem] - [s mem_clients_normal] >= 2 * $names_count * $name_len
+        } else {
+            fail "shared names not removed from mem_clients_normal [s mem_clients_normal], clients tot-mem [normal_clients_tot_mem]"
+        }
+        assert_lessthan [s mem_clients_normal] 1000000
+        assert_morethan [normal_clients_tot_mem] 1000000
+
+        # Once the shared names really use more than the limit, all the subscribers get evicted
+        for {set j $names_count} {$j < 4 * $names_count} {incr j} {
+            foreach rr $clients { catch {$rr subscribe "$j[string repeat x $name_len]"} }
+        }
+        foreach cname $cnames { assert {![client_exists $cname]} }
+        foreach rr $clients { $rr close }
+        r config set maxmemory-clients 0
+    }
+
+    foreach {sub unsub} {watch unwatch psubscribe punsubscribe ssubscribe sunsubscribe} {
+        test "shared $sub name stays charged after its first holder drops it" {
+            lassign [gen_client] rr1 cname1
+            lassign [gen_client] rr2 cname2
+            set name [string repeat x 100000]
+            $rr1 $sub $name
+            $rr2 $sub $name
+            wait_for_condition 50 100 {
+                [normal_clients_tot_mem] - [s mem_clients_normal] >= 100000
+            } else {
+                fail "shared name not removed from mem_clients_normal [s mem_clients_normal], clients tot-mem [normal_clients_tot_mem]"
+            }
+
+            if {$sub eq "watch"} { $rr1 $unsub } else { $rr1 $unsub $name }
+            assert_morethan_equal [client_field $cname2 tot-mem] 100000
+            wait_for_condition 50 100 {
+                abs([s mem_clients_normal] - [normal_clients_tot_mem]) < 50000
+            } else {
+                fail "mem_clients_normal [s mem_clients_normal] != clients tot-mem [normal_clients_tot_mem]"
+            }
+
+            $rr2 close
+            wait_for_condition 50 100 {
+                ![client_exists $cname2] &&
+                abs([s mem_clients_normal] - [normal_clients_tot_mem]) < 50000
+            } else {
+                fail "mem_clients_normal [s mem_clients_normal] != clients tot-mem [normal_clients_tot_mem]"
+            }
+            $rr1 close
+        }
+    }
+
+    test "clients memory total doesn't drop when a client subscribes to a shared channel" {
+        r config set maxmemory-clients 0
+        r config set hz 1
+        set rr1 [redis_client]
+        set rr2 [redis_client]
+        set channel [string repeat x 1000000]
+        $rr1 subscribe $channel
+        wait_for_condition 50 100 {
+            abs([s mem_clients_normal] - [normal_clients_tot_mem]) < 50000
+        } else {
+            fail "mem_clients_normal [s mem_clients_normal] != clients tot-mem [normal_clients_tot_mem]"
+        }
+        set before [s mem_clients_normal]
+        $rr2 subscribe $channel
+        assert_morethan [s mem_clients_normal] [expr {$before - 500000}]
+        r config set hz 10
+        $rr1 close
+        $rr2 close
+    }
+
+    test "modifying a shared watched key uncharges its watchers" {
+        r config set maxmemory-clients 0
+        r config set hz 1
+        set writer [redis_client]
+        $writer client no-evict on
+        set rr1 [redis_client]
+        set rr2 [redis_client]
+        set key [string repeat x 1000000]
+        $rr1 watch $key
+        $rr2 watch $key
+        wait_for_condition 50 100 {
+            abs([normal_clients_tot_mem] - [s mem_clients_normal] - 1000000) < 100000
+        } else {
+            fail "shared name not removed from mem_clients_normal [s mem_clients_normal], clients tot-mem [normal_clients_tot_mem]"
+        }
+        set before [s mem_clients_normal]
+        $writer eval {redis.call('set', string.rep('x', 1000000), 'v')} 0
+        assert_lessthan [s mem_clients_normal] [expr {$before - 500000}]
+
+        r config set hz 10
+        $writer del $key
+        $writer close
+        $rr1 close
+        $rr2 close
+    }
+
+    test "client that drops a large watched key is not evicted before a larger client" {
+        r config set maxmemory-clients 100mb
+        set writer [redis_client]
+        $writer client no-evict on
+        lassign [gen_client] watcher watcher_name
+        lassign [gen_client] big big_name
+        set key [string repeat x 1200000]
+        $watcher watch $key
+        wait_for_condition 100 100 {
+            [client_field $watcher_name tot-mem] < 1600000
+        } else {
+            fail "watcher query buffer wasn't resized"
+        }
+        assert_morethan [client_field $watcher_name tot-mem] 1200000
+
+        $big write "*2\r\n\$3\r\nget\r\n\$1800000\r\n[string repeat v 1500000]"
+        $big flush
+        wait_for_condition 50 100 {
+            [client_field $big_name tot-mem] > 1400000
+        } else {
+            fail "big client didn't grow"
+        }
+
+        $writer set $key v
+        assert_lessthan [client_field $watcher_name tot-mem] 100000
+        wait_for_condition 50 100 {
+            [s mem_clients_normal] > 1400000
+        } else {
+            fail "big client not counted in mem_clients_normal [s mem_clients_normal]"
+        }
+        r config set maxmemory-clients [expr {[s mem_clients_normal] - 300000}]
+        wait_for_condition 50 100 {
+            ![client_exists $big_name]
+        } else {
+            fail "big client wasn't evicted"
+        }
+        assert {[client_exists $watcher_name]}
+
+        r config set maxmemory-clients 0
+        $writer del $key
+        $writer close
+        $watcher close
+        $big close
     }
 }
 

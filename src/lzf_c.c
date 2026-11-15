@@ -35,6 +35,7 @@
  */
 
 #include "lzfP.h"
+#include "config.h"
 
 #define HSIZE (1 << (HLOG))
 
@@ -112,6 +113,12 @@
  */
 NO_SANITIZE("alignment")
 NO_SANITIZE_MSAN("memory")
+/* Benchmarks show that the inner compression loop is sensitive to code
+ * alignment on x86-64, affecting RDB save duration by about 30%.
+ * Align the function to keep its cache-line placement stable. */
+#if defined(__x86_64__)
+__attribute__((aligned(CACHE_LINE_SIZE)))
+#endif
 size_t
 lzf_compress (const void *const in_data, size_t in_len,
 	      void *out_data, size_t out_len

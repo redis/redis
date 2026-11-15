@@ -492,11 +492,17 @@ int anetUnixGenericConnect(char *err, const char *path, int flags)
             flags & ANET_CONNECT_NONBLOCK)
             return s;
 
+        int connect_errno = errno;
         anetSetError(err, "connect: %s", strerror(errno));
         close(s);
+        errno = connect_errno;
         return ANET_ERR;
     }
     return s;
+}
+
+int anetUnixNonBlockConnect(char *err, const char *path) {
+    return anetUnixGenericConnect(err,path,ANET_CONNECT_NONBLOCK);
 }
 
 static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len, int backlog, mode_t perm) {

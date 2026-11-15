@@ -1,0 +1,18 @@
+{
+    "START": {
+        "summary": "Start a new backup into the configured 'backupdirname'.",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "8.10.0",
+        "arity": 2,
+        "container": "BACKUP",
+        "function": "backupCommand",
+        "command_flags": [
+            "ADMIN",
+            "NOSCRIPT"
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
+    }
+}

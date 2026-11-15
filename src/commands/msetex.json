@@ -6,6 +6,7 @@
         "since": "8.4.0",
         "arity": -4,
         "function": "msetexCommand",
+        "get_keys_function": "msetexGetKeys",
         "command_flags": [
             "WRITE",
             "DENYOOM"
