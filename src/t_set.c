@@ -1186,7 +1186,15 @@ static int lpRawAdd(robj *set, char *str, size_t len, int64_t *llvalp, int str_i
         /* If this is a normal add (not after a conversion), check if the value
          * is already a member. */
         unsigned char *p = lpFirst(lp);
-        if (p != NULL) p = lpFind(lp, p, (unsigned char *)str, len, 0);
+        if (p != NULL) {
+            if (llvalp) {
+                /* Came in as an integer: compare integer values directly
+                 * instead of going via the string form. */
+                p = lpFindInteger(lp, p, *llvalp, 0);
+            } else {
+                p = lpFind(lp, p, (unsigned char *)str, len, 0);
+            }
+        }
         if (p != NULL) {
             /* Already a member. */
             return 0;
