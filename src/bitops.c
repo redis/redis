@@ -157,11 +157,17 @@ remain:
 }
 
 #ifdef HAVE_AARCH64_NEON
+/* Max 128B iterations between reductions of the u16 NEON accumulators.
+ * Each lane gains at most 32 per iteration (2 x vpadalq of at most 16), so it
+ * would wrap at 65536/32 = 2048 iterations. 1024 leaves a 2x margin. */
+#define POPCOUNT_NEON_MAX_ITERS 1024
+
 /* AArch64 optimized popcount implementation.
  * Processes the input bitmap using four NEON vector accumulators in parallel
  * to improve instruction-level parallelism and reduce the frequency of
  * scalar reductions. Each accumulator holds 16-bit partial sums that are
- * combined only once per large block (128 bytes), minimizing data movement.
+ * reduced to a scalar every POPCOUNT_NEON_MAX_ITERS iterations of 128 bytes,
+ * minimizing data movement without letting the 16-bit lanes overflow.
  *
  * Benchmark results show this approach outperforms 2-lane implementations
  * and matches or exceeds 8-lane versions in throughput, while avoiding
@@ -180,58 +186,64 @@ long long redisPopCountAarch64(void *s, long count) {
         count--;
     }
 
-    /* Four vector accumulators of u16 (pairwise-accumulated byte counts). */
-    uint16x8_t acc0 = vdupq_n_u16(0);
-    uint16x8_t acc1 = vdupq_n_u16(0);
-    uint16x8_t acc2 = vdupq_n_u16(0);
-    uint16x8_t acc3 = vdupq_n_u16(0);
-
-    /* Process 128B per loop to amortize reductions. */
+    /* Process 128B per iteration, reducing the accumulators every
+     * POPCOUNT_NEON_MAX_ITERS iterations so the u16 lanes can't overflow. */
     while (count >= 128) {
-        uint8x16_t d0 = vld1q_u8(p +  0);
-        uint8x16_t d1 = vld1q_u8(p + 16);
-        uint8x16_t d2 = vld1q_u8(p + 32);
-        uint8x16_t d3 = vld1q_u8(p + 48);
-        uint8x16_t d4 = vld1q_u8(p + 64);
-        uint8x16_t d5 = vld1q_u8(p + 80);
-        uint8x16_t d6 = vld1q_u8(p + 96);
-        uint8x16_t d7 = vld1q_u8(p +112);
+        /* Four vector accumulators of u16 (pairwise-accumulated byte counts). */
+        uint16x8_t acc0 = vdupq_n_u16(0);
+        uint16x8_t acc1 = vdupq_n_u16(0);
+        uint16x8_t acc2 = vdupq_n_u16(0);
+        uint16x8_t acc3 = vdupq_n_u16(0);
 
-        /* Per-byte popcount */
-        uint8x16_t c0 = vcntq_u8(d0);
-        uint8x16_t c1 = vcntq_u8(d1);
-        uint8x16_t c2 = vcntq_u8(d2);
-        uint8x16_t c3 = vcntq_u8(d3);
-        uint8x16_t c4 = vcntq_u8(d4);
-        uint8x16_t c5 = vcntq_u8(d5);
-        uint8x16_t c6 = vcntq_u8(d6);
-        uint8x16_t c7 = vcntq_u8(d7);
+        long iters = count / 128;
+        if (iters > POPCOUNT_NEON_MAX_ITERS) iters = POPCOUNT_NEON_MAX_ITERS;
+        count -= iters * 128;
 
-        /* Pairwise widen-add with accumulation: u8 -> u16, stay in vectors */
-        acc0 = vpadalq_u8(acc0, c0);
-        acc1 = vpadalq_u8(acc1, c1);
-        acc2 = vpadalq_u8(acc2, c2);
-        acc3 = vpadalq_u8(acc3, c3);
+        while (iters--) {
+            uint8x16_t d0 = vld1q_u8(p +  0);
+            uint8x16_t d1 = vld1q_u8(p + 16);
+            uint8x16_t d2 = vld1q_u8(p + 32);
+            uint8x16_t d3 = vld1q_u8(p + 48);
+            uint8x16_t d4 = vld1q_u8(p + 64);
+            uint8x16_t d5 = vld1q_u8(p + 80);
+            uint8x16_t d6 = vld1q_u8(p + 96);
+            uint8x16_t d7 = vld1q_u8(p +112);
 
-        acc0 = vpadalq_u8(acc0, c4);
-        acc1 = vpadalq_u8(acc1, c5);
-        acc2 = vpadalq_u8(acc2, c6);
-        acc3 = vpadalq_u8(acc3, c7);
+            /* Per-byte popcount */
+            uint8x16_t c0 = vcntq_u8(d0);
+            uint8x16_t c1 = vcntq_u8(d1);
+            uint8x16_t c2 = vcntq_u8(d2);
+            uint8x16_t c3 = vcntq_u8(d3);
+            uint8x16_t c4 = vcntq_u8(d4);
+            uint8x16_t c5 = vcntq_u8(d5);
+            uint8x16_t c6 = vcntq_u8(d6);
+            uint8x16_t c7 = vcntq_u8(d7);
 
-        p += 128;
-        count -= 128;
+            /* Pairwise widen-add with accumulation: u8 -> u16, stay in vectors */
+            acc0 = vpadalq_u8(acc0, c0);
+            acc1 = vpadalq_u8(acc1, c1);
+            acc2 = vpadalq_u8(acc2, c2);
+            acc3 = vpadalq_u8(acc3, c3);
+
+            acc0 = vpadalq_u8(acc0, c4);
+            acc1 = vpadalq_u8(acc1, c5);
+            acc2 = vpadalq_u8(acc2, c6);
+            acc3 = vpadalq_u8(acc3, c7);
+
+            p += 128;
+        }
+
+        /* Reduce vector accumulators to scalar. */
+        uint32x4_t s0 = vpaddlq_u16(acc0);
+        uint32x4_t s1 = vpaddlq_u16(acc1);
+        uint32x4_t s2 = vpaddlq_u16(acc2);
+        uint32x4_t s3 = vpaddlq_u16(acc3);
+        uint32x4_t s01 = vaddq_u32(s0, s1);
+        uint32x4_t s23 = vaddq_u32(s2, s3);
+        uint32x4_t st = vaddq_u32(s01, s23);
+        uint64x2_t s64 = vpaddlq_u32(st);
+        bits += (long long)(vgetq_lane_u64(s64, 0) + vgetq_lane_u64(s64, 1));
     }
-
-    /* Reduce vector accumulators to scalar once. */
-    uint32x4_t s0 = vpaddlq_u16(acc0);
-    uint32x4_t s1 = vpaddlq_u16(acc1);
-    uint32x4_t s2 = vpaddlq_u16(acc2);
-    uint32x4_t s3 = vpaddlq_u16(acc3);
-    uint32x4_t s01 = vaddq_u32(s0, s1);
-    uint32x4_t s23 = vaddq_u32(s2, s3);
-    uint32x4_t st = vaddq_u32(s01, s23);
-    uint64x2_t s64 = vpaddlq_u32(st);
-    bits += (long long)(vgetq_lane_u64(s64, 0) + vgetq_lane_u64(s64, 1));
 
     /* Remaining 64B blocks (keep vector domain) */
     while (count >= 64) {
@@ -3040,6 +3052,52 @@ int bitopsTest(int argc, char **argv, int flags) {
 #else
     printf("AArch64 NEON not available\n");
 #endif
+    /* Large dense buffers: the NEON path used to wrap its 16-bit accumulators
+     * after 2048 iterations of 128 bytes. Check every compiled-in
+     * implementation at several sizes and misalignments. */
+    {
+        const size_t maxlen = 3000000;
+        const size_t lens[] = {1, 127, 128, 129, 131071, 131072, 131073,
+                               262144, 262144+16, 1048576, 3000000};
+        const int offs[] = {0, 1, 7, 15};
+        const unsigned char fills[] = {0xFF, 0xAA, 0x0F};
+        const int fillbits[] = {8, 4, 4};
+        unsigned char *buf = zmalloc(maxlen + 16);
+
+        for (size_t f = 0; f < sizeof(fills); f++) {
+            memset(buf, fills[f], maxlen + 16);
+            for (size_t l = 0; l < sizeof(lens)/sizeof(lens[0]); l++) {
+                for (size_t o = 0; o < sizeof(offs)/sizeof(offs[0]); o++) {
+                    long long want = (long long)lens[l] * fillbits[f];
+                    unsigned char *p = buf + offs[o];
+                    long long got[4];
+                    const char *name[4];
+                    int n = 0;
+                    name[n] = "generic"; got[n++] = redisPopcount(p, lens[l]);
+#ifdef HAVE_AVX2
+                    if (BITOP_USE_AVX2) { name[n] = "AVX2"; got[n++] = redisPopCountAvx2(p, lens[l]); }
+#endif
+#ifdef HAVE_AVX512
+                    if (BITOP_USE_AVX512) { name[n] = "AVX512"; got[n++] = redisPopCountAvx512(p, lens[l]); }
+#endif
+#ifdef HAVE_AARCH64_NEON
+                    name[n] = "NEON"; got[n++] = redisPopCountAarch64(p, lens[l]);
+#endif
+                    for (int i = 0; i < n; i++) {
+                        if (got[i] != want) {
+                            printf("FAIL: %s popcount of %zu bytes of 0x%02X at offset %d: %lld (expected: %lld)\n",
+                                   name[i], lens[l], fills[f], offs[o], got[i], want);
+                            zfree(buf);
+                            return 1;
+                        }
+                    }
+                }
+            }
+        }
+        zfree(buf);
+        printf("Large buffer popcount tests passed\n");
+    }
+
     printf("All popcount tests passed!\n");
     return 0;
 }
