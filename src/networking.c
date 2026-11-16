@@ -6154,14 +6154,23 @@ static inline void reclaimPendingCommand(client *c, pendingCommand *pcmd) {
                 pcmd->argv_len_sum = 0;
             }
 
-            /* Reset the pending command while preserving the argv array for shared pool reuse */
-            robj **argv = pcmd->argv;
-            int argv_len = pcmd->argv_len;
-            memset(pcmd, 0, sizeof(pendingCommand));
-            pcmd->argv = argv;
-            pcmd->argv_len = argv_len;
-            pcmd->kept = kept;
+            /* Reset the pending command for shared pool reuse, keeping its
+             * argv array. The fields are set one by one: this runs for every
+             * command, and a memset() of the whole struct costs more than these
+             * stores. keys_result.keysbuf and keys_result.size need no reset,
+             * preprocessCommand() initializes the result before using it. */
+            pcmd->argc = 0;
+            pcmd->argv_len_sum = 0;
+            pcmd->input_bytes = 0;
+            pcmd->cmd = NULL;
+            pcmd->keys_result.numkeys = 0;
+            pcmd->keys_result.keys = NULL;
+            pcmd->reploff = 0;
+            pcmd->flags = 0;
             pcmd->slot = INVALID_CLUSTER_SLOT;
+            pcmd->read_error = 0;
+            pcmd->kept = kept;
+            pcmd->next = pcmd->prev = NULL;
 
             pushPendingCommandToPool(pcmd);
             return; /* Successfully added to shared pool for reuse */

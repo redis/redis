@@ -2964,6 +2964,8 @@ enum {
 };
 
 /* Parser state and parse result of a command from a client's input buffer. */
+/* Note: reclaimPendingCommand() resets a pooled command field by field, so a
+ * new field must be reset there as well. */
 struct pendingCommand {
     int argc;                 /* Num of arguments of current command. */
     int argv_len;             /* Size of argv array (may be more than argc) */
