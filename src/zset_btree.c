@@ -3333,7 +3333,7 @@ zbtScoreLeaf *zbtIndexFirstCandidate(zbtreeSet *zs, zbtIndexTable *table,
  * candidate is not conclusive gets a normal lookup, and so does every member
  * while the index is being resized. */
 unsigned int zbtreeScoresRawWithHash(zbtreeSet *zs, const uint32_t *hashes,
-                                     const unsigned char **eles,
+                                     const unsigned char **ptrs,
                                      const size_t *lens, unsigned int count,
                                      unsigned int want, double *scores)
 {
@@ -3344,7 +3344,7 @@ unsigned int zbtreeScoresRawWithHash(zbtreeSet *zs, const uint32_t *hashes,
     if (zs->member_rehash || table->size == 0) {
         for (unsigned int i = 0; i < count; i++) {
             if ((want & (1U << i)) &&
-                zbtIndexFind(zs, hashes[i], eles[i], lens[i],
+                zbtIndexFind(zs, hashes[i], ptrs[i], lens[i],
                              scores ? &scores[i] : NULL,
                              NULL, NULL, NULL, NULL))
                 found |= 1U << i;
@@ -3371,7 +3371,7 @@ unsigned int zbtreeScoresRawWithHash(zbtreeSet *zs, const uint32_t *hashes,
     for (unsigned int i = 0; i < count; i++) {
         double *score = scores ? &scores[i] : NULL;
         if (leaf[i]) {
-            if (zbtScoreLeafFindMember(leaf[i], hashes[i], eles[i], lens[i],
+            if (zbtScoreLeafFindMember(leaf[i], hashes[i], ptrs[i], lens[i],
                                        score, NULL))
             {
                 found |= 1U << i;
@@ -3380,7 +3380,7 @@ unsigned int zbtreeScoresRawWithHash(zbtreeSet *zs, const uint32_t *hashes,
             slow |= 1U << i;
         }
         if ((slow & (1U << i)) &&
-            zbtIndexFind(zs, hashes[i], eles[i], lens[i], score,
+            zbtIndexFind(zs, hashes[i], ptrs[i], lens[i], score,
                          NULL, NULL, NULL, NULL))
             found |= 1U << i;
     }
@@ -6341,7 +6341,7 @@ int zsetBtreeTest(int argc, char **argv, int flags) {
             if (step % 5) continue;
 
             uint32_t hashes[ZBT_SCORE_BATCH_SIZE];
-            const unsigned char *eles[ZBT_SCORE_BATCH_SIZE];
+            const unsigned char *ptrs[ZBT_SCORE_BATCH_SIZE];
             size_t lens[ZBT_SCORE_BATCH_SIZE];
             double scores[ZBT_SCORE_BATCH_SIZE];
             unsigned int count = zbtTestRand(&r) % (ZBT_SCORE_BATCH_SIZE + 1);
@@ -6349,19 +6349,19 @@ int zsetBtreeTest(int argc, char **argv, int flags) {
             for (unsigned int k = 0; k < count; k++) {
                 int m = zbtTestRand(&r) % (N + N / 4); /* Some never exist. */
                 lens[k] = zbtTestMember(bufs[k], m, m % 7 == 0 ? 200 : m % 40);
-                eles[k] = (unsigned char *)bufs[k];
-                hashes[k] = zbtreeMemberHash(eles[k], lens[k]);
+                ptrs[k] = (unsigned char *)bufs[k];
+                hashes[k] = zbtreeMemberHash(ptrs[k], lens[k]);
                 scores[k] = -1;
             }
             if (zs->member_rehash) resizing++; else stable++;
             int with_scores = zbtTestRand(&r) % 2;
-            unsigned int found = zbtreeScoresRawWithHash(zs, hashes, eles,
+            unsigned int found = zbtreeScoresRawWithHash(zs, hashes, ptrs,
                 lens, count, want, with_scores ? scores : NULL);
             ok = ok && (found & ~want) == 0;
             for (unsigned int k = 0; k < count && ok; k++) {
                 if (!(want & (1U << k))) continue;
                 double score = -1;
-                int exists = zbtreeScoreRaw(zs, eles[k], lens[k], &score);
+                int exists = zbtreeScoreRaw(zs, ptrs[k], lens[k], &score);
                 ok = exists == !!(found & (1U << k)) &&
                      (!with_scores || scores[k] == score);
                 if (exists) hits++; else misses++;

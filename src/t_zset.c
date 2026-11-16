@@ -3429,7 +3429,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
              * loop below does for a single member. */
             zsetopval batch[ZINTER_BATCH];
             uint32_t hashes[ZINTER_BATCH];
-            const unsigned char *eles[ZINTER_BATCH];
+            const unsigned char *ptrs[ZINTER_BATCH];
             size_t lens[ZINTER_BATCH];
             double scores[ZINTER_BATCH] = {0}, values[ZINTER_BATCH] = {0};
             src[0].noscore = cardinality_only;
@@ -3443,7 +3443,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                     room = (unsigned long)limit - cardinality;
                 while (n < room && zuiNext(&src[0], &batch[n])) {
                     hashes[n] = zuiMemberHash(&batch[n]);
-                    eles[n] = batch[n].estr;
+                    ptrs[n] = batch[n].estr;
                     lens[n] = batch[n].elen;
                     if (!cardinality_only) {
                         scores[n] = zuiWeightedScore(batch[n].score,
@@ -3456,7 +3456,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                 unsigned int alive = n ? (1U << n) - 1 : 0;
                 for (j = 1; j < setnum && alive; j++) {
                     alive = zbtreeScoresRawWithHash(src[j].subject->ptr,
-                                hashes, eles, lens, n, alive,
+                                hashes, ptrs, lens, n, alive,
                                 cardinality_only ? NULL : values);
                     if (cardinality_only) continue;
                     for (unsigned int k = 0; k < n; k++) {

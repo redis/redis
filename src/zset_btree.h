@@ -93,7 +93,7 @@ unsigned int zbtreeScores(zbtreeSet *zs, const sds *members, unsigned int count,
  * 'scores' may be NULL to test membership. The members must not point into
  * 'zs' itself. */
 unsigned int zbtreeScoresRawWithHash(zbtreeSet *zs, const uint32_t *hashes,
-                                     const unsigned char **eles,
+                                     const unsigned char **ptrs,
                                      const size_t *lens, unsigned int count,
                                      unsigned int want, double *scores);
 int zbtreeFindForAdd(zbtreeSet *zs, sds ele, double *score,
