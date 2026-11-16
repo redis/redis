@@ -4047,10 +4047,11 @@ int processInputBuffer(client *c) {
         if (parse_more && c->running_tid == IOTHREAD_MAIN_THREAD_ID &&
             c->pending_cmds.ready_len > 1)
         {
-            /* Prefetch the commands. */
+            /* Prefetch the keys of the commands. Their arguments were parsed
+             * right above, by this thread. */
             resetCommandsBatch();
             addCommandToBatch(c);
-            prefetchCommands();
+            prefetchCommands(0);
         }
 
         /* Check if the client has a fatal read error that requires stopping processing. */

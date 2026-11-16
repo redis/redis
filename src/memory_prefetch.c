@@ -420,12 +420,15 @@ int determinePrefetchCount(int len) {
  *    closer to the L1 cache.
  * 2. Prefetch the io_deferred_objects for all clients.
  * 3. Prefetch the keys and values for all commands in the current batch from
- *    the main dictionaries. */
-void prefetchCommands(void) {
+ *    the main dictionaries.
+ *
+ * 'prefetch_argv' is 0 when the calling thread has just parsed the commands
+ * itself: their arguments are in its cache already, and step 1 is skipped. */
+void prefetchCommands(int prefetch_argv) {
     if (!batch || server.loading) return;
 
     /* Prefetch argv's for all pending commands */
-    for (size_t i = 0; i < batch->pcmd_count; i++) {
+    for (size_t i = 0; prefetch_argv && i < batch->pcmd_count; i++) {
         pendingCommand *pcmd = batch->pending_cmds[i];
         if (unlikely(pcmd->argc <= 0)) continue;
         for (int j = 0; j < pcmd->argc; j++) {
@@ -434,7 +437,7 @@ void prefetchCommands(void) {
     }
 
     /* Prefetch the argv->ptr if required */
-    for (size_t i = 0; i < batch->pcmd_count; i++) {
+    for (size_t i = 0; prefetch_argv && i < batch->pcmd_count; i++) {
         pendingCommand *pcmd = batch->pending_cmds[i];
         if (unlikely(pcmd->argc <= 1)) continue;
         /* Skip the first argument (command name), as it's typically short */
