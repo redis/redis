@@ -765,7 +765,9 @@ static void streamUpdateStreamSamples(redisDb *db, stream *s, int adding) {
     /* Max-lag row: a stream that appears enrols every group in its heap at
      * once (an O(n) build), then enters its sample. One that leaves drops the
      * sample and keeps the heap, which freeStream() or a later appearance
-     * disposes of. Streams over the member cap keep no heap. */
+     * disposes of. A heap of an older generation is gone by now: the wrapper
+     * above freed it, which is why streamKeyRemoved() posts a size change.
+     * Streams over the member cap keep no heap. */
     streamLagState *ls = streamLagStateOf(s);
     int build = adding && raxSize(s->cgroups) <= streamLagMaxMembers();
     if (adding) {
@@ -7251,8 +7253,13 @@ void streamKeyLoaded(redisDb *db, robj *key, robj *val) {
 /* To be used when a stream key was removed from ram, un-register from stream_idmp_keys if needed */
 void streamKeyRemoved(redisDb *db, robj *key, robj *val) {
     /* Drop every histogram sample this stream holds, its own and its groups'
-     * (mirror of streamKeyLoaded). */
+     * (mirror of streamKeyLoaded). That frees a lag heap left from an older
+     * generation. The callers read the key's size only after this hook, to
+     * take it out of its slot, so the difference is posted here. */
+    size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(val) : 0;
     streamUpdateStreamSamples(db, val->ptr, 0);
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(db, getKeySlot(key->ptr), val, old_alloc, kvobjAllocSize(val));
     dictDelete(db->stream_idmp_keys, key);
 }
 

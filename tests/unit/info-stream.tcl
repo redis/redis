@@ -1859,3 +1859,150 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats yes}}
         assert_equal 8 [r debug stream-stats-lag-groups-limit]
     }
 }
+
+# Slot allocation sizes while a lag heap comes and goes. Memory tracking can
+# only be enabled at startup, so these tests have a server of their own.
+start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats yes key-memory-histograms yes}} {
+    r select 0
+    # After every command, check each slot's allocation size and the
+    # allocation-size histogram against a scan of the keyspace. The server
+    # panics if they differ. That is the check these tests rely on, so
+    # most of their commands have no assert after them.
+    r debug allocsize-slots-assert 1
+
+    test "STREAM-STATS - slot sizes follow the lag heap as commands grow, re-sort and free it" {
+        r flushall
+        seed_stream r st 10
+        # The heap appears with the first group and grows as more join.
+        for {set i 1} {$i <= 9} {incr i} { r xgroup create st g$i 0 entriesread $i }
+        # Now the group commands, with all nine groups already in the heap.
+        # The heap's size does not change in this part, and the slot's size
+        # must stay right after each command. XREADGROUP and XGROUP SETID
+        # change a group's read count, which is the group's key in the
+        # heap. The other commands leave the read counts alone. XGROUP
+        # DESTROY takes g9 out of the heap.
+        r xreadgroup group g1 c count 3 streams st >
+        r xack st g1 2-1
+        r xclaim st g1 c2 0 3-1
+        r xautoclaim st g1 c3 0 0-0 count 1
+        r xnack st g1 fail ids 1 1-1
+        r xackdel st g1 delref ids 1 3-1
+        r xgroup setid st g2 0 entriesread 0
+        r xgroup createconsumer st g3 c
+        r xgroup delconsumer st g3 c
+        r xgroup destroy st g9
+        # Stream commands move the sample and leave the heap alone. The last
+        # XSETID lowers g3's read count from 20 to 12, which re-sorts g3.
+        r xadd st 11-1 f v
+        r xdel st 5-1
+        r xtrim st maxlen 8
+        r xsetid st 11-1 entriesadded 20
+        r xgroup setid st g3 0 entriesread 20
+        r xsetid st 11-1 entriesadded 12
+        check_lag_full r 0
+
+        # In a new generation, the first command that refreshes the stream's
+        # stamp frees the heap of the old one. XDELEX DELREF frees it too,
+        # although it deletes nothing here. Each command takes its turn on a
+        # stream with two groups, where g1 has a pending entry that was
+        # deleted from the stream.
+        foreach first {
+            {r xack st g1 0-1}
+            {r xreadgroup group g2 c count 1 streams st >}
+            {r xclaim st g1 c2 0 1-1}
+            {r xautoclaim st g1 c2 0 0-0 count 1}
+            {r xackdel st g1 delref ids 1 1-1}
+            {r xnack st g1 fail ids 1 1-1}
+            {r xgroup setid st g2 0 entriesread 9}
+            {r xgroup createconsumer st g2 c2}
+            {r xgroup create st g3 0 entriesread 0}
+            {r xgroup destroy st g2}
+            {r xdel st 10-1}
+            {r xdelex st delref ids 1 1-1}
+            {r xtrim st maxlen 5}
+            {r xadd st maxlen 5 11-1 f v}
+            {r xsetid st 10-1 entriesadded 30}
+        } {
+            r flushall
+            seed_stream r st 10
+            r xgroup create st g1 0 entriesread 0
+            r xgroup create st g2 0 entriesread 5
+            r xreadgroup group g1 c count 1 streams st >
+            assert_equal 1 [r xdel st 1-1]
+            assert_equal "db0_stream_distrib_streams_max_lag:8=1" [get_info_stream_field r stream_distrib_streams_max_lag]
+            set size_with_heap [r memory usage st]
+            new_stream_stats_generation r
+            # The old heap is still there: the stream has no sample in the
+            # new rows yet, and its size has not changed.
+            assert_equal "" [get_info_stream_field r stream_distrib_streams_max_lag]
+            assert_equal $size_with_heap [r memory usage st]
+            eval $first
+            assert_equal PONG [r ping]
+            # The command freed the old heap. With every group back in a
+            # heap, the validator accepts the stream.
+            foreach g [r xinfo groups st] { r xack st [dict get $g name] 0-1 }
+            check_lag_full r 0
+        }
+
+        # Two commands that free a heap while stats are off. The first is a
+        # group command. The XACK acks nothing, and it still frees the heap
+        # that holds g1 and g2. The XDEL is there for the XSETID further
+        # down, which cannot set entries_added below the stream's length.
+        r flushall
+        seed_stream r st 10
+        r xgroup create st g1 0 entriesread 0
+        r xgroup create st g2 0 entriesread 10
+        assert_equal 1 [r xdel st 1-1]
+        set with_heap [r memory usage st]
+        r config set stream-stats no
+        r xack st g1 0-1
+        set without_heap [r memory usage st]
+        assert {$without_heap < $with_heap}
+        # With stats back on, an XACK on each group puts it in a second heap.
+        r config set stream-stats yes
+        foreach g {g1 g2} { r xack st $g 0-1 }
+        assert {[r memory usage st] > $without_heap}
+        # The second is an XSETID that lowers g2's read count from 10 to 9.
+        # It frees the second heap.
+        r config set stream-stats no
+        r xsetid st 10-1 entriesadded 9
+        assert_equal $without_heap [r memory usage st]
+        # With stats back on, an XACK on each group puts it in a third heap,
+        # and the row has the stream's sample again.
+        r config set stream-stats yes
+        foreach g {g1 g2} { r xack st $g 0-1 }
+        assert {[r memory usage st] > $without_heap}
+        assert_equal "db0_stream_distrib_streams_max_lag:8=1" [get_info_stream_field r stream_distrib_streams_max_lag]
+        check_lag_full r 0
+    }
+
+    test "STREAM-STATS - slot sizes: removing a key frees the lag heap of an older generation" {
+        foreach remove {
+            {r del st}
+            {r unlink st}
+            {r set st x}
+            {r pexpire st 1; after 20; r exists st}
+            {r rename st st2}
+            {r move st 9}
+        } {
+            r flushall
+            # A stream whose lag heap holds two groups.
+            seed_stream r st 10
+            r xgroup create st g1 0 entriesread 0
+            r xgroup create st g2 0 entriesread 5
+            assert_equal "db0_stream_distrib_streams_max_lag:8=1" [get_info_stream_field r stream_distrib_streams_max_lag]
+            set size [r memory usage st]
+            # A new generation. The stream is not touched in it, so it still
+            # has the heap of the old one: the stream has no sample in the
+            # new rows yet, and its size has not changed.
+            new_stream_stats_generation r
+            assert_equal "" [get_info_stream_field r stream_distrib_streams_max_lag]
+            assert_equal $size [r memory usage st]
+            # Removing the key drops its samples, which frees that heap. The
+            # key's size is taken out of its slot only after that.
+            eval $remove
+            assert_equal PONG [r ping]
+            assert {[r type st] ne "stream"}
+        }
+    }
+}
