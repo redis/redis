@@ -823,7 +823,7 @@ int iheapTest(int argc, char *argv[], int flags) {
         testModelInit(&m, n);
         iheap *h = iheapNew(&testType, 1);
         testRngState = 4096;
-        int moved = 0, grows = 0;
+        int grows = 0;
         ok = 1;
         for (uint32_t i = 0; i < n && ok; i++) {
             iheap *before = h;
@@ -832,8 +832,10 @@ int iheapTest(int argc, char *argv[], int flags) {
             uint64_t key = testRandBelow(1 << 20);
             iheapInsert(&h, key, testModelAdd(&m, key));
             if (full) {
+                /* A growth may move the array or extend it in place: that
+                 * is up to the allocator. If it moved, h must be the new
+                 * array, which testCheck() below reads. */
                 grows++;
-                if (h != before) moved = 1;
                 ok = h->capacity > capacity;
             } else {
                 ok = h == before && h->capacity == capacity;
@@ -841,10 +843,8 @@ int iheapTest(int argc, char *argv[], int flags) {
             ok = ok && testCheck(h, &m);
         }
         /* Doubling from 1 reaches n in 'doublings' steps; allocator slack
-         * can only make that fewer. The array must have moved at least
-         * once. */
-        ok = ok && grows >= 1 && grows <= doublings && moved &&
-             h->capacity >= n;
+         * can only make that fewer. */
+        ok = ok && grows >= 1 && grows <= doublings && h->capacity >= n;
         test_cond("growth keeps every slot right and tracks *h", ok);
         iheapFree(h);
         testModelFree(&m);
