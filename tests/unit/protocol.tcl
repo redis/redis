@@ -413,6 +413,36 @@ start_server {tags {"protocol network"}} {
         $rd close
     }
 
+    test "Wide pipelined commands are parsed correctly and keep what they retain" {
+        # Commands with 64 arguments or more are pooled too, with their
+        # arguments recycled. 600 keys is past the size of a pooled argv array.
+        foreach nkeys {40 70 200 600} {
+            set proto ""
+            set expected {}
+            for {set i 0} {$i < 12} {incr i} {
+                set kv {}
+                set keys {}
+                set vals {}
+                for {set j 0} {$j < $nkeys} {incr j} {
+                    # The same lengths in every round, with different bytes.
+                    set val [format "%04d:%04d" $i $j]
+                    lappend kv "wide:$j" $val
+                    lappend keys "wide:$j"
+                    lappend vals $val
+                }
+                append proto [formatCommand mset {*}$kv]
+                append proto [formatCommand exists {*}$keys]
+                append proto [formatCommand mget {*}$keys]
+                lappend expected OK $nkeys $vals
+            }
+            r write $proto
+            r flush
+            set got {}
+            foreach _ $expected {lappend got [r read]}
+            assert_equal $expected $got
+        }
+    }
+
     test "Command split inside its multibulk and bulk length lines" {
         r write "*"
         r flush

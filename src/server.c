@@ -3284,6 +3284,7 @@ void initServer(void) {
     server.cmd_pool.pool = zmalloc(sizeof(pendingCommand*) * PENDING_COMMAND_POOL_SIZE);
     server.cmd_pool.min_size = 0;
     server.cmd_pool.kept = 0;
+    server.cmd_pool.slots = 0;
 
     /* Create the timer callback, this is our way to process many background
      * operations incrementally, like clients timeout, eviction of unaccessed

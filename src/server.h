@@ -1445,12 +1445,19 @@ typedef struct pendingCommandList {
  * busy pipelined workload (e.g. 50 clients sending 63-argument commands keep
  * about 60 commands, 3800 objects, in circulation). */
 #define PENDING_COMMAND_POOL_MAX_KEPT (PENDING_COMMAND_POOL_MAX_SIZE * 16)
+/* A pooled command keeps its argv array. Commands with an array of more than
+ * PENDING_COMMAND_POOL_MAX_ARGV slots are not pooled, and the arrays of all
+ * pooled commands together hold PENDING_COMMAND_POOL_MAX_SLOTS slots (512KB)
+ * at most. */
+#define PENDING_COMMAND_POOL_MAX_ARGV 1024
+#define PENDING_COMMAND_POOL_MAX_SLOTS (PENDING_COMMAND_POOL_MAX_SIZE * 64)
 typedef struct pendingCommandPool {
     pendingCommand **pool;  /* Pool array for reusing pendingCommand objects */
     int size;               /* Current number of objects in pool */
     int capacity;           /* Current capacity of the pool array */
     int min_size;           /* Minimum size since last check (indicates peak usage) */
     int kept;               /* Sum of 'kept' over the pooled commands */
+    int slots;              /* Sum of 'argv_len' over the pooled commands */
 } pendingCommandPool;
 
 typedef enum {

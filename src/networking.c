@@ -6050,6 +6050,7 @@ static pendingCommand *acquirePendingCommand(void) {
         pcmd = server.cmd_pool.pool[--server.cmd_pool.size];
         server.cmd_pool.pool[server.cmd_pool.size] = NULL;
         server.cmd_pool.kept -= pcmd->kept;
+        server.cmd_pool.slots -= pcmd->argv_len;
 
         /* Track minimum pool size for utilization calculation */
         if (server.cmd_pool.size < server.cmd_pool.min_size)
@@ -6085,14 +6086,23 @@ static int tryExpandPendingCommandPool(void) {
     return 1; /* Expansion succeeded */
 }
 
-/* Add a reset 'pcmd' to the pool, which tryExpandPendingCommandPool() made room
- * for. The recycled argv objects of all pooled commands are not owned by any
- * client, so their number is capped by PENDING_COMMAND_POOL_MAX_KEPT: past it
- * this command's are freed. */
+/* Whether a command with an argv array of 'argv_len' slots may go to the pool:
+ * a pooled command keeps its array, so the size of one array and the slots of
+ * all pooled arrays together are capped. */
+static inline int pendingCommandFitsPool(int argv_len) {
+    return argv_len <= PENDING_COMMAND_POOL_MAX_ARGV &&
+           server.cmd_pool.slots + argv_len <= PENDING_COMMAND_POOL_MAX_SLOTS;
+}
+
+/* Add a reset 'pcmd' to the pool. The caller checked pendingCommandFitsPool()
+ * and tryExpandPendingCommandPool() made room for it. The recycled argv objects
+ * of all pooled commands are not owned by any client, so their number is capped
+ * by PENDING_COMMAND_POOL_MAX_KEPT: past it this command's are freed. */
 static inline void pushPendingCommandToPool(pendingCommand *pcmd) {
     if (server.cmd_pool.kept + pcmd->kept > PENDING_COMMAND_POOL_MAX_KEPT)
         pcmdDropKept(pcmd, 0);
     server.cmd_pool.kept += pcmd->kept;
+    server.cmd_pool.slots += pcmd->argv_len;
     server.cmd_pool.pool[server.cmd_pool.size++] = pcmd;
 }
 
@@ -6101,7 +6111,8 @@ static inline void pushPendingCommandToPool(pendingCommand *pcmd) {
  * so it goes back to the pool with its recycled argv objects. */
 static void releaseUnusedPendingCommand(client *c, pendingCommand *pcmd) {
     serverAssert(pcmd->argc == 0 && pcmd->argv_len_sum == 0);
-    if (!server.io_threads_active && tryExpandPendingCommandPool())
+    if (!server.io_threads_active && pendingCommandFitsPool(pcmd->argv_len) &&
+        tryExpandPendingCommandPool())
         pushPendingCommandToPool(pcmd);
     else
         freePendingCommand(c, pcmd);
@@ -6114,7 +6125,7 @@ static void releaseUnusedPendingCommand(client *c, pendingCommand *pcmd) {
 static inline void reclaimPendingCommand(client *c, pendingCommand *pcmd) {
     if (!server.io_threads_active) {
         /* Try to add to shared pool for reuse if argv isn't too large */
-        if (likely(pcmd->argv_len < 64)) {
+        if (likely(pendingCommandFitsPool(pcmd->argv_len))) {
             /* Check if pool needs expansion before attempting to add */
             if (!tryExpandPendingCommandPool()) {
                 /* Pool is at maximum capacity, can't expand further */
@@ -6300,6 +6311,7 @@ void shrinkPendingCommandPool(void) {
         pendingCommand *cmd = server.cmd_pool.pool[--server.cmd_pool.size];
         if (cmd) {
             server.cmd_pool.kept -= cmd->kept;
+            server.cmd_pool.slots -= cmd->argv_len;
             freePendingCommand(NULL, cmd);
             server.cmd_pool.pool[server.cmd_pool.size] = NULL;
         }
