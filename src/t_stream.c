@@ -399,7 +399,19 @@ static void streamStatsReenterStructural(redisDb *db, stream *s, streamCG *cg) {
 /* The number of groups above which a stream has no sample. It is the range
  * of the slot, unless DEBUG STREAM-STATS-LAG-GROUPS-LIMIT lowered it for a
  * test. Atomic because the background slot trim reads it on the BIO thread,
- * through streamLagSample(). */
+ * through streamLagSample().
+ *
+ * The limit counts the stream's groups, and going over it removes nothing
+ * from the heap. A stream that XGROUP CREATE takes over the limit keeps its
+ * heap and the members in it. While it is over the limit it has no sample
+ * and no further group joins, but group commands still re-sort the members.
+ * When XGROUP DESTROY brings the stream back to the limit, the sample
+ * returns at once, computed from the members as they are then. A group
+ * created meanwhile joins on its first group command after that.
+ *
+ * A stream that enters the keyspace already over the limit, as on a load or
+ * RESTORE, gets no heap. Once it is back at the limit, its groups join one
+ * by one, each on its next group command. */
 static redisAtomic uint32_t stream_lag_max_members = STREAM_LAG_MAX_MEMBERS;
 
 static inline uint32_t streamLagMaxMembers(void) {
@@ -767,7 +779,8 @@ static void streamUpdateStreamSamples(redisDb *db, stream *s, int adding) {
      * sample and keeps the heap, which freeStream() or a later appearance
      * disposes of. A heap of an older generation is gone by now: the wrapper
      * above freed it, which is why streamKeyRemoved() posts a size change.
-     * Streams over the member cap keep no heap. */
+     * A stream that appears over the group limit gets no heap: see
+     * stream_lag_max_members. */
     streamLagState *ls = streamLagStateOf(s);
     int build = adding && raxSize(s->cgroups) <= streamLagMaxMembers();
     if (adding) {
