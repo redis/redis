@@ -3655,7 +3655,11 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
                 robj *o = NULL;
                 if (pcmd->argc < pcmd->kept && (o = pcmd->argv[pcmd->argc]) != NULL) {
                     sds s = o->ptr;
-                    size_t alloc = sdsalloc(s);
+                    /* An EMBSTR always has a TYPE_8 sds header: use it directly,
+                     * sdsalloc() and sdssetlen() dispatch on the header type. */
+                    struct sdshdr8 *sh = SDS_HDR(8, s);
+                    debugServerAssert(sdsType(s) == SDS_TYPE_8);
+                    size_t alloc = sh->alloc;
                     /* Recycled EMBSTR with refcount 1: overwrite it in place if
                      * the argument fits and needs the same allocator size class
                      * (the EMBSTR classes are 16 bytes apart), so that a short
@@ -3663,7 +3667,7 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
                     if ((size_t)c->bulklen <= alloc && alloc - c->bulklen < 16) {
                         memcpy(s, c->querybuf+c->qb_pos, c->bulklen);
                         s[c->bulklen] = '\0';
-                        sdssetlen(s, c->bulklen);
+                        sh->len = c->bulklen;
                         /* A value argument may have taken an LRU/LFU stamp
                          * (e.g. dbSetValue() copies the old key's lru into it).
                          * metabits are only set on kvobjs, which are never kept. */
