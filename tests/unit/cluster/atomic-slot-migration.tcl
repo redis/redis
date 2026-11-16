@@ -231,6 +231,16 @@ proc stream_cgroups_hist {node_id metric {dbnum 0}} {
 proc stream_pel_hist {node_id {dbnum 0}} { return [stream_cgroups_hist $node_id stream_distrib_cgroups_pel $dbnum] }
 # The per-stream max-lag row, read the same way.
 proc stream_lag_hist {node_id {dbnum 0}} { return [stream_cgroups_hist $node_id stream_distrib_streams_max_lag $dbnum] }
+# Start a new generation of the INFO streams histograms on a node that owns
+# slot 101. An enable does that only if a stream changed while stats were
+# off, so one is created and deleted there.
+proc stream_stats_new_generation {node_id} {
+    set tick [slot_key 101 tick]
+    R $node_id config set stream-stats no
+    R $node_id xadd $tick * f v
+    R $node_id del $tick
+    R $node_id config set stream-stats yes
+}
 
 start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 60000 cluster-allow-replica-migration no}} {
     foreach trim_method {"active" "bg"} {
@@ -1844,6 +1854,85 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # cleanup
         R 0 CLUSTER MIGRATION IMPORT 0 100
         wait_for_asm_done
+    }
+}
+
+# The wrap of the generation counter and a background trim. It has a cluster
+# of its own: a wrap is recorded for the life of the process.
+start_cluster 2 0 {tags {external:skip cluster} overrides {cluster-node-timeout 60000 cluster-allow-replica-migration no}} {
+    test "Slot bg-trim after a generation wrap does not take the stream_distrib histograms below zero" {
+        R 0 debug asm-trim-method bg
+        R 0 config set stream-stats yes
+
+        # Generation A. The counter's value before a reset decides the number
+        # the node's database gets, so setting it to base again later brings
+        # the database back to this number.
+        set base [expr {[R 0 debug stream-stats-generation] + 1000}]
+        R 0 debug stream-stats-generation $base
+        stream_stats_new_generation 0
+        set epoch_a [R 0 debug stream-stats-epoch]
+
+        # A stream in slot 0 with one group that has read 1 of 4 entries.
+        set old [slot_key 0 strm]
+        for {set i 1} {$i <= 4} {incr i} { R 0 xadd $old $i-1 f v }
+        R 0 xgroup create $old g 0 entriesread 1
+        assert_equal "1=1" [stream_cgroups_hist 0 stream_distrib_streams_cgroups]
+        assert_equal "2=1" [stream_lag_hist 0]
+        assert_equal "0=1" [stream_pel_hist 0]
+        assert_equal "0=1" [stream_cgroups_hist 0 stream_distrib_cgroups_consumers]
+
+        # Another generation, then the wrap, then generation A's number
+        # again. The stream is not touched meanwhile, so its stamp and its
+        # group's pass as current. They claim four samples, and the rows,
+        # zeroed by every reset, hold none of them.
+        R 0 debug stream-stats-generation [expr {$base + 100}]
+        stream_stats_new_generation 0
+        R 0 debug stream-stats-generation 4294967294
+        stream_stats_new_generation 0
+        assert_equal 1 [R 0 debug stream-stats-generation]
+        R 0 debug stream-stats-generation $base
+        stream_stats_new_generation 0
+        assert_equal $epoch_a [R 0 debug stream-stats-epoch]
+        foreach row {streams_cgroups streams_max_lag cgroups_pel cgroups_consumers} {
+            assert_equal "" [stream_cgroups_hist 0 stream_distrib_$row]
+        }
+
+        # Two streams of this generation, whose samples are in the rows. One
+        # is in slot 1 and leaves with the trim. The other is in slot 101 and
+        # stays. Every group reads 'read' entries with a consumer of its own:
+        #   key   groups  entries  read -> PEL  lag
+        #   gone  2       8        2       2    6
+        #   kept  3       16       8       8    8
+        # Their bins in the groups, lag, PEL and consumers rows are 2, 4, 2
+        # and 1 for 'gone' and 2, 8, 8 and 1 for 'kept'. The old stream's are
+        # 1, 2, 0 and 0, so in no row does it share a bin with them.
+        set gone [slot_key 1 strm]
+        set kept [slot_key 101 strm]
+        foreach {key groups n read} [list $gone 2 8 2 $kept 3 16 8] {
+            for {set i 1} {$i <= $n} {incr i} { R 0 xadd $key $i-1 f v }
+            for {set g 1} {$g <= $groups} {incr g} {
+                R 0 xgroup create $key g$g 0
+                R 0 xreadgroup group g$g c count $read streams $key >
+            }
+        }
+        assert_equal "2=2" [stream_cgroups_hist 0 stream_distrib_streams_cgroups]
+        assert_equal "4=1,8=1" [stream_lag_hist 0]
+        assert_equal "2=2,8=3" [stream_pel_hist 0]
+        assert_equal "1=5" [stream_cgroups_hist 0 stream_distrib_cgroups_consumers]
+
+        # The trim tallies the old stream's four samples too, since its
+        # stamps say the rows hold them. Their bins are empty and must stay
+        # empty. The slot-1 stream's samples leave, the slot-101 ones stay.
+        R 1 CLUSTER MIGRATION IMPORT 0 100
+        wait_for_asm_done
+        wait_for_condition 1000 50 {
+            [stream_cgroups_hist 0 stream_distrib_streams_cgroups] eq "2=1" &&
+            [stream_lag_hist 0] eq "8=1" &&
+            [stream_pel_hist 0] eq "8=3" &&
+            [stream_cgroups_hist 0 stream_distrib_cgroups_consumers] eq "1=3"
+        } else {
+            fail "R0 histograms after the trim: [R 0 info streams]"
+        }
     }
 }
 

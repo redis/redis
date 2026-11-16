@@ -2574,6 +2574,21 @@ void streamTallyStreamSamples(stream *s, streamStatsHist tally, uint32_t only_ep
     raxStop(&ri);
 }
 
+/* Take the tally of a background slot trim out of the rows of 'meta'. The
+ * tally holds only samples whose stamp says the row holds them, so every bin
+ * has at least what it loses. After a wrap a stamp can claim a sample its row
+ * never held. Such a bin is emptied and not driven below zero, which is what
+ * streamUpdateStat() does for one sample. */
+void streamStatsSubtractTally(kvstoreMetadata *meta, streamStatsHist tally) {
+    for (int m = 0; m < STREAM_DISTRIB_MAX; m++) {
+        for (int bin = 0; bin < MAX_KEYSIZES_BINS; bin++) {
+            int64_t *live = &meta->stream_hist[m][bin];
+            debugServerAssert(*live >= tally[m][bin] || stream_stats_wrapped);
+            *live = (*live >= tally[m][bin]) ? *live - tally[m][bin] : 0;
+        }
+    }
+}
+
 /* This function returns a value that is the ID's logical read counter, or its
  * distance (the number of entries) from the first entry ever to have been added
  * to the stream.

@@ -260,6 +260,7 @@ int streamEntryExists(stream *s, streamID *id);
 void streamKeyLoaded(redisDb *db, robj *key, robj *val);
 void streamKeyRemoved(redisDb *db, robj *key, robj *val);
 void streamTallyStreamSamples(stream *s, streamStatsHist tally, uint32_t only_epoch);
+void streamStatsSubtractTally(kvstoreMetadata *meta, streamStatsHist tally);
 extern const char *const streamDistribMetricNames[STREAM_DISTRIB_MAX];
 void streamStatsResetMeta(kvstoreMetadata *meta);
 void streamStatsRebuild(void);
