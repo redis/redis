@@ -157,9 +157,10 @@ remain:
 }
 
 #ifdef HAVE_AARCH64_NEON
-/* Max 128B iterations between reductions of the u16 NEON accumulators.
- * Each lane gains at most 32 per iteration (2 x vpadalq of at most 16), so it
- * would wrap at 65536/32 = 2048 iterations. 1024 leaves a 2x margin. */
+/* Max number of 128-byte iterations between reductions of the u16 NEON
+ * accumulators. Each lane gains at most 32 per iteration (2 x vpadalq of at
+ * most 16), so it would wrap at 65536/32 = 2048 iterations on all-ones data.
+ * 1024 leaves a 2x margin. */
 #define POPCOUNT_NEON_MAX_ITERS 1024
 
 /* AArch64 optimized popcount implementation.
@@ -2988,117 +2989,90 @@ void bitfieldroCommand(client *c) {
 }
 
 #ifdef REDIS_TEST
+#include "testhelp.h"
+
+typedef long long (*popcountFn)(void *s, long count);
+#define POPCOUNT_TEST_MAX_IMPLS 4
+
+/* Fill names/fns with every popcount implementation usable on this CPU and
+ * return how many there are. */
+static int popcountTestImpls(const char *names[], popcountFn fns[]) {
+    int n = 0;
+
+    names[n] = "generic"; fns[n++] = redisPopcount;
+#ifdef HAVE_AVX2
+    if (BITOP_USE_AVX2) {
+        names[n] = "AVX2"; fns[n++] = redisPopCountAvx2;
+    }
+#endif
+#ifdef HAVE_AVX512
+    if (BITOPS_USE_AVX512_POPCOUNT) {
+        names[n] = "AVX512"; fns[n++] = redisPopCountAvx512;
+    }
+#endif
+#ifdef HAVE_AARCH64_NEON
+    names[n] = "NEON"; fns[n++] = redisPopCountAarch64;
+#endif
+    serverAssert(n <= POPCOUNT_TEST_MAX_IMPLS);
+    return n;
+}
+
 /* Test function to verify popcount implementations */
 int bitopsTest(int argc, char **argv, int flags) {
     UNUSED(argc);
     UNUSED(argv);
-    UNUSED(flags);
+
+    const char *names[POPCOUNT_TEST_MAX_IMPLS];
+    popcountFn fns[POPCOUNT_TEST_MAX_IMPLS];
+    int nimpls = popcountTestImpls(names, fns);
 
     /* Test data with known popcount values */
     unsigned char test_data[] = {0xFF, 0x00, 0xAA, 0x55, 0xF0, 0x0F, 0x33, 0xCC};
-    int expected_bits = 8 + 0 + 4 + 4 + 4 + 4 + 4 + 4; /* = 32 bits */
+    long long expected_bits = 8 + 0 + 4 + 4 + 4 + 4 + 4 + 4; /* = 32 bits */
 
-    long long result_regular = redisPopcount(test_data, sizeof(test_data));
-
-    printf("Regular popcount: %lld (expected: %d)\n", result_regular, expected_bits);
-
-    if (result_regular != expected_bits) {
-        printf("FAIL: Regular popcount mismatch\n");
-        return 1;
+    for (int i = 0; i < nimpls; i++) {
+        char descr[64];
+        snprintf(descr, sizeof(descr), "%s popcount of a small buffer", names[i]);
+        test_cond(descr, fns[i](test_data, sizeof(test_data)) == expected_bits);
     }
 
-#ifdef HAVE_AVX2
-    if (BITOP_USE_AVX2) {
-        long long result_avx2 = redisPopCountAvx2(test_data, sizeof(test_data));
-        printf("AVX2 popcount: %lld (expected: %d)\n", result_avx2, expected_bits);
+    /* Large dense buffers. The AArch64 NEON path used to wrap its 16-bit
+     * accumulators (after 2048 iterations of 128 bytes on all-ones data) and
+     * return a truncated count. Check every usable implementation at sizes
+     * around the reduction interval and at several misalignments. The lengths
+     * are sorted, and the valgrind run skips the largest ones. */
+    const size_t lens[] = {1, 127, 128, 129, 131071, 131072, 131073,
+                           262144, 262144 + 16, 1048576, 3000000};
+    const int offsets[] = {0, 1, 15};
+    const unsigned char fills[] = {0xFF, 0xAA};
+    size_t nlens = sizeof(lens) / sizeof(lens[0]);
+    if (flags & REDIS_TEST_VALGRIND) nlens -= 2;
+    size_t maxlen = lens[nlens-1];
+    unsigned char *buf = zmalloc(maxlen + 16);
 
-        if (result_avx2 != expected_bits) {
-            printf("FAIL: AVX2 popcount mismatch\n");
-            return 1;
-        }
-    } else {
-        printf("AVX2 not supported on this CPU\n");
-    }
-#else
-    printf("AVX2 not compiled in\n");
-#endif
-
-#ifdef HAVE_AVX512
-    if (BITOP_USE_AVX512) {
-        long long result_avx512 = redisPopCountAvx512(test_data, sizeof(test_data));
-        printf("AVX512 popcount: %lld (expected: %d)\n", result_avx512, expected_bits);
-
-        if (result_avx512 != expected_bits) {
-            printf("FAIL: AVX512 popcount mismatch\n");
-            return 1;
-        }
-    } else {
-        printf("AVX512 not supported on this CPU\n");
-    }
-#else
-    printf("AVX512 not compiled in\n");
-#endif
-
-#ifdef HAVE_AARCH64_NEON
-    {
-        long long result_aarch64 = redisPopCountAarch64(test_data, sizeof(test_data));
-        printf("AArch64 NEON popcount: %lld (expected: %d)\n", result_aarch64, expected_bits);
-
-        if (result_aarch64 != expected_bits) {
-            printf("FAIL: AArch64 NEON popcount mismatch\n");
-            return 1;
-        }
-    }
-#else
-    printf("AArch64 NEON not available\n");
-#endif
-    /* Large dense buffers: the NEON path used to wrap its 16-bit accumulators
-     * after 2048 iterations of 128 bytes. Check every compiled-in
-     * implementation at several sizes and misalignments. */
-    {
-        const size_t maxlen = 3000000;
-        const size_t lens[] = {1, 127, 128, 129, 131071, 131072, 131073,
-                               262144, 262144+16, 1048576, 3000000};
-        const int offs[] = {0, 1, 7, 15};
-        const unsigned char fills[] = {0xFF, 0xAA, 0x0F};
-        const int fillbits[] = {8, 4, 4};
-        unsigned char *buf = zmalloc(maxlen + 16);
-
-        for (size_t f = 0; f < sizeof(fills); f++) {
+    for (int i = 0; i < nimpls; i++) {
+        int ok = 1;
+        for (size_t f = 0; f < sizeof(fills) && ok; f++) {
             memset(buf, fills[f], maxlen + 16);
-            for (size_t l = 0; l < sizeof(lens)/sizeof(lens[0]); l++) {
-                for (size_t o = 0; o < sizeof(offs)/sizeof(offs[0]); o++) {
-                    long long want = (long long)lens[l] * fillbits[f];
-                    unsigned char *p = buf + offs[o];
-                    long long got[4];
-                    const char *name[4];
-                    int n = 0;
-                    name[n] = "generic"; got[n++] = redisPopcount(p, lens[l]);
-#ifdef HAVE_AVX2
-                    if (BITOP_USE_AVX2) { name[n] = "AVX2"; got[n++] = redisPopCountAvx2(p, lens[l]); }
-#endif
-#ifdef HAVE_AVX512
-                    if (BITOP_USE_AVX512) { name[n] = "AVX512"; got[n++] = redisPopCountAvx512(p, lens[l]); }
-#endif
-#ifdef HAVE_AARCH64_NEON
-                    name[n] = "NEON"; got[n++] = redisPopCountAarch64(p, lens[l]);
-#endif
-                    for (int i = 0; i < n; i++) {
-                        if (got[i] != want) {
-                            printf("FAIL: %s popcount of %zu bytes of 0x%02X at offset %d: %lld (expected: %lld)\n",
-                                   name[i], lens[l], fills[f], offs[o], got[i], want);
-                            zfree(buf);
-                            return 1;
-                        }
+            for (size_t l = 0; l < nlens && ok; l++) {
+                for (size_t o = 0; o < sizeof(offsets)/sizeof(offsets[0]); o++) {
+                    long long want = (long long)lens[l] * __builtin_popcount(fills[f]);
+                    long long got = fns[i](buf + offsets[o], lens[l]);
+                    if (got != want) {
+                        printf("%s popcount of %zu bytes of 0x%02X at offset %d: "
+                               "got %lld, expected %lld\n",
+                               names[i], lens[l], fills[f], offsets[o], got, want);
+                        ok = 0;
+                        break;
                     }
                 }
             }
         }
-        zfree(buf);
-        printf("Large buffer popcount tests passed\n");
+        char descr[64];
+        snprintf(descr, sizeof(descr), "%s popcount of large dense buffers", names[i]);
+        test_cond(descr, ok);
     }
-
-    printf("All popcount tests passed!\n");
-    return 0;
+    zfree(buf);
+    return __failed_tests != 0;
 }
 #endif

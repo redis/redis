@@ -208,6 +208,8 @@ start_server {tags {"bitops"}} {
         # The count must equal len*bits-per-byte regardless of size, pattern
         # and start offset (16-bit SIMD accumulators must not overflow).
         r del bigdense
+        # Each pair is a one-byte fill value (Tcl expands the \x escapes) and
+        # the number of set bits in it.
         foreach {byte bits} {"\xff" 8 "\xaa" 4 "\x0f" 4} {
             foreach len {131071 131072 131073 262144 262160 524288 1048576 3000000} {
                 r set bigdense [string repeat $byte $len]
