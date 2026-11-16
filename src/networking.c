@@ -4021,7 +4021,11 @@ int processInputBuffer(client *c) {
 
         /* Parse up to lookahead commands only if we don't have enough ready commands */
         long long parsed_args = 0;
-        const long long max_parsed_args = (long long)lookahead * LOOKAHEAD_ARGS_PER_CMD;
+        /* The argument cap is for the thread that goes on to execute what it
+         * parsed. An I/O thread executes nothing, and what it leaves unparsed
+         * is parsed by the main thread instead, so it has no cap. */
+        const long long max_parsed_args = c->running_tid == IOTHREAD_MAIN_THREAD_ID ?
+            (long long)lookahead * LOOKAHEAD_ARGS_PER_CMD : LLONG_MAX;
         /* The query buffer length, read once per parsing round: sdslen() has to
          * look at the header type every time. Only processMultibulkBuffer()
          * changes the buffer during the round, and it updates the length. */

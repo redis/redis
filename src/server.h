@@ -228,8 +228,9 @@ struct hdr_histogram;
 
 /* Default lookahead value */
 #define REDIS_DEFAULT_LOOKAHEAD 16
-/* Stop parsing ahead once the commands parsed in one lookahead round hold
- * lookahead * LOOKAHEAD_ARGS_PER_CMD arguments (512 with the default lookahead):
+/* In the main thread, stop parsing ahead once the commands parsed in one
+ * lookahead round hold lookahead * LOOKAHEAD_ARGS_PER_CMD arguments (512 with
+ * the default lookahead):
  * many-argument commands get little from cross-command prefetching (the batch
  * holds 2*prefetch-batch-max-size keys) while the parsed argv objects of many
  * commands overflow the L1/L2 caches. */
