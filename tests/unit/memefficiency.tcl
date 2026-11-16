@@ -1940,73 +1940,39 @@ run_solo {defrag} {
         }
     } {} {defrag external:skip tsan:skip debug_defrag:skip cluster}
 
-    start_cluster 1 0 {tags {"defrag external:skip tsan:skip debug_defrag:skip cluster needs:debug"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel notice}} {
-        test_active_defrag "cluster"
-    }
+    start_server {tags {"defrag external:skip tsan:skip debug_defrag:skip standalone needs:debug"} overrides {save ""}} {
+        if {[string match {*jemalloc*} [s mem_allocator]] && [r debug mallctl arenas.page] <= 8192} {
+            test "Active defrag sparse slabs" {
+                r config set hz 100
+                r config set activedefrag no
+                r config set active-defrag-threshold-lower 5
+                r config set active-defrag-cycle-min 65
+                r config set active-defrag-cycle-max 75
+                r config set active-defrag-ignore-bytes 2mb
+                r config set maxmemory 0
 
-    start_server {tags {"defrag external:skip tsan:skip debug_defrag:skip standalone needs:debug"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel notice}} {
-        test_active_defrag "standalone"
-    }
-
-    start_server {tags {"defrag external:skip tsan:skip debug_defrag:skip standalone"} overrides {save ""}} {
-        test "Active defrag sparse slabs" {
-            r config set hz 100
-            r config set activedefrag no
-            r config set active-defrag-threshold-lower 5
-            r config set active-defrag-cycle-min 65
-            r config set active-defrag-cycle-max 75
-            r config set active-defrag-ignore-bytes 2mb
-            r config set maxmemory 0
-
-            # Fill a few hundred slabs with values of the same size, then
-            # delete most of them, leaving less than one value per slab.
-            # The values that are left are more than what fits in one slab,
-            # but far too few to fill the slabs they are spread over.
-            set n 64000
-            set keep_every 300
-            set val [string repeat x 80]
-            set rd [redis_deferring_client]
-            for {set j 0} {$j < $n} {incr j} {
-                $rd set k$j $val
-                discard_replies_every $rd [expr {$j + 1}] 1000 1000
-            }
-            set deleted 0
-            for {set j 0} {$j < $n} {incr j} {
-                if {$j % $keep_every == 0} continue
-                $rd del k$j
-                incr deleted
-                discard_replies_every $rd $deleted 1000 1000
-            }
-            for {set j 0} {$j < $deleted % 1000} {incr j} { $rd read }
-            $rd close
-            set digest [debug_digest]
-
-            after 120 ;# serverCron only updates the info once in 100ms
-            if {$::verbose} {
-                puts "used [s allocator_allocated]"
-                puts "rss [s allocator_active]"
-                puts "frag [s allocator_frag_ratio]"
-                puts "frag_bytes [s allocator_frag_bytes]"
-            }
-            assert_morethan [s allocator_frag_bytes] [expr {3 * 1024 * 1024}]
-
-            catch {r config set activedefrag yes} e
-            if {[r config get activedefrag] eq "activedefrag yes"} {
-                # wait for the active defrag to start working (decision once a second).
-                # The dataset is small enough for a whole cycle to take less than
-                # a millisecond, so look at the hits rather than at the time.
-                wait_for_condition 50 100 {
-                    [s active_defrag_hits] ne 0
-                } else {
-                    after 120 ;# serverCron only updates the info once in 100ms
-                    puts [r info memory]
-                    puts [r info stats]
-                    puts [r memory malloc-stats]
-                    fail "defrag not started."
+                # Fill a few hundred slabs with values of the same size, then
+                # delete most of them, leaving less than one value per slab.
+                # The values that are left are more than what fits in one slab,
+                # but far too few to fill the slabs they are spread over.
+                set n 64000
+                set keep_every 300
+                set val [string repeat x 80]
+                set rd [redis_deferring_client]
+                for {set j 0} {$j < $n} {incr j} {
+                    $rd set k$j $val
+                    discard_replies_every $rd [expr {$j + 1}] 1000 1000
                 }
-
-                # wait for the active defrag to stop working
-                wait_for_defrag_stop 500 100
+                set deleted 0
+                for {set j 0} {$j < $n} {incr j} {
+                    if {$j % $keep_every == 0} continue
+                    $rd del k$j
+                    incr deleted
+                    discard_replies_every $rd $deleted 1000 1000
+                }
+                for {set j 0} {$j < $deleted % 1000} {incr j} { $rd read }
+                $rd close
+                set digest [debug_digest]
 
                 after 120 ;# serverCron only updates the info once in 100ms
                 if {$::verbose} {
@@ -2015,10 +1981,46 @@ run_solo {defrag} {
                     puts "frag [s allocator_frag_ratio]"
                     puts "frag_bytes [s allocator_frag_bytes]"
                 }
-                assert_lessthan [s allocator_frag_bytes] [expr {2 * 1024 * 1024}]
-            }
-            # verify the data isn't corrupted or changed
-            assert_equal $digest [debug_digest]
-        } {} {needs:debug}
+                assert_morethan [s allocator_frag_bytes] [expr {3 * 1024 * 1024}]
+
+                catch {r config set activedefrag yes} e
+                if {[r config get activedefrag] eq "activedefrag yes"} {
+                    # wait for the active defrag to start working (decision once a second).
+                    # The dataset is small enough for a whole cycle to take less than
+                    # a millisecond, so look at the hits rather than at the time.
+                    wait_for_condition 50 100 {
+                        [s active_defrag_hits] ne 0
+                    } else {
+                        after 120 ;# serverCron only updates the info once in 100ms
+                        puts [r info memory]
+                        puts [r info stats]
+                        puts [r memory malloc-stats]
+                        fail "defrag not started."
+                    }
+
+                    # wait for the active defrag to stop working
+                    wait_for_defrag_stop 500 100
+
+                    after 120 ;# serverCron only updates the info once in 100ms
+                    if {$::verbose} {
+                        puts "used [s allocator_allocated]"
+                        puts "rss [s allocator_active]"
+                        puts "frag [s allocator_frag_ratio]"
+                        puts "frag_bytes [s allocator_frag_bytes]"
+                    }
+                    assert_lessthan [s allocator_frag_bytes] [expr {2 * 1024 * 1024}]
+                }
+                # verify the data isn't corrupted or changed
+                assert_equal $digest [debug_digest]
+            } {} {needs:debug}
+        }
+    }
+
+    start_cluster 1 0 {tags {"defrag external:skip tsan:skip debug_defrag:skip cluster needs:debug"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel notice}} {
+        test_active_defrag "cluster"
+    }
+
+    start_server {tags {"defrag external:skip tsan:skip debug_defrag:skip standalone needs:debug"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel notice}} {
+        test_active_defrag "standalone"
     }
 } ;# run_solo
