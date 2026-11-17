@@ -3993,6 +3993,8 @@ int zzlLexValueGteMin(unsigned char *p, zlexrangespec *spec);
 int zzlLexValueLteMax(unsigned char *p, zlexrangespec *spec);
 int zslLexValueGteMin(sds value, zlexrangespec *spec);
 int zslLexValueLteMax(sds value, zlexrangespec *spec);
+int zsetLexValueGteMin(const unsigned char *value, size_t len, zlexrangespec *spec);
+int zsetLexValueLteMax(const unsigned char *value, size_t len, zlexrangespec *spec);
 
 /* gcra related */
 robj *gcraDup(robj *o);

@@ -768,6 +768,28 @@ start_server {tags {"zset"}} {
             assert_equal {} [r zrevrangebylex zset + \[o LIMIT -1 5]
         }
 
+        test "ZRANGEBYLEX/ZLEXCOUNT/ZREMRANGEBYLEX with integer members - $encoding" {
+            # Members that look like integers are stored as integers in a
+            # listpack, but lex ranges must still compare them as strings.
+            create_zset zset {0 1 0 10 0 2 0 -5 0 007 0 1a
+                              0 9223372036854775807 0 -9223372036854775808}
+            assert_encoding $encoding zset
+            assert_equal {-5 -9223372036854775808 007 1 10 1a 2 9223372036854775807} [r zrange zset 0 -1]
+
+            assert_equal {1 10 1a 2} [r zrangebylex zset \[1 \[2]
+            assert_equal {10 1a} [r zrangebylex zset (1 (2]
+            assert_equal {2 1a 10 1} [r zrevrangebylex zset \[2 \[1]
+            assert_equal {-5 -9223372036854775808 007} [r zrangebylex zset - (1]
+            assert_equal {-5 -9223372036854775808} [r zrangebylex zset - (0]
+            assert_equal {9223372036854775807} [r zrangebylex zset \[9 +]
+            assert_equal {-9223372036854775808 007} [r zrangebylex zset \[-9223372036854775808 \[007]
+            assert_equal 4 [r zlexcount zset \[1 \[2]
+            assert_equal 6 [r zlexcount zset (-5 (9223372036854775807]
+
+            assert_equal 3 [r zremrangebylex zset \[10 \[2]
+            assert_equal {-5 -9223372036854775808 007 1 9223372036854775807} [r zrange zset 0 -1]
+        }
+
         test "ZRANGEBYLEX with invalid lex range specifiers - $encoding" {
             assert_error "*not*string*" {r zrangebylex fooz foo bar}
             assert_error "*not*string*" {r zrangebylex fooz \[foo bar}
