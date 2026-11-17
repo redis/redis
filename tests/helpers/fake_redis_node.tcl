@@ -1,12 +1,19 @@
 # A fake Redis node for replaying predefined/expected traffic with a client.
 #
 # Usage: tclsh fake_redis_node.tcl PORT COMMAND REPLY [ COMMAND REPLY [ ... ] ]
+#        tclsh fake_redis_node.tcl PORT --traffic-file FILE
 #
 # Commands are given as space-separated strings, e.g. "GET foo", and replies as
 # RESP-encoded replies minus the trailing \r\n, e.g. "+OK".
 
 set port [lindex $argv 0];
-set expected_traffic [lrange $argv 1 end];
+if {[lindex $argv 1] eq "--traffic-file"} {
+    set traffic_file [open [lindex $argv 2] r]
+    set expected_traffic [read $traffic_file]
+    close $traffic_file
+} else {
+    set expected_traffic [lrange $argv 1 end]
+}
 
 # Reads and parses a command from a socket and returns it as a space-separated
 # string, e.g. "set foo bar".
