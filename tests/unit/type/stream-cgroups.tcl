@@ -1916,12 +1916,10 @@ start_server {
             r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
             r XREADGROUP GROUP group2 consumer2 COUNT 1 STREAMS mystream >
 
-            # Both entries are deleted while pending in group1. 1-0 is still
-            # pending in group2, so it stays referenced. 2-0 is past the last
-            # ID delivered to group2, but there is no entry left to keep: the
-            # reply is 1, as with KEEPREF.
+            # Acknowledging either deleted entry succeeds even when another
+            # group still has a pending reference.
             assert_equal 2 [r XDEL mystream 1-0 2-0]
-            assert_equal {2 1} [r XACKDEL mystream group1 ACKED IDS 2 1-0 2-0]
+            assert_equal {1 1} [r XACKDEL mystream group1 ACKED IDS 2 1-0 2-0]
             assert_equal {0 {} {} {}} [r XPENDING mystream group1]
             assert_equal {1 1-0 1-0 {{consumer2 1}}} [r XPENDING mystream group2]
 

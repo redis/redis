@@ -3645,22 +3645,6 @@ int streamEntryIsReferenced(stream *s, streamID *id) {
     return raxFind(s->cgroups_ref, buf, sizeof(streamID), NULL);
 }
 
-/* Return 1 if `id` is still in the stream or in some consumer group's PEL.
- *
- * streamEntryIsReferenced() counts every ID past the last one delivered to
- * some group as referenced, whether or not such an entry exists. The ACKED
- * strategy uses this to tell an entry that is really still referenced from
- * one that is not there at all. The PEL lookup keeps an entry that was
- * deleted with KEEPREF while still pending reported as referenced. */
-static int streamEntryExistsOrPending(stream *s, streamID *id) {
-    if (s->cgroups_ref) {
-        unsigned char buf[sizeof(streamID)];
-        streamEncodeID(buf, id);
-        if (raxFind(s->cgroups_ref, buf, sizeof(buf), NULL)) return 1;
-    }
-    return streamEntryExists(s, id);
-}
-
 /* Create a NACK entry setting the delivery count to 1 and the delivery
  * time to the current time. The NACK consumer will be set to the one
  * specified as argument of the function. */
@@ -4580,11 +4564,9 @@ void xackdelCommand(client *c) {
                 deleted++;
             }
 
-            /* If the entry was in the PEL but not found in the stream,
-             * we still consider it successfully deleted. With ACKED, that
-             * includes an entry that is gone from the stream and from every
-             * PEL but past the last ID delivered to some group. */
-            res = (can_delete || !streamEntryExistsOrPending(s, id)) ?
+            /* Acknowledging an entry that is already gone from the stream
+             * succeeds even if another group still has a pending reference. */
+            res = (can_delete || !streamEntryExists(s, id)) ?
                   XACKDEL_DELETED : XACKDEL_STILL_REFERENCED;
         }
         addReplyLongLong(c, res);
@@ -5569,7 +5551,7 @@ void xdelexCommand(client *c) {
             } else {
                 /* This id doesn't exist. */
             }
-        } else if (streamEntryExistsOrPending(s, id)) {
+        } else if (streamEntryExists(s, id)) {
             res = XDELEX_STILL_REFERENCED;
         } else {
             /* Not referenced after all: this id doesn't exist. */
