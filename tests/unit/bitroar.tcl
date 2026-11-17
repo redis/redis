@@ -5476,7 +5476,7 @@ start_server {tags {"bitmap" "bitmap-roaring"}} {
         # the client.
         r set bitmap:string [binary format x2097153]
         assert_equal string [r type bitmap:string]
-        assert_equal {0 1 2} [r bitrangeintarray bitmap:string 0 -1 limit 3 zeros]
+        assert_equal {0 1 2} [r bitrangeintarray bitmap:string 0 -1 bit limit 3 zeros]
         set old_limit [config_get_set client-output-buffer-limit {normal 100000 0 0}]
         set client [redis_deferring_client]
         $client bitrangeintarray bitmap:string 0 -1 zeros
@@ -5484,7 +5484,7 @@ start_server {tags {"bitmap" "bitmap-roaring"}} {
         assert_equal {} [$client rawread]
         $client close
         r config set client-output-buffer-limit $old_limit
-        r del bitmap:string
+        assert_equal 1 [r del bitmap:string]
     } {} {"external:skip"}
 
     test {BITRANGEINTARRAY stops streaming when the output limit closes the client} {
