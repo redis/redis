@@ -3325,13 +3325,17 @@ zbtScoreLeaf *zbtIndexFirstCandidate(zbtreeSet *zs, zbtIndexTable *table,
     return leaf;
 }
 
+/* Batch results and 'want' are bitmasks in an unsigned int. */
+static_assert(ZBT_SCORE_BATCH_SIZE < 32, "Batch does not fit a bitmask");
+
 /* Look up a batch of raw members. The lookups are independent, so do them in
  * two passes: first find the candidate score leaf of every member, then
  * compare the members. Each pass is a short loop whose iterations do not
  * depend on each other, so the CPU can work on several members at once
  * instead of following one chain of loads at a time. A member whose first
- * candidate is not conclusive gets a normal lookup, and so does every member
- * while the index is being resized. */
+ * candidate is not conclusive gets a normal lookup. So does every member
+ * when the index is empty or being resized: old-table entries may then refer
+ * to released leaves, and the normal lookup advances the resize. */
 unsigned int zbtreeScoresRawWithHash(zbtreeSet *zs, const uint32_t *hashes,
                                      const unsigned char **ptrs,
                                      const size_t *lens, unsigned int count,
@@ -3353,7 +3357,8 @@ unsigned int zbtreeScoresRawWithHash(zbtreeSet *zs, const uint32_t *hashes,
     }
 
     /* Members without a candidate leaf are either proven absent or have
-     * their bit set in 'slow'. */
+     * their bit set in 'slow'. The second pass adds the members that their
+     * candidate leaf does not hold. */
     zbtScoreLeaf *leaf[ZBT_SCORE_BATCH_SIZE];
     unsigned int slow = 0;
 
@@ -3387,15 +3392,29 @@ unsigned int zbtreeScoresRawWithHash(zbtreeSet *zs, const uint32_t *hashes,
     return found;
 }
 
-/* ZMSCORE can bring several independent index buckets into cache before it
- * reads any of their members. Hash once, then reuse the normal lookup. */
+/* ZMSCORE lookups are independent: hash every member and prefetch its index
+ * bucket (in both tables during a resize) before the batch lookup reads any
+ * of them. A single member has no other lookup to overlap its cache misses
+ * with, so it takes the normal lookup. */
 unsigned int zbtreeScores(zbtreeSet *zs, const sds *members, unsigned int count,
                           double *scores)
 {
     serverAssert(count <= ZBT_SCORE_BATCH_SIZE);
+    if (count == 1) {
+        /* Call zbtIndexFind() directly: zbtreeScoreRaw() would add a
+         * function call to the single-member path. */
+        const unsigned char *ele = (const unsigned char *)members[0];
+        size_t elelen = sdslen(members[0]);
+        return zbtIndexFind(zs, zbtreeMemberHash(ele, elelen), ele, elelen,
+                            &scores[0], NULL, NULL, NULL, NULL) ? 1 : 0;
+    }
     uint32_t hashes[ZBT_SCORE_BATCH_SIZE];
+    const unsigned char *ptrs[ZBT_SCORE_BATCH_SIZE];
+    size_t lens[ZBT_SCORE_BATCH_SIZE];
     for (unsigned int i = 0; i < count; i++) {
-        hashes[i] = (uint32_t)dictGenHashFunction(members[i], sdslen(members[i]));
+        ptrs[i] = (const unsigned char *)members[i];
+        lens[i] = sdslen(members[i]);
+        hashes[i] = zbtreeMemberHash(ptrs[i], lens[i]);
         if (zs->member_index.size)
             redis_prefetch_read(zbtIndexBucketAt(&zs->member_index,
                 hashes[i] & (zs->member_index.size - 1)));
@@ -3403,13 +3422,8 @@ unsigned int zbtreeScores(zbtreeSet *zs, const sds *members, unsigned int count,
             redis_prefetch_read(zbtIndexBucketAt(&zs->member_rehash->table,
                 hashes[i] & (zs->member_rehash->table.size - 1)));
     }
-    unsigned int found = 0;
-    for (unsigned int i = 0; i < count; i++) {
-        if (zbtIndexFind(zs, hashes[i], (unsigned char *)members[i],
-                         sdslen(members[i]), &scores[i], NULL, NULL, NULL, NULL))
-            found |= 1U << i;
-    }
-    return found;
+    return zbtreeScoresRawWithHash(zs, hashes, ptrs, lens, count,
+                                   (1U << count) - 1, scores);
 }
 
 /* Lookup used by ZADD. In addition to the normal result, save the member hash
@@ -4923,6 +4937,14 @@ static size_t zbtTestMember(char *buf, int i, size_t len) {
     return len;
 }
 
+/* Member lengths for the batch lookup test: mostly short members, some long
+ * ones, some stored outside the leaf and some on either side of that limit. */
+static size_t zbtTestBatchLen(int i) {
+    if (i % 11 == 0) return ZBT_EXTERNAL_MEMBER_AT + 80;
+    if (i % 13 == 0) return ZBT_EXTERNAL_MEMBER_AT - 1 + (i / 13) % 2;
+    return i % 7 == 0 ? 200 : i % 40;
+}
+
 /* Insert or change one member like ZADD does. */
 static void zbtTestSet(zbtreeSet *zs, const char *buf, size_t len,
                        double score)
@@ -6315,22 +6337,37 @@ int zsetBtreeTest(int argc, char **argv, int flags) {
         zbtreeFree(zs);
     }
 
-    printf("Testing B+ tree zbtreeScoresRawWithHash()\n");
+    printf("Testing B+ tree batch lookups\n");
 
     {
-        /* Compare the batch lookup with single lookups while members are
-         * added and removed, so that it sees tombstones, members away from
-         * their home bucket, long members and index resizes in progress. */
+        /* Compare both batch lookups with single lookups while members are
+         * added and removed, so that they see tombstones, members away from
+         * their home bucket, long and external members, both leaf ID widths
+         * and index resizes in progress. */
         enum { N = 6000 };
         zbtreeSet *zs = zbtreeCreate();
         uint64_t r = 99;
-        static char bufs[ZBT_SCORE_BATCH_SIZE][256];
-        int ok = 1, stable = 0, resizing = 0, hits = 0, misses = 0;
+        static char bufs[ZBT_SCORE_BATCH_SIZE][512];
+        int ok = 1, resizing = 0, narrow = 0, wide = 0, hits = 0, misses = 0;
+        int single_resizing = 0;
+
+        {
+            /* An empty set has no index table to look into. */
+            sds members[2] = {sdsnew("a"), sdsnew("b")};
+            double scores[2] = {-1, -1};
+            ok = zbtreeScores(zs, members, 0, scores) == 0 &&
+                 zbtreeScores(zs, members, 1, scores) == 0 &&
+                 zbtreeScores(zs, members, 2, scores) == 0 &&
+                 scores[0] == -1 && scores[1] == -1;
+            sdsfree(members[0]);
+            sdsfree(members[1]);
+        }
 
         for (int step = 0; step < N * 3 && ok; step++) {
-            char buf[256];
+            char buf[512];
             int i = zbtTestRand(&r) % N;
-            size_t len = zbtTestMember(buf, i, i % 7 == 0 ? 200 : i % 40);
+            size_t len = zbtTestMember(buf, i, zbtTestBatchLen(i));
+            if (step == N) zbtTestSkipLeafIds(zs, ZBT_INDEX_WIDE_ID_AT);
             if (zbtTestRand(&r) % 3) {
                 zbtTestSet(zs, buf, len, (double)(zbtTestRand(&r) % 1000));
             } else {
@@ -6338,37 +6375,70 @@ int zsetBtreeTest(int argc, char **argv, int flags) {
                 zbtreeDelete(zs, ele);
                 sdsfree(ele);
             }
-            if (step % 5) continue;
+            /* Look up after every change while the index is being resized,
+             * so that members added since the resize began are covered. */
+            if (step % 5 && !zs->member_rehash) continue;
 
             uint32_t hashes[ZBT_SCORE_BATCH_SIZE];
             const unsigned char *ptrs[ZBT_SCORE_BATCH_SIZE];
             size_t lens[ZBT_SCORE_BATCH_SIZE];
             double scores[ZBT_SCORE_BATCH_SIZE];
+            sds members[ZBT_SCORE_BATCH_SIZE];
+            double sds_scores[ZBT_SCORE_BATCH_SIZE];
             unsigned int count = zbtTestRand(&r) % (ZBT_SCORE_BATCH_SIZE + 1);
             unsigned int want = zbtTestRand(&r) & ((1U << count) - 1);
             for (unsigned int k = 0; k < count; k++) {
                 int m = zbtTestRand(&r) % (N + N / 4); /* Some never exist. */
-                lens[k] = zbtTestMember(bufs[k], m, m % 7 == 0 ? 200 : m % 40);
+                if (k == 0) m = i; /* The member just changed. */
+                lens[k] = zbtTestMember(bufs[k], m, zbtTestBatchLen(m));
                 ptrs[k] = (unsigned char *)bufs[k];
                 hashes[k] = zbtreeMemberHash(ptrs[k], lens[k]);
                 scores[k] = -1;
+                members[k] = sdsnewlen(ptrs[k], lens[k]);
+                sds_scores[k] = -1;
             }
-            if (zs->member_rehash) resizing++; else stable++;
+            if (count) {
+                if (zs->member_rehash) {
+                    /* A single member takes its own path: check it during
+                     * a resize too. */
+                    double one = -1, raw = -1;
+                    unsigned int hit = zbtreeScores(zs, members, 1, &one);
+                    ok = ok && hit == (unsigned int)zbtreeScoreRaw(zs,
+                             ptrs[0], lens[0], &raw) && one == raw;
+                    single_resizing++;
+                }
+                if (zs->member_rehash) {
+                    resizing++;
+                } else if (zs->member_index.wide_ids) {
+                    wide++;
+                } else {
+                    narrow++;
+                }
+            }
             int with_scores = zbtTestRand(&r) % 2;
             unsigned int found = zbtreeScoresRawWithHash(zs, hashes, ptrs,
                 lens, count, want, with_scores ? scores : NULL);
+            unsigned int sds_found = zbtreeScores(zs, members, count,
+                                                  sds_scores);
             ok = ok && (found & ~want) == 0;
             for (unsigned int k = 0; k < count && ok; k++) {
-                if (!(want & (1U << k))) continue;
                 double score = -1;
                 int exists = zbtreeScoreRaw(zs, ptrs[k], lens[k], &score);
-                ok = exists == !!(found & (1U << k)) &&
-                     (!with_scores || scores[k] == score);
-                if (exists) hits++; else misses++;
+                ok = ok && exists == !!(sds_found & (1U << k)) &&
+                     sds_scores[k] == score;
+                if (want & (1U << k)) {
+                    ok = ok && exists == !!(found & (1U << k)) &&
+                         (!with_scores || scores[k] == score);
+                    if (exists) hits++; else misses++;
+                } else {
+                    ok = ok && scores[k] == -1;
+                }
             }
+            for (unsigned int k = 0; k < count; k++) sdsfree(members[k]);
         }
         test_cond("Batch lookups match single lookups",
-                  ok && stable && resizing && hits && misses &&
+                  ok && resizing && single_resizing && narrow && wide &&
+                  hits && misses &&
                   zbtTestCheck(zs));
         zbtreeFree(zs);
     }
