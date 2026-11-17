@@ -41,6 +41,14 @@
  * value clients can create under the current proto-max-bulk-len. */
 #define BITROAR_BITOP_NOT_MAX_MISSING_CHUNKS (1ULL << 16)
 
+/* Most offsets one BITRANGEINTARRAY call may return from a Roaring bitmap.
+ * A run container or a gap between containers stands for up to 2^16 offsets
+ * in a few bytes, so a small bitmap can describe billions of set or clear
+ * bits. The reply would then grow far beyond the value's memory, all within
+ * a single command. Larger ranges must be paged with LIMIT. Plain strings are
+ * not capped: their replies are bounded by their resident size. */
+#define BITROAR_RANGEINTARRAY_MAX_RESULTS (1ULL << 24)
+
 /* Bitwise operations supported by bitroarApplyOp() (the BITOP command). */
 typedef enum bitroarOp {
     BITOP_AND = 0,

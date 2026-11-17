@@ -2132,7 +2132,10 @@ static void bitrangeintarrayString(const unsigned char *p, int bit, uint64_t sta
  * BIT|BYTE:  the unit of 'start' and 'end', BYTE by default.
  * LIMIT:     return only the lowest 'count' offsets in the range. In BYTE
  *            units the reply also completes the byte holding the last of
- *            them, so a page ends on a byte boundary.
+ *            them, so a page ends on a byte boundary. On a native bitmap,
+ *            a call that would return more than
+ *            BITROAR_RANGEINTARRAY_MAX_RESULTS offsets is rejected, so
+ *            larger ranges must be paged with a LIMIT within that bound.
  * ZEROS:     return the offsets of the clear bits instead. */
 void bitrangeintarrayCommand(client *c) {
     kvobj *o;
@@ -2197,6 +2200,23 @@ void bitrangeintarrayCommand(client *c) {
     if (start > end || limit == 0) {
         addReply(c, shared.emptyarray);
         return;
+    }
+
+    /* Native bitmaps can describe far more offsets than they store. Count the
+     * matches up front, in time proportional to the containers in the range,
+     * and refuse to stream more than the cap in a single reply. */
+    if (o->type == OBJ_BITMAP &&
+        (uint64_t)limit > BITROAR_RANGEINTARRAY_MAX_RESULTS)
+    {
+        uint64_t ones = bitroarRangeCardinality(o, bit_start, bit_end);
+        uint64_t matches = value ? ones : (bit_end - bit_start) - ones;
+        if (matches > BITROAR_RANGEINTARRAY_MAX_RESULTS) {
+            addReplyErrorFormat(c,
+                "BITRANGEINTARRAY would return more than %llu offsets, "
+                "use LIMIT to page through the range",
+                (unsigned long long)BITROAR_RANGEINTARRAY_MAX_RESULTS);
+            return;
+        }
     }
 
     void *arraylen = addReplyDeferredLen(c);
