@@ -1826,7 +1826,9 @@ static int cache_exist(int fd) {
 }
 
 static void test_reclaimFilePageCache(void) {
-    char *tmpfile = "/tmp/redis-reclaim-cache-test";
+    /* Use /var/tmp: /tmp may be tmpfs, where
+     * POSIX_FADV_DONTNEED does not evict file pages. */
+    char *tmpfile = "/var/tmp/redis-reclaim-cache-test";
     int fd = open(tmpfile, O_RDWR|O_CREAT, 0644);
     assert(fd >= 0);
 
