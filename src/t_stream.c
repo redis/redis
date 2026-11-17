@@ -344,10 +344,12 @@ static void streamStatsReenterStructural(redisDb *db, stream *s, streamCG *cg) {
  *
  * - A command that creates or modifies the group it names calls
  *   streamLagGroupTouched() when it is done with the group, normally through
- *   streamStatsReenterStructural(). The call enrols the group if it is not a
- *   member, else re-sorts it in the heap by its entries_read. It needs no
- *   captured sample: it computes the old one itself, before it changes the
- *   heap.
+ *   streamStatsReenterStructural(). This keeps the sample's first input, the
+ *   heap, in step with the group: the call enrols the group if it is not a
+ *   member, else re-sorts it in the heap by its entries_read. When the
+ *   command changes none of the other three inputs, this call is all the
+ *   max-lag row needs. It takes no captured sample: it computes the old one
+ *   itself, before it changes the heap.
  * - A path that changes the stream's entries_added, length or number of
  *   groups calls streamLagCaptureSample() before the change and
  *   streamLagChanged() after it. These inputs are read from the stream, so
@@ -356,14 +358,20 @@ static void streamStatsReenterStructural(redisDb *db, stream *s, streamCG *cg) {
  *   path, and passes the result to streamLagChanged() in the same way.
  * - A command that does both keeps the two apart. XACKDEL acknowledges
  *   entries in a group and deletes them from the stream. XGROUP CREATE raises
- *   the number of groups and has a new group to enrol. Both call
- *   streamLagGroupTouched() after streamLagChanged(), never between the
- *   capture and that call. After the change and before streamLagChanged(),
- *   the row still has the stream's sample in its old bin. Only the captured
- *   sample says which bin that is. streamLagGroupTouched() does not use the
- *   captured sample. It computes an old sample of its own from the stream as
- *   it is. Called between the change and streamLagChanged(), it can pick a
- *   bin that does not hold the stream's sample.
+ *   the number of groups and has a new group to enrol. In both the order is:
+ *   1. streamLagCaptureSample(), before the stream changes.
+ *   2. streamLagChanged(), after it. This moves the stream's sample for the
+ *      change in the stream's own data.
+ *   3. streamLagGroupTouched(). This enrols or re-sorts the group in the
+ *      heap. If that changes the heap's root, the stream's sample can move
+ *      again.
+ *   Step 3 never runs between steps 1 and 2. After the change and before
+ *   streamLagChanged(), the row still has the stream's sample in its old
+ *   bin. Only the captured sample says which bin that is.
+ *   streamLagGroupTouched() does not use the captured sample. It computes an
+ *   old sample of its own from the stream as it is. Called between the change
+ *   and streamLagChanged(), it can pick a bin that does not hold the stream's
+ *   sample.
  * - streamLagMemberMoved() and streamLagGroupLeaving() change the heap and
  *   do not update the max-lag row. XSETID calls the first when it lowers
  *   entries_added. XGROUP DESTROY calls the second and lowers the number of
