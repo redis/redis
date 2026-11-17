@@ -1881,12 +1881,10 @@ start_cluster 2 0 {tags {external:skip cluster} overrides {cluster-node-timeout 
         assert_equal "0=1" [stream_pel_hist 0]
         assert_equal "0=1" [stream_cgroups_hist 0 stream_distrib_cgroups_consumers]
 
-        # Another generation, then the wrap, then generation A's number
-        # again. The stream is not touched meanwhile, so its stamp and its
-        # group's pass as current. They claim four samples, and the rows,
-        # zeroed by every reset, hold none of them.
-        R 0 debug stream-stats-generation [expr {$base + 100}]
-        stream_stats_new_generation 0
+        # The wrap, then generation A's number again. The stream is not
+        # touched meanwhile, so its stamp and its group's pass as current.
+        # They claim four samples, and the rows, zeroed by every reset, hold
+        # none of them.
         R 0 debug stream-stats-generation 4294967294
         stream_stats_new_generation 0
         assert_equal 1 [R 0 debug stream-stats-generation]
