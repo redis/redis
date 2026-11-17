@@ -1092,6 +1092,38 @@ start_server {tags {"zset"}} {
             }
         }
 
+        test "ZINTER batches with a single member left - $encoding" {
+            # Each batch of the smallest input has one member in the second
+            # input, and the third input holds every other one of them.
+            r del za{t} zb{t} zc{t} zd{t}
+            set a {}; set b {}; set c {}; set d {}
+            set expected {}
+            for {set i 0} {$i < 400} {incr i} {
+                lappend a $i m$i
+                lappend d [expr {$i * 1000}] m$i
+                if {$i % 8 != 3} continue
+                lappend b [expr {$i * 10}] m$i
+                if {($i / 8) % 2} continue
+                lappend c [expr {$i * 100}] m$i
+                lappend expected m$i [expr {$i * 1111}]
+            }
+            for {set i 0} {$i < 500} {incr i} {
+                if {$i < 450} {lappend b $i x$i}
+                lappend c $i y$i
+                lappend d $i z$i
+            }
+            r zadd za{t} {*}$a
+            r zadd zb{t} {*}$b
+            r zadd zc{t} {*}$c
+            r zadd zd{t} {*}$d
+            foreach key {za{t} zb{t} zc{t} zd{t}} {assert_encoding btree $key}
+            set card [expr {[llength $expected] / 2}]
+            assert_equal $card [r zintercard 4 za{t} zb{t} zc{t} zd{t}]
+            assert_equal 50 [r zintercard 3 za{t} zb{t} zd{t}]
+            assert_equal 3 [r zintercard 4 za{t} zb{t} zc{t} zd{t} limit 3]
+            assert_equal $expected [r zinter 4 za{t} zb{t} zc{t} zd{t} withscores]
+        }
+
         test "ZINTER batches with weights, aggregates and removed members - $encoding" {
             r del za{t} zb{t} zc{t} sa{t}
             for {set i 0} {$i < 400} {incr i} {

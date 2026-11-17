@@ -3458,9 +3458,19 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                 if (n < room) done = 1;
                 unsigned int alive = n ? (1U << n) - 1 : 0;
                 for (j = 1; j < setnum && alive; j++) {
-                    alive = zbtreeScoresRawWithHash(src[j].subject->ptr,
-                                hashes, ptrs, lens, n, alive,
-                                cardinality_only ? NULL : values);
+                    if (alive & (alive - 1)) {
+                        alive = zbtreeScoresRawWithHash(src[j].subject->ptr,
+                                    hashes, ptrs, lens, n, alive,
+                                    cardinality_only ? NULL : values);
+                    } else {
+                        /* A single member is left and has no other lookup
+                         * to overlap with: use the normal lookup. */
+                        unsigned int k = __builtin_ctz(alive);
+                        if (!zbtreeScoreRawWithHash(src[j].subject->ptr,
+                                hashes[k], ptrs[k], lens[k],
+                                cardinality_only ? NULL : &values[k]))
+                            alive = 0;
+                    }
                     if (cardinality_only) continue;
                     for (unsigned int k = 0; k < n; k++) {
                         if (!(alive & (1U << k))) continue;
