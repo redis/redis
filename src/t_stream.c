@@ -356,15 +356,14 @@ static void streamStatsReenterStructural(redisDb *db, stream *s, streamCG *cg) {
  *   path, and passes the result to streamLagChanged() in the same way.
  * - A command that does both keeps the two apart. XACKDEL acknowledges
  *   entries in a group and deletes them from the stream. XGROUP CREATE raises
- *   the number of groups and has a new group to enrol. In such a command
- *   streamLagGroupTouched() runs before the capture or after
- *   streamLagChanged(), never in between. After the change and before
- *   streamLagChanged(), the row still has the stream's sample in its old
- *   bin. Only the captured sample says which bin that is.
- *   streamLagGroupTouched() does not use the captured sample. It computes an
- *   old sample of its own from the stream as it is. Called between the change
- *   and streamLagChanged(), it can pick a bin that does not hold the stream's
- *   sample.
+ *   the number of groups and has a new group to enrol. Both call
+ *   streamLagGroupTouched() after streamLagChanged(), never between the
+ *   capture and that call. After the change and before streamLagChanged(),
+ *   the row still has the stream's sample in its old bin. Only the captured
+ *   sample says which bin that is. streamLagGroupTouched() does not use the
+ *   captured sample. It computes an old sample of its own from the stream as
+ *   it is. Called between the change and streamLagChanged(), it can pick a
+ *   bin that does not hold the stream's sample.
  * - streamLagMemberMoved() and streamLagGroupLeaving() change the heap and
  *   do not update the max-lag row. XSETID calls the first when it lowers
  *   entries_added. XGROUP DESTROY calls the second and lowers the number of
