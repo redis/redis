@@ -765,7 +765,7 @@ int clientConnRead(client *c, void *buf, size_t buf_len, int *nread_out) {
 
     /* No need to give pending work to the main thread as the client must be
      * sent to an IO-thread soon enough. */
-    if (c->running_tid != IOTHREAD_MAIN_THREAD_ID) {
+    if (c->running_tid != IOTHREAD_MAIN_THREAD_ID || isInsideYieldingLongCommand()) {
         if (connGetState(c->conn) == CONN_STATE_CONNECTED && clientHasPendingCompressedData(c)) {
             clientCompressionPendingAdd(c);
         } else if (state->pending_data_node) {

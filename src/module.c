@@ -889,6 +889,7 @@ void modulePostExecutionUnitOperations(void) {
         if (server.current_client)
             unprotectClient(server.current_client);
         unblockPostponedClients();
+        replicationResumeMasterClient();
     }
 }
 
