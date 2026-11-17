@@ -3426,10 +3426,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
             /* Look up a batch of members in one input at a time, so that the
              * independent lookups can overlap. Members absent from an input
              * are dropped from the batch before the next input, like the
-             * loop below does for a single member. Each member has its own
-             * zsetopval, whose buffer zuiMemberHash() may render it into,
-             * and members of src[0] stay valid across zuiNext() because
-             * src[0] is never looked up or modified here. */
+             * loop below does for a single member. */
             zsetopval batch[ZINTER_BATCH];
             uint32_t hashes[ZINTER_BATCH];
             const unsigned char *ptrs[ZINTER_BATCH];
