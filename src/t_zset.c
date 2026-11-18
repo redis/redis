@@ -2989,7 +2989,9 @@ static int zinterCanBatch(zsetopsrc *src, long setnum) {
         if (src[j].subject == NULL || src[j].type != OBJ_ZSET ||
             src[j].encoding != OBJ_ENCODING_BTREE ||
             src[j].subject == src[0].subject)
+        {
             return 0;
+        }
     }
     return setnum > 1;
 }

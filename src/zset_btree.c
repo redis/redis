@@ -3316,8 +3316,7 @@ zbtScoreLeaf *zbtIndexFirstCandidate(zbtreeSet *zs, zbtIndexTable *table,
     }
     unsigned int pos = zbtIndexFirstTag(matches);
     uint32_t id = zbtIndexGetId(table, bucket, pos);
-    if ((uint8_t)(zbtIndexTags(bucket) >> (pos * 8)) != tag ||
-        id == ZBT_INDEX_DELETED_ID)
+    if ((uint8_t)(zbtIndexTags(bucket) >> (pos * 8)) != tag || id == ZBT_INDEX_DELETED_ID)
         return NULL;
     serverAssert(id < zs->next_score_leaf_id);
     zbtScoreLeaf *leaf = zs->score_leaf_by_id[id];
@@ -3328,14 +3327,14 @@ zbtScoreLeaf *zbtIndexFirstCandidate(zbtreeSet *zs, zbtIndexTable *table,
 /* Batch results and 'want' are bitmasks in an unsigned int. */
 static_assert(ZBT_SCORE_BATCH_SIZE < 32, "Batch does not fit a bitmask");
 
-/* Look up a batch of raw members. The lookups are independent, so do them in
- * two passes: first find the candidate score leaf of every member, then
- * compare the members. Each pass is a short loop whose iterations do not
- * depend on each other, so the CPU can work on several members at once
- * instead of following one chain of loads at a time. A member whose first
- * candidate is not conclusive gets a normal lookup. So does every member
- * when the index is empty or being resized: old-table entries may then refer
- * to released leaves, and the normal lookup advances the resize. */
+/* Look up a batch of raw members. Prefetch their index buckets, then find
+ * their candidate score leaves and compare the members in separate passes.
+ * Each pass has independent iterations, so the CPU can work on several
+ * members at once instead of following one chain of loads at a time. A
+ * member whose first candidate is not conclusive gets a normal lookup.
+ * So does every member when the index is empty or being resized: old-table
+ * entries may then refer to released leaves, and the normal lookup advances
+ * the resize. */
 unsigned int zbtreeScoresRawWithHash(zbtreeSet *zs, const uint32_t *hashes,
                                      const unsigned char **ptrs,
                                      const size_t *lens, unsigned int count,
@@ -3345,6 +3344,22 @@ unsigned int zbtreeScoresRawWithHash(zbtreeSet *zs, const uint32_t *hashes,
     unsigned int found = 0;
     zbtIndexTable *table = &zs->member_index;
 
+    /* 1. Prefetch the wanted members' home buckets in both index tables.
+     * Finish this pass before any lookup can advance a resize and free
+     * one of the tables. */
+    for (unsigned int i = 0; i < count; i++) {
+        if (!(want & (1U << i))) continue;
+        if (table->size)
+            redis_prefetch_read(zbtIndexBucketAt(table,
+                hashes[i] & (table->size - 1)));
+        if (zs->member_rehash)
+            redis_prefetch_read(zbtIndexBucketAt(&zs->member_rehash->table,
+                hashes[i] & (zs->member_rehash->table.size - 1)));
+    }
+
+    /* 2. Empty or resizing indexes use the normal lookup throughout.
+     * It handles both tables and advances any active resize, without
+     * retaining candidate pointers across those lookups. */
     if (zs->member_rehash || table->size == 0) {
         for (unsigned int i = 0; i < count; i++) {
             if ((want & (1U << i)) &&
@@ -3357,11 +3372,14 @@ unsigned int zbtreeScoresRawWithHash(zbtreeSet *zs, const uint32_t *hashes,
     }
 
     /* Members without a candidate leaf are either proven absent or have
-     * their bit set in 'slow'. The second pass adds the members that their
-     * candidate leaf does not hold. */
+     * their bit set in 'slow'. Failed candidate comparisons also set the
+     * member's bit in 'slow'. */
     zbtScoreLeaf *leaf[ZBT_SCORE_BATCH_SIZE];
     unsigned int slow = 0;
 
+    /* 3. Save and prefetch the first candidate leaf for each wanted member.
+     * If no candidate exists, distinguish a proven miss from an uncertain
+     * one that still needs the full probe sequence. */
     for (unsigned int i = 0; i < count; i++) {
         int absent;
         leaf[i] = NULL;
@@ -3373,6 +3391,8 @@ unsigned int zbtreeScoresRawWithHash(zbtreeSet *zs, const uint32_t *hashes,
             slow |= 1U << i;
     }
 
+    /* 4. Check cached leaves directly to avoid repeating index lookups.
+     * Fall back to the normal lookup only for unresolved members. */
     for (unsigned int i = 0; i < count; i++) {
         double *score = scores ? &scores[i] : NULL;
         if (leaf[i]) {
@@ -3382,32 +3402,27 @@ unsigned int zbtreeScoresRawWithHash(zbtreeSet *zs, const uint32_t *hashes,
                 found |= 1U << i;
                 continue;
             }
+            /* Another entry with the same tag may lead to the member. */
             slow |= 1U << i;
         }
-        if ((slow & (1U << i)) &&
-            zbtIndexFind(zs, hashes[i], ptrs[i], lens[i], score,
-                         NULL, NULL, NULL, NULL))
+        /* Proven misses and unwanted members have neither a candidate
+         * nor a 'slow' bit, so they need no further lookup. */
+        if ((slow & (1U << i)) && zbtIndexFind(zs, hashes[i], ptrs[i], lens[i],
+                                               score, NULL, NULL, NULL, NULL))
             found |= 1U << i;
     }
     return found;
 }
 
-/* ZMSCORE lookups are independent: hash every member and prefetch its index
- * bucket (in both tables during a resize) before the batch lookup reads any
- * of them. A single member has no other lookup to overlap its cache misses
- * with, so it takes the normal lookup. */
+/* Adapt SDS members to the shared raw batch lookup. A single member uses
+ * zbtreeScoreRaw() to avoid batch setup. */
 unsigned int zbtreeScores(zbtreeSet *zs, const sds *members, unsigned int count,
                           double *scores)
 {
     serverAssert(count <= ZBT_SCORE_BATCH_SIZE);
-    if (count == 1) {
-        /* Call zbtIndexFind() directly: zbtreeScoreRaw() would add a
-         * function call to the single-member path. */
-        const unsigned char *ele = (const unsigned char *)members[0];
-        size_t elelen = sdslen(members[0]);
-        return zbtIndexFind(zs, zbtreeMemberHash(ele, elelen), ele, elelen,
-                            &scores[0], NULL, NULL, NULL, NULL) ? 1 : 0;
-    }
+    if (count == 1) return zbtreeScoreRaw(zs, (const unsigned char *)members[0],
+                                          sdslen(members[0]), scores) ? 1 : 0;
+
     uint32_t hashes[ZBT_SCORE_BATCH_SIZE];
     const unsigned char *ptrs[ZBT_SCORE_BATCH_SIZE];
     size_t lens[ZBT_SCORE_BATCH_SIZE];
@@ -3415,12 +3430,6 @@ unsigned int zbtreeScores(zbtreeSet *zs, const sds *members, unsigned int count,
         ptrs[i] = (const unsigned char *)members[i];
         lens[i] = sdslen(members[i]);
         hashes[i] = zbtreeMemberHash(ptrs[i], lens[i]);
-        if (zs->member_index.size)
-            redis_prefetch_read(zbtIndexBucketAt(&zs->member_index,
-                hashes[i] & (zs->member_index.size - 1)));
-        if (zs->member_rehash)
-            redis_prefetch_read(zbtIndexBucketAt(&zs->member_rehash->table,
-                hashes[i] & (zs->member_rehash->table.size - 1)));
     }
     return zbtreeScoresRawWithHash(zs, hashes, ptrs, lens, count,
                                    (1U << count) - 1, scores);
