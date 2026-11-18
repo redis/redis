@@ -3327,14 +3327,13 @@ zbtScoreLeaf *zbtIndexFirstCandidate(zbtreeSet *zs, zbtIndexTable *table,
 /* Batch results and 'want' are bitmasks in an unsigned int. */
 static_assert(ZBT_SCORE_BATCH_SIZE < 32, "Batch does not fit a bitmask");
 
-/* Look up a batch of raw members. Prefetch their index buckets, then find
- * their candidate score leaves and compare the members in separate passes.
- * Each pass has independent iterations, so the CPU can work on several
- * members at once instead of following one chain of loads at a time. A
- * member whose first candidate is not conclusive gets a normal lookup.
- * So does every member when the index is empty or being resized: old-table
- * entries may then refer to released leaves, and the normal lookup advances
- * the resize. */
+/* Look up a batch of raw members. Find their candidate score leaves and
+ * compare the members in separate passes. Each pass has independent
+ * iterations, so the CPU can work on several members at once instead of
+ * following one chain of loads at a time. A member whose first candidate is
+ * not conclusive gets a normal lookup. So does every member when the index
+ * is empty or being resized: old-table entries may then refer to released
+ * leaves, and the normal lookup advances the resize. */
 unsigned int zbtreeScoresRawWithHash(zbtreeSet *zs, const uint32_t *hashes,
                                      const unsigned char **ptrs,
                                      const size_t *lens, unsigned int count,
@@ -3344,20 +3343,7 @@ unsigned int zbtreeScoresRawWithHash(zbtreeSet *zs, const uint32_t *hashes,
     unsigned int found = 0;
     zbtIndexTable *table = &zs->member_index;
 
-    /* 1. Prefetch the wanted members' home buckets in both index tables.
-     * Finish this pass before any lookup can advance a resize and free
-     * one of the tables. */
-    for (unsigned int i = 0; i < count; i++) {
-        if (!(want & (1U << i))) continue;
-        if (table->size)
-            redis_prefetch_read(zbtIndexBucketAt(table,
-                hashes[i] & (table->size - 1)));
-        if (zs->member_rehash)
-            redis_prefetch_read(zbtIndexBucketAt(&zs->member_rehash->table,
-                hashes[i] & (zs->member_rehash->table.size - 1)));
-    }
-
-    /* 2. Empty or resizing indexes use the normal lookup throughout.
+    /* 1. Empty or resizing indexes use the normal lookup throughout.
      * It handles both tables and advances any active resize, without
      * retaining candidate pointers across those lookups. */
     if (zs->member_rehash || table->size == 0) {
@@ -3377,7 +3363,7 @@ unsigned int zbtreeScoresRawWithHash(zbtreeSet *zs, const uint32_t *hashes,
     zbtScoreLeaf *leaf[ZBT_SCORE_BATCH_SIZE];
     unsigned int slow = 0;
 
-    /* 3. Save and prefetch the first candidate leaf for each wanted member.
+    /* 2. Save and prefetch the first candidate leaf for each wanted member.
      * If no candidate exists, distinguish a proven miss from an uncertain
      * one that still needs the full probe sequence. */
     for (unsigned int i = 0; i < count; i++) {
@@ -3391,7 +3377,7 @@ unsigned int zbtreeScoresRawWithHash(zbtreeSet *zs, const uint32_t *hashes,
             slow |= 1U << i;
     }
 
-    /* 4. Check cached leaves directly to avoid repeating index lookups.
+    /* 3. Check cached leaves directly to avoid repeating index lookups.
      * Fall back to the normal lookup only for unresolved members. */
     for (unsigned int i = 0; i < count; i++) {
         double *score = scores ? &scores[i] : NULL;
@@ -3414,7 +3400,8 @@ unsigned int zbtreeScoresRawWithHash(zbtreeSet *zs, const uint32_t *hashes,
     return found;
 }
 
-/* Adapt SDS members to the shared raw batch lookup. A single member uses
+/* Adapt SDS members to the shared raw batch lookup, prefetching their index
+ * buckets before any lookup can advance a resize. A single member uses
  * zbtreeScoreRaw() to avoid batch setup. */
 unsigned int zbtreeScores(zbtreeSet *zs, const sds *members, unsigned int count,
                           double *scores)
@@ -3430,6 +3417,12 @@ unsigned int zbtreeScores(zbtreeSet *zs, const sds *members, unsigned int count,
         ptrs[i] = (const unsigned char *)members[i];
         lens[i] = sdslen(members[i]);
         hashes[i] = zbtreeMemberHash(ptrs[i], lens[i]);
+        if (zs->member_index.size)
+            redis_prefetch_read(zbtIndexBucketAt(&zs->member_index,
+                hashes[i] & (zs->member_index.size - 1)));
+        if (zs->member_rehash)
+            redis_prefetch_read(zbtIndexBucketAt(&zs->member_rehash->table,
+                hashes[i] & (zs->member_rehash->table.size - 1)));
     }
     return zbtreeScoresRawWithHash(zs, hashes, ptrs, lens, count,
                                    (1U << count) - 1, scores);
