@@ -13,9 +13,6 @@
 #include <float.h>
 #include <math.h> /* isnan(), isinf() */
 
-/* XXH3 64-bit hash produces 16 hex characters when formatted */
-#define DIGEST_HEX_LENGTH 16
-
 /* Forward declarations */
 int getGenericCommand(client *c);
 
@@ -123,11 +120,8 @@ void setGenericCommand(client *c, int flags, robj *key, robj **valref, robj *exp
         }
 
         if (flags & OBJ_SET_IFEQ || flags & OBJ_SET_IFNE) {
-            robj *current_decoded = getDecodedObject(current);
-            int condition = (flags & OBJ_SET_IFEQ) ?
-                            sdscmp(current_decoded->ptr, match_value->ptr) == 0 :
-                            sdscmp(current_decoded->ptr, match_value->ptr) != 0;
-            decrRefCount(current_decoded);
+            int equal = equalStringObjects(current, match_value);
+            int condition = (flags & OBJ_SET_IFEQ) ? equal : !equal;
             if (!condition) {
                 if (!(flags & OBJ_SET_GET)) {
                     addReply(c, abort_reply ? abort_reply : shared.null[c->resp]);
@@ -138,11 +132,11 @@ void setGenericCommand(client *c, int flags, robj *key, robj **valref, robj *exp
             if (validateHexDigest(c, match_value->ptr) != C_OK)
                 return;
 
-            sds current_digest = stringDigest(current);
+            char current_digest[DIGEST_BUF_SIZE];
+            stringDigest(current, current_digest);
             int condition = flags & OBJ_SET_IFDEQ ?
                             strcasecmp(current_digest, match_value->ptr) == 0 :
                             strcasecmp(current_digest, match_value->ptr) != 0;
-            sdsfree(current_digest);
             if (!condition) {
                 if (!(flags & OBJ_SET_GET)) {
                     addReply(c, abort_reply ? abort_reply : shared.null[c->resp]);
@@ -1657,25 +1651,31 @@ int validateHexDigest(client *c, const sds digest) {
     return C_OK;
 }
 
-/* Return the xxh3 hash of a string object as a hex string stored in an sds.
- * The user is responsible for freeing the sds. */
-sds stringDigest(robj *o) {
+/* Write the xxh3 hash of a string object into 'buf' as DIGEST_HEX_LENGTH
+ * lowercase hex digits and a null term, so 'buf' must hold DIGEST_BUF_SIZE
+ * bytes. Returns the number of digits written. */
+size_t stringDigest(robj *o, char *buf) {
+    static const char hexdigits[] = "0123456789abcdef";
     serverAssert(o && o->type == OBJ_STRING);
 
     XXH64_hash_t hash = 0;
     if (sdsEncodedObject(o)) {
         hash = XXH3_64bits(o->ptr, sdslen(o->ptr));
     } else if (o->encoding == OBJ_ENCODING_INT) {
-        char buf[LONG_STR_SIZE];
-        size_t len = ll2string(buf,sizeof(buf),(long)o->ptr);
-        hash = XXH3_64bits(buf, len);
+        char llbuf[LONG_STR_SIZE];
+        size_t len = ll2string(llbuf,sizeof(llbuf),(long)o->ptr);
+        hash = XXH3_64bits(llbuf, len);
     } else {
         serverPanic("Wrong obj->encoding stringDigest()");
     }
 
-    sds hexhash = sdsempty();
-    hexhash = sdscatprintf(hexhash, "%0" STRINGIFY(DIGEST_HEX_LENGTH) PRIx64, hash);
-    return hexhash;
+    /* Same digits as "%016" PRIx64, without formatting through printf. */
+    for (int i = DIGEST_HEX_LENGTH - 1; i >= 0; i--) {
+        buf[i] = hexdigits[hash & 0xf];
+        hash >>= 4;
+    }
+    buf[DIGEST_HEX_LENGTH] = '\0';
+    return DIGEST_HEX_LENGTH;
 }
 
 /* DIGEST key
@@ -1691,6 +1691,8 @@ void digestCommand(client *c) {
     if (checkType(c,o,OBJ_STRING))
         return;
 
-    addReplyBulkSds(c, stringDigest(o));
+    char digest[DIGEST_BUF_SIZE];
+    size_t len = stringDigest(o, digest);
+    addReplyBulkCBuffer(c, digest, len);
 }
 
