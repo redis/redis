@@ -1012,3 +1012,26 @@ foreach mode {direct multi lua} {
         } {} {needs:debug repl}
     }
 }}
+
+start_server {tags {"expire"}} {
+    test {INFO keyspace avg_ttl does not overflow with huge expire times} {
+        r flushall
+        # PEXPIREAT accepts expire times up to LLONG_MAX. The active expire
+        # cycle sums the sampled TTLs in a signed long long; a few huge TTLs
+        # in one sample overflow it and avg_ttl wraps negative.
+        for {set i 0} {$i < 8} {incr i} {
+            r set key$i v
+            r pexpireat key$i 9223372036854775807
+        }
+
+        # Wait for the active expire cycle to sample the keys and publish a
+        # positive avg_ttl; on the buggy build it wraps negative and never
+        # becomes positive, so the wait times out and fails.
+        wait_for_condition 100 100 {
+            [regexp {avg_ttl=(-?\d+)} [r info keyspace] -> avg_ttl] && $avg_ttl > 0
+        } else {
+            fail "avg_ttl was never populated with a positive value"
+        }
+        assert {$avg_ttl >= 0}
+    }
+}

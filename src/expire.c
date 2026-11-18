@@ -120,8 +120,14 @@ void expireScanCallback(void *privdata, const dictEntry *de, dictEntryLink plink
         data->expired++;
     }
     if (ttl > 0) {
-        /* We want the average TTL of keys yet not expired. */
-        data->ttl_sum += ttl;
+        /* We want the average TTL of keys yet not expired. The expire time can
+         * be as large as LLONG_MAX (PEXPIREAT accepts it), so a few huge TTLs
+         * would overflow the signed sum — saturate instead. */
+        if (ttl > LLONG_MAX - data->ttl_sum) {
+            data->ttl_sum = LLONG_MAX;
+        } else {
+            data->ttl_sum += ttl;
+        }
         data->ttl_samples++;
     }
     data->sampled++;
