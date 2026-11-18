@@ -308,7 +308,9 @@ proc test {name code {okpattern undefined} {tags {}}} {
         set servers {}
         foreach srv $::servers {
             set stdout [dict get $srv stdout]
-            set fd [open $stdout "a+"]
+            # Not "a+": Tcl drops O_APPEND for it, so a line the server logs
+            # between the open and the puts would be overwritten.
+            set fd [open $stdout a]
             puts $fd "### Starting test $::cur_test"
             close $fd
             lappend servers $stdout
