@@ -1117,6 +1117,49 @@ start_server {tags {external:skip needs:debug} overrides {key-memory-histograms 
         verify_keymem_empty r
     }
 
+    test "KEY-MEMORY-STATS - ZINTERSTORE with a repeated input key accounts once" {
+        r FLUSHALL
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+        # 540 members leaves the set in the middle of a rehash; probing it as
+        # a ZINTERSTORE input finishes the rehash and frees the old table.
+        # Passing the same key twice must apply that size change only once.
+        # Batched inserts leave the set mid-rehash, like the original report.
+        for {set b 0} {$b < 500} {incr b 100} {
+            set sargs {}
+            for {set i $b} {$i < $b + 100} {incr i} {lappend sargs [format n%g $i]}
+            r SADD ss {*}$sargs
+        }
+        set sargs {}
+        for {set i 500} {$i < 540} {incr i} {lappend sargs [format n%g $i]}
+        r SADD ss {*}$sargs
+        set zargs {}
+        for {set i 0} {$i < 250} {incr i} {lappend zargs 2 [format n%g $i]}
+        r ZADD zt {*}$zargs
+        assert_equal 250 [r ZINTERSTORE zdst 3 zt ss ss]
+        assert_equal 540 [r ZUNIONSTORE zdst 4 zt ss ss zt]
+        assert_equal 0 [r ZDIFFSTORE zdst 3 zt ss ss]
+        r DEL zt ss zdst
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
+        verify_keymem_empty r
+    }
+
+    test "KEY-MEMORY-STATS - SDIFF/SINTER with a repeated key accounts once" {
+        r FLUSHALL
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+        # One-by-one inserts leave the set mid-rehash; probing it as an
+        # aggregate input finishes the rehash and frees the old table. The
+        # same key twice must apply that size change only once.
+        set dargs {}
+        for {set i 0} {$i < 1000} {incr i} {lappend dargs [format d-%g $i]}
+        r SADD driver {*}$dargs
+        for {set i 0} {$i < 265} {incr i} {r SADD src [format s-%g $i]}
+        assert_equal 1000 [llength [r SDIFF driver src src]]
+        assert_equal 0 [llength [r SINTER driver src src]]
+        r DEL driver src
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
+        verify_keymem_empty r
+    }
+
     test "KEY-MEMORY-STATS - Histogram bins should use power-of-2 labels" {
         r FLUSHALL
         r HSET "hash" f1 v1
