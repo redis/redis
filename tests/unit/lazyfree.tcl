@@ -41,12 +41,11 @@ start_server {tags {"lazyfree"}} {
     }
 
     test "lazy free a stream with all types of metadata" {
-        # make the previous test is really done before doing RESETSTAT
-        wait_for_condition 50 100 {
-            [s lazyfree_pending_objects] == 0
-        } else {
-            fail "lazyfree isn't done"
-        }
+        # Make sure the previous test is really done before doing RESETSTAT.
+        # lazyfree_pending_objects drops before lazyfreed_objects is bumped, so
+        # wait for the worker instead: FLUSHDB SYNC replies only after every
+        # earlier lazyfree job has finished.
+        r flushdb sync
 
         r config resetstat
         r config set stream-node-max-entries 5
@@ -74,11 +73,10 @@ start_server {tags {"lazyfree"}} {
 
         # make sure it was lazy freed
         wait_for_condition 50 100 {
-            [s lazyfree_pending_objects] == 0
+            [s lazyfree_pending_objects] == 0 && [s lazyfreed_objects] == 1
         } else {
-            fail "lazyfree isn't done"
+            fail "lazyfree isn't done: pending=[s lazyfree_pending_objects] freed=[s lazyfreed_objects]"
         }
-        assert_equal [s lazyfreed_objects] 1
     } {} {needs:config-resetstat}
 
     test "lazy free a stream with deleted cgroup" {
