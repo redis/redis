@@ -4844,6 +4844,18 @@ void zscanCommand(client *c) {
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
 }
 
+/* Reply with the listpack member at 'eptr' and its score at 'sptr' as one
+ * popped element, reading both in place. */
+static void zzlAddReplyPopped(client *c, unsigned char *eptr, unsigned char *sptr,
+                              int use_nested_array) {
+    listpackEntry e;
+
+    e.sval = lpGetValue(eptr,&e.slen,&e.lval);
+    if (use_nested_array) addReplyArrayLen(c,2);
+    zsetReplyFromListpackEntry(c,&e);
+    addReplyDouble(c,zzlGetScore(sptr));
+}
+
 /* This command implements the generic zpop operation, used by:
  * ZPOPMIN, ZPOPMAX, BZPOPMIN, BZPOPMAX and ZMPOP. This function is also used
  * inside blocked.c in the unblocking stage of BZPOPMIN, BZPOPMAX and BZMPOP.
@@ -4934,23 +4946,18 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         if (zobj->encoding == OBJ_ENCODING_LISTPACK) {
             unsigned char *zl = zobj->ptr;
             unsigned char *eptr, *sptr;
-            unsigned char *vstr;
-            unsigned int vlen;
-            long long vlong;
 
             /* Get the first or last element in the sorted set. */
             eptr = lpSeek(zl,where == ZSET_MAX ? -2 : 0);
             serverAssertWithInfo(c,zobj,eptr != NULL);
-            vstr = lpGetValue(eptr,&vlen,&vlong);
-            if (vstr == NULL)
-                ele = sdsfromlonglong(vlong);
-            else
-                ele = sdsnewlen(vstr,vlen);
-
-            /* Get the score. */
             sptr = lpNext(zl,eptr);
             serverAssertWithInfo(c,zobj,sptr != NULL);
-            score = zzlGetScore(sptr);
+
+            /* Reply from the listpack before deletion overwrites the entry,
+             * then delete the entry we already point at. */
+            zzlAddReplyPopped(c,eptr,sptr,use_nested_array);
+            zobj->ptr = zzlDelete(zl,eptr);
+            ele = NULL;
         } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
             zset *zs = zobj->ptr;
             zskiplist *zsl = zs->zsl;
@@ -4997,9 +5004,31 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         ++result_count;
 
         /* The first pop above preserves the usual notification point. Read
-         * the rest before deleting their rank range, so each B+tree leaf is
-         * edited once instead of shifting its packed arrays for every item. */
-        if (zobj->encoding == OBJ_ENCODING_BTREE && rangelen > 1) {
+         * the rest before deleting their rank range, so the listpack, or each
+         * B+tree leaf, is edited once instead of shifting its packed entries
+         * for every item. */
+        if (zobj->encoding == OBJ_ENCODING_LISTPACK && rangelen > 1) {
+            unsigned char *zl = zobj->ptr;
+            long remaining = rangelen - 1;
+            unsigned char *eptr = lpSeek(zl,where == ZSET_MAX ? -2 : 0);
+            serverAssertWithInfo(c,zobj,eptr != NULL);
+            unsigned char *sptr = lpNext(zl,eptr);
+            serverAssertWithInfo(c,zobj,sptr != NULL);
+            for (long i = 0; i < remaining; i++) {
+                zzlAddReplyPopped(c,eptr,sptr,use_nested_array);
+                if (i == remaining - 1) break;
+                if (where == ZSET_MAX)
+                    zzlPrev(zl,&eptr,&sptr);
+                else
+                    zzlNext(zl,&eptr,&sptr);
+            }
+            /* 'rangelen' still holds the full count here, and ranks are 1-based. */
+            unsigned int start = where == ZSET_MAX ? llen - rangelen + 1 : 1;
+            zobj->ptr = zzlDeleteRangeByRank(zl,start,start+remaining-1,NULL);
+            result_count += remaining;
+            server.dirty += remaining;
+            break;
+        } else if (zobj->encoding == OBJ_ENCODING_BTREE && rangelen > 1) {
             zbtreeSet *zs = zobj->ptr;
             long remaining = rangelen - 1;
             zbtreeIterator iter;
@@ -5303,7 +5332,8 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
         while (zuiNext(&src, &zval)) {
             if (withscores && c->resp > 2)
                 addReplyArrayLen(c,2);
-            addReplyBulkSds(c, zuiNewSdsFromValue(&zval));
+            zuiBufferFromValue(&zval);
+            addReplyBulkCBuffer(c, zval.estr, zval.elen);
             if (withscores)
                 addReplyDouble(c, zval.score);
         }
