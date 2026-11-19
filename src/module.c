@@ -51,6 +51,7 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <math.h>
 #include <string.h>
 
 /* --------------------------------------------------------------------------
@@ -8186,8 +8187,17 @@ long double RM_LoadLongDouble(RedisModuleIO *io) {
     size_t len;
     char* str = RM_LoadStringBuffer(io,&len);
     if (!str) return 0;
-    string2ld(str,len,&value);
+    int ok = string2ld(str,len,&value);
+    /* string2ld() rejects NaN, which RM_SaveLongDouble() stores as "nan". */
+    if (!ok && len == 3 && memcmp(str,"nan",3) == 0) {
+        value = NAN;
+        ok = 1;
+    }
     RM_Free(str);
+    if (!ok) {
+        moduleRDBLoadError(io);
+        return 0;
+    }
     return value;
 }
 
