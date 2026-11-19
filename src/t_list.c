@@ -622,6 +622,7 @@ void lindexCommand(client *c) {
     kvobj *o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]);
     if (o == NULL || checkType(c,o,OBJ_LIST)) return;
     long index;
+    size_t oldsize = 0;
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &index, NULL) != C_OK))
         return;
@@ -632,6 +633,8 @@ void lindexCommand(client *c) {
     size_t vlen;
     long long lval;
 
+    if (server.memory_tracking_enabled)
+        oldsize = kvobjAllocSize(o);
     listTypeInitIterator(&iter, o, index, LIST_TAIL);
     if (listTypeNext(&iter, &entry)) {
         vstr = listTypeGetValue(&entry,&vlen,&lval);
@@ -645,6 +648,9 @@ void lindexCommand(client *c) {
     }
 
     listTypeResetIterator(&iter);
+    /* Resetting the iterator may recompress a node and shrink the list. */
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
 }
 
 /* LSET <key> <index> <element> */
@@ -700,9 +706,10 @@ void listPopRangeAndReplyWithKey(client *c, robj *o, robj *key, int where, long 
     /* We return key-name just once, and an array of elements */
     addReplyArrayLen(c, 2);
     addReplyBulk(c, key);
-    addListRangeReply(c, o, rangestart, rangeend, reverse);
+    addListRangeReply(c, o, key, rangestart, rangeend, reverse);
 
-    /* Pop these elements. */
+    /* Pop these elements. Re-read size after the range reply: iterating the
+     * quicklist may recompress nodes and already refreshed slot tracking. */
     size_t oldsize = 0;
     if (server.memory_tracking_enabled)
         oldsize = kvobjAllocSize(o);
@@ -713,11 +720,16 @@ void listPopRangeAndReplyWithKey(client *c, robj *o, robj *key, int where, long 
 
 /* Extracted from `addListRangeReply()` to reply with a quicklist list.
  * Note that the purpose is to make the methods small so that the
- * code in the loop can be inlined better to improve performance. */
-void addListQuicklistRangeReply(client *c, robj *o, int from, int rangelen, int reverse) {
+ * code in the loop can be inlined better to improve performance.
+ * 'key' is the list key (needed for cluster slot alloc tracking; LMPOP/BLMPOP
+ * do not place that key at c->argv[1]). */
+void addListQuicklistRangeReply(client *c, robj *o, robj *key, int from, int rangelen, int reverse) {
     /* Return the result in form of a multi-bulk reply */
     addReplyArrayLen(c,rangelen);
 
+    size_t oldsize = 0;
+    if (server.memory_tracking_enabled)
+        oldsize = kvobjAllocSize(o);
     int direction = reverse ? AL_START_TAIL : AL_START_HEAD;
     quicklistIter iter;
     quicklistInitIteratorAtIdx(&iter, o->ptr, direction, from);
@@ -731,6 +743,9 @@ void addListQuicklistRangeReply(client *c, robj *o, int from, int rangelen, int 
         }
     }
     quicklistResetIterator(&iter);
+    /* Leaving nodes may recompress them and shrink the list allocation. */
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(c->db, getKeySlot(key->ptr), o, oldsize, kvobjAllocSize(o));
 }
 
 /* Extracted from `addListRangeReply()` to reply with a listpack list.
@@ -759,7 +774,7 @@ void addListListpackRangeReply(client *c, robj *o, int from, int rangelen, int r
  * must be less than end or an empty array is returned. When the reverse
  * argument is set to a non-zero value, the reply is reversed so that elements
  * are returned from end to start. */
-void addListRangeReply(client *c, robj *o, long start, long end, int reverse) {
+void addListRangeReply(client *c, robj *o, robj *key, long start, long end, int reverse) {
     long rangelen, llen = listTypeLength(o);
 
     /* Convert negative indexes. */
@@ -778,7 +793,7 @@ void addListRangeReply(client *c, robj *o, long start, long end, int reverse) {
 
     int from = reverse ? end : start;
     if (o->encoding == OBJ_ENCODING_QUICKLIST)
-        addListQuicklistRangeReply(c, o, from, rangelen, reverse);
+        addListQuicklistRangeReply(c, o, key, from, rangelen, reverse);
     else if (o->encoding == OBJ_ENCODING_LISTPACK)
         addListListpackRangeReply(c, o, from, rangelen, reverse);
     else
@@ -844,11 +859,11 @@ void popGenericCommand(client *c, int where) {
     }
 
     size_t oldsize = 0;
-    if (server.memory_tracking_enabled)
-        oldsize = kvobjAllocSize(o);
     if (!count) {
         /* Pop a single element. This is POP's original behavior that replies
          * with a bulk string. */
+        if (server.memory_tracking_enabled)
+            oldsize = kvobjAllocSize(o);
         value = listTypePop(o,where);
         serverAssert(value != NULL);
         addReplyBulk(c,value);
@@ -863,7 +878,11 @@ void popGenericCommand(client *c, int where) {
         long rangeend = (where == LIST_HEAD) ? rangelen - 1 : -1;
         int reverse = (where == LIST_HEAD) ? 0 : 1;
 
-        addListRangeReply(c,o,rangestart,rangeend,reverse);
+        addListRangeReply(c,o,c->argv[1],rangestart,rangeend,reverse);
+        /* Range reply may recompress and already update slot tracking; use
+         * the post-reply size as the removal baseline. */
+        if (server.memory_tracking_enabled)
+            oldsize = kvobjAllocSize(o);
         listTypeDelRange(o,rangestart,rangelen);
         listElementsRemoved(c,c->argv[1],where,o,rangelen,oldsize,1,NULL);
     }
@@ -931,7 +950,7 @@ void lrangeCommand(client *c) {
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptyarray)) == NULL
          || checkType(c,o,OBJ_LIST)) return;
 
-    addListRangeReply(c,o,start,end,0);
+    addListRangeReply(c,o,c->argv[1],start,end,0);
 }
 
 /* LTRIM <key> <start> <stop> */
@@ -1074,6 +1093,9 @@ void lposCommand(client *c) {
     /* Seek the element. */
     listTypeIterator li;
     listTypeEntry entry;
+    size_t oldsize = 0;
+    if (server.memory_tracking_enabled)
+        oldsize = kvobjAllocSize(o);
     listTypeInitIterator(&li, o, direction == LIST_HEAD ? -1 : 0, direction);
     long llen = listTypeLength(o);
     long index = 0, matches = 0, matchindex = -1, arraylen = 0;
@@ -1098,6 +1120,8 @@ void lposCommand(client *c) {
         matchindex = -1; /* Remember if we exit the loop without a match. */
     }
     listTypeResetIterator(&li);
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
 
     /* Reply to the client. Note that arraylenptr is not NULL only if
      * the COUNT option was selected. */
