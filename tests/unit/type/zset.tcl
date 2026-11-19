@@ -690,6 +690,56 @@ start_server {tags {"zset"}} {
                               0 query 0 result 0 sea 0 tree}
         }
 
+        test "ZSET lex range bounds - and + with an embedded NUL are rejected - $encoding" {
+            r del lexz "{lexz}dest"
+            r zadd lexz 0 a 0 b 0 c
+            assert_encoding $encoding lexz
+            # "-x" is rejected, so "-" or "+" followed by a NUL and more bytes
+            # must be too: the bytes after the NUL are part of the argument.
+            foreach bound [list "-\u0000x" "-\u0000" "+\u0000x" "+\u0000" "+\u0000junk" "\u0000"] {
+                assert_error "*not valid string range*" {r zrangebylex lexz $bound +}
+                assert_error "*not valid string range*" {r zrangebylex lexz - $bound}
+                assert_error "*not valid string range*" {r zrevrangebylex lexz + $bound}
+                assert_error "*not valid string range*" {r zrevrangebylex lexz $bound -}
+                assert_error "*not valid string range*" {r zrange lexz $bound + bylex}
+                assert_error "*not valid string range*" {r zrange lexz - $bound bylex}
+                assert_error "*not valid string range*" {r zlexcount lexz $bound +}
+                assert_error "*not valid string range*" {r zlexcount lexz - $bound}
+                assert_error "*not valid string range*" {r zremrangebylex lexz $bound +}
+                assert_error "*not valid string range*" {r zremrangebylex lexz - $bound}
+                assert_error "*not valid string range*" {r zrangestore "{lexz}dest" lexz $bound + bylex}
+                assert_error "*not valid string range*" {r zrangestore "{lexz}dest" lexz - $bound bylex}
+            }
+            # Nothing was removed or stored, and ordinary bounds still work.
+            assert_equal 3 [r zcard lexz]
+            assert_equal 0 [r exists "{lexz}dest"]
+            assert_equal {a b c} [r zrangebylex lexz - +]
+            assert_equal 2 [r zlexcount lexz (a +]
+        }
+
+        test "ZSET lex range bounds with a bracket or paren prefix keep embedded NUL bytes - $encoding" {
+            # Members are binary-safe, so a NUL after the "[" or "(" prefix is
+            # part of the bound and must not be rejected.
+            r del lexz "{lexz}dest"
+            r zadd lexz 0 a 0 "a\u0000b" 0 "a\u0000c" 0 b
+            assert_encoding $encoding lexz
+            set ab "a\u0000b"
+            set ac "a\u0000c"
+            assert_equal [list $ab $ac b] [r zrangebylex lexz "\[a\u0000b" +]
+            assert_equal [list $ac b] [r zrangebylex lexz "(a\u0000b" +]
+            assert_equal [list a $ab] [r zrangebylex lexz - "\[a\u0000b"]
+            assert_equal [list a] [r zrangebylex lexz - "(a\u0000b"]
+            # "a" sorts before "a\0", which sorts before "a\0b".
+            assert_equal [list $ab $ac b] [r zrangebylex lexz "\[a\u0000" +]
+            assert_equal [list $ac $ab] [r zrevrangebylex lexz "\[a\u0000c" "\[a\u0000b"]
+            assert_equal [list $ab $ac] [r zrange lexz "\[a\u0000b" "\[a\u0000c" bylex]
+            assert_equal 3 [r zlexcount lexz "\[a\u0000" +]
+            assert_equal 2 [r zlexcount lexz "\[a\u0000b" "\[a\u0000c"]
+            assert_equal 2 [r zrangestore "{lexz}dest" lexz "\[a\u0000b" "\[a\u0000c" bylex]
+            assert_equal 2 [r zremrangebylex lexz "\[a\u0000b" "\[a\u0000c"]
+            assert_equal {a b} [r zrange lexz 0 -1]
+        }
+
         test "ZRANGEBYLEX/ZREVRANGEBYLEX/ZLEXCOUNT basics - $encoding" {
             create_default_lex_zset
 
