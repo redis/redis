@@ -62,6 +62,32 @@ start_server [list overrides [list save ""] ] {
         r LSET list3 0 [string repeat d $size]
         assert_equal [string repeat d $size] [r lindex list3 0]
     }
+
+    test "$container node check compression with LPOP, RPOP, BLPOP and BRPOP" {
+        r flushdb
+        for {set i 0} {$i < 10} {incr i} {
+            r rpush list5 [string repeat $i $size]
+        }
+        assert_equal [string repeat 0 $size] [r lpop list5]
+        assert_equal [list list5 [string repeat 9 $size]] [r brpop list5 1]
+        assert_equal [list list5 [string repeat 1 $size]] [r blpop list5 1]
+        assert_equal [string repeat 8 $size] [r rpop list5]
+
+        # The pops must leave the same nodes compressed as a list built
+        # from the remaining elements.
+        for {set i 2} {$i < 8} {incr i} {
+            r rpush list6 [string repeat $i $size]
+        }
+        assert_equal [r memory usage list6] [r memory usage list5]
+
+        # Pop the rest from both ends while the list shrinks below twice
+        # the compress depth.
+        for {set i 2} {$i < 5} {incr i} {
+            assert_equal [list list5 [string repeat $i $size]] [r blpop list5 1]
+            assert_equal [list list5 [string repeat [expr {9 - $i}] $size]] [r brpop list5 1]
+        }
+        assert_equal 0 [r exists list5]
+    }
     } ;# foreach
 
     test "DEBUG QUICKLIST recompresses the nodes it decompressed" {
@@ -109,6 +135,20 @@ foreach type {listpack quicklist} {
         r lpush lst bb
         r debug reload
         assert_equal [r rpop lst] "xxxxxxxxxx"
+        r debug quicklist-packed-threshold 0
+    } {OK} {needs:debug}
+
+    # basic command check for plain nodes - "BLPOP & BRPOP"
+    test {Test BLPOP and BRPOP on plain nodes} {
+        r flushdb
+        r debug quicklist-packed-threshold 1b
+        r rpush lst 9 xxxxxxxxxx 8 yyyyyyyyyy
+        assert_encoding $type lst
+        assert_equal {lst yyyyyyyyyy} [r brpop lst 1]
+        assert_equal {lst 9} [r blpop lst 1]
+        assert_equal {lst 8} [r brpop lst 1]
+        assert_equal {lst xxxxxxxxxx} [r blpop lst 1]
+        assert_equal 0 [r exists lst]
         r debug quicklist-packed-threshold 0
     } {OK} {needs:debug}
 
@@ -589,6 +629,24 @@ foreach {type large} [array get largevalue] {
         assert_equal {} [r lindex mylist2 3]
         assert_equal $large [r rpop mylist2]
         assert_equal c [r lpop mylist2]
+    }
+
+    test "LPOP/RPOP/BLPOP/BRPOP reply with integer and string elements - $type" {
+        # Integer-looking elements are stored as integers. The large element
+        # is popped last, so the list keeps its encoding for the other pops.
+        foreach {pop bpop push} {lpop blpop rpush rpop brpop lpush} {
+            r del mylist
+            r $push mylist 1 -5 007 9223372036854775807 -9223372036854775808 a $large
+            assert_encoding $type mylist
+            assert_equal 1 [r $pop mylist]
+            assert_equal {mylist -5} [r $bpop mylist 1]
+            assert_equal 007 [r $pop mylist]
+            assert_equal 9223372036854775807 [r $pop mylist]
+            assert_equal {mylist -9223372036854775808} [r $bpop mylist 1]
+            assert_equal a [r $pop mylist]
+            assert_equal $large [r $pop mylist]
+            assert_equal 0 [r exists mylist]
+        }
     }
 
     test "LPOP/RPOP with wrong number of arguments" {

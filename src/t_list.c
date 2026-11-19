@@ -169,21 +169,20 @@ void listTypePush(robj *subject, robj *value, int where) {
     }
 }
 
-void *listPopSaver(unsigned char *data, size_t sz) {
-    return createStringObject((char*)data,sz);
-}
-
-robj *listTypePop(robj *subject, int where) {
-    robj *value = NULL;
-
+/* Pop an element from the head or tail of the list and pass it in place to
+ * 'consume' before deleting it. A string element is passed as 'data' and
+ * 'sz', an integer element as 'data' set to NULL and 'sval' (listpack
+ * encoded lists always pass a string). 'ctx' is passed through to 'consume',
+ * which must not modify the list.
+ *
+ * Returns 1 if an element was popped, 0 if the list is empty. */
+static int listTypePopInPlace(robj *subject, int where,
+                              void (*consume)(void *ctx, unsigned char *data,
+                                              size_t sz, long long sval),
+                              void *ctx) {
     if (subject->encoding == OBJ_ENCODING_QUICKLIST) {
-        long long vlong;
         int ql_where = where == LIST_HEAD ? QUICKLIST_HEAD : QUICKLIST_TAIL;
-        if (quicklistPopCustom(subject->ptr, ql_where, (unsigned char **)&value,
-                               NULL, &vlong, listPopSaver)) {
-            if (!value)
-                value = createStringObjectFromLongLong(vlong);
-        }
+        return quicklistPopInPlace(subject->ptr, ql_where, consume, ctx);
     } else if (subject->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *p;
         unsigned char *vstr;
@@ -191,15 +190,47 @@ robj *listTypePop(robj *subject, int where) {
         unsigned char intbuf[LP_INTBUF_SIZE];
 
         p = (where == LIST_HEAD) ? lpFirst(subject->ptr) : lpLast(subject->ptr);
-        if (p) {
-            vstr = lpGet(p, &vlen, intbuf);
-            value = createStringObject((char*)vstr, vlen);
-            subject->ptr = lpDelete(subject->ptr, p, NULL);
-        }
+        if (!p) return 0;
+        vstr = lpGet(p, &vlen, intbuf);
+        consume(ctx, vstr, vlen, 0);
+        subject->ptr = lpDelete(subject->ptr, p, NULL);
+        return 1;
     } else {
         serverPanic("Unknown list encoding");
     }
+}
+
+/* listTypePopInPlace() callback that saves a copy of the popped element. */
+static void listPopSaveConsumer(void *ctx, unsigned char *data, size_t sz,
+                                long long sval) {
+    robj **value = ctx;
+    if (data)
+        *value = createStringObject((char*)data, sz);
+    else
+        *value = createStringObjectFromLongLong(sval);
+}
+
+robj *listTypePop(robj *subject, int where) {
+    robj *value = NULL;
+    listTypePopInPlace(subject, where, listPopSaveConsumer, &value);
     return value;
+}
+
+/* listTypePopInPlace() callback that replies with the popped element. */
+static void listPopReplyConsumer(void *ctx, unsigned char *data, size_t sz,
+                                 long long sval) {
+    client *c = ctx;
+    if (data)
+        addReplyBulkCBuffer(c, data, sz);
+    else
+        addReplyBulkLongLong(c, sval);
+}
+
+/* Like listTypePop(), for a non-empty list, but reply with the popped element
+ * as a bulk string read in place instead of returning a copy of it. */
+static void listTypePopAndReply(client *c, robj *subject, int where) {
+    int popped = listTypePopInPlace(subject, where, listPopReplyConsumer, c);
+    serverAssert(popped);
 }
 
 unsigned long listTypeLength(const robj *subject) {
@@ -822,7 +853,6 @@ void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, s
 void popGenericCommand(client *c, int where) {
     int hascount = (c->argc == 3);
     long count = 0;
-    robj *value;
 
     if (c->argc > 3) {
         addReplyErrorArity(c);
@@ -849,10 +879,7 @@ void popGenericCommand(client *c, int where) {
     if (!count) {
         /* Pop a single element. This is POP's original behavior that replies
          * with a bulk string. */
-        value = listTypePop(o,where);
-        serverAssert(value != NULL);
-        addReplyBulk(c,value);
-        decrRefCount(value);
+        listTypePopAndReply(c,o,where);
         listElementsRemoved(c,c->argv[1],where,o,1,oldsize,1,NULL);
     } else {
         /* Pop a range of elements. An addition to the original POP command,
@@ -1344,13 +1371,9 @@ void blockingPopGenericCommand(client *c, robj **keys, int numkeys, int where, i
         size_t oldsize = 0;
         if (server.memory_tracking_enabled)
             oldsize = kvobjAllocSize(o);
-        robj *value = listTypePop(o,where);
-        serverAssert(value != NULL);
-
         addReplyArrayLen(c,2);
         addReplyBulk(c,key);
-        addReplyBulk(c,value);
-        decrRefCount(value);
+        listTypePopAndReply(c,o,where);
         listElementsRemoved(c,key,where,o,1,oldsize,1,NULL);
 
         /* Replicate it as an [LR]POP instead of B[LR]POP. */
