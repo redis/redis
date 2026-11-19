@@ -550,6 +550,16 @@ int exprProcessOperator(exprstate *es, exprtoken *op, int *stack_items, int *err
         }
     }
 
+    /* Unary prefix operators never pop the operators stack: every
+     * operator there is still waiting for the operand that follows.
+     * This makes them right associative, so "!!x" and "not not x"
+     * compile, like "**" is handled below. */
+    if (exprGetOpArity(op->opcode) == 1) {
+        exprStackPush(&es->ops_stack, op);
+        exprTokenRetain(op);
+        return 0;
+    }
+
     int curr_prec = exprGetOpPrecedence(op->opcode);
 
     /* Process operators with higher or equal precedence. */
