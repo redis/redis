@@ -725,6 +725,23 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         list $old_value $new_value
     } {bar baz}
 
+    test {Extended SET with GET and an invalid IFDEQ/IFDNE digest replies with a single error} {
+        r del foo
+        r set foo bar
+        # The digest must be rejected before the GET reply is emitted, so the
+        # command replies exactly once (previously it replied the old value
+        # followed by an error, breaking the protocol; see issue #16283).
+        r readraw 1
+        catch {r set foo baz GET IFDEQ not-a-digest} e
+        set err1 $e
+        catch {r set foo baz IFDNE 0123456789abcdef0} e
+        set err2 $e
+        r readraw 0
+        assert_match "*must be exactly 16 hexadecimal characters*" $err1
+        assert_match "*must be exactly 16 hexadecimal characters*" $err2
+        r get foo
+    } {bar}
+
     test {Extended SET GET option with XX} {
         r del foo
         r set foo bar
@@ -1410,7 +1427,7 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
 
     test {Extended SET with IFDEQ - key doesn't exist} {
         r del mykey
-        set digest 1234567890
+        set digest 0123456789abcdef
         assert_equal {} [r set mykey "world" IFDEQ $digest]
         assert_equal 0 [r exists mykey]
     }
@@ -1431,7 +1448,7 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
 
     test {Extended SET with IFDNE - key doesn't exist} {
         r del mykey
-        set digest 1234567890
+        set digest 0123456789abcdef
         assert_equal "OK" [r set mykey "world" IFDNE $digest]
         assert_equal "world" [r get mykey]
     }
@@ -1488,7 +1505,7 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
 
     test {Extended SET with IFDEQ and GET - key doesn't exist} {
         r del mykey
-        set digest 1234567890
+        set digest 0123456789abcdef
         assert_equal {} [r set mykey "world" IFDEQ $digest GET]
         assert_equal 0 [r exists mykey]
     }
@@ -1509,7 +1526,7 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
 
     test {Extended SET with IFDNE and GET - key doesn't exist} {
         r del mykey
-        set digest 1234567890
+        set digest 0123456789abcdef
         assert_equal {} [r set mykey "world" IFDNE $digest GET]
         assert_equal "world" [r get mykey]
     }
@@ -1559,13 +1576,13 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
     test {Extended SET with IFDEQ against wrong type} {
         r del myset
         r sadd myset member
-        assert_error "*WRONGTYPE*" {r set myset "value" IFDEQ 1234567890}
+        assert_error "*WRONGTYPE*" {r set myset "value" IFDEQ 0123456789abcdef}
     }
 
     test {Extended SET with IFDNE against wrong type} {
         r del myzset
         r zadd myzset 1 member
-        assert_error "*WRONGTYPE*" {r set myzset "value" IFDNE 1234567890}
+        assert_error "*WRONGTYPE*" {r set myzset "value" IFDNE 0123456789abcdef}
     }
 
     test {Extended SET with integer-encoded value and IFEQ} {
