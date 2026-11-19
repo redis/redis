@@ -1310,6 +1310,7 @@ typedef int64_t keysizesHist[MAX_KEYSIZES_ROWS][MAX_KEYSIZES_BINS];
 typedef enum {
     /* Per-stream metrics: one sample per stream key. */
     STREAM_DISTRIB_STREAMS_CGROUPS = 0, /* stream_distrib_streams_cgroups */
+    STREAM_DISTRIB_STREAMS_MAX_LAG,     /* stream_distrib_streams_max_lag */
     /* Per-group metrics: one sample per consumer group. */
     STREAM_DISTRIB_CGROUPS_PEL,         /* stream_distrib_cgroups_pel */
     STREAM_DISTRIB_CGROUPS_CONSUMERS,   /* stream_distrib_cgroups_consumers */

@@ -3373,17 +3373,11 @@ static void asmBackgroundTrimDoneCB(uint64_t client_id, void *userdata) {
         }
         /* The INFO Streams rows have a generation of their own, which a
          * stale re-enable and a rebuild also advance, and were tallied only
-         * if tracking was on at schedule. The tally counted only samples that
-         * are in these rows, so the subtraction cannot go below zero. */
+         * if tracking was on at schedule. */
         if (job->bg->track_stream_stats &&
             job->bg->stream_stats_epoch == meta->stream_stats_epoch)
         {
-            for (int m = 0; m < STREAM_DISTRIB_MAX; m++) {
-                for (int bin = 0; bin < MAX_KEYSIZES_BINS; bin++) {
-                    debugServerAssert(meta->stream_hist[m][bin] >= job->bg->delta_stream_hist[m][bin]);
-                    meta->stream_hist[m][bin] -= job->bg->delta_stream_hist[m][bin];
-                }
-            }
+            streamStatsSubtractTally(meta, job->bg->delta_stream_hist);
         }
     }
 

@@ -610,6 +610,17 @@ void debugCommand(client *c) {
 "    Enable/disable INFO streams histogram assertion after each command.",
 "    Arm on an exact state: tracking enabled at startup, an empty keyspace,",
 "    or right after DEBUG RELOAD; a runtime enable fills in lazily.",
+"STREAM-STATS-GENERATION [<n>]",
+"    Return the generation counter of the INFO streams histograms, or set it",
+"    to <n>: the next reset starts generation <n>+1. For testing its wrap.",
+"STREAM-STATS-EPOCH",
+"    Return the generation the INFO streams histograms of the selected",
+"    database were last reset in, 0 if never.",
+"STREAM-STATS-LAG-GROUPS-LIMIT [<n>]",
+"    Return the number of groups above which a stream has no sample in the",
+"    max-lag histogram, or set it to <n>, from 1 to 16777216. Setting it",
+"    rebuilds the INFO streams histograms, or resets them at the next enable",
+"    while stream-stats is off. For testing the limit.",
 "KEYMETA-AOF-DUMP <key>",
 "    Return a DUMP payload without KeyMeta for an AOF rewrite.",
 "LOADAOF",
@@ -762,6 +773,41 @@ NULL
             server.dbg_assert_flags |= DBG_ASSERT_STREAM_STATS;
         else
             server.dbg_assert_flags &= ~DBG_ASSERT_STREAM_STATS;
+        addReply(c, shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"STREAM-STATS-GENERATION") &&
+               (c->argc == 2 || c->argc == 3))
+    {
+        if (c->argc == 2) {
+            addReplyLongLong(c, server.stream_stats_generation);
+            return;
+        }
+        long long gen;
+        if (getLongLongFromObjectOrReply(c, c->argv[2], &gen, NULL) != C_OK)
+            return;
+        /* The counter never holds the never-counted sentinel. */
+        if (gen < 0 || gen >= STREAM_DISTRIB_NEVER_COUNTED) {
+            addReplyError(c, "The generation is out of range");
+            return;
+        }
+        server.stream_stats_generation = (uint32_t) gen;
+        addReply(c, shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"STREAM-STATS-EPOCH") && c->argc == 2) {
+        kvstoreMetadata *meta = kvstoreGetMetadata(c->db->keys);
+        addReplyLongLong(c, meta->stream_stats_epoch);
+    } else if (!strcasecmp(c->argv[1]->ptr,"STREAM-STATS-LAG-GROUPS-LIMIT") &&
+               (c->argc == 2 || c->argc == 3))
+    {
+        if (c->argc == 2) {
+            addReplyLongLong(c, dbgStreamLagGroupsLimit());
+            return;
+        }
+        long long limit;
+        if (getLongLongFromObjectOrReply(c, c->argv[2], &limit, NULL) != C_OK)
+            return;
+        if (!dbgStreamLagSetGroupsLimit(limit)) {
+            addReplyError(c, "The limit is out of range");
+            return;
+        }
         addReply(c, shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"ALLOCSIZE-SLOTS-ASSERT") && c->argc == 3) {
         long long flag;

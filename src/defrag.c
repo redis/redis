@@ -1105,8 +1105,11 @@ void* defragStreamConsumer(raxIterator *ri, void *privdata) {
 void* defragStreamConsumerGroup(raxIterator *ri, void *privdata) {
     stream *s = privdata;
     streamCG *newcg, *cg = ri->data;
-    if ((newcg = activeDefragAlloc(cg)))
+    if ((newcg = activeDefragAlloc(cg))) {
+        /* The stream's lag heap holds the group by pointer. */
+        streamLagGroupMoved(s, cg, newcg);
         cg = newcg;
+    }
     if (cg->pel) {
         /* Update pel back-pointer to new stream */
         cg->pel->alloc_size = &s->alloc_size;
@@ -1184,6 +1187,13 @@ void defragStream(defragKeysCtx *ctx, kvobj *ob) {
         /* Update cgroups back-pointer to new stream */
         s->cgroups->alloc_size = &s->alloc_size;
         defragRadixTree(&s->cgroups, 0, defragStreamConsumerGroup, s);
+        /* The lag heap hangs off the groups rax header, read after the rax
+         * itself may have moved. Same size class, so alloc_size is unchanged. */
+        streamLagState *ls = (streamLagState *) s->cgroups->metadata;
+        if (ls->heap) {
+            iheap *newheap = activeDefragAlloc(ls->heap);
+            if (newheap) ls->heap = newheap;
+        }
     }
 
     if (s->cgroups_ref) {
