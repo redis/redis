@@ -2996,6 +2996,23 @@ static int zinterCanBatch(zsetopsrc *src, long setnum) {
     return setnum > 1;
 }
 
+/* Fetch up to 'max' members of a B+ tree first input for a batch, straight
+ * from its leaves. Fewer than 'max' means end of input. */
+static unsigned int zuiNextBtreeBatch(zsetopsrc *op, zsetopval *vals,
+                                      const unsigned char **ptrs, size_t *lens,
+                                      double *scores, unsigned int max)
+{
+    /* Backwards, see zuiInitIterator(). */
+    unsigned int n =
+        zbtreeIteratorNextBatch(&op->iter.zset.bt.iter, 1, ptrs, lens,
+                                op->noscore ? NULL : scores, max);
+    for (unsigned int k = 0; k < n; k++) {
+        vals[k].estr = (unsigned char *)ptrs[k];
+        vals[k].elen = lens[k];
+    }
+    return n;
+}
+
 int zuiCompareByCardinality(const void *s1, const void *s2) {
     unsigned long first = zuiLength((zsetopsrc*)s1);
     unsigned long second = zuiLength((zsetopsrc*)s2);
@@ -3437,22 +3454,37 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
             src[0].noscore = cardinality_only;
             zuiInitIterator(&src[0]);
             memset(batch, 0, sizeof(batch));
+            int leaf_fill = src[0].type == OBJ_ZSET &&
+                            src[0].encoding == OBJ_ENCODING_BTREE;
             int done = 0;
             while (!done) {
                 /* With LIMIT never fetch more members than can still count. */
-                unsigned int room = ZINTER_BATCH, n = 0;
+                unsigned int room = ZINTER_BATCH, n;
                 if (limit && (unsigned long)limit - cardinality < room)
                     room = (unsigned long)limit - cardinality;
-                while (n < room && zuiNext(&src[0], &batch[n])) {
-                    hashes[n] = zuiMemberHash(&batch[n]);
-                    ptrs[n] = batch[n].estr;
-                    lens[n] = batch[n].elen;
-                    if (!cardinality_only) {
-                        scores[n] = zuiWeightedScore(batch[n].score,
-                                                     src[0].weight, aggregate);
-                        if (isnan(scores[n])) scores[n] = 0;
+                if (leaf_fill) {
+                    n = zuiNextBtreeBatch(&src[0], batch, ptrs, lens, values,
+                                          room);
+                    for (unsigned int k = 0; k < n; k++) {
+                        hashes[k] = zbtreeMemberHash(ptrs[k], lens[k]);
+                        if (cardinality_only) continue;
+                        scores[k] = zuiWeightedScore(values[k], src[0].weight,
+                                                     aggregate);
+                        if (isnan(scores[k])) scores[k] = 0;
                     }
-                    n++;
+                } else {
+                    n = 0;
+                    while (n < room && zuiNext(&src[0], &batch[n])) {
+                        hashes[n] = zuiMemberHash(&batch[n]);
+                        ptrs[n] = batch[n].estr;
+                        lens[n] = batch[n].elen;
+                        if (!cardinality_only) {
+                            scores[n] = zuiWeightedScore(batch[n].score,
+                                            src[0].weight, aggregate);
+                            if (isnan(scores[n])) scores[n] = 0;
+                        }
+                        n++;
+                    }
                 }
                 if (n < room) done = 1;
                 unsigned int alive = n ? (1U << n) - 1 : 0;
