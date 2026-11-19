@@ -155,6 +155,8 @@ start_server {tags {"geo"}} {
         r set dest{t} original
         assert_error {ERR unsupported unit*} {r georadiusbymember src{t} member 1 yards store dest{t}}
         assert_equal original [r get dest{t}]
+        assert_error {*unsupported unit*} {r eval {return redis.call('georadiusbymember',KEYS[1],'member',1,'yards','store',KEYS[2])} 2 src{t} dest{t}}
+        assert_equal original [r get dest{t}]
     }
 
     test {GEORADIUSBYMEMBER_RO rejects a negative radius with a missing source} {

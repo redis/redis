@@ -220,10 +220,13 @@ tags {"aof external:skip"} {
     }
 
     ## Older versions skipped the radius and unit checks for a missing source,
-    ## so their AOF may contain such a STORE that deleted the destination.
+    ## so their AOF may contain such a STORE that deleted the destination, sent
+    ## directly or from a script replicated verbatim.
     create_aof $aof_dirpath $aof_file {
         append_to_aof [formatCommand set dest original]
         append_to_aof [formatCommand georadiusbymember src member 1 yards store dest]
+        append_to_aof [formatCommand set script_dest original]
+        append_to_aof [formatCommand eval {return redis.call('georadiusbymember',KEYS[1],'member',1,'yards','store',KEYS[2])} 2 src script_dest]
     }
 
     start_server_aof [list dir $server_path aof-load-truncated no] {
@@ -231,6 +234,7 @@ tags {"aof external:skip"} {
             set client [redis [srv host] [srv port] 0 $::tls]
             wait_done_loading $client
             assert_equal 0 [$client exists dest]
+            assert_equal 0 [$client exists script_dest]
         }
     }
 
