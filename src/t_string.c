@@ -135,9 +135,9 @@ void setGenericCommand(client *c, int flags, robj *key, robj **valref, robj *exp
                 return;
             }
         } else if (flags & OBJ_SET_IFDEQ || flags & OBJ_SET_IFDNE) {
-            if (validateHexDigest(c, match_value->ptr) != C_OK)
-                return;
-
+            /* The digest format was already validated while parsing the
+             * arguments (parseExtendedStringArgumentsOrReply), so it is safe
+             * to compare it against the current digest here. */
             sds current_digest = stringDigest(current);
             int condition = flags & OBJ_SET_IFDEQ ?
                             strcasecmp(current_digest, match_value->ptr) == 0 :
@@ -411,6 +411,10 @@ int parseExtendedStringArgumentsOrReply(client *c, int start_pos, extendedString
                    !(args->flags & (cond_mut_excl & ~OBJ_SET_IFDEQ)) &&
                    (command_type == COMMAND_SET))
         {
+            /* Validate the digest up-front, before any reply (e.g. the GET
+             * reply) is emitted, so an invalid digest can't produce two
+             * replies for a single command. */
+            if (validateHexDigest(c, next->ptr) != C_OK) return C_ERR;
             args->flags |= OBJ_SET_IFDEQ;
             args->match_value = next;
             j++;
@@ -418,6 +422,8 @@ int parseExtendedStringArgumentsOrReply(client *c, int start_pos, extendedString
                    !(args->flags & (cond_mut_excl & ~OBJ_SET_IFDNE)) &&
                    (command_type == COMMAND_SET))
         {
+            /* See the IFDEQ comment above. */
+            if (validateHexDigest(c, next->ptr) != C_OK) return C_ERR;
             args->flags |= OBJ_SET_IFDNE;
             args->match_value = next;
             j++;
