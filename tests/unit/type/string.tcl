@@ -725,6 +725,21 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         list $old_value $new_value
     } {bar baz}
 
+    test {Extended SET GET strips only the GET option when propagating} {
+        r del foo
+        r set foo get
+        set repl [attach_to_replication_stream]
+        # The match value of IFEQ is the literal string "get": it must be
+        # kept in the propagated command, otherwise replicas and AOF see a
+        # broken "SET foo bar IFEQ" (see issue #16282).
+        assert_equal {get} [r set foo bar GET IFEQ get]
+        assert_replication_stream $repl {
+            {select *}
+            {set foo bar IFEQ get}
+        }
+        r get foo
+    } {bar}
+
     test {Extended SET GET option with XX} {
         r del foo
         r set foo bar
