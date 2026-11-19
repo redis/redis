@@ -1757,7 +1757,9 @@ int dictShrinkIfNeeded(dict *d) {
         (can_resize != DICT_RESIZE_FORBID &&
          d->ht_used[0] * HASHTABLE_MIN_FILL * dict_force_resize_ratio <= DICTHT_SIZE(d->ht_size_exp[0])))
     {
-        if (dictTypeResizeAllowed(d, d->ht_used[0]))
+        /* Shrinking frees memory, so ask for no extra memory. */
+        if (d->type->resizeAllowed == NULL ||
+            d->type->resizeAllowed(0, (double)d->ht_used[0] / DICTHT_SIZE(d->ht_size_exp[0])))
             dictShrink(d, d->ht_used[0]);
         return DICT_OK;
     }
