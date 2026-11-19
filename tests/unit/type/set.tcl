@@ -514,6 +514,18 @@ foreach type {single multiple single_multiple} {
             assert_equal [list 195 196 197 198 199 $large] [lsort [r sinter set1{t} set2{t}]]
         }
 
+        test "SINTERCARD with one set - $type" {
+            foreach i {1 3} {
+                set key [format "set%d{t}" $i]
+                set cardinality [r scard $key]
+                assert_equal $cardinality [r sintercard 1 $key]
+                assert_equal $cardinality [r sintercard 1 $key limit 0]
+                assert_equal 1 [r sintercard 1 $key limit 1]
+                assert_equal $cardinality [r sintercard 1 $key limit $cardinality]
+                assert_equal $cardinality [r sintercard 1 $key limit [expr {$cardinality + 1}]]
+            }
+        }
+
         test "SINTERCARD with two sets - $type" {
             assert_equal 6 [r sintercard 2 set1{t} set2{t}]
             assert_equal 6 [r sintercard 2 set1{t} set2{t} limit 0]
