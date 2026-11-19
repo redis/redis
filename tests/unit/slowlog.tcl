@@ -92,7 +92,8 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         # the same EVAL alone, then after 75ms of sleeps in the same window (five
         # 15ms sleeps, each under the threshold so none moves the checkpoint).
         # If the sleeps were blamed on it, its estimate would drop by ~75ms.
-        set script {local i = 0 while i < 10000000 do i = i + 1 end return i}
+        if {$::valgrind} {set n 500000} else {set n 10000000}
+        set script "local i = 0 while i < $n do i = i + 1 end return i"
         r config set slowlog-log-slower-than 20000
         r slowlog reset
         r eval $script 0
