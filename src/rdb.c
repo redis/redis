@@ -5603,6 +5603,7 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
         if (anetPipe(pipefds, 0, 0) == -1) {
             close(rdb_pipe_write);
             close(server.rdb_pipe_read);
+            server.rdb_pipe_read = -1;
             return C_ERR;
         }
         safe_to_exit_pipe = pipefds[0]; /* read end */
@@ -5713,6 +5714,8 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
                 close(rdb_pipe_write);
                 close(server.rdb_pipe_read);
                 close(server.rdb_child_exit_pipe);
+                server.rdb_pipe_read = -1;
+                server.rdb_child_exit_pipe = -1;
                 zfree(server.rdb_pipe_conns);
                 server.rdb_pipe_conns = NULL;
                 server.rdb_pipe_numconns = 0;
