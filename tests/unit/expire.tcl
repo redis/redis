@@ -1016,10 +1016,12 @@ foreach mode {direct multi lua} {
 start_server {tags {"expire"}} {
     test {INFO keyspace avg_ttl does not overflow with huge PEXPIREAT} {
         r flushdb
+        r debug set-active-expire 0
         r set k1 a
         r pexpireat k1 9223372036854775807
         r set k2 b
         r pexpireat k2 9223372036854775807
+        r debug set-active-expire 1
         wait_for_condition 50 100 {
             [regexp {avg_ttl=(-?\d+)} [r info keyspace] -> avg_ttl] && $avg_ttl > 0
         } else {
