@@ -668,6 +668,14 @@ static inline int parse_number_string(const char *p, const char *pend, double *r
          * any future caller that supplies a larger mantissa stays correct. */
         if (am.power2 < 0) return 0;
         value = am_to_double(negative, am);
+        /* Match strtod(): a non-zero decimal that overflows to +/-inf or
+         * underflows to zero must report ERANGE. Callers such as string2d()
+         * rely on it to reject out-of-range values instead of silently
+         * accepting an infinity or a zero. Test the result, not
+         * am.mantissa: exact powers of two also have no explicit mantissa
+         * bits and are perfectly finite. */
+        if (mantissa != 0 && (value == 0.0 || isinf(value)))
+            errno = ERANGE;
     }
 
     *result = value;
@@ -999,6 +1007,38 @@ int fastFloatTest(int argc, char **argv, int flags) {
         {"3.14!", 3.14},
     };
     run_ff_tests(decimal_bad, COUNTOF(decimal_bad), 1);
+
+    /* Out-of-range finite decimals. Like strtod(), we must report ERANGE when
+     * the result overflows to +/-inf or underflows to zero: string2d() relies
+     * on errno to reject such values instead of accepting inf or 0. */
+    ff_testcase decimal_out_of_range[] = {
+        {"9e308", INFINITY},
+        {"-9e308", -INFINITY},
+        {"2e308", INFINITY},
+        {"1e-330", 0.0},
+        {"-1e-330", -0.0},
+    };
+    run_ff_tests(decimal_out_of_range, COUNTOF(decimal_out_of_range), 1);
+
+    /* Exact powers of two have no explicit mantissa bits, so a check on the
+     * mantissa alone would mistake them for an under/overflow. They must stay
+     * errno-clean, like strtod(). */
+    {
+        static const char *exact_powers[] = {
+            "4611686018427387904",  /* 2^62 */
+            "9223372036854775808",  /* 2^63 */
+            "-9223372036854775808",
+        };
+        for (size_t i = 0; i < COUNTOF(exact_powers); i++) {
+            char *eptr;
+            errno = 0;
+            double d = fast_float_strtod(exact_powers[i], strlen(exact_powers[i]), &eptr);
+            char descr[128];
+            snprintf(descr, sizeof(descr),
+                     "\"%s\" -> exact power of two stays errno-clean", exact_powers[i]);
+            test_cond(descr, errno != ERANGE && fpclassify(d) == FP_NORMAL);
+        }
+    }
 
     ff_testcase inf_valid[] = {
         {"inf", INFINITY},

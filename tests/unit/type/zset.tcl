@@ -368,6 +368,10 @@ start_server {tags {"zset"}} {
             r zadd zincr 1 "one"
             assert_error "*value is not a valid*" {r zincrby zincr v "one"}
             assert_error "*value is not a valid float" {r zincrby zincr 23456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789 "one"}
+            # Overflow/underflow of finite decimals must be rejected too, not
+            # silently turned into an infinity or a zero.
+            assert_error "*value is not a valid float" {r zincrby zincr 9e308 "one"}
+            assert_error "*value is not a valid float" {r zincrby zincr 1e-330 "one"}
         }
 
         test "ZADD - Variadic version base case - $encoding" {
