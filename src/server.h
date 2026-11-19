@@ -1380,6 +1380,14 @@ typedef struct blockingState {
     /* BLOCKED_LIST, BLOCKED_ZSET and BLOCKED_STREAM or any other Keys related blocking */
     dict *keys;                 /* The keys we are blocked on */
 
+    /* BLOCKED_STREAM: what a blocked XREAD/XREADGROUP waits for, so that a key
+     * signal which cannot serve it is skipped without re-executing the command.
+     * stream_ids is NULL when the command must always be re-executed. */
+    struct streamID *stream_ids; /* Per STREAMS key: the ID to read after (XREAD). */
+    int stream_keys_arg;        /* argv index of the first STREAMS key. */
+    int stream_numkeys;         /* Number of STREAMS keys. */
+    int stream_group_arg;       /* argv index of the group name, 0 for XREAD. */
+
     /* BLOCKED_WAIT and BLOCKED_WAITAOF */
     int numreplicas;        /* Number of replicas we are waiting for ACK. */
     int numlocal;           /* Indication if WAITAOF is waiting for local fsync. */
