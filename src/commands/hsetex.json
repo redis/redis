@@ -1,6 +1,6 @@
 {
     "HSETEX": {
-        "summary": "Set the value of one or more fields of a given hash key, and optionally set their expiration.",
+        "summary": "Set the value of one or more fields of a given hash key, and optionally set expiration on fields or on the whole key (with the KEY keyword before EX/PX/EXAT/PXAT/KEEPTTL).",
         "complexity": "O(N) where N is the number of fields being set.",
         "group": "hash",
         "since": "8.0.0",
@@ -68,6 +68,12 @@
                         "token": "FXX"
                     }
                 ]
+            },
+            {
+                "name": "keyttl",
+                "type": "pure-token",
+                "token": "KEY",
+                "optional": true
             },
             {
                 "name": "expiration",
