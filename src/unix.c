@@ -68,8 +68,14 @@ static int connUnixListen(connListener *listener) {
             return C_ERR;
         }
 
-        /* Remove the old path before binding the new Unix socket. */
-        if (unlink(addr) == -1 && errno != ENOENT) {
+        /* Remove the old path before binding the new Unix socket. Abstract-
+         * namespace names ('@' prefix) have no filesystem presence: nothing to
+         * remove, and they vanish with their listener. */
+        int abstract = 0;
+#ifdef __linux__
+        abstract = addr[0] == '@';
+#endif
+        if (!abstract && unlink(addr) == -1 && errno != ENOENT) {
             serverLog(LL_WARNING, "Failed removing the old Unix socket %s: %s", addr, strerror(errno));
             return C_ERR;
         }
