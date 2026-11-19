@@ -536,6 +536,14 @@ start_server {tags {"cli"}} {
         assert_equal \{\"K\\\\x00\\\\x01ey\":\"V\\\\x00\\\\x01alue\"\} [run_cli --quoted-json hgetall npkey]
     }
 
+    test_tty_cli "Non-finite doubles in JSON mode" {
+        r del zset
+        r zadd zset -inf a 1.5 b inf c
+        assert_equal {[["a","-inf"],["b",1.5],["c","inf"]]} [run_cli --json zrange zset 0 -1 withscores]
+        assert_equal {[["a","-inf"],["b",1.5],["c","inf"]]} [run_cli --quoted-json zrange zset 0 -1 withscores]
+        assert_equal {"nan"} [run_cli --json eval {return {double=0/0}} 0]
+    }
+
     test_nontty_cli "Status reply" {
         assert_equal "OK" [run_cli set key bar]
         assert_equal "bar" [r get key]
