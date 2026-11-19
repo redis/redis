@@ -1141,6 +1141,17 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         file delete $cmds
     }
 
+    test "Piping raw protocol reports a closed connection" {
+        set cmd [rediscli [srv host] [srv port]]
+        # QUIT can close with EOF or a reset before the final ECHO reply.
+        assert_equal 1 [catch {
+            exec {*}$cmd --pipe << [formatCommand quit] > /dev/null
+        } err opts]
+        assert_equal CHILDSTATUS [lindex [dict get $opts -errorcode] 0]
+        assert_equal 1 [lindex [dict get $opts -errorcode] 2]
+        assert_match "*Server I/O Error: ?*" $err
+    }
+
     test "Options -X with illegal argument" {
         assert_error "*-x and -X are mutually exclusive*" {run_cli -x -X tag}
 

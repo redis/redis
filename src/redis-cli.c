@@ -9696,7 +9696,10 @@ static void pipeMode(void) {
             /* Abort on read errors. We abort here because it is important
              * to consume replies even after a read error: this way we can
              * show a potential problem to the user. */
-            if (read_error) exit(1);
+            if (read_error) {
+                fprintf(stderr, "Server I/O Error: %s\n", context->errstr);
+                exit(1);
+            }
         }
 
         /* Handle the writable state: we can send protocol to the server. */
