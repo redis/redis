@@ -3727,17 +3727,17 @@ void getKeysFreeResult(getKeysResult *result) {
  * The commands using this function have a fully defined keyspec, so returning flags isn't needed. */
 int genericGetKeys(int storeKeyOfs, int keyCountOfs, int firstKeyOfs, int keyStep,
                     robj **argv, int argc, getKeysResult *result) {
-    int i, num;
+    int i;
+    long long num;
     keyReference *keys;
 
     if (keyCountOfs >= argc) {
         result->numkeys = 0;
         return 0;
     }
-    num = atoi(argv[keyCountOfs]->ptr);
     /* Sanity check. Don't return any key if the command is going to
      * reply with syntax error. (no input keys). */
-    if (num < 1 || num > (argc - firstKeyOfs)/keyStep) {
+    if (getLongLongFromObject(argv[keyCountOfs],&num) != C_OK || num < 1 || num > (argc - firstKeyOfs)/keyStep) {
         result->numkeys = 0;
         return 0;
     }

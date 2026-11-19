@@ -170,6 +170,10 @@ start_server {tags {"introspection"}} {
         assert_error "ERR Invalid arguments*" {r command getkeys ZUNION $huge k}
         assert_error "ERR Invalid arguments*" {r command getkeys SINTERCARD $huge k}
         assert_error "ERR Invalid arguments*" {r command getkeysandflags ZINTERSTORE dst $huge k}
+        # A numkeys that doesn't fit in an int must not be truncated to a valid count.
+        assert_error "ERR Invalid arguments*" {r command getkeys LMPOP 4294967297 a b LEFT}
+        assert_equal {} [r command getkeys eval "return 1" 4294967297 a]
+        assert_error "ERR Invalid arguments*" {r command getkeys ZUNION 4294967298 a b c}
     }
 
     test {COMMAND GETKEYSANDFLAGS MSETEX} {
