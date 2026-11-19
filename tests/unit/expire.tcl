@@ -889,6 +889,66 @@ start_server {tags {"expire"}} {
         assert_equal [s expired_keys] 3
         assert_equal [s expired_keys_active] 3
     } {}
+
+    test {Active expire does not stall while the expires dict is shrinking} {
+        r flushall
+        r debug set-active-expire 0
+        r eval {
+            for i = 1, 20000 do
+                redis.call('SET', 'key:' .. i, 'x', 'PX', 100)
+            end
+        } 0
+        wait_for_condition 50 100 {
+            [dict get [r memory stats] db.dict.rehashing.count] == 0
+        } else {
+            fail "Rehashing did not complete"
+        }
+
+        # Without incremental rehashing the shrink started by the deletes
+        # never finishes, so the dict must still be scanned while rehashing.
+        r config set activerehashing no
+        r debug set-active-expire 1
+        wait_for_condition 200 100 {
+            [r dbsize] == 0
+        } else {
+            fail "Active expire stalled with [r dbsize] keys left"
+        }
+        r config set activerehashing yes
+    } {OK} {needs:debug external:skip}
+
+    test {Active expire does not stall while the expires dict is shrinking during a fork} {
+        r flushall
+        r debug set-active-expire 0
+        r eval {
+            for i = 1, 20000 do
+                redis.call('SET', 'key:' .. i, 'x', 'PX', 100)
+            end
+        } 0
+        wait_for_condition 50 100 {
+            [dict get [r memory stats] db.dict.rehashing.count] == 0
+        } else {
+            fail "Rehashing did not complete"
+        }
+
+        r config set rdb-key-save-delay 10000000
+        r bgsave
+        wait_for_condition 50 100 {
+            [s rdb_bgsave_in_progress] == 1
+        } else {
+            fail "bgsave did not start"
+        }
+
+        r debug set-active-expire 1
+        wait_for_condition 200 100 {
+            [r dbsize] == 0
+        } else {
+            fail "Active expire stalled with [r dbsize] keys left"
+        }
+        assert_equal 1 [s rdb_bgsave_in_progress]
+        catch {exec kill -9 [get_child_pid 0]}
+        waitForBgsave r
+        r config set rdb-key-save-delay 0
+    } {OK} {needs:debug external:skip}
 }
 
 start_cluster 1 0 {tags {"expire external:skip cluster"}} {
