@@ -842,8 +842,9 @@ int zslLexValueLteMax(sds value, zlexrangespec *spec) {
         (sdscmplex(value,spec->max) <= 0);
 }
 
-/* Compare a packed B+ tree member with a lexical range bound. */
-static int zbtLexCompare(const unsigned char *value, size_t len, sds bound) {
+/* Compare a member read in place (the 'len' bytes at 'value', from a listpack
+ * or a B+ tree) with a lexical range bound, like sdscmplex() does. */
+static int zsetLexCompare(const unsigned char *value, size_t len, sds bound) {
     if (bound == shared.minstring) return 1;
     if (bound == shared.maxstring) return -1;
     size_t boundlen = sdslen(bound);
@@ -855,15 +856,15 @@ static int zbtLexCompare(const unsigned char *value, size_t len, sds bound) {
     return 0;
 }
 
-/* Test a packed B+ tree member against the lower lexical bound. */
-static int zbtLexValueGteMin(const unsigned char *value, size_t len, zlexrangespec *spec) {
-    int cmp = zbtLexCompare(value, len, spec->min);
+/* Test a member read in place against the lower lexical bound. */
+int zsetLexValueGteMin(const unsigned char *value, size_t len, zlexrangespec *spec) {
+    int cmp = zsetLexCompare(value, len, spec->min);
     return spec->minex ? cmp > 0 : cmp >= 0;
 }
 
-/* Test a packed B+ tree member against the upper lexical bound. */
-static int zbtLexValueLteMax(const unsigned char *value, size_t len, zlexrangespec *spec) {
-    int cmp = zbtLexCompare(value, len, spec->max);
+/* Test a member read in place against the upper lexical bound. */
+int zsetLexValueLteMax(const unsigned char *value, size_t len, zlexrangespec *spec) {
+    int cmp = zsetLexCompare(value, len, spec->max);
     return spec->maxex ? cmp < 0 : cmp <= 0;
 }
 
@@ -1159,18 +1160,35 @@ unsigned char *zzlLastInRange(unsigned char *zl, zrangespec *range) {
     return NULL;
 }
 
+/* Read the listpack member at 'p' in place for a lexical range check. An
+ * integer member is formatted into 'buf', which holds LONG_STR_SIZE bytes. */
+static inline unsigned char *zzlGetLexValue(unsigned char *p, char *buf, size_t *len) {
+    unsigned char *vstr;
+    unsigned int vlen;
+    long long vlong;
+
+    serverAssert(p != NULL);
+    vstr = lpGetValue(p,&vlen,&vlong);
+    if (vstr) {
+        *len = vlen;
+        return vstr;
+    }
+    *len = ll2string(buf,LONG_STR_SIZE,vlong);
+    return (unsigned char *)buf;
+}
+
 int zzlLexValueGteMin(unsigned char *p, zlexrangespec *spec) {
-    sds value = lpGetObject(p);
-    int res = zslLexValueGteMin(value,spec);
-    sdsfree(value);
-    return res;
+    char buf[LONG_STR_SIZE];
+    size_t len;
+    unsigned char *value = zzlGetLexValue(p,buf,&len);
+    return zsetLexValueGteMin(value,len,spec);
 }
 
 int zzlLexValueLteMax(unsigned char *p, zlexrangespec *spec) {
-    sds value = lpGetObject(p);
-    int res = zslLexValueLteMax(value,spec);
-    sdsfree(value);
-    return res;
+    char buf[LONG_STR_SIZE];
+    size_t len;
+    unsigned char *value = zzlGetLexValue(p,buf,&len);
+    return zsetLexValueLteMax(value,len,spec);
 }
 
 /* Returns if there is a part of the zset is in range. Should only be used
@@ -4600,8 +4618,8 @@ void genericZrangebylexCommand(zrange_result_handler *handler,
         while (found && limit && zbtreeIteratorNext(&iter, reverse, &ele, &len, &score)) {
             /* The seek already placed the iterator inside the near bound, so
              * only the bound we are moving towards has to be rechecked. */
-            if (reverse ? !zbtLexValueGteMin(ele, len, range) :
-                          !zbtLexValueLteMax(ele, len, range))
+            if (reverse ? !zsetLexValueGteMin(ele, len, range) :
+                          !zsetLexValueLteMax(ele, len, range))
                 break;
             limit--;
             rangelen++;

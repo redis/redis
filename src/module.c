@@ -5611,10 +5611,8 @@ int zsetInitLexRange(RedisModuleKey *key, RedisModuleString *min, RedisModuleStr
             const unsigned char *ele;
             size_t len;
             serverAssert(moduleZsetBtreeElementAtRank(key, rank, &ele, &len, NULL));
-            sds value = sdsnewlen(ele, len);
-            int in_range = zslLexValueGteMin(value, zlrs) &&
-                           zslLexValueLteMax(value, zlrs);
-            sdsfree(value);
+            int in_range = zsetLexValueGteMin(ele, len, zlrs) &&
+                           zsetLexValueLteMax(ele, len, zlrs);
             if (in_range)
                 key->u.zset.current = (void *)(uintptr_t)(rank + 1);
         }
@@ -5758,10 +5756,7 @@ int RM_ZsetRangeNext(RedisModuleKey *key) {
         if (key->u.zset.type == REDISMODULE_ZSET_RANGE_SCORE) {
             if (!zslValueLteMax(score, &key->u.zset.rs)) goto end;
         } else if (key->u.zset.type == REDISMODULE_ZSET_RANGE_LEX) {
-            sds value = sdsnewlen(ele, len);
-            int valid = zslLexValueLteMax(value, &key->u.zset.lrs);
-            sdsfree(value);
-            if (!valid) goto end;
+            if (!zsetLexValueLteMax(ele, len, &key->u.zset.lrs)) goto end;
         }
         key->u.zset.current = (void *)(uintptr_t)(rank + 1);
         return 1;
@@ -5845,10 +5840,7 @@ int RM_ZsetRangePrev(RedisModuleKey *key) {
         if (key->u.zset.type == REDISMODULE_ZSET_RANGE_SCORE) {
             if (!zslValueGteMin(score, &key->u.zset.rs)) goto end;
         } else if (key->u.zset.type == REDISMODULE_ZSET_RANGE_LEX) {
-            sds value = sdsnewlen(ele, len);
-            int valid = zslLexValueGteMin(value, &key->u.zset.lrs);
-            sdsfree(value);
-            if (!valid) goto end;
+            if (!zsetLexValueGteMin(ele, len, &key->u.zset.lrs)) goto end;
         }
         key->u.zset.current = (void *)(uintptr_t)(rank + 1);
         return 1;
