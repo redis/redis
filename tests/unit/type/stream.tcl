@@ -94,6 +94,27 @@ start_server {
         assert_error ERR* {r xadd mystream * c d}
     }
 
+    test {XADD, XRANGE and XREVRANGE format IDs at the 64-bit limits} {
+        r DEL mystream
+        set repl [attach_to_replication_stream]
+        assert_equal 0-1 [r XADD mystream 0-1 a b]
+        assert_equal 18446744073709551615-0 [r XADD mystream 18446744073709551615-* c d]
+        assert_equal 18446744073709551615-18446744073709551615 \
+            [r XADD mystream 18446744073709551615-18446744073709551615 e f]
+        # The ID generated for '<ms>-*' is propagated in place of the argument.
+        assert_replication_stream $repl {
+            {select *}
+            {xadd mystream 0-1 a b}
+            {xadd mystream 18446744073709551615-0 c d}
+            {xadd mystream 18446744073709551615-18446744073709551615 e f}
+        }
+        close_replication_stream $repl
+        assert_equal {0-1 18446744073709551615-0 18446744073709551615-18446744073709551615} \
+            [lmap e [r XRANGE mystream - +] {lindex $e 0}]
+        assert_equal {18446744073709551615-18446744073709551615 18446744073709551615-0 0-1} \
+            [lmap e [r XREVRANGE mystream + -] {lindex $e 0}]
+    } {} {needs:repl}
+
     test {XADD auto-generated sequence is incremented for last ID} {
         r DEL mystream
         set id1 [r XADD mystream 123-456 item 1 value a]
