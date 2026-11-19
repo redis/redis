@@ -882,6 +882,97 @@ start_server {tags {"hash"}} {
              assert_equal [r hgetdel key1 fields 3 f1 f2 f3] "{} {} {}"
         }
 
+        test "HGETDEL with duplicate fields - $type" {
+            r del key1
+            r hset key1 f1 1 f2 2 f3 3
+
+            # The second occurrence sees the deletion done by the first one.
+            assert_equal [r hgetdel key1 fields 2 f1 f1] "1 {}"
+            assert_equal [r hgetdel key1 fields 3 f2 f3 f2] "2 3 {}"
+            assert_equal [r exists key1] 0
+        }
+
+        test "HMGET with duplicate fields - $type" {
+            r del key1
+            r hset key1 f1 1 f2 2
+            assert_equal [r hmget key1 f1 f1 f2 f1 nofield nofield] "1 1 2 1 {} {}"
+        }
+
+        test "Multi field lookup with integer field names - $type" {
+            r del key1
+            r hset key1 1 a 2 b 42 c -1 d 0 e
+
+            assert_equal [r hmget key1 1 42 0 -1 2] "a c e d b"
+
+            # Non canonical decimal representations must not match the
+            # integer encoded field names.
+            assert_equal [r hmget key1 01 +1 " 1" 1. 0042 -0] "{} {} {} {} {} {}"
+
+            # Same via HGETDEL / HGETEX, which use the same lookup path.
+            assert_equal [r hgetex key1 fields 3 42 007 -1] "c {} d"
+            assert_equal [r hgetdel key1 fields 3 0 +42 1] "e {} a"
+            assert_equal [lsort [r hgetall key1]] [lsort "2 b 42 c -1 d"]
+        }
+
+        test "Multi field lookup mixing present and absent fields - $type" {
+            r del key1
+            r hset key1 f1 1 f2 2 f3 3 f4 4
+
+            # Absent field last, first, and in the middle.
+            assert_equal [r hmget key1 f1 f2 nope] "1 2 {}"
+            assert_equal [r hmget key1 nope f1 f2] "{} 1 2"
+            assert_equal [r hmget key1 f1 nope f2 nope2 f3] "1 {} 2 {} 3"
+
+            # More fields than the stack budget of the single pass lookup.
+            set fields {}
+            set expected {}
+            for {set i 1} {$i <= 200} {incr i} {
+                lappend fields "f$i"
+                lappend expected [expr {$i <= 4 ? $i : ""}]
+            }
+            assert_equal [r hmget key1 {*}$fields] $expected
+            assert_equal [r hgetdel key1 fields 200 {*}$fields] $expected
+            assert_equal [r exists key1] 0
+        }
+
+        test "Multi field lookup with an empty field name - $type" {
+            r del key1
+            r hset key1 "" v0 f1 1
+
+            assert_equal [r hmget key1 "" f1] "v0 1"
+            assert_equal [r hmget key1 f1 "" nope] "1 v0 {}"
+            assert_equal [r hgetex key1 fields 2 "" f1] "v0 1"
+            assert_equal [r hgetdel key1 fields 2 "" nope] "v0 {}"
+            assert_equal [r hmget key1 "" f1] "{} 1"
+            assert_equal [r hgetall key1] "f1 1"
+        }
+
+        test "Multi field lookup with integer field names, indexed path - $type" {
+            r del key1
+            r hset key1 1 a 2 b 42 c -1 d 0 e 100 f \
+                        -9223372036854775808 g 9223372036854775807 h
+            assert_encoding [expr {$type eq "listpack" ? "listpack" : "hashtable"}] key1
+
+            # More requested fields than the linear compare budget, so the
+            # names go through the hashed index. Integer encoded field names
+            # are rendered back to decimal before being matched.
+            assert_equal [r hmget key1 1 2 42 -1 0 100 \
+                          -9223372036854775808 9223372036854775807 nope 1] \
+                         "a b c d e f g h {} a"
+
+            # Non canonical decimal representations must still miss on the
+            # indexed path.
+            assert_equal [r hmget key1 01 +1 " 1" 1. 0042 -0 007 +42 -01 00 1e2 0x2] \
+                         "{} {} {} {} {} {} {} {} {} {} {} {}"
+
+            assert_equal [r hgetex key1 fields 10 1 2 42 -1 0 100 x1 x2 x3 x4] \
+                         "a b c d e f {} {} {} {}"
+            assert_equal [r hgetdel key1 fields 10 1 2 42 -1 0 100 x1 x2 x3 x4] \
+                         "a b c d e f {} {} {} {}"
+            assert_equal [lsort [r hgetall key1]] \
+                         [lsort "-9223372036854775808 g 9223372036854775807 h"]
+        }
+
         r config set hash-max-listpack-entries $orig_config
     }
 
@@ -971,6 +1062,104 @@ start_server {tags {"hash"}} {
                 }
                 assert_equal [array size hash] [r hlen hash]
             }
+        }
+
+        # Multi field lookups resolve every requested field in one pass over a
+        # listpack encoded hash. Cross check them against single field HGET on
+        # random mixes of present, absent and repeated fields.
+        test "Hash multi field lookup fuzzing - $size fields" {
+            set orig_maxlp [lindex [r config get hash-max-listpack-entries] 1]
+            set orig_maxval [lindex [r config get hash-max-listpack-value] 1]
+
+            # randomValue returns strings of up to 256 bytes, so the file level
+            # hash-max-listpack-value of 64 would convert almost every hash to
+            # hashtable and the listpack arm below would never reach the single
+            # pass code it exists to cover.
+            r config set hash-max-listpack-value 1024
+
+            set err [catch {
+            foreach maxlp {512 0} {
+                r config set hash-max-listpack-entries $maxlp
+
+                for {set times 0} {$times < 10} {incr times} {
+                    catch {unset hash}
+                    array set hash {}
+                    r del hash
+
+                    for {set j 0} {$j < $size} {incr j} {
+                        randpath {
+                            set field [randomValue]
+                        } {
+                            set field [randomSignedInt 512]
+                        }
+                        set value [randomValue]
+                        r hset hash $field $value
+                        set hash($field) $value
+                    }
+
+                    if {$maxlp == 0} {
+                        assert_encoding hashtable hash
+                    } else {
+                        assert_encoding listpack hash
+                    }
+
+                    # Vary the number of requested fields so that all three
+                    # request sizes are covered: the linear compare path (< 8),
+                    # the stack allocated index (<= 64) and the heap allocated
+                    # one (> 64).
+                    set numfields [randomRange 1 71]
+                    set present [array names hash]
+                    set fields {}
+                    set expected {}
+                    for {set j 0} {$j < $numfields} {incr j} {
+                        randpath {
+                            set field [lindex $present [randomInt [llength $present]]]
+                        } {
+                            set field [randomValue]
+                        } {
+                            set field [randomSignedInt 512]
+                        } {
+                            # Repeat an already requested field.
+                            if {[llength $fields] > 0} {
+                                set field [lindex $fields [randomInt [llength $fields]]]
+                            } else {
+                                set field [randomValue]
+                            }
+                        }
+                        lappend fields $field
+                        if {[info exists hash($field)]} {
+                            lappend expected $hash($field)
+                        } else {
+                            lappend expected ""
+                        }
+                    }
+
+                    assert_equal $expected [r hmget hash {*}$fields]
+                    assert_equal $expected [r hgetex hash FIELDS [llength $fields] {*}$fields]
+
+                    # HGETDEL removes each field on its first occurrence, so a
+                    # repeated field replies nil from the second one on.
+                    set expected_del {}
+                    array set seen {}
+                    foreach field $fields {
+                        if {[info exists hash($field)] && ![info exists seen($field)]} {
+                            lappend expected_del $hash($field)
+                        } else {
+                            lappend expected_del ""
+                        }
+                        set seen($field) 1
+                    }
+                    unset seen
+                    assert_equal $expected_del [r hgetdel hash FIELDS [llength $fields] {*}$fields]
+                }
+            }
+            } res opts]
+
+            # Restore even on failure, otherwise a single assertion leaks
+            # hash-max-listpack-entries 0 into every later test in this file.
+            r config set hash-max-listpack-entries $orig_maxlp
+            r config set hash-max-listpack-value $orig_maxval
+            return -options $opts $res
         }
     }
 
