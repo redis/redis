@@ -533,6 +533,16 @@ int redis_check_aof_main(int argc, char **argv) {
 
         filepath = argv[1];
     } else if (argc == 3) {
+        if (((!strcmp(argv[1], "-v") || !strcmp(argv[1], "--version")) &&
+             (!strcmp(argv[2], "-s") || !strcmp(argv[2], "--short"))) ||
+            ((!strcmp(argv[1], "-s") || !strcmp(argv[1], "--short")) &&
+             (!strcmp(argv[2], "-v") || !strcmp(argv[2], "--version"))))
+        {
+            sds version = getShortVersion();
+            printf("redis-check-aof %s\n", version);
+            sdsfree(version);
+            exit(0);
+        }
         if (!strcmp(argv[1], "--fix")) {
             filepath = argv[2];
             fix = 1;
