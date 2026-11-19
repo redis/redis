@@ -18,6 +18,22 @@ start_server {tags {"auth external:skip"}} {
         set _ $err
     } {ERR *any password*}
 
+    test {AUTH error reply is delivered even when preceding command has pending replies} {
+        # Regression test for https://github.com/redis/redis/issues/15640
+        # When a client has pending replies from a previous command, a failing
+        # AUTH should still send its -WRONGPASS error instead of silently dropping it.
+        set r2 [redis [srv "host"] [srv "port"] 0 $::tls]
+        $r2 write {*PING\r\n}
+        $r2 write {*3\r\n$4\r\nAUTH\r\n$9\r\nno-such-user\r\n$6\r\nbogus\r\n}
+        $r2 write {*1\r\n$4\r\nPING\r\n}
+        $r2 flush
+        set resp [$r2 read]
+        assert_match {*PONG*} $resp
+        assert_match {*WRONGPASS*} $resp
+        assert_match {*PONG*} $resp
+        $r2 close
+    }
+
     test {Arity check for auth command} {
         catch {r auth a b c} err
         set _ $err
@@ -122,5 +138,21 @@ start_server {tags {"auth_binary_password external:skip"}} {
                 }
             }
         }
+    }
+}
+
+start_server {tags {"auth-pipeline external:skip"} overrides {requirepass foobar}} {
+    test {AUTH error is delivered in pipelined batch after another command} {
+        # Regression test for https://github.com/redis/redis/issues/15640
+        set r2 [redis [srv "host"] [srv "port"] 0 $::tls]
+        $r2 write {*PING\r\n}
+        $r2 write {*3\r\n$4\r\nAUTH\r\n$6\r\nwrong\r\n$6\r\nfoobar\r\n}
+        $r2 write {*1\r\n$4\r\nPING\r\n}
+        $r2 flush
+        set resp [$r2 read]
+        assert_match {*PONG*} $resp
+        assert_match {*WRONGPASS*} $resp
+        assert_match {*PONG*} $resp
+        $r2 close
     }
 }
