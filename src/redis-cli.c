@@ -2209,16 +2209,12 @@ static sds jsonStringOutput(sds out, const char *p, int len, int mode) {
     if (mode == OUTPUT_JSON) {
         return escapeJsonString(out, p, len);
     } else if (mode == OUTPUT_QUOTED_JSON) {
-        /* Need to double-quote backslashes */
+        /* Output the quoted form of the string as a JSON string. Strip the
+         * surrounding double quotes added by sdscatrepr() and JSON-escape the
+         * rest: besides its backslashes, the \" it uses for a double quote
+         * must become \\\" so that it doesn't end the JSON string. */
         sds tmp = sdscatrepr(sdsempty(), p, len);
-        int tmplen = sdslen(tmp);
-        char *n = tmp;
-        while (tmplen--) {
-            if (*n == '\\') out = sdscatlen(out, "\\\\", 2);
-            else out = sdscatlen(out, n, 1);
-            n++;
-        }
-
+        out = escapeJsonString(out, tmp + 1, sdslen(tmp) - 2);
         sdsfree(tmp);
         return out;
     } else {
