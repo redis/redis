@@ -42,6 +42,72 @@ tags {"aof external:skip"} {
         }
     }
 
+    foreach {tail_name tail} {short-read * format-error !!! RDB-preamble *} {
+        test "Recover an unfinished MULTI with a $tail_name tail before appending" {
+            if {$tail_name eq "RDB-preamble"} {
+                start_server {} {
+                    r select 0
+                    r incr committed
+                    r incr completed
+                    r save
+                    set fp [open [file join [get_redis_dir] dump.rdb] rb]
+                    set committed [read $fp]
+                    close $fp
+                }
+            } else {
+                set committed [formatCommand incr committed]
+                append committed [formatCommand multi] [formatCommand incr completed] [formatCommand exec]
+            }
+            create_aof $aof_dirpath $aof_file {
+                fconfigure $fp -translation binary
+                append_to_aof $committed
+                append_to_aof [formatCommand multi]
+                append_to_aof [formatCommand incr queued]
+                append_to_aof $tail
+            }
+
+            start_server [list overrides [concat $defaults [list dir $server_path save {} appendfsync always \
+                aof-load-truncated yes aof-load-corrupt-tail-max-size 4096]] keep_persistence true] {
+                r select 0
+                assert_equal 1 [r get committed]
+                assert_equal 1 [r get completed]
+                assert_equal {} [r get queued]
+                set fp [open $aof_file rb]
+                set retained [read $fp]
+                close $fp
+                assert_equal $committed $retained
+                assert_equal 1 [r incr after]
+
+                restart_server 0 true false
+                r select 0
+                assert_equal 1 [r get committed]
+                assert_equal 1 [r get completed]
+                assert_equal {} [r get queued]
+                assert_equal 1 [r get after]
+            }
+        }
+    }
+
+    create_aof $aof_dirpath $aof_file {
+        set oversized [formatCommand incr committed]
+        append oversized [formatCommand multi]
+        append oversized [formatCommand set queued [string repeat x 10000]]
+        append oversized "!!!"
+        append_to_aof $oversized
+    }
+
+    set ::aof_loglines [count_file_lines $aof_stdout]
+    start_server [list overrides [concat $defaults [list dir $server_path aof-load-corrupt-tail-max-size 4]] \
+        keep_persistence true wait_ready false] {
+        test "Corrupt tail: Refuse an unfinished MULTI that exceeds the recovery limit" {
+            wait_for_log_messages 0 {"*Bad file format reading the append only file*"} $::aof_loglines 10 1000
+            set fp [open $aof_file rb]
+            set retained [read $fp]
+            close $fp
+            assert_equal $oversized $retained
+        }
+    }
+
     ## Should also start with truncated AOF without incomplete MULTI block.
     create_aof $aof_dirpath $aof_file {
         append_to_aof [formatCommand incr foo]
