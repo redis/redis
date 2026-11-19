@@ -189,6 +189,10 @@ void quicklistRotate(quicklist *quicklist);
 int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data,
                        size_t *sz, long long *sval,
                        void *(*saver)(unsigned char *data, size_t sz));
+int quicklistPopInPlace(quicklist *quicklist, int where,
+                        void (*consume)(void *ctx, unsigned char *data,
+                                        size_t sz, long long sval),
+                        void *ctx);
 int quicklistPop(quicklist *quicklist, int where, unsigned char **data,
                  size_t *sz, long long *slong);
 unsigned long quicklistCount(const quicklist *ql);
