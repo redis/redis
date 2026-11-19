@@ -31,7 +31,7 @@ void ldbDisable(client *c);
 void ldbEnable(client *c);
 void evalGenericCommandWithDebugging(client *c, int evalsha);
 sds ldbCatStackValue(sds s, lua_State *lua, int idx);
-listNode *luaScriptsLRUAdd(client *c, sds sha, int evalsha);
+listNode *luaScriptsLRUAdd(client *c, sds sha, robj *body, int script_load);
 
 static void dictLuaScriptDestructor(dict *d, void *val) {
     UNUSED(d);
@@ -62,7 +62,25 @@ struct luaCtx {
     dict *lua_scripts;         /* A dictionary of SHA1 -> Lua scripts */
     list *lua_scripts_lru_list; /* A list of SHA1, first in first out LRU eviction. */
     unsigned long long lua_scripts_mem;  /* Cached scripts' memory + oh */
+    unsigned long long lua_eval_scripts_mem; /* Cached EVAL scripts' memory */
 } lctx;
+
+#define EVAL_LRU_SCRIPT_OVERHEAD (sizeof(luaScript) + sizeof(listNode))
+
+static size_t evalScriptBytes(sds sha, robj *body) {
+    return sdsZmallocSize(sha) + getStringObjectSdsUsedMemory(body);
+}
+
+unsigned long long evalLRUScriptsMemory(void) {
+    return lctx.lua_eval_scripts_mem +
+           listLength(lctx.lua_scripts_lru_list) * EVAL_LRU_SCRIPT_OVERHEAD;
+}
+
+static void luaScriptsLRUPromote(sds sha, luaScript *l) {
+    lctx.lua_eval_scripts_mem -= evalScriptBytes(sha, l->body);
+    listDelNode(lctx.lua_scripts_lru_list, l->node);
+    l->node = NULL;
+}
 
 /* Debugger shared state is stored inside this global structure. */
 #define LDB_BREAKPOINTS_MAX 64  /* Max number of breakpoints. */
@@ -186,6 +204,7 @@ void scriptingInit(int setup) {
     lctx.lua_scripts = dictCreate(&shaScriptObjectDictType);
     lctx.lua_scripts_lru_list = listCreate();
     lctx.lua_scripts_mem = 0;
+    lctx.lua_eval_scripts_mem = 0;
 
     luaRegisterRedisAPI(lua);
 
@@ -442,9 +461,8 @@ uint64_t evalGetCommandFlags(client *c, uint64_t cmd_flags) {
  * If 'c' is not NULL, on error the client is informed with an appropriate
  * error describing the nature of the problem and the Lua interpreter error.
  *
- * 'evalsha' indicating whether the lua function is created from the EVAL context
- * or from the SCRIPT LOAD. */
-sds luaCreateFunction(client *c, robj *body, int evalsha) {
+ * 'script_load' is non-zero when the caller is SCRIPT LOAD, zero when it is EVAL. */
+sds luaCreateFunction(client *c, robj *body, int script_load) {
     char funcname[43];
     dictEntry *de;
     uint64_t script_flags;
@@ -454,6 +472,8 @@ sds luaCreateFunction(client *c, robj *body, int evalsha) {
     sha1hex(funcname+2,body->ptr,sdslen(body->ptr));
 
     if ((de = dictFind(lctx.lua_scripts,funcname+2)) != NULL) {
+        luaScript *l = dictGetVal(de);
+        if (script_load && l->node) luaScriptsLRUPromote(dictGetKey(de), l);
         return dictGetKey(de);
     }
 
@@ -490,10 +510,10 @@ sds luaCreateFunction(client *c, robj *body, int evalsha) {
     l->body = body;
     l->flags = script_flags;
     sds sha = sdsnewlen(funcname+2,40);
-    l->node = luaScriptsLRUAdd(c, sha, evalsha);
+    l->node = luaScriptsLRUAdd(c, sha, body, script_load);
     int retval = dictAdd(lctx.lua_scripts,sha,l);
     serverAssertWithInfo(c ? c : lctx.lua_client,NULL,retval == DICT_OK);
-    lctx.lua_scripts_mem += sdsZmallocSize(sha) + getStringObjectSdsUsedMemory(body);
+    lctx.lua_scripts_mem += evalScriptBytes(sha, body);
     incrRefCount(body);
 
     /* Perform GC after creating the script and adding it to the LRU list,
@@ -524,7 +544,9 @@ void luaDeleteFunction(client *c, sds sha) {
     /* We only delete `EVAL` scripts, which must exist in the LRU list. */
     serverAssert(l->node);
     listDelNode(lctx.lua_scripts_lru_list, l->node);
-    lctx.lua_scripts_mem -= sdsZmallocSize(sha) + getStringObjectSdsUsedMemory(l->body);
+    size_t bytes = evalScriptBytes(sha, l->body);
+    lctx.lua_eval_scripts_mem -= bytes;
+    lctx.lua_scripts_mem -= bytes;
     dictFreeUnlinkedEntry(lctx.lua_scripts, de);
 }
 
@@ -536,16 +558,16 @@ void luaDeleteFunction(client *c, sds sha) {
  * have many scripts, then unlike keys, we don't need to worry about the memory
  * usage of keeping a true sorted LRU linked list.
  *
- * 'evalsha' indicating whether the lua function is added from the EVAL context
- * or from the SCRIPT LOAD.
+ * 'script_load' is non-zero when the caller is SCRIPT LOAD. Those scripts are
+ * not added to the LRU and are not evicted.
  *
  * Returns the corresponding node added, which is used to save it in luaScript
  * and use it for quick removal and re-insertion into an LRU list each time the
  * script is used. */
 #define LRU_LIST_LENGTH 500
-listNode *luaScriptsLRUAdd(client *c, sds sha, int evalsha) {
+listNode *luaScriptsLRUAdd(client *c, sds sha, robj *body, int script_load) {
     /* Script eviction only applies to EVAL, not SCRIPT LOAD. */
-    if (evalsha) return NULL;
+    if (script_load) return NULL;
 
     /* Evict oldest. */
     while (listLength(lctx.lua_scripts_lru_list) >= LRU_LIST_LENGTH) {
@@ -554,10 +576,24 @@ listNode *luaScriptsLRUAdd(client *c, sds sha, int evalsha) {
         luaDeleteFunction(c, oldest);
         server.stat_evictedscripts++;
     }
+    size_t mem = evalScriptBytes(sha, body);
+    evalScriptsEnforceMemoryLimit(c, mem + EVAL_LRU_SCRIPT_OVERHEAD);
 
     /* Add current. */
     listAddNodeTail(lctx.lua_scripts_lru_list, sha);
+    lctx.lua_eval_scripts_mem += mem;
     return listLast(lctx.lua_scripts_lru_list);
+}
+
+void evalScriptsEnforceMemoryLimit(client *c, size_t incoming) {
+    if (!server.maxmemory_eval_scripts) return;
+    while (listLength(lctx.lua_scripts_lru_list) &&
+           evalLRUScriptsMemory() + incoming > server.maxmemory_eval_scripts)
+    {
+        sds oldest = listNodeValue(listFirst(lctx.lua_scripts_lru_list));
+        luaDeleteFunction(c, oldest);
+        server.stat_evictedscripts++;
+    }
 }
 
 void evalGenericCommand(client *c, int evalsha) {
@@ -598,7 +634,7 @@ void evalGenericCommand(client *c, int evalsha) {
             addReplyErrorObject(c, shared.noscripterr);
             return;
         }
-        if (luaCreateFunction(c, c->argv[1], evalsha) == NULL) {
+        if (luaCreateFunction(c, c->argv[1], 0) == NULL) {
             lua_pop(lua,1); /* remove the error handler from the stack. */
             /* The error is sent to the client by luaCreateFunction()
              * itself when it returns NULL. */
