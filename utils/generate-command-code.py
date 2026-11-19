@@ -209,6 +209,7 @@ class Argument(object):
                 s += "CMD_ARG_MULTIPLE|"
             if self.desc.get("multiple_token", False):
                 assert self.desc.get("multiple", False)  # Sanity
+                assert "token" in self.desc
                 s += "CMD_ARG_MULTIPLE_TOKEN|"
             return s[:-1] if s else "CMD_ARG_NONE"
 
