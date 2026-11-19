@@ -40,6 +40,9 @@
                 "id": {
                     "type": "integer"
                 },
+                "run_id": {
+                    "type": "string"
+                },
                 "mode": {
                     "type": "string"
                 },
