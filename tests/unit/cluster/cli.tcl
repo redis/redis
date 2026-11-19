@@ -43,6 +43,12 @@ start_multiple_servers 3 [list overrides $base_conf] {
         }
     }
 
+    test {redis-cli --cluster create rejects more than 16384 masters} {
+        set nodes [lrepeat 16385 127.0.0.1:[srv 0 port]]
+        catch {exec src/redis-cli --cluster-yes --cluster create {*}$nodes} output
+        assert_match {*supports at most 16384 master nodes*} $output
+    }
+
     test "Run blocking command on cluster node3" {
         # key9184688 is mapped to slot 10923 (first slot of node 3)
         $node3_rd brpop key9184688 0
