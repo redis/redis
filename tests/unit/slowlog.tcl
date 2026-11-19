@@ -583,8 +583,10 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
 # Real CPU starvation: pin the server and a few busy loops to one CPU and drop
 # the server to the lowest priority, so it's preempted many times while it runs.
 # Own server, because renice can't be undone unprivileged.
+# Skipped under valgrind: a server that is both instrumented and starved of CPU
+# takes many minutes to get through these tests.
 set system_name [string tolower [exec uname -s]]
-if {$system_name eq {linux} && ![catch {exec which taskset renice}]} {
+if {$system_name eq {linux} && !$::valgrind && ![catch {exec which taskset renice}]} {
     start_server {tags {"slowlog external:skip"}} {
         set pid [srv 0 pid]
         set fd [open "/proc/$pid/status" r]
