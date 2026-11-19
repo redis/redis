@@ -1120,7 +1120,7 @@ int jemalloc_purge(void) {
 
 /* Get the sum of the specified field (converted form kb to bytes) in
  * /proc/self/smaps. The field must be specified with trailing ":" as it
- * apperas in the smaps output.
+ * appears in the smaps output.
  *
  * If a pid is specified, the information is extracted for such a pid,
  * otherwise if pid is -1 the information is reported is about the
