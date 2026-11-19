@@ -1404,6 +1404,53 @@ start_cluster 1 0 {tags {external:skip cluster needs:debug} overrides {cluster-s
         r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
     }
 
+    test "SLOT-ALLOCSIZE - SDIFF/SINTER with a repeated input key count it once" {
+        # A caller may name the same key more than once. The arguments then
+        # share one set object, and its allocation can shrink while the
+        # command runs: the membership tests dictFind() into it and complete a
+        # rehash, which frees the old hash table. The size change used to be
+        # recorded once per argument, so a repeated key applied the shrink
+        # twice and left the per-slot total short of a recount. The per-slot
+        # assertion below runs after every command and trips on that.
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+        r FLUSHALL
+
+        # Only iterated by DIFF algorithm 1, so it can be bulk-loaded. Size
+        # matters: the command picks DIFF algorithm 1 only while the repeated
+        # source set outweighs the driver set.
+        set driver {}
+        for {set i 0} {$i < 1000} {incr i} { lappend driver "d-$i" }
+        r SADD "driver{t}" {*}$driver
+
+        # SINTER iterates the smallest input and skips an input that is the
+        # same object as the iterated one, so the repeated key has to be a
+        # distinct, larger set that gets looked up while it rehashes.
+        set probe {}
+        for {set i 0} {$i < 260} {incr i} { lappend probe "p-$i" }
+        r SADD "probe{t}" {*}$probe
+
+        foreach cmd {
+            {SDIFF driver{t} src{t} src{t}}
+            {SDIFFSTORE dst{t} driver{t} src{t} src{t}}
+            {SDIFFCARD 3 driver{t} src{t} src{t}}
+            {SINTER probe{t} src{t} src{t}}
+            {SINTERSTORE dst{t} probe{t} src{t} src{t}}
+            {SINTERCARD 3 probe{t} src{t} src{t}}
+        } {
+            # Recreate src{t} before each command, leaving it mid-rehash. One
+            # member per SADD on purpose: a single SADD with many members
+            # would pre-size the dict and skip rehashing.
+            r DEL "src{t}"
+            for {set i 0} {$i < 265} {incr i} { r SADD "src{t}" "s-$i" }
+            assert_encoding hashtable "src{t}"
+
+            r {*}$cmd
+        }
+
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
+        r FLUSHALL
+    }
+
     test "KEY-MEMORY-STATS - Test DEBUG KEYSIZES-HIST-ASSERT command" {
         r DEBUG KEYSIZES-HIST-ASSERT 1
         r FLUSHALL
