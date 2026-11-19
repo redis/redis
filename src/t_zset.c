@@ -1277,6 +1277,10 @@ static unsigned char *zzlInsertAt(unsigned char *zl, unsigned char *eptr, sds el
     int scorelen = 0;
     long long lscore;
     int score_is_long = double2ll(score, &lscore);
+    /* Preserve -0.0 sign: fall through to the string path so d2string writes
+     * the negative zero as "-0" instead of collapsing it to integer 0. */
+    if (score_is_long && lscore == 0 && signbit(score))
+        score_is_long = 0;
     if (!score_is_long)
         scorelen = d2string(scorebuf,sizeof(scorebuf),score);
 
