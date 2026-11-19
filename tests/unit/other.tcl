@@ -741,3 +741,36 @@ start_server {tags {"other external:skip"} overrides {cluster-compatibility-samp
         assert_range [s cluster_incompatible_ops] [expr $incompatible_ops + 200] [expr $incompatible_ops + 400]
     } {} {cluster:skip}
 }
+
+if {[string equal [exec uname] Linux]} {
+    start_server {tags {"other external:skip needs:debug needs:local-process"}} {
+        test {DEBUG RESTART closes inherited fds above maxclients + 1024} {
+            set fd 1500
+            set dir [file dirname [srv 0 unixsocket]]
+            set sock [file join $dir restart-fd.sock]
+
+            # Start a second server from a shell that has fd 1500 open.
+            # exec keeps the same pid, so the fd is inherited by redis-server.
+            set script "ulimit -n 4096 && exec $fd</dev/null && exec [pwd]/src/redis-server --port 0 --unixsocket $sock --maxclients 100 --enable-debug-command yes --save \"\" --appendonly no"
+            set pid [exec bash -c $script >& /dev/null &]
+            set cli [rediscli_unixsocket $sock]
+
+            wait_for_condition 100 50 {
+                [catch {exec {*}$cli ping}] == 0
+            } else {
+                fail "server did not start"
+            }
+            assert_equal /dev/null [file readlink /proc/$pid/fd/$fd]
+
+            catch {exec {*}$cli debug restart 0}
+            wait_for_condition 100 50 {
+                [catch {exec {*}$cli ping}] == 0
+            } else {
+                fail "server did not come back after restart"
+            }
+            assert {[catch {file readlink /proc/$pid/fd/$fd}]}
+
+            catch {exec {*}$cli shutdown nosave}
+        }
+    }
+}
