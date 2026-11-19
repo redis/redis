@@ -186,15 +186,18 @@ void armgetCommand(client *c) {
 
     /* Pre-promote sparse slices only for true bulk sets. A single-element
      * write does not benefit from the extra range-analysis pass. */
-    if (num_values > 1)
+    int sparse_promote = 1;
+    if (num_values > 1) {
+        sparse_promote = 0;
         arMayPromoteToDenseForRangeSet(ar, start_idx, last_idx);
+    }
 
     /* Write all values starting at start_idx */
     uint64_t idx = start_idx;
     for (int i = 3; i < c->argc; i++) {
         sds val = c->argv[i]->ptr;
         void *v = arEncode(val, sdslen(val));
-        arSet(ar, idx, v);
+        arSet(ar, idx, v, sparse_promote);
         idx++;
     }
 
@@ -239,7 +242,7 @@ void armsetCommand(client *c) {
 
         sds val = c->argv[i + 1]->ptr;
         void *v = arEncode(val, sdslen(val));
-        arSet(ar, idx, v);
+        arSet(ar, idx, v, 1);
     }
 
     int num_pairs = (c->argc - 2) / 2;
@@ -1513,15 +1516,18 @@ void arinsertCommand(client *c) {
 
     /* Pre-promote sparse slices only for true bulk inserts. A single-element
      * insert does not benefit from the extra range-analysis pass. */
-    if (num_values > 1)
+    int sparse_promote = 1;
+    if (num_values > 1) {
+        sparse_promote = 0;
         arMayPromoteToDenseForRangeSet(ar, start_cursor, last_cursor);
+    }
 
     /* Apply all values */
     uint64_t cursor = start_cursor;
     for (int i = 0; i < num_values; i++) {
         sds val = c->argv[2 + i]->ptr;
         void *v = arEncode(val, sdslen(val));
-        arSet(ar, cursor, v);
+        arSet(ar, cursor, v, sparse_promote);
         cursor++;
     }
     ar->insert_idx = last_cursor;
@@ -1643,7 +1649,7 @@ static redisArray *arRingRework(redisArray *ar, uint64_t old_span,
     for (uint64_t dst_idx = 0; dst_idx < retained_count; dst_idx++) {
         void *v = arGet(ar, src_idx);
         serverAssert(v != NULL);
-        arSet(new_ar, dst_idx, arRingDupValue(v));
+        arSet(new_ar, dst_idx, arRingDupValue(v), 1);
 
         src_idx++;
         if (src_idx == old_span) src_idx = 0;
@@ -1709,7 +1715,7 @@ void arringCommand(client *c) {
         /* Set the value */
         sds val = c->argv[3 + i]->ptr;
         void *v = arEncode(val, sdslen(val));
-        arSet(ar, cursor, v);
+        arSet(ar, cursor, v, 1);
         ar->insert_idx = cursor;
     }
 

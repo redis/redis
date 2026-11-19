@@ -280,7 +280,7 @@ void arDismiss(redisArray *ar, size_t size_hint);
 
 /* Element access */
 void *arGet(redisArray *ar, uint64_t idx);
-void arSet(redisArray *ar, uint64_t idx, void *v);
+void arSet(redisArray *ar, uint64_t idx, void *v, int sparse_promote);
 int arDel(redisArray *ar, uint64_t idx);
 
 /* Value encoding/decoding */

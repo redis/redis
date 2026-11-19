@@ -284,23 +284,52 @@ void arSliceFree(redisArray *ar, arSlice *s) {
     arFreeAndTrack(ar, s);
 }
 
+/* Calculate the dense-window geometry after accommodating rel_idx. This is
+ * shared by the actual growth paths and promotion estimates so both apply the
+ * same offset shifts and boundary clamping. */
+static void arDenseGrowGeometry(uint32_t offset, uint32_t winsize,
+                                uint32_t rel_idx, uint32_t slice_size,
+                                uint32_t *new_offset, uint32_t *new_winsize)
+{
+    serverAssert(offset + winsize <= slice_size);
+    serverAssert(rel_idx < slice_size);
+
+    if (rel_idx >= offset + winsize) {
+        /* Double until rel_idx fits. */
+        while (rel_idx >= offset + winsize && winsize < slice_size) {
+            winsize <<= 1;
+        }
+
+        if (winsize >= slice_size) {
+            winsize = slice_size;
+            offset = 0;
+        } else if (offset + winsize > slice_size) {
+            /* Window would exceed slice boundary, adjust offset. */
+            offset = slice_size - winsize;
+        }
+    } else if (rel_idx < offset) {
+        uint32_t old_end = offset + winsize;
+        uint32_t need = old_end - rel_idx;
+
+        winsize = nearestNextPowerOf2(need);
+        if (winsize < AR_SLICE_MIN_ALLOC) winsize = AR_SLICE_MIN_ALLOC;
+        if (winsize > slice_size) winsize = slice_size;
+
+        /* Keep old data right-aligned, leaving slack on the left. */
+        offset = (old_end > winsize) ? old_end - winsize : 0;
+        if (winsize == slice_size) offset = 0;
+    }
+
+    serverAssert(rel_idx >= offset && rel_idx < offset + winsize);
+    *new_offset = offset;
+    *new_winsize = winsize;
+}
+
 /* Grow dense slice to accommodate rel_idx (right growth) */
 arSlice *arSliceDenseGrowRight(redisArray *ar, arSlice *s, uint32_t rel_idx, uint32_t slice_size) {
-    uint32_t new_winsize = s->layout.dense.winsize;
-
-    /* Double until rel_idx fits */
-    while (rel_idx >= s->layout.dense.offset + new_winsize && new_winsize < slice_size) {
-        new_winsize <<= 1;
-    }
-
-    uint32_t new_offset = s->layout.dense.offset;
-    if (new_winsize >= slice_size) {
-        new_winsize = slice_size;
-        new_offset = 0;
-    } else if (new_offset + new_winsize > slice_size) {
-        /* Window would exceed slice boundary, adjust offset */
-        new_offset = slice_size - new_winsize;
-    }
+    uint32_t new_offset, new_winsize;
+    arDenseGrowGeometry(s->layout.dense.offset, s->layout.dense.winsize,
+                        rel_idx, slice_size, &new_offset, &new_winsize);
 
     /* Fast path: when offset does not move, we can use realloc() to grow
      * the dense allocation without relocating existing items ourselves. */
@@ -341,24 +370,14 @@ arSlice *arSliceDenseGrowRight(redisArray *ar, arSlice *s, uint32_t rel_idx, uin
  * we can grow on the left more than needed (next power of two) so if
  * there is a right-to-left access pattern we can cope. */
 arSlice *arSliceDenseGrowLeft(redisArray *ar, arSlice *s, uint32_t rel_idx, uint32_t slice_size) {
-    uint32_t old_end = s->layout.dense.offset + s->layout.dense.winsize;
-    uint32_t need = old_end - rel_idx;
-
-    /* Find next power of two that fits */
-    uint32_t new_winsize = nearestNextPowerOf2(need);
-    if (new_winsize < AR_SLICE_MIN_ALLOC) new_winsize = AR_SLICE_MIN_ALLOC;
-    if (new_winsize > slice_size) new_winsize = slice_size;
-
-    /* Position the window so that the old data is right-aligned (leaving
-     * slack on left) */
-    int32_t new_offset = (int32_t)old_end - (int32_t)new_winsize;
-    if (new_offset < 0) new_offset = 0;
-    if (new_winsize == slice_size) new_offset = 0;
+    uint32_t new_offset, new_winsize;
+    arDenseGrowGeometry(s->layout.dense.offset, s->layout.dense.winsize,
+                        rel_idx, slice_size, &new_offset, &new_winsize);
 
     arSlice *ns = arAllocAndTrack(ar, arDenseAllocSize(new_winsize));
     ns->encoding = AR_SLICE_DENSE;
     ns->count = s->count;
-    ns->layout.dense.offset = (uint32_t)new_offset;
+    ns->layout.dense.offset = new_offset;
     ns->layout.dense.winsize = new_winsize;
     ns->layout.dense.max_idx = s->layout.dense.max_idx;
     ns->layout.dense.items = (void **)(ns + 1);
@@ -403,6 +422,41 @@ uint32_t arSparseFindPos(arSlice *s, uint16_t rel_idx, int *found) {
     return lo;
 }
 
+/* Reallocate a sparse slice with a different capacity, the old one is
+ * freed. new_cap must still hold every element. */
+static arSlice *arSparseSetCap(redisArray *ar, arSlice *s, uint32_t new_cap) {
+    serverAssert(new_cap >= s->count);
+    arSlice *ns = arAllocAndTrack(ar, arSparseAllocSize(new_cap));
+    ns->encoding = AR_SLICE_SPARSE;
+    ns->count = s->count;
+    ns->layout.sparse.cap = new_cap;
+    arSparseSetupPointers(ns);
+
+    memcpy(ns->layout.sparse.offsets, s->layout.sparse.offsets,
+           s->count * sizeof(uint16_t));
+    memcpy(ns->layout.sparse.values, s->layout.sparse.values,
+           s->count * sizeof(void *));
+
+    arFreeAndTrack(ar, s);
+    return ns;
+}
+
+/* Dense window produced by promoting a sparse slice: returns the window
+ * size and stores its start in *offset. */
+static uint32_t arSparsePromoteWindow(arSlice *s, uint32_t slice_size, uint32_t *offset) {
+    serverAssert(s->count > 0);
+    uint32_t min_off = s->layout.sparse.offsets[0];
+    uint32_t max_off = s->layout.sparse.offsets[s->count - 1];
+
+    uint32_t winsize = nearestNextPowerOf2(max_off - min_off + 1);
+    if (winsize < AR_SLICE_MIN_ALLOC) winsize = AR_SLICE_MIN_ALLOC;
+    if (winsize > slice_size) winsize = slice_size;
+
+    /* Keep the window inside the slice boundary. */
+    *offset = (min_off < slice_size - winsize) ? min_off : slice_size - winsize;
+    return winsize;
+}
+
 /* Promote sparse slice to dense. */
 arSlice *arSparsePromote(redisArray *ar, arSlice *s, uint32_t slice_size) {
     if (s->count == 0) {
@@ -412,22 +466,9 @@ arSlice *arSparsePromote(redisArray *ar, arSlice *s, uint32_t slice_size) {
 
     uint16_t *offsets = s->layout.sparse.offsets;
     void **values = s->layout.sparse.values;
-
-    uint32_t min_off = offsets[0];
     uint32_t max_off = offsets[s->count - 1];
-    uint32_t need = max_off - min_off + 1;
-
-    uint32_t winsize = nearestNextPowerOf2(need);
-    if (winsize < AR_SLICE_MIN_ALLOC) winsize = AR_SLICE_MIN_ALLOC;
-
-    uint32_t offset = min_off;
-    if (winsize >= slice_size) {
-        winsize = slice_size;
-        offset = 0;
-    } else if (offset + winsize > slice_size) {
-        /* Window would exceed slice boundary, adjust offset */
-        offset = slice_size - winsize;
-    }
+    uint32_t offset;
+    uint32_t winsize = arSparsePromoteWindow(s, slice_size, &offset);
 
     arSlice *d = arAllocAndTrack(ar, arDenseAllocSize(winsize));
     d->encoding = AR_SLICE_DENSE;
@@ -448,6 +489,64 @@ arSlice *arSparsePromote(redisArray *ar, arSlice *s, uint32_t slice_size) {
 
     arFreeAndTrack(ar, s);
     return d;
+}
+
+/* Capacity a sparse slice would have after a single element is inserted.
+ * Keep the current capacity when the insertion already fits; otherwise
+ * double it, without overshooting kmax while the slice is still below the
+ * promotion threshold. */
+static uint32_t arSparseInsertGrowCap(arSlice *s, uint32_t slice_size) {
+    serverAssert(s->count <= s->layout.sparse.cap);
+    if (s->count < s->layout.sparse.cap) return s->layout.sparse.cap;
+
+    uint32_t new_cap = s->layout.sparse.cap * 2;
+    if (s->count < ArraySparseKMax && new_cap > ArraySparseKMax)
+        new_cap = ArraySparseKMax;
+    if (new_cap > slice_size) new_cap = slice_size;
+    return new_cap;
+}
+
+/* Shrink a sparse slice after deletions. Only a slice kept sparse near
+ * maxmemory has a capacity above kmax, and it would otherwise keep that
+ * memory after its elements are gone. Shrink once a quarter of the capacity
+ * is used, down to twice the count, so it can double again before the next
+ * grow and alternating inserts and deletes do not reallocate every time. */
+static arSlice *arSparseMaybeShrink(redisArray *ar, arSlice *s) {
+    uint32_t cap = s->layout.sparse.cap;
+    if (cap <= ArraySparseKMax || s->count == 0 || s->count > cap / 4) return s;
+
+    uint32_t new_cap = s->count * 2;
+    if (new_cap < ArraySparseKMax) new_cap = ArraySparseKMax;
+    return arSparseSetCap(ar, s, new_cap);
+}
+
+/* Allow sparse->dense unless the dense alloc would exceed maxmemory and
+ * staying sparse is cheaper. Uses the new alloc size, not net growth.
+ *
+ * The pending write spans [lo_idx, hi_idx]: both ends must be covered by the
+ * estimated window, since the dense slice would then grow unconditionally to
+ * reach them. 'stay_cap' is the capacity the caller would give the slice if
+ * it stays sparse, so both branches are priced by the allocation each one
+ * really makes. Single inserts double the capacity while bulk writes reserve
+ * exactly what the write needs, and a bulk write that already fits keeps the
+ * capacity it has: assuming a doubling here would overstate the sparse cost
+ * and promote slices that are cheaper left alone. */
+static int arSparsePromoteAllowed(redisArray *ar, arSlice *s, uint32_t lo_idx,
+                                  uint32_t hi_idx, uint32_t stay_cap)
+{
+    uint32_t slice_size = ar->slice_size, offset;
+    uint32_t winsize = arSparsePromoteWindow(s, slice_size, &offset);
+
+    /* Range writes proceed from low to high, so estimate geometry in the same
+     * order. Growing left can shift the window and make a later right growth
+     * larger than a high-then-low estimate would predict. */
+    arDenseGrowGeometry(offset, winsize, lo_idx, slice_size, &offset, &winsize);
+    arDenseGrowGeometry(offset, winsize, hi_idx, slice_size, &offset, &winsize);
+
+    size_t dense_bytes = arDenseAllocSize(winsize);
+    if (!overMaxmemoryAfterAlloc(dense_bytes)) return 1;
+
+    return arSparseAllocSize(stay_cap) >= dense_bytes;
 }
 
 /* Demote the provided dense slice to a sparse slice, if beneficial.
@@ -1278,7 +1377,7 @@ void *arGet(redisArray *ar, uint64_t idx) {
 
 /* Set value at index. Caller must ensure idx != UINT64_MAX.
  * v must not be NULL (empty) - use arDel() to delete elements. */
-void arSet(redisArray *ar, uint64_t idx, void *v) {
+void arSet(redisArray *ar, uint64_t idx, void *v, int sparse_promote) {
     serverAssert(v != NULL);  /* Use arDel for deletion, not arSet(v=NULL) */
     /* UINT64_MAX can't be used for a couple of reasons: for once,
      * the array len is the max index set + 1, so we could not represent
@@ -1340,8 +1439,13 @@ void arSet(redisArray *ar, uint64_t idx, void *v) {
             arTrackValueIn(ar, v);
             values[pos] = v;
         } else {
-            /* Insert new */
-            if (s->count >= ArraySparseKMax) {
+            /* Insert new. Bulk writes pass sparse_promote=0 after deciding
+             * to stay sparse, so this path does not promote mid-write. */
+            if (sparse_promote &&
+                s->count >= ArraySparseKMax &&
+                arSparsePromoteAllowed(ar, s, rel_idx, rel_idx,
+                                       arSparseInsertGrowCap(s, ar->slice_size)))
+            {
                 /* Promote to dense */
                 arSlice *d = arSparsePromote(ar, s, ar->slice_size);
 
@@ -1358,29 +1462,10 @@ void arSet(redisArray *ar, uint64_t idx, void *v) {
             } else {
                 /* Insert in sparse */
                 if (s->count >= s->layout.sparse.cap) {
-                    /* Grow capacity, we grow 2x but note that there is no
-                     * point in growing more than kmax, so we clamp to kmax. */
-                    uint32_t new_cap = s->layout.sparse.cap * 2;
-                    if (new_cap > ArraySparseKMax) new_cap = ArraySparseKMax;
-                    arSlice *ns = arAllocAndTrack(ar, arSparseAllocSize(new_cap));
-                    ns->encoding = AR_SLICE_SPARSE;
-                    ns->count = s->count;
-                    ns->layout.sparse.cap = new_cap;
-                    arSparseSetupPointers(ns);
-
-                    /* Copy old data to new slice */
-                    uint16_t *old_offsets = s->layout.sparse.offsets;
-                    void **old_values = s->layout.sparse.values;
-                    uint16_t *new_offsets = ns->layout.sparse.offsets;
-                    void **new_values = ns->layout.sparse.values;
-                    memcpy(new_offsets,old_offsets,s->count * sizeof(uint16_t));
-                    memcpy(new_values,old_values,s->count * sizeof(void *));
-
-                    arFreeAndTrack(ar, s);
-                    s = ns;
+                    s = arSparseSetCap(ar, s, arSparseInsertGrowCap(s, ar->slice_size));
                     arSetSlice(ar, slice_id, s);
-                    offsets = new_offsets;
-                    values = new_values;
+                    offsets = s->layout.sparse.offsets;
+                    values = s->layout.sparse.values;
                 }
 
                 /* Shift and insert in place */
@@ -1450,6 +1535,11 @@ int arDel(redisArray *ar, uint64_t idx) {
                 (s->count - pos - 1) * sizeof(void *));
         s->count--;
         ar->count--;
+
+        if (s->count != 0) {
+            s = arSparseMaybeShrink(ar, s);
+            arSetSlice(ar, slice_id, s);
+        }
     }
 
     /* Delete the slice if now it is empty. */
@@ -1575,6 +1665,8 @@ uint64_t arDeleteSliceRange(redisArray *ar, uint64_t slice_id,
         if (s->count == 0) {
             arSliceFree(ar, s);
             arSetSlice(ar, slice_id, NULL);
+        } else {
+            arSetSlice(ar, slice_id, arSparseMaybeShrink(ar, s));
         }
     }
 
@@ -1776,10 +1868,16 @@ uint64_t arLen(redisArray *ar) {
  * dense upfront if the final element count would exceed kmax. Slices that
  * will stay within kmax remain sparse. This way, bulk writes either go
  * into sparse (if small) or dense (if large), but never do expensive
- * sparse insertions followed by promotion. */
+ * sparse insertions followed by promotion.
+ *
+ * Near maxmemory, promotion is refused while staying sparse is cheaper
+ * than the dense window: the slice then grows past kmax (up to the size
+ * of the dense window) and the bulk write pays O(count) per insertion.
+ * This is intended, trading CPU for not crossing the memory limit. */
 void arMayPromoteToDenseForRangeSet(redisArray *ar, uint64_t lo, uint64_t hi) {
-    if (ArraySparseKMax == 0) return;  /* Sparse disabled, nothing to do */
-
+    /* No early return when kmax is 0: callers disable per-element promotion
+     * after this pass, so sparse slices created before sparse encoding was
+     * disabled must be promoted here. */
     uint64_t slice_lo = arSliceId(lo, ar->slice_size);
     uint64_t slice_hi = arSliceId(hi, ar->slice_size);
 
@@ -1806,27 +1904,32 @@ void arMayPromoteToDenseForRangeSet(redisArray *ar, uint64_t lo, uint64_t hi) {
 
         if (s->encoding == AR_SLICE_DENSE) continue;  /* Already dense */
 
-        /* Sparse slice - check if we need to promote */
-        if (range_size > ArraySparseKMax) {
-            /* Range alone exceeds kmax, must promote */
-            arSetSlice(ar, sid, arSparsePromote(ar, s, ar->slice_size));
-            continue;
-        }
+        /* Sparse slice - check if we need to promote. Count the existing
+         * elements in [start_off, end_off] with two binary searches on the
+         * sorted offsets: a slice kept sparse near maxmemory can hold far
+         * more than kmax, so overwrites must not be priced as inserts. */
+        int found;
+        uint32_t first = arSparseFindPos(s, (uint16_t)start_off, &found);
+        uint32_t last = arSparseFindPos(s, (uint16_t)end_off, &found);
+        if (found) last++;
 
-        /* Count existing elements in [start_off, end_off] via linear scan.
-         * Sparse slices have at most kmax elements, so this is O(kmax). */
-        uint16_t *offsets = s->layout.sparse.offsets;
-        uint32_t existing = 0;
-        for (uint32_t i = 0; i < s->count; i++) {
-            if (offsets[i] >= start_off && offsets[i] <= end_off) {
-                existing++;
-            }
-        }
+        /* New elements are the range slots that are still empty. */
+        uint32_t new_elements = range_size - (last - first);
+        if (new_elements == 0) continue;  /* Pure overwrite */
+        if (s->count + new_elements <= ArraySparseKMax) continue;
 
-        /* New elements = range_size - existing (slots we'll fill that are empty) */
-        uint32_t new_elements = range_size - existing;
-        if (s->count + new_elements > ArraySparseKMax) {
+        /* Staying sparse means reserving room for the whole write, so that
+         * the per-element inserts do not promote it halfway through. A write
+         * that already fits reserves nothing. */
+        uint32_t need = s->count + new_elements;
+        if (need > ar->slice_size) need = ar->slice_size;
+        if (need < s->layout.sparse.cap) need = s->layout.sparse.cap;
+
+        if (arSparsePromoteAllowed(ar, s, start_off, end_off, need)) {
             arSetSlice(ar, sid, arSparsePromote(ar, s, ar->slice_size));
+        } else if (need > s->layout.sparse.cap) {
+            /* The refusal above guarantees this stays below the dense window. */
+            arSetSlice(ar, sid, arSparseSetCap(ar, s, need));
         }
     }
 }

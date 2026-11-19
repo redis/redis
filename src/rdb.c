@@ -4750,7 +4750,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbver, int *e
                 return NULL;
             }
 
-            arSet(ar, idx, v);
+            arSet(ar, idx, v, 1);
         }
     } else if (rdbtype == RDB_TYPE_BITMAP) {
         if ((o = rdbLoadBitmapObject(rdb)) == NULL) return NULL;

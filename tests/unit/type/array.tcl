@@ -779,6 +779,287 @@ start_server {
         assert_equal 0 [dict get $info sparse-slices]
     }
 
+    # Leave 'headroom' bytes before the server considers itself out of memory.
+    # Every OOM check, the promotion one included, subtracts
+    # mem_not_counted_for_evict (replication backlog overshoot, AOF buffer)
+    # from used_memory while INFO reports it included: on a server other test
+    # files already used, that is tens of KB of hidden headroom.
+    proc array_limit_maxmemory {headroom} {
+        set info [r info memory]
+        set used [getInfoProperty $info used_memory]
+        set uncounted [getInfoProperty $info mem_not_counted_for_evict]
+        r config set maxmemory [expr {$used - $uncounted + $headroom}]
+    }
+
+    # Run 'body' under a limit it sets through array_limit_maxmemory, dropping
+    # the limit however the body ends: otherwise a failed assertion leaves the
+    # server over its limit and every later test in this file dies with an OOM
+    # error. The replication backlog is pinned to its minimum because the
+    # writes below feed it, and it grows at the headroom's expense.
+    proc array_maxmemory_test {slice_size body} {
+        set old_policy [lindex [r config get maxmemory-policy] 1]
+        set old_slice_size [lindex [r config get array-slice-size] 1]
+        set old_backlog_size [lindex [r config get repl-backlog-size] 1]
+        r config set maxmemory-policy noeviction
+        r config set array-slice-size $slice_size
+        r config set repl-backlog-size 16384
+
+        catch {uplevel 1 $body} res opts
+
+        r del myarray
+        r config set maxmemory 0
+        r config set maxmemory-policy $old_policy
+        r config set array-slice-size $old_slice_size
+        r config set repl-backlog-size $old_backlog_size
+        return -options $opts $res
+    }
+
+    test {Sparse to dense promotion is skipped when over maxmemory} {
+        array_maxmemory_test 65536 {
+            r del myarray
+            set kmax [lindex [r config get array-sparse-kmax] 1]
+            assert {$kmax >= 4}
+
+            # Scatter kmax elements so a dense window would span the whole
+            # slice: 65536 slots, half a megabyte.
+            set step [expr {60000 / $kmax}]
+            for {set i 0} {$i < $kmax} {incr i} {
+                r arset myarray [expr {$i * $step}] "sparse$i"
+            }
+
+            set info [r arinfo myarray FULL]
+            assert_equal 0 [dict get $info dense-slices]
+            assert_equal 1 [dict get $info sparse-slices]
+
+            # Room for a few hundred bytes of sparse growth, nowhere near the
+            # 512 KB the dense window would need.
+            array_limit_maxmemory 100000
+
+            for {set i 0} {$i < $kmax} {incr i} {
+                r arset myarray [expr {60000 + $i}] "overlimit$i"
+            }
+
+            set info [r arinfo myarray FULL]
+            assert_equal 0 [dict get $info dense-slices]
+            assert_equal 1 [dict get $info sparse-slices]
+            assert_equal [expr {$kmax * 2}] [r arcount myarray]
+
+            for {set i 0} {$i < $kmax} {incr i} {
+                assert_equal "sparse$i" [r arget myarray [expr {$i * $step}]]
+                assert_equal "overlimit$i" [r arget myarray [expr {60000 + $i}]]
+            }
+
+            r config set maxmemory 0
+            r arset myarray 65535 "after"
+
+            set info [r arinfo myarray FULL]
+            assert_equal 1 [dict get $info dense-slices]
+            assert_equal 0 [dict get $info sparse-slices]
+            assert_equal "after" [r arget myarray 65535]
+            assert_equal "sparse0" [r arget myarray 0]
+            assert_equal "overlimit0" [r arget myarray 60000]
+        }
+    } {} {needs:config-maxmemory}
+
+    test {Range ARSET does not promote when the window would exceed maxmemory} {
+        array_maxmemory_test 65536 {
+            r del myarray
+            set kmax [lindex [r config get array-sparse-kmax] 1]
+            assert_equal 10 $kmax
+
+            # Elements at 40000..40009 fit a 16-slot window. A write ending at
+            # index 1 leaves that window alone, but the write starts at index 0
+            # and the window has to reach down to it: 65536 slots, 512 KB.
+            for {set i 0} {$i < $kmax} {incr i} {
+                r arset myarray [expr {40000 + $i}] "far$i"
+            }
+            # Fits the 16-slot window seen from the high end of the write, not
+            # the 512 KB one its low end forces.
+            array_limit_maxmemory 100000
+
+            assert_equal 2 [r arset myarray 0 lo0 lo1]
+
+            set info [r arinfo myarray FULL]
+            assert_equal 0 [dict get $info dense-slices]
+            assert_equal 1 [dict get $info sparse-slices]
+            assert_equal {lo0 lo1} [r argetrange myarray 0 1]
+            assert_equal "far0" [r arget myarray 40000]
+        }
+    } {} {needs:config-maxmemory}
+
+    test {Range ARSET keeps the slice sparse for the whole bulk write} {
+        array_maxmemory_test 65536 {
+            r del myarray
+            set kmax [lindex [r config get array-sparse-kmax] 1]
+            assert_equal 10 $kmax
+
+            # Build a sparse slice that would promote to a 32768-slot window
+            # (256 KB, 128 KB on 32 bit). Index 32767 still fits it, but index
+            # 32768 doubles the window to 65536 slots, 512 KB (256 KB).
+            for {set i 0} {$i < $kmax - 1} {incr i} {
+                r arset myarray [expr {$i * 3600}] "pre$i"
+            }
+            r arset myarray 32766 "pre_last"
+            # Between the two windows, so only the high end of the write below
+            # makes the promotion too expensive.
+            array_limit_maxmemory [expr {[s arch_bits] == 32 ? 192000 : 384000}]
+
+            assert_equal 2 [r arset myarray 32767 hi0 hi1]
+
+            # Promoting mid-write would leave a dense slice grown past the
+            # limit, so the capacity for the whole write is reserved instead.
+            set info [r arinfo myarray FULL]
+            assert_equal 0 [dict get $info dense-slices]
+            assert_equal 1 [dict get $info sparse-slices]
+            assert_equal [expr {$kmax + 2}] [expr {int([dict get $info avg-sparse-size])}]
+            assert_equal {hi0 hi1} [r argetrange myarray 32767 32768]
+            assert_equal "pre0" [r arget myarray 0]
+            assert_equal "pre_last" [r arget myarray 32766]
+            assert_equal [expr {$kmax + 2}] [r arcount myarray]
+        }
+    } {} {needs:config-maxmemory}
+
+    test {Range ARSET does not promote a slice whose capacity grew past kmax} {
+        array_maxmemory_test 65536 {
+            r del myarray
+            assert_equal 10 [lindex [r config get array-sparse-kmax] 1]
+
+            # Index 65535 pins the promotion window at 65536 slots (512 KB, 256
+            # KB on 32 bit), so every write below is refused and the capacity is
+            # grown to fit the write instead. The limit has room for the ~300 KB
+            # (~180 KB) the capacity ends up taking, and none for the dense
+            # window.
+            r arset myarray 65535 far
+            array_limit_maxmemory [expr {[s arch_bits] == 32 ? 240000 : 430000}]
+
+            # 30 bulk writes of the same 1000 values, so index N holds N % 1000.
+            # Integers are stored inline on every architecture, so the values
+            # take no memory beyond the slice itself.
+            set values {}
+            for {set i 0} {$i < 1000} {incr i} {
+                lappend values $i
+            }
+            for {set chunk 0} {$chunk < 30} {incr chunk} {
+                r arset myarray [expr {$chunk * 1000}] {*}$values
+                # Check every write: a slice that promotes here takes the
+                # server over the limit, and the next write would come back
+                # with an OOM error instead of a usable failure.
+                assert_equal 0 [dict get [r arinfo myarray FULL] dense-slices]
+            }
+
+            set info [r arinfo myarray FULL]
+            assert_equal 1 [dict get $info sparse-slices]
+            assert_equal 30001 [expr {int([dict get $info avg-sparse-size])}]
+            assert_equal 30001 [r arcount myarray]
+
+            # Rewriting 1000 existing entries adds nothing, so it must neither
+            # promote nor reallocate, even though the range exceeds kmax.
+            assert_equal 0 [r arset myarray 0 {*}$values]
+
+            set info [r arinfo myarray FULL]
+            assert_equal 0 [dict get $info dense-slices]
+            assert_equal 1 [dict get $info sparse-slices]
+            assert_equal 30001 [expr {int([dict get $info avg-sparse-size])}]
+            assert_equal 30001 [r arcount myarray]
+
+            # A single insert with spare capacity must price staying sparse at
+            # the current capacity, not at the doubled growth capacity.
+            assert_equal 1 [r ardel myarray 15000]
+            assert_equal 1 [r arset myarray 60000 spare]
+
+            set info [r arinfo myarray FULL]
+            assert_equal 0 [dict get $info dense-slices]
+            assert_equal 1 [dict get $info sparse-slices]
+            assert_equal 30001 [expr {int([dict get $info avg-sparse-size])}]
+            assert_equal 30001 [r arcount myarray]
+            assert_equal "spare" [r arget myarray 60000]
+
+            # Those 30001 entries are what staying sparse costs now, still less
+            # than the 512 KB dense window, so a write that needs a handful of
+            # extra slots must not promote - even though doubling the capacity,
+            # which is not what this write does, would have cost more than
+            # promoting.
+            assert_equal 3 [r arset myarray 30000 a b c]
+
+            set info [r arinfo myarray FULL]
+            assert_equal 0 [dict get $info dense-slices]
+            assert_equal 1 [dict get $info sparse-slices]
+            assert_equal 30004 [r arcount myarray]
+            assert_equal {a b c} [r argetrange myarray 30000 30002]
+            assert_equal 0 [r arget myarray 0]
+            assert_equal 0 [r arget myarray 29000]
+            assert_equal 999 [r arget myarray 29999]
+            assert_equal "far" [r arget myarray 65535]
+        }
+    } {} {needs:config-maxmemory}
+
+    test {Sparse slice grown past kmax shrinks its capacity on delete} {
+        array_maxmemory_test 65536 {
+            r del myarray
+            set kmax [lindex [r config get array-sparse-kmax] 1]
+            assert_equal 10 $kmax
+
+            # Same setup as above: index 65535 keeps the slice sparse, and 10
+            # bulk writes grow its capacity to exactly 10001.
+            r arset myarray 65535 far
+            array_limit_maxmemory [expr {[s arch_bits] == 32 ? 240000 : 430000}]
+            set values {}
+            for {set i 0} {$i < 1000} {incr i} {
+                lappend values $i
+            }
+            for {set chunk 0} {$chunk < 10} {incr chunk} {
+                r arset myarray [expr {$chunk * 1000}] {*}$values
+            }
+            set info [r arinfo myarray FULL]
+            assert_equal 0 [dict get $info dense-slices]
+            assert_equal 10001 [expr {int([dict get $info avg-sparse-size])}]
+
+            # 2001 elements left, below a quarter of 10001: shrink to 2*count.
+            assert_equal 8000 [r ardelrange myarray 0 7999]
+            assert_equal 4002 [expr {int([dict get [r arinfo myarray FULL] avg-sparse-size])}]
+
+            # 1001 elements is still above a quarter of 4002, so ARDEL keeps
+            # the capacity until the count drops to 1000.
+            set idxs {}
+            for {set i 8000} {$i < 9000} {incr i} {
+                lappend idxs $i
+            }
+            assert_equal 1000 [r ardel myarray {*}$idxs]
+            assert_equal 4002 [expr {int([dict get [r arinfo myarray FULL] avg-sparse-size])}]
+            assert_equal 1 [r ardel myarray 9000]
+            assert_equal 2000 [expr {int([dict get [r arinfo myarray FULL] avg-sparse-size])}]
+
+            # The capacity never shrinks below kmax.
+            assert_equal 998 [r ardelrange myarray 9001 9998]
+            set info [r arinfo myarray FULL]
+            assert_equal 1 [dict get $info sparse-slices]
+            assert_equal $kmax [expr {int([dict get $info avg-sparse-size])}]
+            assert_equal 2 [r arcount myarray]
+            assert_equal 999 [r arget myarray 9999]
+            assert_equal "far" [r arget myarray 65535]
+        }
+    } {} {needs:config-maxmemory}
+
+    test {Range ARSET promotes an existing sparse slice after sparse is disabled} {
+        r del myarray
+        set old_kmax [lindex [r config get array-sparse-kmax] 1]
+        r arset myarray 100 a
+        assert_equal 1 [dict get [r arinfo myarray FULL] sparse-slices]
+
+        r config set array-sparse-kmax 0
+        catch {
+            assert_equal 2 [r arset myarray 101 b c]
+            set info [r arinfo myarray FULL]
+        } res opts
+        r config set array-sparse-kmax $old_kmax
+        if {[dict get $opts -code] != 0} {return -options $opts $res}
+
+        assert_equal 1 [dict get $info dense-slices]
+        assert_equal 0 [dict get $info sparse-slices]
+        assert_equal {a b c} [r argetrange myarray 100 102]
+        r del myarray
+    }
+
     # Dense to sparse demotion tests
     test {Dense to sparse demotion - delete below kmin threshold} {
         r del myarray
