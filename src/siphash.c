@@ -244,6 +244,103 @@ uint64_t siphash_nocase(const uint8_t *in, const size_t inlen, const uint8_t *k)
 #endif
 }
 
+/* --------- AVX-512 lane-parallel SipHash-1-2 (any CPU with AVX-512 support) ----------- *
+ *
+ * siphash_x8() computes eight independent SipHash-1-2 digests at once and is
+ * bit-exact with the scalar siphash() above. It targets the case where Redis
+ * already needs a batch of key hashes together -- the cross-command prefetcher
+ * (dictPrefetcherReset) hashes every key of a pipelined command batch in a
+ * tight scalar loop. On any CPU with AVX-512 that loop is a natural fit for 512-bit vectors:
+ * SipHash's state is 4x uint64, and AVX-512 gives us native VPROLQ rotates,
+ * 8-lane 64-bit masked gathers to fetch each lane's message words from its own
+ * key pointer, and mask-blend to "freeze" lanes that have already consumed all
+ * their full 8-byte blocks (keys differ in length).
+ *
+ * Built with a function-level target attribute so the rest of this TU stays
+ * baseline-ISA; callers must gate the call on runtime AVX-512F support (see
+ * dictGenHashFunctionBatch()).
+ *
+ * Note on the message tail: for lanes with a partial trailing block we issue a
+ * full 8-byte gather at offset (len & ~7) and mask to the low (len & 7) bytes.
+ * This can read up to 7 bytes past the key end; for heap-allocated sds keys
+ * (always followed by a NUL terminator and allocator slack) this is safe in
+ * practice. A production-hardened variant would fall back to scalar for keys
+ * whose tail read would cross a page boundary. */
+#if defined(__x86_64__) || defined(__i386__)
+#include <immintrin.h>
+
+#define SIPROUND_X8(v0, v1, v2, v3)                                            \
+    do {                                                                       \
+        v0 = _mm512_add_epi64(v0, v1); v1 = _mm512_rol_epi64(v1, 13);          \
+        v1 = _mm512_xor_si512(v1, v0); v0 = _mm512_rol_epi64(v0, 32);          \
+        v2 = _mm512_add_epi64(v2, v3); v3 = _mm512_rol_epi64(v3, 16);          \
+        v3 = _mm512_xor_si512(v3, v2);                                         \
+        v0 = _mm512_add_epi64(v0, v3); v3 = _mm512_rol_epi64(v3, 21);          \
+        v3 = _mm512_xor_si512(v3, v0);                                         \
+        v2 = _mm512_add_epi64(v2, v1); v1 = _mm512_rol_epi64(v1, 17);          \
+        v1 = _mm512_xor_si512(v1, v2); v2 = _mm512_rol_epi64(v2, 32);          \
+    } while (0)
+
+__attribute__((target("avx512f,avx512dq")))
+void siphash_x8(const uint8_t *const in[8], const size_t inlen[8],
+                const uint8_t *k, uint64_t out[8]) {
+    const __m512i vk0 = _mm512_set1_epi64((long long)U8TO64_LE(k));
+    const __m512i vk1 = _mm512_set1_epi64((long long)U8TO64_LE(k + 8));
+    __m512i v0 = _mm512_xor_si512(_mm512_set1_epi64((long long)0x736f6d6570736575ULL), vk0);
+    __m512i v1 = _mm512_xor_si512(_mm512_set1_epi64((long long)0x646f72616e646f6dULL), vk1);
+    __m512i v2 = _mm512_xor_si512(_mm512_set1_epi64((long long)0x6c7967656e657261ULL), vk0);
+    __m512i v3 = _mm512_xor_si512(_mm512_set1_epi64((long long)0x7465646279746573ULL), vk1);
+
+    /* x86-64: pointers and size_t are 8 bytes, so we can load them straight
+     * into 64-bit lanes. */
+    __m512i vptr = _mm512_loadu_si512((const void *)in);
+    __m512i vlen = _mm512_loadu_si512((const void *)inlen);
+    __m512i vfull = _mm512_srli_epi64(vlen, 3);   /* number of full 8-byte blocks */
+
+    size_t maxfull = 0;
+    for (int i = 0; i < 8; i++) {
+        size_t fb = inlen[i] >> 3;
+        if (fb > maxfull) maxfull = fb;
+    }
+
+    for (size_t j = 0; j < maxfull; j++) {
+        __mmask8 active = _mm512_cmpgt_epi64_mask(vfull, _mm512_set1_epi64((long long)j));
+        __m512i addr = _mm512_add_epi64(vptr, _mm512_set1_epi64((long long)(j * 8)));
+        __m512i m = _mm512_mask_i64gather_epi64(_mm512_setzero_si512(), active, addr, (const void *)0, 1);
+        __m512i s0 = v0, s1 = v1, s2 = v2, s3 = v3;
+        v3 = _mm512_xor_si512(v3, m);
+        SIPROUND_X8(v0, v1, v2, v3);
+        v0 = _mm512_xor_si512(v0, m);
+        /* Lanes with no block at index j must be left untouched (SipHash rounds
+         * are not idempotent): blend back their saved state. */
+        v0 = _mm512_mask_blend_epi64(active, s0, v0);
+        v1 = _mm512_mask_blend_epi64(active, s1, v1);
+        v2 = _mm512_mask_blend_epi64(active, s2, v2);
+        v3 = _mm512_mask_blend_epi64(active, s3, v3);
+    }
+
+    /* Trailing block: b = (len << 56) | last (len & 7) bytes. */
+    __m512i b = _mm512_slli_epi64(vlen, 56);
+    __m512i vleft = _mm512_and_si512(vlen, _mm512_set1_epi64(7));
+    __mmask8 hastail = _mm512_cmpgt_epi64_mask(vleft, _mm512_setzero_si512());
+    __m512i toff = _mm512_and_si512(vlen, _mm512_set1_epi64((long long)~(uint64_t)7));
+    __m512i taddr = _mm512_add_epi64(vptr, toff);
+    __m512i traw = _mm512_mask_i64gather_epi64(_mm512_setzero_si512(), hastail, taddr, (const void *)0, 1);
+    __m512i shift = _mm512_slli_epi64(vleft, 3);  /* keep low 8*left bits */
+    __m512i lomask = _mm512_sub_epi64(_mm512_sllv_epi64(_mm512_set1_epi64(1), shift), _mm512_set1_epi64(1));
+    b = _mm512_or_si512(b, _mm512_and_si512(traw, lomask));
+
+    v3 = _mm512_xor_si512(v3, b);
+    SIPROUND_X8(v0, v1, v2, v3);
+    v0 = _mm512_xor_si512(v0, b);
+    v2 = _mm512_xor_si512(v2, _mm512_set1_epi64((long long)0xff));
+    SIPROUND_X8(v0, v1, v2, v3);
+    SIPROUND_X8(v0, v1, v2, v3);
+    __m512i h = _mm512_xor_si512(_mm512_xor_si512(v0, v1), _mm512_xor_si512(v2, v3));
+    _mm512_storeu_si512((void *)out, h);
+}
+#endif /* x86 */
+
 
 /* --------------------------------- TEST ------------------------------------ */
 
@@ -355,6 +452,33 @@ int siphash_test(void) {
     h1 = siphash((uint8_t*)"HELLO world",11,(uint8_t*)"1234567812345678");
     h2 = siphash_nocase((uint8_t*)"HELLO world",11,(uint8_t*)"1234567812345678");
     if (h1 == h2) fails++;
+
+#if defined(__x86_64__) || defined(__i386__)
+    /* Verify the AVX-512 8-lane variant is bit-exact with scalar siphash()
+     * across a spread of lengths (incl. 0, sub-block, block-aligned, multi-block
+     * with mixed tails). Skipped on CPUs without AVX-512F. */
+    if (__builtin_cpu_supports("avx512f")) {
+        static uint8_t buf[8][80];
+        for (int lane = 0; lane < 8; lane++)
+            for (int j = 0; j < 80; j++)
+                buf[lane][j] = (uint8_t)(lane * 31 + j * 7 + 3);
+        for (int base = 0; base <= 64; base++) {
+            const uint8_t *in8[8];
+            size_t len8[8];
+            uint64_t out8[8];
+            for (int lane = 0; lane < 8; lane++) {
+                in8[lane] = buf[lane];
+                /* mix lengths across lanes so all tail cases occur together */
+                len8[lane] = (size_t)(base + lane) % 73;
+            }
+            siphash_x8(in8, len8, k, out8);
+            for (int lane = 0; lane < 8; lane++) {
+                uint64_t ref = siphash(in8[lane], len8[lane], k);
+                if (ref != out8[lane]) fails++;
+            }
+        }
+    }
+#endif
 
     if (!fails) return 0;
     return 1;
