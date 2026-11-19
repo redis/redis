@@ -4982,7 +4982,9 @@ int processCommand(client *c) {
     if (deny_write_type != DISK_ERROR_TYPE_NONE &&
         (is_write_command || c->cmd->proc == pingCommand))
     {
-        if (obey_client) {
+        /* The ASM import client is a master client, but this node is not a
+         * replica. Reject the command, the import task fails instead. */
+        if (obey_client && !(c->flags & CLIENT_ASM_IMPORTING)) {
             if (!server.repl_ignore_disk_write_error && c->cmd->proc != pingCommand) {
                 serverPanic("Replica was unable to write command to disk.");
             } else {
