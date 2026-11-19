@@ -150,6 +150,18 @@ start_server {tags {"geo"}} {
         verify_geo_edge_response_bymember {} 0
     }
 
+    test {GEORADIUSBYMEMBER STORE rejects an invalid unit with a missing source} {
+        r del src{t}
+        r set dest{t} original
+        assert_error {ERR unsupported unit*} {r georadiusbymember src{t} member 1 yards store dest{t}}
+        assert_equal original [r get dest{t}]
+    }
+
+    test {GEORADIUSBYMEMBER_RO rejects a negative radius with a missing source} {
+        r del src{t}
+        assert_error {ERR radius cannot be negative} {r georadiusbymember_ro src{t} member -1 km}
+    }
+
     test {GEO BYLONLAT with empty search} {
         r del src{t}
         r geoadd src{t} 13.361389 38.115556 "Palermo" 15.087269 37.502669 "Catania"
