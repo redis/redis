@@ -44,6 +44,9 @@
 #include <pthread.h>
 #include <sched.h>
 #endif
+#ifdef __sun
+#include <sys/pset.h>
+#endif
 #include "config.h"
 
 #ifdef USE_SETCPUAFFINITY
@@ -82,14 +85,21 @@ void setcpuaffinity(const char *cpulist) {
 #ifdef __NetBSD__
     cpuset_t *cpuset;
 #endif
+#ifdef __sun
+    psetid_t cpuset;
+#endif
 
     if (!cpulist)
         return;
 
+#ifndef __sun
 #ifndef __NetBSD__
     CPU_ZERO(&cpuset);
 #else
     cpuset = cpuset_create();
+#endif
+#else
+    pset_create(&cpuset);
 #endif
 
     q = cpulist;
@@ -125,10 +135,14 @@ void setcpuaffinity(const char *cpulist) {
             return;
 
         while (a <= b) {
+#ifndef __sun
 #ifndef __NetBSD__
             CPU_SET(a, &cpuset);
 #else
             cpuset_set(a, cpuset);
+#endif
+#else
+	    pset_assign(cpuset, a, NULL);
 #endif
             a += s;
         }
@@ -149,6 +163,10 @@ void setcpuaffinity(const char *cpulist) {
 #ifdef __NetBSD__
     pthread_setaffinity_np(pthread_self(), cpuset_size(cpuset), cpuset);
     cpuset_destroy(cpuset);
+#endif
+#ifdef __sun
+    pset_bind(cpuset, P_PID, P_MYID, NULL);
+    pset_destroy(cpuset);
 #endif
 }
 
