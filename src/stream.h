@@ -15,6 +15,13 @@ typedef struct streamID {
     uint64_t seq;       /* Sequence number. */
 } streamID;
 
+/* Maximum size for a stream ID string. In theory 20*2+1 should be enough,
+ * But to avoid chance for off by one issues and null-term, in case this will
+ * be used as parsing buffer, we use a slightly larger buffer. It also stays
+ * within OBJ_ENCODING_EMBSTR_SIZE_LIMIT, so an ID object is a single
+ * allocation. */
+#define STREAM_ID_STR_LEN 44
+
 /* Structure to hold IID and stream ID for IDMP deduplication */
 typedef struct idmpEntry {
     struct idmpEntry *next;  /* Pointer to next entry in insertion order (linked list) */
@@ -221,6 +228,7 @@ robj *streamDup(robj *o);
 int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep);
 int streamParseID(const robj *o, streamID *id);
 robj *createObjectFromStreamID(streamID *id);
+size_t streamIDToBuffer(char *buf, streamID *id);
 int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_id, streamID *use_id, int seq_given);
 int streamDeleteItem(stream *s, streamID *id);
 void streamGetEdgeID(stream *s, int first, int skip_tombstones, streamID *edge_id);
