@@ -62,12 +62,7 @@ start_server {tags {"modules external:skip debug_defrag:skip"}} {
         # Enable the AOF
         r config set appendonly yes
         r config set auto-aof-rewrite-percentage 0 ; # Disable auto-rewrite.
-        # waitForBgrewriteaof doesn't wait for a scheduled rewrite.
-        wait_for_condition 50 100 {
-            [s aof_rewrite_in_progress] == 0 && [s aof_rewrite_scheduled] == 0
-        } else {
-            fail "Initial AOF rewrite didn't finish"
-        }
+        waitForBgrewriteaof r
 
         r set k v1
         assert_equal OK [r test.rdbsave aoftest.rdb]
