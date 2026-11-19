@@ -28,7 +28,7 @@
         ],
         "reply_schema": {
             "type": "array",
-            "description": "Entries from the slow log in chronological order.",
+            "description": "Entries from the slow log in reverse chronological order, newest first: the first element is the most recently logged entry and carries the highest entry ID in the reply. `count` limits the reply to that many of the most recent entries, so the default of 10 and `-1` (all) follow the same order. Timestamps are in seconds and can repeat across entries, so the entry ID is what establishes the order.",
             "uniqueItems": true,
             "items": {
                 "type": "array",
