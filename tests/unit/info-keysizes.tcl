@@ -1404,6 +1404,24 @@ start_cluster 1 0 {tags {external:skip cluster needs:debug} overrides {cluster-s
         r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
     }
 
+    test "SLOT-ALLOCSIZE - same-key SMOVE keeps slot alloc tracking across rehash" {
+        # Same-key SMOVE only checks membership. That lookup can finish a
+        # rehash and free the old table; the early return must still call
+        # updateSlotAllocSize() or CLUSTER SLOT-STATS / INFO keysizes drift.
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+        r FLUSHALL
+
+        r DEL "s{t}"
+        for {set i 0} {$i < 265} {incr i} { r SADD "s{t}" "m-$i" }
+        assert_encoding hashtable "s{t}"
+
+        for {set i 0} {$i < 400} {incr i} {
+            r SMOVE "s{t}" "s{t}" m-0
+        }
+
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
+    }
+
     test "KEY-MEMORY-STATS - Test DEBUG KEYSIZES-HIST-ASSERT command" {
         r DEBUG KEYSIZES-HIST-ASSERT 1
         r FLUSHALL
