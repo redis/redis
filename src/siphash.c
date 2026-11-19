@@ -153,15 +153,21 @@ uint64_t siphash(const uint8_t *in, const size_t inlen, const uint8_t *k) {
         v0 ^= m;
     }
 
-    switch (left) {
-    case 7: b |= ((uint64_t)in[6]) << 48; /* fall-thru */
-    case 6: b |= ((uint64_t)in[5]) << 40; /* fall-thru */
-    case 5: b |= ((uint64_t)in[4]) << 32; /* fall-thru */
-    case 4: b |= ((uint64_t)in[3]) << 24; /* fall-thru */
-    case 3: b |= ((uint64_t)in[2]) << 16; /* fall-thru */
-    case 2: b |= ((uint64_t)in[1]) << 8; /* fall-thru */
-    case 1: b |= ((uint64_t)in[0]); break;
-    case 0: break;
+    /* Reads the key's last 8 bytes, so only valid while inlen >= 8. */
+    if (inlen >= 8) {
+        const uint64_t w = U8TO64_LE(in + left - 8);
+        b |= left ? (w >> (8 * (8 - left))) : 0;
+    } else {
+        switch (left) {
+        case 7: b |= ((uint64_t)in[6]) << 48; /* fall-thru */
+        case 6: b |= ((uint64_t)in[5]) << 40; /* fall-thru */
+        case 5: b |= ((uint64_t)in[4]) << 32; /* fall-thru */
+        case 4: b |= ((uint64_t)in[3]) << 24; /* fall-thru */
+        case 3: b |= ((uint64_t)in[2]) << 16; /* fall-thru */
+        case 2: b |= ((uint64_t)in[1]) << 8; /* fall-thru */
+        case 1: b |= ((uint64_t)in[0]); break;
+        case 0: break;
+        }
     }
 
     v3 ^= b;
