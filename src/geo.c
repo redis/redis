@@ -554,6 +554,11 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
         shape.type = CIRCULAR_TYPE;
         if (extractLongLatOrReply(c, c->argv + 2, shape.xy) == C_ERR) return;
         if (extractDistanceOrReply(c, c->argv+base_args-2, &shape.conversion, &shape.t.radius) != C_OK) return;
+    } else if ((flags & RADIUS_MEMBER) && !zobj && mustObeyClient(c)) {
+        /* Older versions didn't validate the radius and unit when the source
+         * was missing, and a STORE still deleted the destination. Apply such
+         * a command from a master or an AOF the same way. */
+        base_args = 5;
     } else if (flags & RADIUS_MEMBER) {
         /* GEORADIUSBYMEMBER or GEORADIUSBYMEMBER_RO */
         base_args = 5;

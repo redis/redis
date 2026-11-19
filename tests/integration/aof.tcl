@@ -219,6 +219,21 @@ tags {"aof external:skip"} {
         }
     }
 
+    ## Older versions skipped the radius and unit checks for a missing source,
+    ## so their AOF may contain such a STORE that deleted the destination.
+    create_aof $aof_dirpath $aof_file {
+        append_to_aof [formatCommand set dest original]
+        append_to_aof [formatCommand georadiusbymember src member 1 yards store dest]
+    }
+
+    start_server_aof [list dir $server_path aof-load-truncated no] {
+        test "AOF+GEORADIUSBYMEMBER: legacy STORE with a missing source deletes the destination" {
+            set client [redis [srv host] [srv port] 0 $::tls]
+            wait_done_loading $client
+            assert_equal 0 [$client exists dest]
+        }
+    }
+
     start_server {overrides {appendonly {yes}}} {
         test {Redis should not try to convert DEL into EXPIREAT for EXPIRE -1} {
             r set x 10
