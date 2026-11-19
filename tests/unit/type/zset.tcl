@@ -1294,6 +1294,42 @@ start_server {tags {"zset"}} {
             r del zbig{t} zother{t} zbigdst{t}
         }
 
+        test "ZINTER batch with weights and long members - $encoding" {
+            # 330 byte members are stored outside the leaf.
+            r del zw1{t} zw2{t} zwdst{t}
+            set long [string repeat x 330]
+            for {set i 1} {$i <= 300} {incr i} {
+                r zadd zw1{t} $i $long$i
+                r zadd zw2{t} [expr {$i * 2}] $long$i
+            }
+            r zadd zw1{t} inf ${long}inf
+            r zadd zw2{t} 5 ${long}inf
+            r zadd zw1{t} 7 ${long}only1
+            r zadd zw2{t} 1 only2
+            r zadd zw2{t} 2 only2b
+            assert_encoding btree zw1{t}
+            assert_encoding btree zw2{t}
+            assert_equal 301 [r zintercard 2 zw1{t} zw2{t}]
+            assert_equal 5 [r zintercard 2 zw1{t} zw2{t} limit 5]
+            assert_equal 11 [r zintercard 2 zw1{t} zw2{t} limit 11]
+            # inf * 0 is NaN and counts as 0.
+            assert_equal 301 \
+                [r zinterstore zwdst{t} 2 zw1{t} zw2{t} weights 0 1]
+            assert_equal 5 [r zscore zwdst{t} ${long}inf]
+            assert_equal 14 [r zscore zwdst{t} ${long}7]
+            assert_equal 301 [r zinterstore zwdst{t} 2 zw1{t} zw2{t} \
+                weights 2 3 aggregate max]
+            assert_equal inf [r zscore zwdst{t} ${long}inf]
+            assert_equal 42 [r zscore zwdst{t} ${long}7]
+            set res [r zinter 2 zw1{t} zw2{t} weights 2 3 aggregate min \
+                withscores]
+            assert_equal 602 [llength $res]
+            assert_equal [list ${long}1 2] [lrange $res 0 1]
+            assert_equal [list ${long}300 600] [lrange $res end-1 end]
+            assert_equal 15 [dict get $res ${long}inf]
+            r del zw1{t} zw2{t} zwdst{t}
+        }
+
         test "ZINTER RESP3 - $encoding" {
             r hello 3
             assert_equal {{b 3.0} {c 5.0}} [r zinter 2 zseta{t} zsetb{t} withscores]

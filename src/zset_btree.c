@@ -4267,6 +4267,37 @@ int zbtreeIteratorNext(zbtreeIterator *iter, int reverse,
     return 1;
 }
 
+/* Like zbtreeIteratorNext() for up to 'max' elements. Scores are optional.
+ * Return the number of elements stored. */
+unsigned int zbtreeIteratorNextBatch(zbtreeIterator *iter, int reverse,
+                                     const unsigned char **ptrs, size_t *lens,
+                                     double *scores, unsigned int max)
+{
+    zbtScoreLeaf *leaf = iter->leaf;
+    unsigned int pos = iter->pos, n = 0;
+    while (leaf != NULL && n < max) {
+        ptrs[n] = zbtScoreLeafElement(leaf, pos, &lens[n]);
+        if (scores) scores[n] = zbtScoreLeafScore(leaf, pos);
+        n++;
+        if (reverse) {
+            if (pos != 0) {
+                pos--;
+            } else {
+                leaf = leaf->prev;
+                if (leaf) pos = leaf->n.count - 1;
+            }
+        } else if (pos + 1 < leaf->n.count) {
+            pos++;
+        } else {
+            leaf = leaf->next;
+            pos = 0;
+        }
+    }
+    iter->leaf = leaf;
+    iter->pos = pos;
+    return n;
+}
+
 /* Return the rank where a score bound would be inserted. Complete children
  * are counted on the way down, so there is no second walk back to the root. */
 static unsigned long zbtScoreRankForBound(const zbtreeSet *zs, double score,
@@ -5359,6 +5390,50 @@ int zsetBtreeTest(int argc, char **argv, int flags) {
         }
         test_cond("Reverse iteration is byte-identical between the two trees",
             reverse_match && reverse_count == n);
+
+        /* The batch iterator must return what single steps return. */
+        enum { BATCH_MAX = 9 };
+        int batch_match = 1;
+        for (int reverse = 0; reverse <= 1 && batch_match; reverse++) {
+            zbtreeIterator one, many;
+            zbtreeIteratorStart(fast, reverse, &one);
+            zbtreeIteratorStart(fast, reverse, &many);
+            unsigned int max = 1;
+            long seen = 0;
+            while (batch_match) {
+                const unsigned char *ptrs[BATCH_MAX], *ele;
+                size_t lens[BATCH_MAX], len;
+                double scores[BATCH_MAX], score;
+                int with_scores = max & 1;
+                unsigned int got = zbtreeIteratorNextBatch(&many, reverse,
+                    ptrs, lens, with_scores ? scores : NULL, max);
+                for (unsigned int k = 0; k < got; k++) {
+                    if (!zbtreeIteratorNext(&one, reverse, &ele, &len,
+                                            &score) ||
+                        ele != ptrs[k] || len != lens[k] ||
+                        (with_scores && score != scores[k]))
+                    {
+                        batch_match = 0;
+                    }
+                }
+                seen += got;
+                if (got < max) break;
+                max = max % BATCH_MAX + 1;
+            }
+            const unsigned char *end_ele;
+            size_t end_len;
+            if (seen != n ||
+                zbtreeIteratorNext(&one, reverse, NULL, NULL, NULL) ||
+                zbtreeIteratorNextBatch(&many, reverse, &end_ele, &end_len,
+                                        NULL, 1) ||
+                zbtreeIteratorNextBatch(&many, reverse, &end_ele, &end_len,
+                                        NULL, 1))
+            {
+                batch_match = 0;
+            }
+        }
+        test_cond("Batch iteration matches single steps in both directions",
+            batch_match);
 
         zbtreeFree(fast);
         zbtreeFree(slow);
