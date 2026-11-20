@@ -4089,12 +4089,10 @@ void clusterBroadcastPong(int target) {
 REDIS_NO_SANITIZE("bounds")
 clusterMsgSendBlock *clusterCreatePublishMsgBlock(robj *channel, robj *message, uint16_t type) {
 
-    uint32_t channel_len, message_len;
-
-    channel = getDecodedObject(channel);
-    message = getDecodedObject(message);
-    channel_len = sdslen(channel->ptr);
-    message_len = sdslen(message->ptr);
+    char channel_buf[LONG_STR_SIZE], message_buf[LONG_STR_SIZE];
+    size_t channel_len, message_len;
+    const char *channel_str = getDecodedString(channel, channel_buf, &channel_len);
+    const char *message_str = getDecodedString(message, message_buf, &message_len);
 
     size_t msglen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
     msglen += sizeof(clusterMsgDataPublish) - 8 + channel_len + message_len;
@@ -4103,13 +4101,10 @@ clusterMsgSendBlock *clusterCreatePublishMsgBlock(robj *channel, robj *message, 
     clusterMsg *hdr = getMessageFromSendBlock(msgblock);
     hdr->data.publish.msg.channel_len = htonl(channel_len);
     hdr->data.publish.msg.message_len = htonl(message_len);
-    memcpy(hdr->data.publish.msg.bulk_data,channel->ptr,sdslen(channel->ptr));
-    memcpy(hdr->data.publish.msg.bulk_data+sdslen(channel->ptr),
-        message->ptr,sdslen(message->ptr));
+    memcpy(hdr->data.publish.msg.bulk_data,channel_str,channel_len);
+    memcpy(hdr->data.publish.msg.bulk_data+channel_len,
+        message_str,message_len);
 
-    decrRefCount(channel);
-    decrRefCount(message);
-    
     return msgblock;
 }
 

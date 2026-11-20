@@ -1033,9 +1033,10 @@ kvobj *dbUnshareStringValue(redisDb *db, robj *key, kvobj *kv) {
 kvobj *dbUnshareStringValueByLink(redisDb *db, robj *key, kvobj *o, dictEntryLink link) {
     serverAssert(o->type == OBJ_STRING);
     if (o->refcount != 1 || o->encoding != OBJ_ENCODING_RAW) {
-        robj *decoded = getDecodedObject(o);
-        o = createRawStringObject(decoded->ptr, sdslen(decoded->ptr));
-        decrRefCount(decoded);
+        char buf[LONG_STR_SIZE];
+        size_t len;
+        const char *str = getDecodedString(o, buf, &len);
+        o = createRawStringObject(str, len);
         dbReplaceValueWithLink(db, key, &o, link);
     }
     return o;
@@ -1536,19 +1537,19 @@ void delexCommand(client *c) {
 
     char *condition = c->argv[2]->ptr;
     if (!strcasecmp("ifeq", condition)) {
-        robj *valueobj = getDecodedObject(o);
+        char buf[LONG_STR_SIZE];
+        size_t len;
+        const char *value = getDecodedString(o, buf, &len);
         sds match_value = c->argv[3]->ptr;
-        if (sdscmp(valueobj->ptr, match_value) == 0)
+        if (len == sdslen(match_value) && memcmp(value, match_value, len) == 0)
             should_delete = 1;
-
-        decrRefCount(valueobj);
     } else if (!strcasecmp("ifne", condition)) {
-        robj *valueobj = getDecodedObject(o);
+        char buf[LONG_STR_SIZE];
+        size_t len;
+        const char *value = getDecodedString(o, buf, &len);
         sds match_value = c->argv[3]->ptr;
-        if (sdscmp(valueobj->ptr, match_value) != 0)
+        if (len != sdslen(match_value) || memcmp(value, match_value, len) != 0)
            should_delete = 1;
-
-        decrRefCount(valueobj);
     } else if (!strcasecmp("ifdeq", condition)) {
         if (validateHexDigest(c, c->argv[3]->ptr) != C_OK)
             return;

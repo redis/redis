@@ -750,15 +750,17 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
 
     /* Send to clients listening to matching channels */
     if (dictSize(server.pubsub_patterns) > 0) {
-        channel = getDecodedObject(channel);
+        char chanbuf[LONG_STR_SIZE];
+        size_t chanlen;
+        const char *chanstr = getDecodedString(channel,chanbuf,&chanlen);
         dictInitIterator(&di, server.pubsub_patterns);
         while((de = dictNext(&di)) != NULL) {
             robj *pattern = dictGetKey(de);
             dict *clients = dictGetVal(de);
             if (!stringmatchlen((char*)pattern->ptr,
                                 sdslen(pattern->ptr),
-                                (char*)channel->ptr,
-                                sdslen(channel->ptr),0)) continue;
+                                chanstr,
+                                chanlen,0)) continue;
 
             dictEntry *entry;
             dictIterator iter;
@@ -772,7 +774,6 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
             }
             dictResetIterator(&iter);
         }
-        decrRefCount(channel);
         dictResetIterator(&di);
     }
     return receivers;

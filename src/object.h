@@ -167,6 +167,7 @@ robj *tryObjectEncoding(robj *o);
 robj *tryObjectEncodingEx(robj *o, int try_trim);
 size_t getObjectLength(robj *o);
 robj *getDecodedObject(robj *o);
+const char *getDecodedString(const robj *o, char *buf, size_t *len);
 size_t stringObjectLen(robj *o);
 size_t stringObjectAllocSize(const robj *o);
 robj *createStringObjectFromLongLong(long long value);

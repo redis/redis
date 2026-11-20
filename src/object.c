@@ -1062,6 +1062,27 @@ robj *getDecodedObject(robj *o) {
     }
 }
 
+/* Like getDecodedObject(), but return the string value of 'o' without
+ * allocating, and store its length in '*len'.
+ *
+ * If the object is sds encoded the returned pointer is o->ptr itself. If it
+ * is an integer encoded string, the number is formatted into 'buf', which must
+ * be at least LONG_STR_SIZE bytes, and 'buf' is returned. The string is null
+ * terminated in both cases. The returned pointer is valid as long as 'o' is
+ * not modified or freed and 'buf' is in scope. */
+const char *getDecodedString(const robj *o, char *buf, size_t *len) {
+    if (sdsEncodedObject(o)) {
+        *len = sdslen(o->ptr);
+        return o->ptr;
+    }
+    if (o->type == OBJ_STRING && o->encoding == OBJ_ENCODING_INT) {
+        *len = ll2string(buf,LONG_STR_SIZE,(long)o->ptr);
+        return buf;
+    } else {
+        serverPanic("Unknown encoding type");
+    }
+}
+
 /* Compare two string objects via strcmp() or strcoll() depending on flags.
  * Note that the objects may be integer-encoded. In such a case we
  * use ll2string() to get a string representation of the numbers on the stack

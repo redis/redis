@@ -42,12 +42,14 @@ redisSortOperation *createSortOperation(int type, robj *pattern) {
  * when it is non-NULL. */
 robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
     kvobj *kv;
-    char *p, *f, *k, *ssub;
+    char *p, *f, *k;
+    const char *ssub;
     char subbuf[LONG_STR_SIZE];
     sds spat;
     robj *keyobj, *fieldobj = NULL, *val;
 
-    int prefixlen, sublen, postfixlen, fieldlen;
+    int prefixlen, postfixlen, fieldlen;
+    size_t sublen;
 
     /* If the pattern is "#" return the substitution object itself in order
      * to implement the "SORT ... GET #" feature. */
@@ -57,15 +59,9 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
         return subst;
     }
 
-    /* The substitution object may be integer encoded. If so we format it
+    /* The substitution object may be integer encoded. If so it is formatted
      * on the stack, as it is only copied into the key name below. */
-    if (sdsEncodedObject(subst)) {
-        ssub = subst->ptr;
-        sublen = sdslen(ssub);
-    } else {
-        sublen = ll2string(subbuf,sizeof(subbuf),(long)subst->ptr);
-        ssub = subbuf;
-    }
+    ssub = getDecodedString(subst,subbuf,&sublen);
 
     /* If we can't find '*' in the pattern we return NULL as to GET a
      * fixed key does not make sense. */
