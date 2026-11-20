@@ -1530,37 +1530,27 @@ void delexCommand(client *c) {
 
     char *condition = c->argv[2]->ptr;
     if (!strcasecmp("ifeq", condition)) {
-        robj *valueobj = getDecodedObject(o);
-        sds match_value = c->argv[3]->ptr;
-        if (sdscmp(valueobj->ptr, match_value) == 0)
+        if (equalStringObjects(o, c->argv[3]))
             should_delete = 1;
-
-        decrRefCount(valueobj);
     } else if (!strcasecmp("ifne", condition)) {
-        robj *valueobj = getDecodedObject(o);
-        sds match_value = c->argv[3]->ptr;
-        if (sdscmp(valueobj->ptr, match_value) != 0)
-           should_delete = 1;
-
-        decrRefCount(valueobj);
+        if (!equalStringObjects(o, c->argv[3]))
+            should_delete = 1;
     } else if (!strcasecmp("ifdeq", condition)) {
         if (validateHexDigest(c, c->argv[3]->ptr) != C_OK)
             return;
 
-        sds current_digest = stringDigest(o);
+        char current_digest[DIGEST_BUF_SIZE];
+        stringDigest(o, current_digest);
         if (strcasecmp(current_digest, c->argv[3]->ptr) == 0)
             should_delete = 1;
-
-        sdsfree(current_digest);
     } else if (!strcasecmp("ifdne", condition)) {
         if (validateHexDigest(c, c->argv[3]->ptr) != C_OK)
             return;
 
-        sds current_digest = stringDigest(o);
+        char current_digest[DIGEST_BUF_SIZE];
+        stringDigest(o, current_digest);
         if (strcasecmp(current_digest, c->argv[3]->ptr) != 0)
             should_delete = 1;
-
-        sdsfree(current_digest);
     } else {
         addReplyError(c, "Invalid condition. Use IFEQ, IFNE, IFDEQ, or IFDNE");
         return;
