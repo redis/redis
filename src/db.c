@@ -2782,6 +2782,8 @@ int dbSwapDatabases(int id1, int id2) {
      * if needed. */
     scanDatabaseForReadyKeys(db1);
     scanDatabaseForReadyKeys(db2);
+
+    trackingInvalidateKeysOnFlush(1);
     return C_OK;
 }
 

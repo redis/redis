@@ -566,6 +566,16 @@ start_server {tags {"tracking network logreqres:skip"}} {
         assert {[lindex msg 2] eq {} }
     }
 
+    test {Invalidation message received for swapdb} {
+        clean_all
+        r CLIENT TRACKING on REDIRECT $redir_id
+        r GET key1
+        assert_equal [s 0 tracking_total_keys] 1
+        $rd_sg SWAPDB 0 1
+        assert_equal [s 0 tracking_total_keys] 0
+        assert_equal [lindex [$rd_redirection read] 2] {}
+    } {} {singledb:skip}
+
     test {Test ASYNC flushall} {
         clean_all
         r CLIENT TRACKING on REDIRECT $redir_id
