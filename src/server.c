@@ -8412,6 +8412,7 @@ int zsetTest(int argc, char **argv, int flags);
 int zsetBtreeTest(int argc, char **argv, int flags);
 int vectorTest(int argc, char **argv, int flags);
 int lzfTest(int argc, char **argv, int flags);
+int aeTest(int argc, char **argv, int flags);
 struct redisTest {
     char *name;
     redisTestProc *proc;
@@ -8444,6 +8445,7 @@ struct redisTest {
     {"fastfloat", fastFloatTest},
     {"lzf", lzfTest},
     {"setentry", sEntryTest},
+    {"ae", aeTest},
 };
 redisTestProc *getTestProcByName(const char *name) {
     int numtests = sizeof(redisTests)/sizeof(struct redisTest);
