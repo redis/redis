@@ -1369,12 +1369,14 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         assert_equal OK [r set mykey 43 IFEQ 42]
         assert_equal 43 [r get mykey]
 
-        r set mykey -9223372036854775808
+        # The smallest long, the longest integer-encoded value.
+        set lmin [expr {[s arch_bits] == 32 ? -2147483648 : -9223372036854775808}]
+        r set mykey $lmin
         assert_encoding int mykey
-        assert_equal 0 [r delex mykey IFEQ -09223372036854775808]
-        assert_equal 0 [r delex mykey IFNE -9223372036854775808]
+        assert_equal 0 [r delex mykey IFEQ -0[string range $lmin 1 end]]
+        assert_equal 0 [r delex mykey IFNE $lmin]
         assert_equal 1 [r exists mykey]
-        assert_equal 1 [r delex mykey IFNE 9223372036854775808]
+        assert_equal 1 [r delex mykey IFNE [string range $lmin 1 end]]
         assert_equal 0 [r exists mykey]
 
         r set mykey 12345

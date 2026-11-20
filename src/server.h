@@ -4781,7 +4781,7 @@ char *redisBuildIdString(void);
  * holds them with the null term. */
 #define DIGEST_HEX_LENGTH 16
 #define DIGEST_BUF_SIZE (DIGEST_HEX_LENGTH+1)
-size_t stringDigest(robj *o, char *buf);
+void stringDigest(robj *o, char *hexbuf);
 int validateHexDigest(client *c, const sds digest);
 
 /* Hotkey tracking */

@@ -1651,10 +1651,10 @@ int validateHexDigest(client *c, const sds digest) {
     return C_OK;
 }
 
-/* Write the xxh3 hash of a string object into 'buf' as DIGEST_HEX_LENGTH
- * lowercase hex digits and a null term, so 'buf' must hold DIGEST_BUF_SIZE
- * bytes. Returns the number of digits written. */
-size_t stringDigest(robj *o, char *buf) {
+/* Write the xxh3 hash of a string object into 'hexbuf' as DIGEST_HEX_LENGTH
+ * lowercase hex digits and a null term, so 'hexbuf' must hold
+ * DIGEST_BUF_SIZE bytes. */
+void stringDigest(robj *o, char *hexbuf) {
     static const char hexdigits[] = "0123456789abcdef";
     serverAssert(o && o->type == OBJ_STRING);
 
@@ -1662,20 +1662,19 @@ size_t stringDigest(robj *o, char *buf) {
     if (sdsEncodedObject(o)) {
         hash = XXH3_64bits(o->ptr, sdslen(o->ptr));
     } else if (o->encoding == OBJ_ENCODING_INT) {
-        char llbuf[LONG_STR_SIZE];
-        size_t len = ll2string(llbuf,sizeof(llbuf),(long)o->ptr);
-        hash = XXH3_64bits(llbuf, len);
+        char buf[LONG_STR_SIZE];
+        size_t len = ll2string(buf,sizeof(buf),(long)o->ptr);
+        hash = XXH3_64bits(buf, len);
     } else {
         serverPanic("Wrong obj->encoding stringDigest()");
     }
 
     /* Same digits as "%016" PRIx64, without formatting through printf. */
     for (int i = DIGEST_HEX_LENGTH - 1; i >= 0; i--) {
-        buf[i] = hexdigits[hash & 0xf];
+        hexbuf[i] = hexdigits[hash & 0xf];
         hash >>= 4;
     }
-    buf[DIGEST_HEX_LENGTH] = '\0';
-    return DIGEST_HEX_LENGTH;
+    hexbuf[DIGEST_HEX_LENGTH] = '\0';
 }
 
 /* DIGEST key
@@ -1692,7 +1691,7 @@ void digestCommand(client *c) {
         return;
 
     char digest[DIGEST_BUF_SIZE];
-    size_t len = stringDigest(o, digest);
-    addReplyBulkCBuffer(c, digest, len);
+    stringDigest(o, digest);
+    addReplyBulkCBuffer(c, digest, DIGEST_HEX_LENGTH);
 }
 
