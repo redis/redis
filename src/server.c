@@ -167,7 +167,9 @@ void serverLogRaw(int level, const char *msg) {
         } else if (pid != server.pid) {
             role_char = 'C'; /* RDB / AOF writing child. */
         } else {
-            role_char = (server.masterhost ? 'S':'M'); /* Slave or Master. */
+            int is_replica;
+            atomicGet(server.log_is_replica, is_replica);
+            role_char = is_replica ? 'S' : 'M';
         }
         fprintf(fp,"%d:%c %s %c %s\n",
             (int)getpid(),role_char, buf,c[level],msg);
@@ -2560,7 +2562,7 @@ void initServerConfig(void) {
     }
 
     /* Replication related */
-    server.masterhost = NULL;
+    replicationSetMasterHost(NULL);
     server.masterport = 6379;
     server.master = NULL;
     server.cached_master = NULL;

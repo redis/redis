@@ -2605,6 +2605,7 @@ struct redisServer {
     char *masteruser;               /* AUTH with this user and masterauth with master */
     sds masterauth;                 /* AUTH with this password with master */
     char *masterhost;               /* Hostname of master */
+    redisAtomic int log_is_replica; /* Snapshot of masterhost != NULL for logging. */
     int masterport;                 /* Port of master */
     int repl_timeout;               /* Timeout after N seconds of master idle */
     client *master;     /* Client that is master for this slave */
@@ -3745,6 +3746,7 @@ void replicationHandleMasterDisconnection(void);
 void replicationCacheMaster(client *c);
 void replicationDiscardCachedMaster(void);
 void resizeReplicationBacklog(void);
+void replicationSetMasterHost(sds host);
 void replicationSetMaster(char *ip, int port);
 void replicationUnsetMaster(void);
 void refreshGoodSlavesCount(void);

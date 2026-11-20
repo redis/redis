@@ -3648,12 +3648,19 @@ int cancelReplicationHandshake(int reconnect) {
     return 1;
 }
 
+/* Publish the role to logging threads without exposing masterhost to them.
+ * The caller is responsible for freeing the previous host. */
+void replicationSetMasterHost(sds host) {
+    server.masterhost = host;
+    atomicSet(server.log_is_replica, host != NULL);
+}
+
 /* Set replication to the specified master address and port. */
 void replicationSetMaster(char *ip, int port) {
     int was_master = server.masterhost == NULL;
 
     sdsfree(server.masterhost);
-    server.masterhost = NULL;
+    replicationSetMasterHost(NULL);
     if (server.master) {
         freeClient(server.master);
     }
@@ -3662,7 +3669,7 @@ void replicationSetMaster(char *ip, int port) {
     /* Setting masterhost only after the call to freeClient since it calls
      * replicationHandleMasterDisconnection which can trigger a re-connect
      * directly from within that call. */
-    server.masterhost = sdsnew(ip);
+    replicationSetMasterHost(sdsnew(ip));
     server.masterport = port;
 
     /* Update oom_score_adj */
@@ -3714,7 +3721,7 @@ void replicationUnsetMaster(void) {
     /* Clear masterhost first, since the freeClient calls
      * replicationHandleMasterDisconnection which can attempt to re-connect. */
     sdsfree(server.masterhost);
-    server.masterhost = NULL;
+    replicationSetMasterHost(NULL);
     if (server.master) freeClient(server.master);
     replicationDiscardCachedMaster();
     cancelReplicationHandshake(0);
