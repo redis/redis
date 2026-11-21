@@ -249,6 +249,9 @@ foreach command {SORT SORT_RO} {
         r set "weight:\x00y" 1
         assert_equal {y x} [r sort mylist BY "weight:\x00*"]
         assert_equal {1 2} [r sort mylist BY "weight:\x00*" GET "weight:\x00*"]
+        r hset "hash:x\x00" "\x00weight" 2
+        r hset "hash:y\x00" "\x00weight" 1
+        assert_equal {y x} [r sort mylist BY "hash:*\x00->\x00weight"]
     } {} {cluster:skip}
 
     test "SORT with STORE returns zero if result is empty (github issue 224)" {

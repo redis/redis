@@ -73,7 +73,9 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
     if (!p) return NULL;
 
     /* Find out if we're dealing with a hash dereference. */
-    if ((f = strstr(p+1, "->")) != NULL && *(f+2) != '\0') {
+    f = p+1;
+    while ((f = memchr(f,'-',sdslen(spat)-(f-spat))) != NULL && f[1] != '>') f++;
+    if (f && f+2 < spat+sdslen(spat)) {
         fieldlen = sdslen(spat)-(f-spat)-2;
         fieldobj = createStringObject(f+2,fieldlen);
     } else {
