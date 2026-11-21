@@ -242,6 +242,18 @@ foreach command {SORT SORT_RO} {
         assert_equal {a b} [r sort mylist BY weight_*]
     } {} {cluster:skip}
 
+    test "SORT BY and GET with a pattern containing a NUL byte" {
+        r flushdb
+        r rpush mylist x y
+        r set "weight:\x00x" 2
+        r set "weight:\x00y" 1
+        assert_equal {y x} [r sort mylist BY "weight:\x00*"]
+        assert_equal {1 2} [r sort mylist BY "weight:\x00*" GET "weight:\x00*"]
+        r hset "hash:x\x00" "\x00weight" 2
+        r hset "hash:y\x00" "\x00weight" 1
+        assert_equal {y x} [r sort mylist BY "hash:*\x00->\x00weight"]
+    } {} {cluster:skip}
+
     test "SORT with STORE returns zero if result is empty (github issue 224)" {
         r flushdb
         r sort foo{t} store bar{t}
