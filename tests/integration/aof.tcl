@@ -542,6 +542,17 @@ tags {"aof external:skip"} {
         assert_match "*Start checking Old-Style AOF*is valid*" $result
     }
 
+    test {Test redis-check-aof for old style resp AOF - command with no arguments} {
+        create_aof $aof_dirpath $aof_file {
+            append_to_aof "*0\r\n"
+        }
+
+        catch {
+            exec src/redis-check-aof $aof_file
+        } result
+        assert_match "*Start checking Old-Style AOF*Expected at least one argument*not valid*" $result
+    }
+
     test {Test redis-check-aof for old style rdb-preamble AOF} {
         catch {
             exec src/redis-check-aof tests/assets/rdb-preamble.aof

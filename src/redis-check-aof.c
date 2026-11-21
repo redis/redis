@@ -140,6 +140,10 @@ int processRESP(FILE *fp, char *filename, int *out_multi) {
     char *str;
 
     if (!readArgc(fp, &argc)) return 0;
+    if (argc < 1) {
+        ERROR("Expected at least one argument, got argc %ld", argc);
+        return 0;
+    }
 
     for (int i = 0; i < argc; i++) {
         if (!readString(fp, &str)) return 0;
