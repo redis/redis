@@ -69,7 +69,7 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
 
     /* If we can't find '*' in the pattern we return NULL as to GET a
      * fixed key does not make sense. */
-    p = strchr(spat,'*');
+    p = memchr(spat,'*',sdslen(spat));
     if (!p) return NULL;
 
     /* Find out if we're dealing with a hash dereference. */
@@ -236,7 +236,7 @@ void sortCommandGeneric(client *c, int readonly) {
             sortby = c->argv[j+1];
             /* If the BY pattern does not contain '*', i.e. it is constant,
              * we don't need to sort nor to lookup the weight keys. */
-            if (strchr(c->argv[j+1]->ptr,'*') == NULL) {
+            if (memchr(sortby->ptr,'*',sdslen(sortby->ptr)) == NULL) {
                 dontsort = 1;
             } else {
                 /* If BY is specified with a real pattern, we can't accept it in cluster mode,
