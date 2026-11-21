@@ -693,6 +693,8 @@ double exprTokenToNum(exprtoken *t) {
         char *endptr;
         double val = strtod(buf, &endptr);
         return *endptr == '\0' ? val : NAN;
+    } else if (t->token_type == EXPR_TOKEN_STR) {
+        return NAN;
     } else {
         return 0;
     }

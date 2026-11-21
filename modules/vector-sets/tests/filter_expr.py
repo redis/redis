@@ -209,6 +209,7 @@ class VSIMFilterExpressions(TestCase):
                                           'FILTER', '.name == 0 or .name < 1 or .name * 2')
         assert len(result) == 0, "Expected 0 results for non-numeric name compared to numbers"
 
+        # Non-numeric strings are != to any number
         result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
                                           *[str(x) for x in vec1],
                                           'FILTER', '.name != 0')
