@@ -203,6 +203,17 @@ class VSIMFilterExpressions(TestCase):
                                           'FILTER', '.age ** 2 > 900')
         assert len(result) == 1, "Expected 1 result for age^2 > 900"
 
+        # Non-numeric strings don't match numeric comparisons
+        result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
+                                          *[str(x) for x in vec1],
+                                          'FILTER', '.name == 0 or .name < 1 or .name * 2')
+        assert len(result) == 0, "Expected 0 results for non-numeric name compared to numbers"
+
+        result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
+                                          *[str(x) for x in vec1],
+                                          'FILTER', '.name != 0')
+        assert len(result) == 3, "Expected 3 results for name != 0"
+
         # Missing attribute (should exclude items missing that attribute)
         result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
                                           *[str(x) for x in vec1],

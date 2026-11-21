@@ -682,7 +682,7 @@ exprstate *exprCompile(char *expr, int *errpos) {
 /* ============================ Expression execution ======================== */
 
 /* Convert a token to its numeric value. For strings we attempt to parse them
- * as numbers, returning 0 if conversion fails. */
+ * as numbers, returning NAN if conversion fails. */
 double exprTokenToNum(exprtoken *t) {
     char buf[256];
     if (t->token_type == EXPR_TOKEN_NUM) {
@@ -692,7 +692,7 @@ double exprTokenToNum(exprtoken *t) {
         buf[t->str.len] = '\0';
         char *endptr;
         double val = strtod(buf, &endptr);
-        return *endptr == '\0' ? val : 0;
+        return *endptr == '\0' ? val : NAN;
     } else {
         return 0;
     }
@@ -701,7 +701,7 @@ double exprTokenToNum(exprtoken *t) {
 /* Convert object to true/false (0 or 1) */
 double exprTokenToBool(exprtoken *t) {
     if (t->token_type == EXPR_TOKEN_NUM) {
-        return t->num != 0;
+        return t->num != 0 && !isnan(t->num);
     } else if (t->token_type == EXPR_TOKEN_STR && t->str.len == 0) {
         return 0; // Empty string are false, like in Javascript.
     } else if (t->token_type == EXPR_TOKEN_NULL) {
