@@ -581,6 +581,14 @@ start_server {tags {"bitops"}} {
         assert {[r bitpos str 0 0 -1 bit] == -1}
     }
 
+    test {BITPOS bit=0 with start past the end of the string} {
+        r set str "\xff"
+        assert {[r bitpos str 0 1] == 8}
+        assert {[r bitpos str 0 2] == 16}
+        assert {[r bitpos str 0 1 1] == -1}
+        assert {[r bitpos str 1 1] == -1}
+    }
+
     test {SETBIT/BITFIELD only increase dirty when the value changed} {
         r del foo{t} foo2{t} foo3{t}
         set dirty [s rdb_changes_since_last_save]
