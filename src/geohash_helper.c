@@ -82,6 +82,18 @@ uint8_t geohashEstimateStepsByRadius(double range_meters, double lat) {
     return step;
 }
 
+/* Maximum longitude delta (in degrees, [0, 180]) of points at latitude
+ * 'lat_rad' within haversine angular radius 'alpha' (passed as sin(alpha/2))
+ * of a query center at latitude 'lat0_rad'. */
+static double geohashCircleLonDeltaAtLat(double lat0_rad, double lat_rad, double sin_half_alpha) {
+    double u = sin((lat_rad - lat0_rad) / 2.0);
+    double num = sin_half_alpha * sin_half_alpha - u * u;
+    if (num <= 0.0) return 0.0;
+    double denom = cos(lat0_rad) * cos(lat_rad);
+    if (denom <= 0.0 || num >= denom) return 180.0;
+    return 2.0 * rad_deg(asin(sqrt(num / denom)));
+}
+
 /* Return the bounding box of the search area by shape (see geohash.h GeoShape)
  * bounds[0] - bounds[2] is the minimum and maximum longitude
  * while bounds[1] - bounds[3] is the minimum and maximum latitude.
@@ -103,15 +115,75 @@ int geohashBoundingBox(GeoShape *shape, double *bounds) {
     double width = shape->conversion * (shape->type == CIRCULAR_TYPE ? shape->t.radius : shape->t.r.width/2);
 
     const double lat_delta = rad_deg(height/EARTH_RADIUS_IN_METERS);
-    const double long_delta_top = rad_deg(width/EARTH_RADIUS_IN_METERS/cos(deg_rad(latitude+lat_delta)));
-    const double long_delta_bottom = rad_deg(width/EARTH_RADIUS_IN_METERS/cos(deg_rad(latitude-lat_delta)));
-    /* The directions of the northern and southern hemispheres
-     * are opposite, so we choice different points as min/max long/lat */
-    int southern_hemisphere = latitude < 0 ? 1 : 0;
-    bounds[0] = southern_hemisphere ? longitude-long_delta_bottom : longitude-long_delta_top;
-    bounds[2] = southern_hemisphere ? longitude+long_delta_bottom : longitude+long_delta_top;
-    bounds[1] = latitude - lat_delta;
-    bounds[3] = latitude + lat_delta;
+    double min_lat = latitude - lat_delta;
+    double max_lat = latitude + lat_delta;
+    if (min_lat < GEO_LAT_MIN) min_lat = GEO_LAT_MIN;
+    if (min_lat > GEO_LAT_MAX) min_lat = GEO_LAT_MAX;
+    if (max_lat < GEO_LAT_MIN) max_lat = GEO_LAT_MIN;
+    if (max_lat > GEO_LAT_MAX) max_lat = GEO_LAT_MAX;
+
+    double lon_delta;
+    if (shape->type == CIRCULAR_TYPE) {
+        double angular_rad = height / EARTH_RADIUS_IN_METERS;
+        if (angular_rad >= M_PI) {
+            lon_delta = 180.0;
+        } else {
+            double lat_rad = deg_rad(latitude);
+            double sin_half_alpha = sin(angular_rad / 2.0);
+            double delta_min = geohashCircleLonDeltaAtLat(lat_rad, deg_rad(min_lat), sin_half_alpha);
+            double delta_max = geohashCircleLonDeltaAtLat(lat_rad, deg_rad(max_lat), sin_half_alpha);
+            lon_delta = delta_min > delta_max ? delta_min : delta_max;
+
+            /* When angular_rad < pi/2, the circle's longitude span reaches an
+             * interior maximum at the spherical tangent latitude
+             * sin(tan_lat) = sin(lat) / cos(angular_rad), if within [min_lat, max_lat]. */
+            double cos_alpha = cos(angular_rad);
+            if (cos_alpha > 0.0) {
+                double sin_tan_lat = sin(lat_rad) / cos_alpha;
+                if (sin_tan_lat > -1.0 && sin_tan_lat < 1.0) {
+                    double tan_lat = rad_deg(asin(sin_tan_lat));
+                    if (tan_lat >= min_lat && tan_lat <= max_lat) {
+                        double delta_tan = geohashCircleLonDeltaAtLat(lat_rad, deg_rad(tan_lat), sin_half_alpha);
+                        if (delta_tan > lon_delta) lon_delta = delta_tan;
+                    }
+                }
+            }
+        }
+    } else {
+        /* RECTANGLE_TYPE: geohashGetDistanceIfInRectangle checks the east-west
+         * great-circle distance at the candidate point's own latitude y2:
+         * 2 * R * asin(cos(y2) * |sin(dlon/2)|) <= width.
+         * On [GEO_LAT_MIN, GEO_LAT_MAX], cos(y2) > 0 decreases with |y2|, so
+         * the longitude span is maximized at max(|min_lat|, |max_lat|). */
+        if (width >= M_PI * EARTH_RADIUS_IN_METERS) {
+            lon_delta = 180.0;
+        } else {
+            double max_abs_lat = fabs(min_lat) > fabs(max_lat) ? fabs(min_lat) : fabs(max_lat);
+            double ratio = sin(width / (2.0 * EARTH_RADIUS_IN_METERS)) / cos(deg_rad(max_abs_lat));
+            lon_delta = ratio >= 1.0 ? 180.0 : 2.0 * rad_deg(asin(ratio));
+        }
+    }
+
+    /* Pad slightly against floating-point rounding on exact cell edges. */
+    if (lon_delta > 0.0) {
+        lon_delta += 1e-9;
+        if (lon_delta > 180.0) lon_delta = 180.0;
+    }
+    if (lat_delta > 0.0) {
+        if (min_lat > GEO_LAT_MIN) {
+            min_lat -= 1e-9;
+            if (min_lat < GEO_LAT_MIN) min_lat = GEO_LAT_MIN;
+        }
+        if (max_lat < GEO_LAT_MAX) {
+            max_lat += 1e-9;
+            if (max_lat > GEO_LAT_MAX) max_lat = GEO_LAT_MAX;
+        }
+    }
+
+    bounds[0] = longitude - lon_delta;
+    bounds[1] = min_lat;
+    bounds[2] = longitude + lon_delta;
+    bounds[3] = max_lat;
     return 1;
 }
 
@@ -123,7 +195,7 @@ GeoHashRadius geohashCalculateAreasByShapeWGS84(GeoShape *shape) {
     GeoHashRadius radius;
     GeoHashBits hash;
     GeoHashNeighbors neighbors;
-    GeoHashArea area;
+    GeoHashArea area, north, south, east, west;
     double min_lon, max_lon, min_lat, max_lat;
     int steps;
 
@@ -146,49 +218,54 @@ GeoHashRadius geohashCalculateAreasByShapeWGS84(GeoShape *shape) {
     steps = geohashEstimateStepsByRadius(radius_meters,latitude);
 
     geohashGetCoordRange(&long_range,&lat_range);
-    geohashEncode(&long_range,&lat_range,longitude,latitude,steps,&hash);
-    geohashNeighbors(&hash,&neighbors);
-    geohashDecode(long_range,lat_range,hash,&area);
 
-    /* Check if the step is enough at the limits of the covered area.
-     * Sometimes when the search area is near an edge of the
-     * area, the estimated step is not small enough, since one of the
-     * north / south / west / east square is too near to the search area
-     * to cover everything. */
-    int decrease_step = 0;
-    {
-        GeoHashArea north, south, east, west;
+    /* Reduce step until the 3x3 neighborhood covers [min_lon, max_lon] and
+     * [min_lat, max_lat]. Near the poles or the antimeridian, neighbors can
+     * wrap around the grid edges, and wide longitude spans near the poles may
+     * need more than a single step reduction. */
+    while (1) {
+        geohashEncode(&long_range,&lat_range,longitude,latitude,steps,&hash);
+        geohashNeighbors(&hash,&neighbors);
+        geohashDecode(long_range,lat_range,hash,&area);
 
         geohashDecode(long_range, lat_range, neighbors.north, &north);
         geohashDecode(long_range, lat_range, neighbors.south, &south);
         geohashDecode(long_range, lat_range, neighbors.east, &east);
         geohashDecode(long_range, lat_range, neighbors.west, &west);
 
-        if (north.latitude.max < max_lat) 
-            decrease_step = 1;
-        if (south.latitude.min > min_lat) 
-            decrease_step = 1;
-        if (east.longitude.max < max_lon) 
-            decrease_step = 1;
-        if (west.longitude.min > min_lon)  
-            decrease_step = 1;
-    }
+        if (steps <= 1) break;
 
-    if (steps > 1 && decrease_step) {
+        int decrease_step = 0;
+        if (north.latitude.min > area.latitude.min && north.latitude.max < max_lat)
+            decrease_step = 1;
+        if (south.latitude.max < area.latitude.max && south.latitude.min > min_lat)
+            decrease_step = 1;
+        double east_max_lon = east.longitude.max < area.longitude.max ?
+                              east.longitude.max + 360.0 : east.longitude.max;
+        double west_min_lon = west.longitude.min > area.longitude.min ?
+                              west.longitude.min - 360.0 : west.longitude.min;
+        if (east_max_lon < max_lon)
+            decrease_step = 1;
+        if (west_min_lon > min_lon)
+            decrease_step = 1;
+
+        if (!decrease_step) break;
         steps--;
-        geohashEncode(&long_range,&lat_range,longitude,latitude,steps,&hash);
-        geohashNeighbors(&hash,&neighbors);
-        geohashDecode(long_range,lat_range,hash,&area);
     }
 
-    /* Exclude the search areas that are useless. */
+    /* Exclude the search areas that are useless, including latitude neighbors
+     * that wrapped across GEO_LAT_MIN / GEO_LAT_MAX to the opposite pole. */
     if (steps >= 2) {
-        if (area.latitude.min < min_lat) {
+        if (area.latitude.min < min_lat ||
+            (south.latitude.min > area.latitude.min && south.latitude.min > max_lat))
+        {
             GZERO(neighbors.south);
             GZERO(neighbors.south_west);
             GZERO(neighbors.south_east);
         }
-        if (area.latitude.max > max_lat) {
+        if (area.latitude.max > max_lat ||
+            (north.latitude.max < area.latitude.max && north.latitude.max < min_lat))
+        {
             GZERO(neighbors.north);
             GZERO(neighbors.north_east);
             GZERO(neighbors.north_west);

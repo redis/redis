@@ -354,6 +354,118 @@ start_server {tags {"geo"}} {
         assert_equal $ret {n1 n2}
     }
 
+    test {GEOSEARCH near north and south poles returns symmetric members (issue #16311)} {
+        foreach lat {85 -85} {
+            r del polar
+            r geoadd polar 0 $lat center -45 $lat west 45 $lat east
+            set dist_w [r geodist polar center west km]
+            set dist_e [r geodist polar center east km]
+            assert_equal $dist_w $dist_e
+
+            set res [r geosearch polar fromlonlat 0 $lat byradius 600 km asc]
+            assert_equal {center east west} [lsort $res]
+
+            set res_member [r georadiusbymember polar center 600 km asc]
+            assert_equal {center east west} [lsort $res_member]
+
+            set res_box [r geosearch polar fromlonlat 0 $lat bybox 900 200 km asc]
+            assert_equal {center east west} [lsort $res_box]
+        }
+    }
+
+    test {GEOSEARCH near poles across all longitudes and antimeridian} {
+        foreach sign {1 -1} {
+            set lat85 [expr {85.0 * $sign}]
+            set lat79 [expr {79.9 * $sign}]
+            r del polar_all
+            r geoadd polar_all \
+                0 $lat85 p0 \
+                -45 $lat85 pw45 \
+                45 $lat85 pe45 \
+                -135 $lat85 pw135 \
+                135 $lat85 pe135 \
+                -179.9 $lat85 pw180 \
+                179.9 $lat85 pe180
+
+            # 1200 km from (0, +/-85) covers the entire polar ring at +/-85
+            set res [lsort [r geosearch polar_all fromlonlat 0 $lat85 byradius 1200 km]]
+            assert_equal {p0 pe135 pe180 pe45 pw135 pw180 pw45} $res
+
+            # Search from +/-79.9 where initial estimated step is higher (>= 3)
+            set res79 [lsort [r geosearch polar_all fromlonlat 0 $lat79 byradius 1700 km]]
+            assert_equal {p0 pe135 pe180 pe45 pw135 pw180 pw45} $res79
+
+            # Wide BYBOX near the antimeridian at +/-85
+            set res_am [lsort [r geosearch polar_all fromlonlat 179.5 $lat85 bybox 900 200 km]]
+            assert_equal {pe135 pe180 pw135 pw180} $res_am
+        }
+    }
+
+    foreach {type} {byradius bybox} {
+        test "GEOSEARCH high-latitude fuzzy test - $type" {
+            set attempts [expr {$::accurate ? 100 : 20}]
+            for {set a 0} {$a < $attempts} {incr a} {
+                set srand_seed [expr {16311000 + $a}]
+                expr {srand($srand_seed)}
+                r del polar_fuzz
+
+                set sign [expr {rand() < 0.5 ? -1.0 : 1.0}]
+                set search_lat [expr {$sign * (70.0 + rand() * 15.05)}]
+                set search_lon [expr {-180.0 + rand() * 360.0}]
+                set radius_km [expr {int(rand() * 2500) + 10}]
+                set width_km [expr {int(rand() * 2500) + 10}]
+                set height_km [expr {int(rand() * 2500) + 10}]
+
+                set argv {}
+                set tcl_result {}
+                for {set j 0} {$j < 1000} {incr j} {
+                    set lon [expr {-180.0 + rand() * 360.0}]
+                    set psign [expr {rand() < 0.8 ? $sign : -$sign}]
+                    set lat [expr {$psign * (65.0 + rand() * 20.05)}]
+                    lappend argv $lon $lat "p:$j"
+                    if {$type eq "byradius"} {
+                        if {[pointInCircle $radius_km $lon $lat $search_lon $search_lat]} {
+                            lappend tcl_result "p:$j"
+                        }
+                    } else {
+                        if {[pointInRectangle $width_km $height_km $lon $lat $search_lon $search_lat 1]} {
+                            lappend tcl_result "p:$j"
+                        }
+                    }
+                }
+                r geoadd polar_fuzz {*}$argv
+                if {$type eq "byradius"} {
+                    set res [lsort [r geosearch polar_fuzz fromlonlat $search_lon $search_lat byradius $radius_km km]]
+                } else {
+                    set res [lsort [r geosearch polar_fuzz fromlonlat $search_lon $search_lat bybox $width_km $height_km km]]
+                }
+                set res2 [lsort $tcl_result]
+                if {$res ne $res2} {
+                    set rounding_errors 0
+                    set diff [compare_lists $res $res2]
+                    foreach place $diff {
+                        lassign [lindex [r geopos polar_fuzz $place] 0] lon lat
+                        set mydist [expr {[geo_distance $lon $lat $search_lon $search_lat] / 1000.0}]
+                        if {$type eq "byradius"} {
+                            if {($mydist / $radius_km) > 0.999} {
+                                incr rounding_errors
+                                continue
+                            }
+                        } else {
+                            if {[pointInRectangle $width_km $height_km $lon $lat $search_lon $search_lat 1.001]} {
+                                incr rounding_errors
+                                continue
+                            }
+                        }
+                    }
+                    if {[llength $diff] != $rounding_errors} {
+                        fail "High-latitude $type mismatch (seed=$srand_seed center=$search_lon,$search_lat): diff=$diff"
+                    }
+                }
+            }
+        }
+    }
+
     test {GEOSEARCH FROMMEMBER simple (sorted)} {
         r geosearch nyc frommember "wtc one" bybox 14 14 km
     } {{wtc one} {union square} {central park n/q/r} 4545 {lic market} q4}
