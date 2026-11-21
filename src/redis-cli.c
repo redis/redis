@@ -2280,7 +2280,7 @@ static sds cliFormatReplyJson(sds out, redisReply *r, int mode) {
                  * The Second one(escapeJsonString) is to escape the converted string */
                 sds keystr = cliFormatReplyJson(sdsempty(),key,mode);
                 if (keystr[0] == '"') out = sdscatsds(out,keystr);
-                else out = sdscatfmt(out,"\"%S\"",keystr);
+                else out = jsonStringOutput(out,keystr,sdslen(keystr),mode);
                 sdsfree(keystr);
             }
             out = sdscat(out,":");
