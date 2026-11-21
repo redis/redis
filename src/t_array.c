@@ -1442,8 +1442,14 @@ void aropCommand(client *c) {
     arScanIter it;
     void *v;
 
-    /* All current AROP operations are order-independent, so iterating the
-     * user-provided direction is fine here. */
+    /* Always scan from the lower to the higher index: floating point SUM
+     * is not associative, so the result must not depend on the order of
+     * the range endpoints. */
+    if (start > end) {
+        uint64_t tmp = start;
+        start = end;
+        end = tmp;
+    }
     arScanIterInit(ar, start, end, &it);
     while (arScanIterNext(&it, NULL, &v))
         arOpAccumulate(&acc, v);

@@ -509,6 +509,14 @@ start_server {
         assert_equal 60 $result
     }
 
+    test {AROP SUM does not depend on range endpoint order} {
+        r del myarray
+        r armset myarray 0 1e30 1 -1e30 2 1
+
+        assert_equal 1 [r arop myarray 0 2 SUM]
+        assert_equal 1 [r arop myarray 2 0 SUM]
+    }
+
     test {AROP MIN} {
         r del myarray
         r armset myarray 0 30 1 10 2 20
