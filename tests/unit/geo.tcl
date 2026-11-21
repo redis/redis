@@ -447,12 +447,13 @@ start_server {tags {"geo"}} {
                         lassign [lindex [r geopos polar_fuzz $place] 0] lon lat
                         set mydist [expr {[geo_distance $lon $lat $search_lon $search_lat] / 1000.0}]
                         if {$type eq "byradius"} {
-                            if {($mydist / $radius_km) > 0.999} {
+                            if {($mydist / $radius_km) > 0.999 && ($mydist / $radius_km) < 1.001} {
                                 incr rounding_errors
                                 continue
                             }
                         } else {
-                            if {[pointInRectangle $width_km $height_km $lon $lat $search_lon $search_lat 1.001]} {
+                            if {[pointInRectangle $width_km $height_km $lon $lat $search_lon $search_lat 1.001] && \
+                                ![pointInRectangle $width_km $height_km $lon $lat $search_lon $search_lat 0.999]} {
                                 incr rounding_errors
                                 continue
                             }
