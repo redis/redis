@@ -2357,7 +2357,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamReplyRangeArgs *args) {
         streamNACK *nack = group->pel_time_head;
         while (nack) {
             /* Capture next pointer BEFORE modifications (pelListUpdate may reorder) */
-            streamNACK *next = nack->pel_next;
+            streamNACK *next = (nack == tail) ? NULL : nack->pel_next;
             
             uint64_t idle = cmd_time_snapshot - nack->delivery_time;
             if (idle < (uint64_t)min_idle_time) break;
@@ -2417,11 +2417,30 @@ size_t streamReplyWithRange(client *c, stream *s, streamReplyRangeArgs *args) {
                     streamIteratorStop(&si);
                     break;
                 }
+            } else {
+                /* Like XCLAIM/XAUTOCLAIM, remove references to deleted entries.
+                 * Propagate using the requesting consumer so cleanup-only reads
+                 * also create that consumer on replicas and during AOF replay. */
+                unsigned char buf[sizeof(streamID)];
+                streamEncodeID(buf, &nack->id);
+                if (spi) {
+                    robj *idarg = createObjectFromStreamID(&nack->id);
+                    robj *delivery_count = createStringObjectFromLongLong(nack->delivery_count);
+                    streamPropagateXCLAIMCopyFree(db_id,spi->keyname,group_last_id,spi->groupname,idarg,consumername,delivery_time,delivery_count);
+                    decrRefCount(delivery_count);
+                    decrRefCount(idarg);
+                    if (propCount) (*propCount)++;
+                }
+                pelListUnlink(group, nack);
+                raxRemove(group->pel,buf,sizeof(buf),NULL);
+                if (nack->consumer)
+                    raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
+                streamDestroyNACK(s, nack, buf);
             }
             streamIteratorStop(&si);
             
-            /* Advance to next, stopping if we reached the tail */
-            nack = (nack == tail) ? NULL : next;
+            /* Advance to next, stopping if we reached the tail. */
+            nack = next;
         }
     }
     /* If the client is asking for some history, we serve it using a
@@ -3297,13 +3316,28 @@ void xreadCommand(client *c) {
              * message in the PEL idle enough to be claimed. Also we need to 
              * get the minimum delivery time in the PEL, in order to use it 
              * later if block option is set. */
-            if (min_idle_time != -1) {
+            if (min_idle_time != -1 && gt->ms == UINT64_MAX && gt->seq == UINT64_MAX) {
                 streamNACK *nack = groups[i]->pel_time_head;
-                /* Iterate through PEL entries to find the first one that exists */
+                size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(o) : 0;
+                int64_t old_pel = streamCGroupSample(groups[i], STREAM_DISTRIB_CGROUPS_PEL);
+                int cleaned = 0;
+                /* Clean deleted entries before deciding whether to serve or block,
+                 * including when no live pending entries remain. */
                 while (nack) {
-                    /* Skip entries that don't exist in the stream anymore */
                     if (!streamEntryExists(s, &nack->id)) {
-                        nack = nack->pel_next;
+                        streamNACK *next = nack->pel_next;
+                        unsigned char buf[sizeof(streamID)];
+                        streamEncodeID(buf, &nack->id);
+                        robj *idarg = createObjectFromStreamID(&nack->id);
+                        streamPropagateXACK(c->db->id,spi.keyname,spi.groupname,idarg);
+                        decrRefCount(idarg);
+                        pelListUnlink(groups[i], nack);
+                        raxRemove(groups[i]->pel,buf,sizeof(buf),NULL);
+                        if (nack->consumer)
+                            raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
+                        streamDestroyNACK(s, nack, buf);
+                        cleaned = 1;
+                        nack = next;
                         continue;
                     }
 
@@ -3316,6 +3350,13 @@ void xreadCommand(client *c) {
                         serve_claimed = 1;
                     }
                     break; /* Found a valid entry, stop searching */
+                }
+                if (cleaned) {
+                    server.dirty++;
+                    keyModified(c,c->db,spi.keyname,o,0);
+                    streamUpdateCGStat(c->db, groups[i], STREAM_DISTRIB_CGROUPS_PEL, old_pel);
+                    if (server.memory_tracking_enabled)
+                        updateSlotAllocSize(c->db,getKeySlot(spi.keyname->ptr),o,old_alloc,kvobjAllocSize(o));
                 }
             }
 
