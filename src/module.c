@@ -11614,7 +11614,8 @@ void RM_DictIteratorStop(RedisModuleDictIter *di) {
  * or REDISMODULE_ERR in case it was not possible to seek the specified
  * element. It is possible to reseek an iterator as many times as you want. */
 int RM_DictIteratorReseekC(RedisModuleDictIter *di, const char *op, void *key, size_t keylen) {
-    return raxSeek(&di->ri,op,key,keylen);
+    if (!raxSeek(&di->ri,op,key,keylen) || raxEOF(&di->ri)) return REDISMODULE_ERR;
+    return REDISMODULE_OK;
 }
 
 /* Like RedisModule_DictIteratorReseekC() but takes the key as a
