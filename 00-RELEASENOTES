@@ -13,6 +13,41 @@ SECURITY: There are security fixes in the release.
 
 
 ===================================================================
+Redis 8.12 GA    Released Sun 22 Nov 2026 14:00:00 IST
+===================================================================
+
+This is the General Availability release of Redis 8.12 in Redis Open Source.
+
+### Major changes compared to 8.10
+
+- Compressed bitmaps — Integrated redis-roaring into Redis core for lower memory usage and faster bitmap operations.
+Special thanks to Antonio Viggiano, the original creator of redis-roaring, for contributing this capability!
+- Substantial memory reduction for large sorted set with a new B+ tree encoding
+- New command: `BITRANGEINTARRAY` equivalent to redis-roaring’s `R.RANGEINTARRAY`, to return set bit offsets within a specified range
+- Set member expiration: New commands: `SEXPIRE`,`SPEXPIRE`,`SEXPIREAT`,`SPEXPIREAT` - set expiration of a Set member; `STTL`, `SPTTL`, `SEXPIRETIME`,`SPEXPIRETIME` - retrieve remaining TTLs or expiration timestamps; `SETPERSIST` - remove the expiration of members
+- New command: `BLESS` - avoid eviction of specified keys
+- New commands: `ZMOVE`, `BZMOVE` and ‘ZMOVEMEMBER‘ - atomic sorted-set moves for end-of-set batches and destination conditions
+- Count-min-sketch extensions
+- Auto create JSON deep path
+- Opt-in SQ8 new compression is now available for HNSW vector indexes
+- `CLUSTER MIGRATION STATUS` now reports progress for both the snapshot and incremental migration phases
+- Redis query engine: `FT.ALTER` avoids unnecessary document reindexing during schema additions
+- Redis query engine: `EXPLAINSCORE` is now supported for `FT.HYBRID`
+- Redis query engine: `RETURN_STRICT` timeout handling is now enabled for local `FT.HYBRID` execution
+
+### Bug fixes (compared to 8.12 RC-3)
+
+- #16252 HOTKEYS GET reported a wrong collection-duration-ms after 2^31 milliseconds
+- #16219 HPERSIST ignored a replicated or AOF persist of a field the local clock had already expired
+- #16207 Replicas misbehaved when replication compression was enabled
+- #16267 BITCOUNT returned wrong results on AArch64 for large dense bitmaps
+- #16081 Addresses and names announced on the cluster bus were accepted without validation
+- #T16276 Fix a crash when loading persisted compaction rules with an invalid aggregation type (MOD-20881).
+- #J16272 Fix JSON.ARRINSERT partially modifying arrays before returning a validation error (MOD-9116).
+- #P16274 Improve TopK write performance by initializing the seed generator once, reducing per-command random-seed generation overhead.
+
+
+===================================================================
 Redis 8.12-RC3 (v8.11.242)    Released Thu 12 Nov 2026 14:00:00 IST
 ===================================================================
 
