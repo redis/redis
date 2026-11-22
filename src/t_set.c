@@ -1959,6 +1959,12 @@ static int htRawRemove(robj *set, char *str, size_t len, int64_t llval, int str_
 static int htIsMember(robj *set, char *str, size_t len, int64_t llval, int str_is_sds) {
     UNUSED(llval);
     if (str_is_sds) return dictFind(set->ptr, (sds)str) != NULL;
+    /* Use a stack sds for members up to 124 bytes, saving an allocation. */
+    char buf[128];
+    if (sdsReqSize(len, SDS_TYPE_8) <= sizeof(buf)) {
+        sds sdsval = sdsnewplacement(buf, sizeof(buf), SDS_TYPE_8, str, len);
+        return dictFind(set->ptr, sdsval) != NULL;
+    }
     sds sdsval = sdsnewlen(str, len);
     int result = dictFind(set->ptr, sdsval) != NULL;
     sdsfree(sdsval);

@@ -169,6 +169,7 @@ void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_co
 void migrateCloseTimedoutSockets(void);
 int patternHashSlot(char *pattern, int length);
 int isValidAuxString(char *s, unsigned int length);
+int isValidHostnameString(const char *s, size_t len);
 void migrateCommand(client *c);
 void clusterCommand(client *c);
 ConnectionType *connTypeOfCluster(void);
