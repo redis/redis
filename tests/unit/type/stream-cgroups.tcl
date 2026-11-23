@@ -1710,6 +1710,16 @@ start_server {
         assert_equal {{1-0 Alice 0 1}} [r XPENDING mystream mygroup - + 10]
     }
 
+    test {XREADGROUP CLAIM reaches an idle entry delivered after a future-dated one} {
+        r DEL mystream
+        r RESTORE mystream 0 $delivery_future_payload
+        r XADD mystream 2-0 f v
+        r XREADGROUP GROUP mygroup Alice STREAMS mystream >
+        after 5
+        set res [r XREADGROUP GROUP mygroup Bob CLAIM 1 STREAMS mystream >]
+        assert_equal 2-0 [lindex $res 0 1 0 0]
+    }
+
     test {XINFO CONSUMERS with seen-time and active-time in the distant past} {
         r DEL mystream
         r RESTORE mystream 0 $seen_past_payload
