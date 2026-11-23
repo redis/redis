@@ -53,7 +53,7 @@ static void idmpInsertEntry(stream *s, idmpProducer *producer, idmpEntry *entry,
 static int idmpLookupAndReply(stream *s, idmpProducer *producer, idmpEntry *entry, client *c);
 static int idmpLookup(idmpProducer *producer, idmpEntry *entry, streamID *id);
 static idmpProducer *idmpFindProducer(stream *s, const char *pid, size_t pid_len);
-static idmpProducer *idmpCreateProducer(stream *s, const char *pid, size_t pid_len);
+static idmpProducer *idmpGetOrCreateProducer(stream *s, const char *pid, size_t pid_len);
 static int createIdempotencyHash(robj **argv, int64_t numfields, XXH128_hash_t *out_hash);
 static void idmpEvictOldestEntry(stream *s, idmpProducer *producer);
 
@@ -2851,7 +2851,7 @@ void xaddCommand(client *c) {
     size_t pid_len = 0;
     idmpProducer *producer = NULL;
     idmpEntry *entry = NULL;
-
+    
     if (parsed_args.idmp_pid != NULL) {
         pid_str = parsed_args.idmp_pid->ptr;
         pid_len = sdslen((sds)pid_str);
@@ -2873,24 +2873,22 @@ void xaddCommand(client *c) {
             iid_str = parsed_args.idmp_iid->ptr;
             iid_len = sdslen((sds)iid_str);
         }
-
+        
+        /* Create entry for lookup and potential insertion */
+        entry = idmpEntryCreate(iid_str, iid_len, &s->alloc_size);
+        
+        /* Check if IID already exists and reply if found. Skipped for an
+         * explicit ID: IDMP accepts one only from a master or the AOF, where
+         * the * was replaced with the ID of an entry the upstream node did
+         * append, so it must be applied even if the IID is still tracked here.
+         * Duplicates are propagated with *, so they are still filtered here. */
         serverAssert(!parsed_args.id_given || mustObeyClient(c));
-        if (producer != NULL) {
-            /* Create entry for lookup and potential insertion */
-            entry = idmpEntryCreate(iid_str, iid_len, &s->alloc_size);
-
-            /* Check if IID already exists and reply if found. Skipped for an
-             * explicit ID: IDMP accepts one only from a master or the AOF, where
-             * the * was replaced with the ID of an entry the upstream node did
-             * append, so it must be applied even if the IID is still tracked here.
-             * Duplicates are propagated with *, so they are still filtered here. */
-            if (!parsed_args.id_given && idmpLookupAndReply(s, producer, entry, c)) {
-                /* IID already exists, free the entry and return */
-                idmpEntryFree(entry, &s->alloc_size);
-                keyModified(c,c->db,c->argv[1],kv,0);
-                server.dirty++;
-                return;
-            }
+        if (producer && !parsed_args.id_given && idmpLookupAndReply(s, producer, entry, c)) {
+            /* IID already exists, free the entry and return */
+            idmpEntryFree(entry, &s->alloc_size);
+            keyModified(c,c->db,c->argv[1],kv,0);
+            server.dirty++;
+            return;
         }
     }
 
@@ -2926,9 +2924,7 @@ void xaddCommand(client *c) {
     /* IDMP: Insert the entry now that we have the actual ID */
     if (parsed_args.idmp_pid != NULL) {
         if (producer == NULL)
-            producer = idmpCreateProducer(s, pid_str, pid_len);
-        if (entry == NULL)
-            entry = idmpEntryCreate(iid_str, iid_len, &s->alloc_size);
+            producer = idmpGetOrCreateProducer(s, pid_str, pid_len);
         idmpInsertEntry(s, producer, entry, &id);
         trackStreamIdmpEntries(c, c->argv[1]);
     }
@@ -4231,9 +4227,7 @@ void xidmprecordCommand(client *c) {
 
     size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
 
-    idmpProducer *producer = idmpFindProducer(s, pid_str, pid_len);
-    if (producer == NULL)
-        producer = idmpCreateProducer(s, pid_str, pid_len);
+    idmpProducer *producer = idmpGetOrCreateProducer(s, pid_str, pid_len);
     idmpEntry *entry = idmpEntryCreate(iid_str, iid_len, &s->alloc_size);
     int found = idmpLookup(producer, entry, &id);
     if (found == 1 || (found == -1 && !mustObeyClient(c))) {
@@ -6637,16 +6631,24 @@ static idmpProducer *idmpFindProducer(stream *s, const char *pid, size_t pid_len
     return producer;
 }
 
-/* Create a new idmpProducer for the given producer ID and insert it into
- * the stream's producers radix tree. The producer ID must not already exist.
- * Returns the new producer. */
-static idmpProducer *idmpCreateProducer(stream *s, const char *pid, size_t pid_len) {
-    if (s->idmp_producers == NULL)
+/* Get or create an idmpProducer for the given producer ID.
+ * Returns the producer, or NULL on allocation failure. */
+static idmpProducer *idmpGetOrCreateProducer(stream *s, const char *pid, size_t pid_len) {
+    /* Create the producers rax tree if it doesn't exist */
+    if (s->idmp_producers == NULL) {
         s->idmp_producers = raxNewEx(0, &s->alloc_size, 0);
+    }
 
-    idmpProducer *producer = idmpProducerCreate(&s->alloc_size);
-    /* Insert into the rax tree - must succeed since the pid does not exist */
-    serverAssert(raxTryInsert(s->idmp_producers, (unsigned char *)pid, pid_len, producer, NULL));
+    idmpProducer *producer = NULL;
+    raxNodeLink link;
+    int found = raxFindLink(s->idmp_producers, (unsigned char *)pid, pid_len, (void **)&producer, &link);
+    if (!found) {
+        /* Create a new producer */
+        producer = idmpProducerCreate(&s->alloc_size);
+        /* Insert into the rax tree - must succeed since we checked it doesn't exist */
+        serverAssert(raxInsertAt(s->idmp_producers, (unsigned char *)pid, pid_len, producer, NULL, &link));
+    }
+
     return producer;
 }
 
