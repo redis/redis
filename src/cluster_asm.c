@@ -88,7 +88,7 @@ typedef struct asmTask {
     client *main_channel_client;            /* Client for the main channel on the source side */
     client *rdb_channel_client;             /* Client for the RDB channel on the source side */
     long long retry_count;                  /* Number of retries for this task */
-    int retry_postponed;                    /* Logged that the retry waits for good replicas */
+    int retry_postponed;                    /* Logged that the retry waits for writes to be accepted */
     mstime_t create_time;                   /* Task creation time */
     mstime_t start_time;                    /* Task start time */
     mstime_t end_time;                      /* Task end time */
@@ -2910,12 +2910,18 @@ void asmBeforeSleep(void) {
 
 /* Restart a failed import task. */
 static void asmImportRetry(asmTask *task) {
-    /* If min-replicas-to-write is not satisfied, this node rejects the
-     * commands of the import stream and the task fails again. Do not
-     * retry until there are enough good replicas, log it once. */
-    if (!checkGoodReplicasStatus()) {
+    /* If this node denies writes (min-replicas-to-write is not satisfied or
+     * there is a disk error), it rejects the import stream and the task
+     * fails again. Do not retry until writes are accepted, log it once. */
+    const char *reason = NULL;
+    if (!checkGoodReplicasStatus())
+        reason = "not enough good replicas";
+    else if (writeCommandsDeniedByDiskError() != DISK_ERROR_TYPE_NONE)
+        reason = "writes are denied by a disk error";
+
+    if (reason) {
         if (!task->retry_postponed)
-            serverLog(LL_NOTICE, "Import task %s is not retried, not enough good replicas", task->id);
+            serverLog(LL_NOTICE, "Import task %s is not retried, %s", task->id, reason);
         task->retry_postponed = 1;
         return;
     }
