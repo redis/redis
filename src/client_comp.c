@@ -117,18 +117,17 @@ static int zstdInitDecompress(compressionState *st) {
 }
 
 static int zstdCompress(compressionState *st, int flush) {
+    /* Start at pos 0: libzstd 1.4.8 fails a frame begun with ZSTD_e_end at pos > 0. */
     ZSTD_inBuffer input = {
-        .src  = st->input.data,
-        .size = st->input.written,
-        .pos  = st->input.consumed
+        .src  = st->input.data + st->input.consumed,
+        .size = st->input.written - st->input.consumed,
+        .pos  = 0
     };
     ZSTD_outBuffer output = {
         .dst  = st->output.data,
         .size = st->output.size,
         .pos  = st->output.written
     };
-
-    size_t consumed_before = input.pos;
 
     ZSTD_EndDirective directive;
     /* We use ZSTD_e_end instead of ZSTD_e_flush when we want to flush zstd's.
@@ -163,11 +162,11 @@ static int zstdCompress(compressionState *st, int flush) {
      * force flushing (e.g. once a replica has caught up). */
     if (directive == ZSTD_e_end) {
         if (ret == 0) st->frame_open = 0;
-    } else if (input.pos > consumed_before) {
+    } else if (input.pos > 0) {
         st->frame_open = 1;
     }
 
-    st->input.consumed = input.pos;
+    st->input.consumed += input.pos;
     st->output.written = output.pos;
 
     return 0;
