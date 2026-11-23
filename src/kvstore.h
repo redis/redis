@@ -36,6 +36,7 @@ typedef struct _kvstoreIterator {
     kvstore *kvs;
     long long didx;
     long long next_didx;
+    int prefetch;
     dictIterator di;
 } kvstoreIterator;
 
@@ -110,6 +111,7 @@ void kvstoreMoveDict(kvstore *kvs, kvstore *dst, int didx);
 
 /* kvstore iterator specific functions */
 void kvstoreIteratorInit(kvstoreIterator *kvs_it, kvstore *kvs);
+void kvstoreIteratorEnablePrefetch(kvstoreIterator *kvs_it);
 void kvstoreIteratorReset(kvstoreIterator *kvs_it);
 dict *kvstoreIteratorNextDict(kvstoreIterator *kvs_it);
 int kvstoreIteratorGetCurrentDictIndex(kvstoreIterator *kvs_it);
@@ -127,6 +129,7 @@ unsigned long kvstoreDictSize(kvstore *kvs, int didx);
 void kvstoreInitDictIterator(kvstoreDictIterator *kvs_di, kvstore *kvs, int didx);
 void kvstoreInitDictSafeIterator(kvstoreDictIterator *kvs_di, kvstore *kvs, int didx);
 void kvstoreResetDictIterator(kvstoreDictIterator *kvs_di);
+void kvstoreDictIteratorEnablePrefetch(kvstoreDictIterator *kvs_di);
 dictEntry *kvstoreDictIteratorNext(kvstoreDictIterator *kvs_di);
 dictEntry *kvstoreDictGetRandomKey(kvstore *kvs, int didx);
 dictEntry *kvstoreDictGetFairRandomKey(kvstore *kvs, int didx);

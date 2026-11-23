@@ -269,7 +269,8 @@ void restoreCommand(client *c) {
     }
 
     /* Verify RDB version and data checksum. */
-    if (verifyDumpPayload(c->argv[3]->ptr,sdslen(c->argv[3]->ptr),NULL) == C_ERR)
+    uint16_t rdbver;
+    if (verifyDumpPayload(c->argv[3]->ptr,sdslen(c->argv[3]->ptr),&rdbver) == C_ERR)
     {
         addReplyError(c,"DUMP payload version or checksum are wrong");
         return;
@@ -299,7 +300,7 @@ void restoreCommand(client *c) {
     }
 
     /* Load the object */
-    if ((obj = rdbLoadObject(type,&payload,key->ptr,c->db->id,NULL)) == NULL)
+    if ((obj = rdbLoadObject(type,&payload,key->ptr,c->db->id,rdbver,NULL)) == NULL)
     {
         kvSpecCleanup(&spec);
         addReplyError(c,"Bad data format");
@@ -347,12 +348,12 @@ void restoreCommand(client *c) {
     /* Save type: kv may be reallocated by module callbacks during notifyKeyspaceEvent below. */
     int kvtype = kv->type;
 
-    /* If minExpiredField was set, then the object is hash with expiration
-     * on fields and need to register it in global HFE DS */
-    if (kvtype == OBJ_HASH) {
-        uint64_t minExpiredField = hashTypeGetMinExpire(kv, 1);
-        if (minExpiredField != EB_EXPIRE_TIME_INVALID)
-            estoreAdd(c->db->subexpires, getKeySlot(key->ptr), kv, minExpiredField);
+    /* If the object is a hash or set with expiration on its members or
+     * fields, register it in the global subexpires DS */
+    if (typeMaySubexpire(kvtype)) {
+        uint64_t minSubexpiry = kvobjGetMinSubexpiry(kv);
+        if (minSubexpiry != EB_EXPIRE_TIME_INVALID)
+            estoreAdd(c->db->subexpires, getKeySlot(key->ptr), kv, minSubexpiry);
     }
 
     if (kvtype == OBJ_STREAM)
@@ -863,7 +864,26 @@ int isValidAuxChar(int c) {
 
 int isValidAuxString(char *s, unsigned int length) {
     for (unsigned i = 0; i < length; i++) {
-        if (!isValidAuxChar(s[i])) return 0;
+        /* The ctype functions in isValidAuxChar() are only defined for
+         * values representable as unsigned char (or EOF), and the string may
+         * come from the network, so don't let a high byte sign-extend. */
+        if (!isValidAuxChar((unsigned char)s[i])) return 0;
+    }
+    return 1;
+}
+
+/* Returns 1 if the first 'len' bytes of 's' only contain characters allowed in
+ * an announced hostname: ASCII letters, digits, hyphens and dots. This is the
+ * rule cluster-announce-hostname and the hostname form of cluster-announce-ip
+ * are checked against when set, and the rule hostnames received from other
+ * nodes on the cluster bus are checked against, so that whatever a node can be
+ * configured to announce its peers accept. */
+int isValidHostnameString(const char *s, size_t len) {
+    for (size_t i = 0; i < len; i++) {
+        char c = s[i];
+        if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+              (c >= '0' && c <= '9') || c == '-' || c == '.'))
+            return 0;
     }
     return 1;
 }

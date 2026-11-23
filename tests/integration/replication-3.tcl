@@ -53,6 +53,29 @@ start_server {tags {"repl external:skip debug_defrag:skip"}} {
             }
         }
 
+        test {Master can replicate BITOP NOT longer than replica proto-max-bulk-len} {
+            set limit 1048576
+            set master_old [lindex [r config get proto-max-bulk-len] 1]
+            set replica_old [lindex [r -1 config get proto-max-bulk-len] 1]
+            r config set proto-max-bulk-len [expr {$limit + 1}]
+            r -1 config set proto-max-bulk-len $limit
+            r del bitop:not:repl:src bitop:not:repl:out
+
+            r setbit bitop:not:repl:src [expr {($limit + 1) * 8 - 1}] 1
+            assert_equal [expr {$limit + 1}] [r bitop not bitop:not:repl:out bitop:not:repl:src]
+            wait_for_ofs_sync [srv 0 client] [srv -1 client]
+
+            assert_equal [expr {$limit + 1}] [r -1 strlen bitop:not:repl:out]
+            # GETBIT enforces the replica's local proto-max-bulk-len offset limit,
+            # so verify edge bytes with bounded GETRANGE reads instead.
+            assert_equal [binary format H* ff] [r -1 getrange bitop:not:repl:out 0 0]
+            assert_equal [binary format H* fe] [r -1 getrange bitop:not:repl:out $limit $limit]
+
+            r config set proto-max-bulk-len $master_old
+            r -1 config set proto-max-bulk-len $replica_old
+            r del bitop:not:repl:src bitop:not:repl:out
+        }
+
         test {Slave is able to evict keys created in writable slaves} {
             r -1 select 5
             assert {[r -1 dbsize] == 0}

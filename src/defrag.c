@@ -19,6 +19,8 @@
  */
 
 #include "server.h"
+#include "zset_btree.h"
+#include "bitroar.h"
 #include <stddef.h>
 #include <math.h>
 
@@ -115,6 +117,7 @@ typedef struct {
      * before "later" and we will search by key name to find the entry when we defrag the item later. */
     list *defrag_later;
     unsigned long defrag_later_cursor;
+    zbtreeDefragState zset_btree_state;
 } defragKeysCtx;
 static_assert(offsetof(defragKeysCtx, kvstate) == 0, "defragStageKvstoreHelper requires this");
 
@@ -244,26 +247,26 @@ sds activeDefragSds(sds sdsptr) {
  * returns NULL in case the allocation wasn't moved.
  * when it returns a non-null value, the old pointer was already released
  * and should NOT be accessed. */
-Entry *activeDefragEntry(Entry *entry) {
-    Entry *ret = NULL;
+HashEntry *activeDefragEntry(HashEntry *hEntry) {
+    HashEntry *hRet = NULL;
 
     /* First, defrag the entry allocation itself */
-    void *ptr = entryGetAllocPtr(entry);
+    void *ptr = hEntryGetAllocPtr(hEntry);
     void *newptr = activeDefragAlloc(ptr);
     if (newptr) {
-        size_t offset = (char*)entry - (char*)ptr;
-        entry = (Entry *)((char*)newptr + offset);
-        ret = entry;
+        size_t offset = (char*)hEntry - (char*)ptr;
+        hEntry = (HashEntry *)((char*)newptr + offset);
+        hRet = hEntry;
     }
 
     /* Then defrag the value if it's not embedded (using the potentially new entry) */
-    sds *valuePtr = entryGetValuePtrRef(entry);
+    sds *valuePtr = hEntryGetValuePtrRef(hEntry);
     if (valuePtr) {
         sds new_value = activeDefragSds(*valuePtr);
         if (new_value) *valuePtr = new_value;
     }
 
-    return ret;
+    return hRet;
 }
 
 /* Defrag helper for hfield strings and update the reference in the dict.
@@ -280,10 +283,71 @@ void *activeDefragHfieldAndUpdateRef(void *ptr, void *privdata) {
     link = dictFindLink(d, ptr, NULL);
     serverAssert(link);
 
-    Entry *newEntry = activeDefragEntry(ptr);
-    if (newEntry)
-        dictSetKeyAtLink(d, newEntry, &link, 0);
-    return newEntry;
+    HashEntry *hNewEntry = activeDefragEntry(ptr);
+    if (hNewEntry)
+        dictSetKeyAtLink(d, hNewEntry, &link, 0);
+    return hNewEntry;
+}
+
+/* Defrag a set member: a plain sds or a SetEntry (an sds with an ExpireMeta in
+ * front of it). Returns the new pointer, or NULL if the allocation wasn't moved,
+ * in which case nothing was released. */
+static void *activeDefragSetEntry(void *ptr) {
+    void *alloc = sEntryGetAllocPtr(ptr);
+    void *newalloc = activeDefragAlloc(alloc);
+    if (!newalloc) return NULL;
+    return (char *)newalloc + ((char *)ptr - (char *)alloc);
+}
+
+/* Like activeDefragHfieldAndUpdateRef(), for the members that have an
+ * expiration, which are reached through the ebuckets of the set. */
+static void *activeDefragSetEntryAndUpdateRef(void *ptr, void *privdata) {
+    dict *d = privdata;
+    dictEntryLink link = dictFindLink(d, ptr, NULL);
+    serverAssert(link);
+    void *newptr = activeDefragSetEntry(ptr);
+    if (newptr)
+        dictSetKeyAtLink(d, newptr, &link, 0);
+    return newptr;
+}
+
+/* Scan callback for the dict of a set that can hold member expirations. The
+ * members that have an expiration are skipped here and defragmented later,
+ * through the ebuckets of the set, as it holds pointers to them. */
+static void activeDefragSetDictCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
+    dict *d = privdata;
+    void *member = dictGetKey(de);
+    if (sEntryHasExpiry(member)) return;
+    void *newptr = activeDefragSds(member);
+    if (newptr) dictSetKeyAtLink(d, newptr, &plink, 0);
+}
+
+/* Defrag the members that have an expiration of a set, through its ebuckets.
+ * One step; returns the cursor, 0 when done. */
+static unsigned long activeDefragSetExpireBuckets(dict *d, unsigned long cursor) {
+    ebDefragFunctions eb_defragfns = {
+        .defragAlloc = activeDefragAlloc,
+        .defragItem = activeDefragSetEntryAndUpdateRef
+    };
+    ebuckets *eb = &htGetMetadataEx(d)->elemExpires;
+    ebScanDefrag(eb, &setMemberExpireBucketsType, &cursor, &eb_defragfns, d);
+    return cursor;
+}
+
+/* Defrag a dict of a set that can hold member expirations, completely. */
+static void activeDefragSetExDict(dict *d) {
+    unsigned long cursor = 0;
+    dictDefragFunctions defragfns = {
+        .defragAlloc = activeDefragAlloc,
+        .defragKey = NULL, /* Done in activeDefragSetDictCallback. */
+        .defragVal = NULL
+    };
+    do {
+        cursor = dictScanDefrag(d, cursor, activeDefragSetDictCallback, &defragfns, d);
+    } while (cursor != 0);
+    do {
+        cursor = activeDefragSetExpireBuckets(d, cursor);
+    } while (cursor != 0);
 }
 
 /* Defrag helper for robj and/or string objects with expected refcount.
@@ -460,15 +524,15 @@ void activeDefragLuaScriptDictCallback(void *privdata, const dictEntry *de, dict
 
 void activeDefragHfieldDictCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
     dict *d = privdata;
-    Entry *newEntry = NULL, *entry = dictGetKey(de);
+    HashEntry *hNewEntry = NULL, *hEntry = dictGetKey(de);
 
     /* If the hfield does not have TTL, we directly defrag it.
      * Fields with TTL are skipped here and will be defragmented later
      * during the hash expiry ebuckets defragmentation phase. */
-    if (entryGetExpiry(entry) == EB_EXPIRE_TIME_INVALID) {
-        if ((newEntry = activeDefragEntry(entry))) {
+    if (hEntryGetExpiry(hEntry) == EB_EXPIRE_TIME_INVALID) {
+        if ((hNewEntry = activeDefragEntry(hEntry))) {
             /* Hash dicts use no_value=1, so we must use dictSetKeyAtLink */
-            dictSetKeyAtLink(d, newEntry, &plink, 0);
+            dictSetKeyAtLink(d, hNewEntry, &plink, 0);
         }
     }
 }
@@ -634,6 +698,31 @@ void scanCallbackCountScanned(void *privdata, const dictEntry *de, dictEntryLink
 void scanLaterSet(robj *ob, unsigned long *cursor) {
     serverAssert(ob->type == OBJ_SET && ob->encoding == OBJ_ENCODING_HT);
     dict *d = ob->ptr;
+
+    if (setHashtableHasExpire(ob)) {
+        /* As for hashes: first the dict, without the members that have an
+         * expiration, then the ebuckets and those members. */
+        typedef enum { SET_DEFRAG_NONE = 0, SET_DEFRAG_DICT, SET_DEFRAG_EBUCKETS } setDefragPhase;
+        static setDefragPhase phase = SET_DEFRAG_NONE;
+
+        if (!*cursor || phase == SET_DEFRAG_NONE)
+            phase = SET_DEFRAG_DICT;
+
+        if (phase == SET_DEFRAG_DICT) {
+            dictDefragFunctions fns = {
+                .defragAlloc = activeDefragAlloc,
+                .defragKey = NULL,
+                .defragVal = NULL
+            };
+            *cursor = dictScanDefrag(d, *cursor, activeDefragSetDictCallback, &fns, d);
+            if (!*cursor) phase = SET_DEFRAG_EBUCKETS;
+        }
+        if (phase == SET_DEFRAG_EBUCKETS) {
+            *cursor = activeDefragSetExpireBuckets(d, *cursor);
+            if (!*cursor) phase = SET_DEFRAG_NONE;
+        }
+        return;
+    }
     dictDefragFunctions defragfns = {
         .defragAlloc = activeDefragAlloc,
         .defragKey = (dictDefragAllocFunction *)activeDefragSds
@@ -728,6 +817,26 @@ void defragZsetSkiplist(defragKeysCtx *ctx, kvobj *ob) {
         zs->dict = newdict;
 }
 
+/* Defragment a B+ tree now, or schedule its pages for incremental work. */
+void defragZsetBtree(defragKeysCtx *ctx, kvobj *ob) {
+    zbtreeSet *zs = ob->ptr;
+    serverAssert(ob->type == OBJ_ZSET && ob->encoding == OBJ_ENCODING_BTREE);
+
+    ob->ptr = zs = zbtreeDefragStart(zs, activeDefragAlloc);
+    if (zbtreeLength(zs) > server.active_defrag_max_scan_fields) {
+        defragLater(ctx, ob);
+    } else {
+        zbtreeDefragState state = {0};
+        unsigned long scanned;
+        while (!zbtreeDefragStep(zs, &state,
+                                 activeDefragAllocWithoutFree,
+                                 activeDefragFree, &scanned))
+        {
+            server.stat_active_defrag_scanned += scanned;
+        }
+    }
+}
+
 void defragHash(defragKeysCtx *ctx, kvobj *ob) {
     dict *d, *newd;
     serverAssert(ob->type == OBJ_HASH && ob->encoding == OBJ_ENCODING_HT);
@@ -747,6 +856,8 @@ void defragSet(defragKeysCtx *ctx, kvobj *ob) {
     d = ob->ptr;
     if (dictSize(d) > server.active_defrag_max_scan_fields)
         defragLater(ctx, ob);
+    else if (setHashtableHasExpire(ob))
+        activeDefragSetExDict(d);
     else
         activeDefragSdsDict(d, DEFRAG_SDS_DICT_NO_VAL);
     /* defrag the dict struct and tables */
@@ -778,6 +889,17 @@ void defragArray(defragKeysCtx *ctx, kvobj *ob) {
         defragLater(ctx, ob);
     else
         ob->ptr = arDefrag(ob->ptr, activeDefragAlloc);
+}
+
+void defragBitmapObject(defragKeysCtx *ctx, kvobj *ob) {
+    serverAssert(ob->type == OBJ_BITMAP);
+    /* Only the threshold decision is needed here. Avoid a full main-thread
+     * ART walk before scheduling a large bitmap for incremental defrag. */
+    if (bitroarContainerCountUpTo(ob, server.active_defrag_max_scan_fields + 1) >
+        server.active_defrag_max_scan_fields)
+        defragLater(ctx, ob);
+    else
+        bitroarDefrag(ob);
 }
 
 /* Defrag a TMPL_ARRAY hash: small in one shot, large incrementally (like the
@@ -1157,9 +1279,10 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
          serverAssert(exlink != NULL);
      }
 
-    /* Try to defrag robj. For hash objects with HFEs,
+    /* Try to defrag robj. For hash and set objects registered in subexpires
      * defer defragmentation until processing db's subexpires. */
-    if (!(ob->type == OBJ_HASH && hashTypeGetMinExpire(ob, 0) != EB_EXPIRE_TIME_INVALID)) {
+    if (!(ob->type == OBJ_HASH && hashTypeGetMinExpire(ob, 0) != EB_EXPIRE_TIME_INVALID) &&
+        !(ob->type == OBJ_SET && setIsRegisteredInSubexpires(ob))) {
         /* If the dict doesn't have metadata, we directly defrag it. */
         kvnew = activeDefragKvobj(ob, 0);
     }
@@ -1197,6 +1320,13 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
             void *newptr, *ptr = ob->ptr;
             if ((newptr = activeDefragAlloc(ptr)))
                 ob->ptr = newptr;
+        } else if (ob->encoding == OBJ_ENCODING_LISTPACK_EX) {
+            /* The wrapper holds the ExpireMeta and the listpack. */
+            listpackEx *newlpt, *lpt = (listpackEx*)ob->ptr;
+            if ((newlpt = activeDefragAlloc(lpt)))
+                ob->ptr = lpt = newlpt;
+            if ((newzl = activeDefragAlloc(lpt->lp)))
+                lpt->lp = newzl;
         } else {
             serverPanic("Unknown set encoding");
         }
@@ -1206,6 +1336,8 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
                 ob->ptr = newzl;
         } else if (ob->encoding == OBJ_ENCODING_SKIPLIST) {
             defragZsetSkiplist(ctx, ob);
+        } else if (ob->encoding == OBJ_ENCODING_BTREE) {
+            defragZsetBtree(ctx, ob);
         } else {
             serverPanic("Unknown sorted set encoding");
         }
@@ -1244,6 +1376,8 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
         defragModule(ctx,db, ob);
     } else if (ob->type == OBJ_ARRAY) {
         defragArray(ctx, ob);
+    } else if (ob->type == OBJ_BITMAP) {
+        defragBitmapObject(ctx, ob);
     } else {
         serverPanic("Unknown object type");
     }
@@ -1344,7 +1478,15 @@ void defragPubsubScanCallback(void *privdata, const dictEntry *de, dictEntryLink
 
 /* returns 0 more work may or may not be needed (see non-zero cursor),
  * and 1 if time is up and more work is needed. */
-int defragLaterItem(kvobj *ob, unsigned long *cursor, monotime endtime, int dbid) {
+int defragLaterItem(defragKeysCtx *ctx, kvobj *ob, monotime endtime) {
+    unsigned long *cursor = &ctx->defrag_later_cursor;
+    zbtreeDefragState *zset_btree_state = &ctx->zset_btree_state;
+    int is_btree = ob && ob->type == OBJ_ZSET && ob->encoding == OBJ_ENCODING_BTREE;
+    if (!is_btree && zset_btree_state->tree) {
+        zbtreeDefragStateReset(zset_btree_state);
+        *cursor = 0;
+    }
+
     if (ob) {
         if (ob->type == OBJ_LIST && ob->encoding == OBJ_ENCODING_QUICKLIST) {
             return scanLaterList(ob, cursor, endtime);
@@ -1352,6 +1494,15 @@ int defragLaterItem(kvobj *ob, unsigned long *cursor, monotime endtime, int dbid
             scanLaterSet(ob, cursor);
         } else if (ob->type == OBJ_ZSET && ob->encoding == OBJ_ENCODING_SKIPLIST) {
             scanLaterZset(ob, cursor);
+        } else if (ob->type == OBJ_ZSET && ob->encoding == OBJ_ENCODING_BTREE) {
+            if (*cursor == 0)
+                zbtreeDefragStateReset(zset_btree_state);
+            unsigned long scanned;
+            int done = zbtreeDefragStep(ob->ptr, zset_btree_state,
+                                        activeDefragAllocWithoutFree,
+                                        activeDefragFree, &scanned);
+            server.stat_active_defrag_scanned += scanned;
+            *cursor = done ? 0 : 1;
         } else if (ob->type == OBJ_HASH && ob->encoding == OBJ_ENCODING_HT) {
             scanLaterHash(ob, cursor);
         } else if (ob->type == OBJ_HASH && ob->encoding == OBJ_ENCODING_TMPL_ARRAY) {
@@ -1361,16 +1512,20 @@ int defragLaterItem(kvobj *ob, unsigned long *cursor, monotime endtime, int dbid
         } else if (ob->type == OBJ_MODULE) {
             robj keyobj;
             initStaticStringObject(keyobj, kvobjGetKey(ob));
-            return moduleLateDefrag(&keyobj, ob, cursor, endtime, dbid);
+            return moduleLateDefrag(&keyobj, ob, cursor, endtime, ctx->dbid);
         } else if (ob->type == OBJ_ARRAY) {
             redisArray *ar = ob->ptr;
             *cursor = arDefragIncremental(&ar, *cursor, activeDefragAlloc);
             ob->ptr = ar;
+        } else if (ob->type == OBJ_BITMAP) {
+            *cursor = bitroarDefragIncremental(ob, *cursor);
         } else {
             *cursor = 0; /* object type/encoding may have changed since we schedule it for later */
+            zbtreeDefragStateReset(zset_btree_state);
         }
     } else {
         *cursor = 0; /* object may have been deleted already */
+        zbtreeDefragStateReset(zset_btree_state);
     }
     return 0;
 }
@@ -1399,7 +1554,7 @@ static doneStatus defragLaterStep(void *ctx, monotime endtime) {
         long long key_defragged = server.stat_active_defrag_hits;
         if (server.memory_tracking_enabled && kv)
             oldsize = kvobjAllocSize(kv);
-        int timeout = (defragLaterItem(kv, &defrag_keys_ctx->defrag_later_cursor, endtime, defrag_keys_ctx->dbid) == 1);
+        int timeout = (defragLaterItem(defrag_keys_ctx, kv, endtime) == 1);
         if (server.memory_tracking_enabled && kv)
             updateSlotAllocSize(db, slot, kv, oldsize, kvobjAllocSize(kv));
         if (key_defragged != server.stat_active_defrag_hits) {
@@ -1626,7 +1781,7 @@ void *activeDefragSubexpiresOB(void *ptr, void *privdata) {
     sds keystr = kvobjGetKey(kv);
     unsigned int slot = calculateKeySlot(keystr);
 
-    serverAssert(kv->type == OBJ_HASH); /* Currently relevant only for hashes */
+    serverAssert(kv->type == OBJ_HASH || kv->type == OBJ_SET); /* Relevant only for hashes and sets */
 
     long long expire = kvobjGetExpire(kv);
     /* We can't search in db->expires for that KV after we've released

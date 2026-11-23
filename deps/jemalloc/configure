@@ -13781,6 +13781,7 @@ printf "%s\n" "#define JEMALLOC_HAVE_ISSETUGID  " >>confdefs.h
 
 fi
 
+if test "x${JEMALLOC_PREFIX}" = "x" ; then
 ac_fn_c_check_func "$LINENO" "_malloc_thread_cleanup" "ac_cv_func__malloc_thread_cleanup"
 if test "x$ac_cv_func__malloc_thread_cleanup" = xyes
 then :
@@ -13812,6 +13813,7 @@ if test "x$have__pthread_mutex_init_calloc_cb" = "x1" ; then
 printf "%s\n" "#define JEMALLOC_MUTEX_INIT_CB  " >>confdefs.h
 
   wrap_syms="${wrap_syms} _malloc_prefork _malloc_postfork"
+fi
 fi
 
 ac_fn_c_check_func "$LINENO" "memcntl" "ac_cv_func_memcntl"

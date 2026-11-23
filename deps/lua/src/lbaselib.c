@@ -412,7 +412,8 @@ static int luaB_tostring (lua_State *L) {
       lua_pushliteral(L, "nil");
       break;
     default:
-      lua_pushfstring(L, "%s: %p", luaL_typename(L, 1), lua_topointer(L, 1));
+      /* Do not expose process addresses to sandboxed scripts. */
+      lua_pushfstring(L, "%s: <opaque>", luaL_typename(L, 1));
       break;
   }
   return 1;

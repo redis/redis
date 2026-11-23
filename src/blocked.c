@@ -102,9 +102,10 @@ void updateStatsOnUnblock(client *c, long blocked_us, long reply_us, int had_err
         c->lastcmd->failed_calls++;
     if (server.latency_tracking_enabled)
         updateCommandLatencyHistogram(&(c->lastcmd->latency_histogram), total_cmd_duration*1000);
-    /* Log the command into the Slow log if needed. */
-    slowlogPushCurrentCommand(c, c->lastcmd, total_cmd_duration);
-    c->duration = 0;
+    /* Log the command into the Slow log if needed. No CPU sample: c->duration
+     * ran in an earlier event-loop iteration. */
+    slowlogPushCurrentCommand(c, c->lastcmd, total_cmd_duration, NULL);
+    resetClientCommandDuration(c);
     /* Log the reply duration event. */
     latencyAddSampleIfNeeded("command-unblocking",reply_us/1000);
 }
@@ -273,7 +274,7 @@ void replyToClientsBlockedOnShutdown(void) {
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
         if (c->flags & CLIENT_BLOCKED && c->bstate.btype == BLOCKED_SHUTDOWN) {
-            c->duration = 0;
+            resetClientCommandDuration(c);
             addReplyError(c, "Errors trying to SHUTDOWN. Check logs.");
             unblockClient(c, 1);
         }
@@ -396,7 +397,7 @@ void handleClientsBlockedOnKeys(void) {
  * The client will unblocked as soon as one of the keys in 'keys' value was updated.
  * the parameter unblock_on_nokey can be used to force client to be unblocked even in the case the key
  * is updated to become unavailable, either by type change (override), deletion or swapdb */
-void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeout, int unblock_on_nokey) {
+void blockForKeys(client *c, int btype, robj **keys, int numkeys, uint64_t timeout, int unblock_on_nokey) {
     dictEntry *db_blocked_entry, *db_blocked_existing_entry, *client_blocked_entry;
     list *l;
     int j;
@@ -677,7 +678,7 @@ static void handleClientsBlockedOnKey(readyList *rl) {
 }
 
 /* block a client due to wait command */
-void blockForReplication(client *c, mstime_t timeout, long long offset, long numreplicas) {
+void blockForReplication(client *c, uint64_t timeout, long long offset, long numreplicas) {
     c->bstate.timeout = timeout;
     c->bstate.reploffset = offset;
     c->bstate.numreplicas = numreplicas;
@@ -686,7 +687,7 @@ void blockForReplication(client *c, mstime_t timeout, long long offset, long num
 }
 
 /* block a client due to waitaof command */
-void blockForAofFsync(client *c, mstime_t timeout, long long offset, int numlocal, long numreplicas) {
+void blockForAofFsync(client *c, uint64_t timeout, long long offset, int numlocal, long numreplicas) {
     c->bstate.timeout = timeout;
     c->bstate.reploffset = offset;
     c->bstate.numreplicas = numreplicas;

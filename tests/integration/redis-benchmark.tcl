@@ -123,7 +123,12 @@ tags {"benchmark network external:skip logreqres:skip"} {
             set original_maxclients [lindex [r config get maxclients] 1]
             r config set maxclients 5
             catch { exec {*}$cmd } error
-            assert_match "*Error*" $error
+            if {$::tls} {
+                # TLS rejection may surface during the handshake or in readHandler.
+                assert {[regexp {Error|Could not negotiate a TLS connection:} $error]}
+            } else {
+                assert_match "*Error*" $error
+            }
             r config set maxclients $original_maxclients
         }
 

@@ -12,6 +12,14 @@
 # Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
 #
 
+# Read and return the full contents of a file.
+proc read_file {path} {
+    set fd [open $path r]
+    set contents [read $fd]
+    close $fd
+    return $contents
+}
+
 proc randstring {min max {type binary}} {
     set len [expr {$min+int(rand()*($max-$min+1))}]
     set output {}
@@ -203,9 +211,17 @@ proc wait_lazyfree_done r {
     }
 }
 
+# count lines in a log file, by path. Unlike count_log_lines this doesn't need
+# a running server, so it can also be used to snapshot a log file before
+# starting the server that will write to it.
+proc count_file_lines {file} {
+    if {![file exists $file]} { return 0 }
+    return [string trim [exec wc -l < $file]]
+}
+
 # count current log lines in server's stdout
 proc count_log_lines {srv_idx} {
-    set _ [string trim [exec wc -l < [srv $srv_idx stdout]]]
+    count_file_lines [srv $srv_idx stdout]
 }
 
 # returns the number of times a line with that pattern appears in a file
@@ -222,6 +238,133 @@ proc count_message_lines {file pattern} {
 proc count_log_message {srv_idx pattern} {
     set stdout [srv $srv_idx stdout]
     return [count_message_lines $stdout $pattern]
+}
+
+# Run the openssl command line client against $host:$port with the given extra
+# arguments and return its whole output (stdout and stderr), whatever its exit
+# status. The connection is held open for a second: in TLS 1.3 the server sends
+# session tickets only after the handshake has completed, and a client that
+# disconnects at once would leave without a token to resume from. The report
+# says "New, TLSv1.x" after a full handshake and "Reused, TLSv1.x" after a
+# resumed session; -sess_out FILE saves the session, -sess_in FILE resumes it.
+# The connection is closed before the command returns; openssl_s_client_open
+# keeps one open.
+proc openssl_s_client {host port args} {
+    set cmd "sleep 1 | openssl s_client -connect $host:$port -CAfile $::tlsdir/ca.crt $args 2>&1"
+    catch {exec sh -c $cmd} out
+    return $out
+}
+
+# Like openssl_s_client, but keeps the connection open: s_client's standard
+# input is held, so it neither exits nor shuts the connection down until
+# openssl_s_client_close is called on the returned handle, which then returns
+# the whole output. A session established on the connection stays in the
+# server's cache only while the connection lasts: OpenSSL drops a cached session
+# when its connection is freed without a close_notify having been sent, and the
+# server sends none for a connection its peer closed first. Tickets are
+# unaffected, as the client holds them.
+proc openssl_s_client_open {host port args} {
+    set out [file join [pwd] tests/tmp s_client.[pid].[incr ::openssl_s_client_seq].out]
+    set fd [open "|[list openssl s_client -connect $host:$port -CAfile $::tlsdir/ca.crt {*}$args >& $out]" w]
+    return [list $fd $out]
+}
+
+proc openssl_s_client_close {handle} {
+    lassign $handle fd out
+    # End of input: s_client shuts the connection down and exits.
+    catch {close $fd}
+    set f [open $out]
+    set result [read $f]
+    close $f
+    file delete $out
+    return $result
+}
+
+# Classify the output of openssl s_client asked for one protocol version:
+# "ok" when that version was negotiated, "unsupported" when the version is not
+# available on the client or on the server, "failed" for anything else.
+proc openssl_s_client_result {out version} {
+    # A completed handshake prints a session block. Its protocol line is the
+    # negotiated version; the version printed beside "New" is not, older
+    # clients print the cipher's own there ("TLSv1/SSLv3" for a TLS 1.2
+    # handshake). A failed handshake prints the block too, with the cipher
+    # shown as "(NONE)" by current clients and "0000" by old ones, so the
+    # cipher line tells a real negotiation from an aborted one. An alert
+    # anywhere in the output means the handshake did not complete cleanly,
+    # whatever else was printed.
+    if {[regexp -line {^\s*Protocol\s*:\s*(\S+)} $out -> proto] && $proto eq $version &&
+        [regexp -line {^\s*Cipher\s*:\s*(\S+)} $out -> cipher] &&
+        $cipher ne "(NONE)" && $cipher ne "0000" &&
+        ![string match {*alert*} $out]} {
+        return ok
+    }
+    # Three failures mean the version itself is unavailable. A client older
+    # than the version rejects the flag ("unknown option" or "Unrecognized
+    # flag", depending on its age). A client built without the version has
+    # "no protocols available" to offer. A server without the version, or
+    # restricted by tls-protocols, answers the ClientHello with a protocol
+    # version alert, alert number 70. Anything else is a real failure.
+    if {[regexp -nocase {unknown option|unrecognized flag|no protocols available|alert protocol version|alert number 70|unsupported protocol} $out]} {
+        return unsupported
+    }
+    return failed
+}
+
+# Whether a TLS 1.3 handshake with the server at host:port works. Tests that
+# try every way a session can be resumed need TLS 1.3 for the pre-shared-key
+# path, which OpenSSL before 1.1.1 does not have, on the server or in the
+# openssl client; those variants are skipped there while the TLS 1.2 ones
+# still run. Only a failure that means TLS 1.3 is unavailable leads to a skip,
+# and only once a TLS 1.2 handshake has shown the server to be reachable; any
+# other failure fails the test with the output of the attempt.
+proc tls13_supported {host port} {
+    # One probe per server. The tests ask several times, once per block or
+    # per variant table, and the answer cannot change for a running server.
+    if {[info exists ::tls13_supported($host:$port)]} {
+        return $::tls13_supported($host:$port)
+    }
+    # The suite's client certificate is presented, so the probe also works
+    # against a server that requires one; a server that does not ignores it.
+    set client [list -cert $::tlsdir/client.crt -key $::tlsdir/client.key]
+    # Ask for TLS 1.3 and nothing else, so that the server cannot fall back
+    # to TLS 1.2 and hide the answer.
+    set out13 [openssl_s_client $host $port -tls1_3 {*}$client]
+    switch [openssl_s_client_result $out13 TLSv1.3] {
+        ok {
+            set supported 1
+        }
+        unsupported {
+            # TLS 1.3 is absent for a known reason. Before skipping on that,
+            # make sure a handshake with this server works at all: a server
+            # that is down or misconfigured must fail the test, not look like
+            # an old library. Both outputs go into the failure, as the first
+            # one is what the diagnosis needs.
+            set out12 [openssl_s_client $host $port -tls1_2 {*}$client]
+            if {[openssl_s_client_result $out12 TLSv1.2] ne "ok"} {
+                fail "no TLS handshake with $host:$port.\nTLS 1.3 attempt:\n$out13\nTLS 1.2 attempt:\n$out12"
+            }
+            if {$::verbose} {
+                puts "Skipping the TLS 1.3 variants, TLS 1.3 is not supported."
+            }
+            set supported 0
+        }
+        default {
+            # Any other failure, an internal error alert or a refused
+            # connection for instance, is not a reason to skip: a TLS 1.3
+            # regression must surface here, with the output that shows it.
+            fail "unexpected TLS 1.3 handshake failure with $host:$port:\n$out13"
+        }
+    }
+    return [set ::tls13_supported($host:$port) $supported]
+}
+
+# The protocol version flags for openssl s_client that the server at
+# host:port supports, TLS 1.3 first when it has it.
+proc tls_client_versions {host port} {
+    if {[tls13_supported $host $port]} {
+        return {-tls1_3 -tls1_2}
+    }
+    return {-tls1_2}
 }
 
 # verify pattern exists in server's sdtout after a certain line number
@@ -334,6 +477,36 @@ proc randomKey {} {
     }
 }
 
+# Creates an empty Roaring bitmap for a missing key, or re-encodes an existing
+# string bitmap without changing its logical value or TTL. BITCONVERT is an
+# internal replay primitive, so temporarily mark the test connection internal
+# and always restore its ordinary-client state. Callers must pass a connection
+# that is not already marked internal.
+proc convert_string_bitmap_to_roaring {client key} {
+    set code [catch {
+        {*}$client debug mark-internal-client
+        {*}$client bitconvert $key
+    } result opts]
+    set cleanup_code [catch {
+        {*}$client debug mark-internal-client unmark
+    } cleanup_result cleanup_opts]
+    if {$code != 0} {
+        return -options $opts $result
+    }
+    if {$cleanup_code != 0} {
+        return -options $cleanup_opts $cleanup_result
+    }
+    return $result
+}
+
+proc empty_roaring_bitmap_dump_payload {} {
+    # RDB_TYPE_BITMAP, zero logical byte length, an eight-byte portable
+    # Roaring payload with zero high-32 buckets, RDB_VERSION 16, followed by
+    # an all-zero checksum. RESTORE accepts the zero checksum in test-built
+    # payloads.
+    return [binary format H* 210008000000000000000010000000000000000000]
+}
+
 proc findKeyWithType {r type} {
     for {set j 0} {$j < 20} {incr j} {
         set k [{*}$r randomkey]
@@ -350,6 +523,7 @@ proc findKeyWithType {r type} {
 proc createComplexDataset {r ops {opt {}}} {
     set useexpire [expr {[lsearch -exact $opt useexpire] != -1}]
     set usehexpire [expr {[lsearch -exact $opt usehexpire] != -1}]
+    set usesexpire [expr {[lsearch -exact $opt usesexpire] != -1}]
 
     if {[lsearch -exact $opt usetag] != -1} {
         set tag "{t}"
@@ -376,8 +550,8 @@ proc createComplexDataset {r ops {opt {}}} {
         # their own keys because Redis deletes a list/set/zset/hash once its last
         # element is gone, which frees the name to be reused as another type, while
         # an empty stream stays. The test code never deletes such a stream, on purpose:
-        # together with strings, streams are the only type that can exist with zero
-        # elements, and they give the dataset its zero-length coverage, like the
+        # together with strings and bitmaps, streams can exist with zero elements,
+        # and they give the dataset its zero-length coverage, like the
         # size-0 bucket of the INFO keysizes histograms. The 20 keys for streams also
         # mean each stream gets many operations, with "*" keeping its IDs increasing.
         if {rand() < 0.2} {
@@ -432,6 +606,10 @@ proc createComplexDataset {r ops {opt {}}} {
                 # both TMPL_LP and TMPL_ARRAY encodings.
                 {*}$r himport set $k fs $v [randomValue] [randomValue]
             } {
+                # Start with a native zero-length bitmap. Its later writes stay
+                # within 1 KiB so complex-data stress tests remain bounded.
+                {*}$r restore $k 0 [empty_roaring_bitmap_dump_payload]
+            } {
                 {*}$r del $k
             }
             set t [{*}$r type $k]
@@ -463,6 +641,16 @@ proc createComplexDataset {r ops {opt {}}} {
                                 }
                             }
                         }
+
+                if {$usesexpire && rand() < 0.5} {
+                    randpath {
+                        catch {{*}$r sexpire $k 1000 MEMBERS 1 $v}
+                    } {
+                        catch {{*}$r saddex $k EX 1000 MEMBERS 1 $v}
+                    } {
+                        catch {{*}$r spersist $k MEMBERS 1 $v}
+                    }
+                }
             }
             {zset} {
                 randpath {{*}$r zadd $k $d $v} \
@@ -484,6 +672,16 @@ proc createComplexDataset {r ops {opt {}}} {
 
                 if { [{*}$r hexists $k $f] && $usehexpire && rand() < 0.5} {
                     {*}$r hexpire $k 1000 FIELDS 1 $f
+                }
+            }
+            {bitmap} {
+                randpath {
+                    {*}$r setbit $k [randomInt 8192] [randomInt 2]
+                } {
+                    {*}$r bitfield $k SET u8 [randomInt 8185] [randomInt 256]
+                } {
+                    # Preserve some empty bitmaps for zero-length coverage.
+                    {*}$r bitcount $k
                 }
             }
         }
@@ -563,6 +761,9 @@ proc csvdump r {
                         }
                     }
                     append o "\n"
+                }
+                bitmap {
+                    append o [csvstring [{*}$r debug bitmap-raw $k]] "\n"
                 }
             }
         }
@@ -904,7 +1105,8 @@ proc generate_fuzzy_traffic_on_key {key type duration} {
     set stream_commands {XACK XADD XCLAIM XDEL XGROUP XINFO XLEN XPENDING XRANGE XREAD XREADGROUP XREVRANGE XTRIM XDELEX XACKDEL XNACK}
     set vset_commands {VADD VREM}
     set array_commands {ARSET ARGET ARDEL ARCOUNT ARMSET ARMGET ARGETRANGE ARDELRANGE ARINFO}
-    set commands [dict create string $string_commands hash $hash_commands zset $zset_commands list $list_commands set $set_commands stream $stream_commands vectorset $vset_commands array $array_commands]
+    set bitmap_commands {SETBIT GETBIT BITCOUNT BITPOS BITOP BITFIELD BITFIELD_RO}
+    set commands [dict create string $string_commands hash $hash_commands zset $zset_commands list $list_commands set $set_commands stream $stream_commands vectorset $vset_commands array $array_commands bitmap $bitmap_commands]
 if 0 {
     set gcra_commands {GCRA}
     dict set commands gcra $gcra_commands
@@ -1170,6 +1372,18 @@ proc debug_digest_value {key} {
     r debug digest-value $key
 }
 
+# Arm the per-command INFO Streams assertion: the server rebuilds the stream
+# histograms from the keyspace after every command and panics on a mismatch,
+# so the calling suite also covers the stream-stats bookkeeping. Not a tag on
+# the suite, which would skip every test where DEBUG is unavailable (external
+# servers, and the CI job that runs with --tags -needs:debug): only the
+# arming is skipped there.
+proc arm_stream_stats_assert {} {
+    if {$::external || [lsearch $::denytags "needs:debug"] >= 0} return
+    r config set stream-stats yes
+    r debug stream-stats-assert 1
+}
+
 proc debug_digest {{level 0}} {
     if {[lsearch $::denytags "needs:debug"] >= 0 || $::ignoredigest} {
         return "dummy-digest"
@@ -1255,6 +1469,38 @@ proc config_get_set {param value {options {}}} {
     set config [lindex [r config get $param] 1]
     config_set $param $value $options
     return $config
+}
+
+# Enable active defrag until it has walked some keys, then raise
+# active-defrag-threshold-lower above any fragmentation so the running cycle
+# is the last one. Returns how many cycles ran, counted from the verbose
+# "Active defrag done" line each cycle ends with, or 0 if this build cannot
+# enable active defrag. Every counted cycle ran to completion, so per-cycle
+# defrag stats are exact multiples of the returned count.
+proc run_complete_defrag_cycles {} {
+    set old_loglevel [config_get_set loglevel verbose]
+    set old_threshold [lindex [r config get active-defrag-threshold-lower] 1]
+    set done_lines [count_log_message 0 "Active defrag done"]
+    set cycles 0
+    catch {r config set activedefrag yes}
+    if {[r config get activedefrag] eq "activedefrag yes"} {
+        wait_for_condition 500 100 {
+            [s active_defrag_key_hits] + [s active_defrag_key_misses] > 0
+        } else {
+            fail "defrag did not start"
+        }
+        r config set active-defrag-threshold-lower 1000
+        wait_for_condition 500 100 {
+            [s active_defrag_running] eq 0
+        } else {
+            fail "defrag did not finish its last cycle"
+        }
+        set cycles [expr {[count_log_message 0 "Active defrag done"] - $done_lines}]
+        r config set activedefrag no
+    }
+    r config set active-defrag-threshold-lower $old_threshold
+    r config set loglevel $old_loglevel
+    return $cycles
 }
 
 proc delete_lines_with_pattern {filename tmpfilename pattern} {

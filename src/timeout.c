@@ -17,7 +17,7 @@
 /* Check if this blocked client timedout (does nothing if the client is
  * not blocked right now). If so send a reply, unblock it, and return 1.
  * Otherwise 0 is returned and no operation is performed. */
-int checkBlockedClientTimeout(client *c, mstime_t now) {
+int checkBlockedClientTimeout(client *c, uint64_t now) {
     if (c->flags & CLIENT_BLOCKED &&
         c->bstate.timeout != 0
         && c->bstate.timeout < now)
@@ -117,7 +117,7 @@ void removeClientFromTimeoutTable(client *c) {
  * that are waiting in blocking operations with a timeout set. */
 void handleBlockedClientsTimeout(void) {
     if (raxSize(server.clients_timeout_table) == 0) return;
-    uint64_t now = mstime();
+    uint64_t now = getMonotonicUs() / 1000;
     raxIterator ri;
     raxStart(&ri,server.clients_timeout_table);
     raxSeek(&ri,"^",NULL,0);
@@ -143,10 +143,9 @@ void handleBlockedClientsTimeout(void) {
  * Note that if the timeout is zero (usually from the point of view of
  * commands API this means no timeout) the value stored into 'timeout'
  * is zero. */
-int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int unit) {
+static int getTimeoutFromObjectOrReplyInternal(client *c, robj *object, long long *timeout, int unit, long long now) {
     long long tval;
     long double ftval;
-    mstime_t now = commandTimeSnapshot();
 
     if (unit == UNIT_SECONDS) {
         if (getLongDoubleFromObjectOrReply(c,object,&ftval,
@@ -180,4 +179,16 @@ int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int 
     *timeout = tval;
 
     return C_OK;
+}
+
+int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int unit) {
+    return getTimeoutFromObjectOrReplyInternal(c, object, timeout, unit, commandTimeSnapshot());
+}
+
+int getMonotonicTimeoutFromObjectOrReply(client *c, robj *object, uint64_t *timeout, int unit) {
+    long long monotonic_timeout;
+    int result = getTimeoutFromObjectOrReplyInternal(c, object, &monotonic_timeout,
+                                                     unit, getMonotonicUs() / 1000);
+    if (result == C_OK) *timeout = monotonic_timeout;
+    return result;
 }

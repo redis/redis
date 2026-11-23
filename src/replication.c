@@ -58,6 +58,23 @@ static void rdbChannelCleanup(void);
  * the instance is configured to have no persistence. */
 int RDBGeneratedByReplication = 0;
 
+/* Resume buffered replication after a yielding long command ends. Nested yields
+ * may still be BUSY. Clients owned by an IO thread (including those in transit)
+ * need no recovery: IO threads never stop parsing because of BUSY.
+ *
+ * Use tid, not running_tid: only a main-thread-owned client can safely join
+ * unblocked_clients. Module cleanup can run on a background thread holding the
+ * GIL, like unblockPostponedClients; do not use the IO-thread handoff protocol
+ * here. Queue execution for a safe point in beforeSleep, outside cleanup and
+ * processEventsWhileBlocked. CLIENT_UNBLOCKED keeps the client on the main
+ * thread until then. */
+void replicationResumeMasterClient(void) {
+    if (isInsideYieldingLongCommand()) return;
+    if (!server.masterhost || !server.master) return;
+    if (server.master->tid != IOTHREAD_MAIN_THREAD_ID) return;
+    queueClientForReprocessing(server.master);
+}
+
 /* Set the replication compression level. When Redis is built without
  * compression support (BUILD_COMPRESSION=yes enables it) the level is always
  * forced to 0, so replication compression stays completely disabled and the
@@ -76,6 +93,11 @@ void setReplCompression(int level) {
     }
     server.repl_compression = 0;
 #endif
+}
+
+/* Compression requires an IO worker eligible for this replication direction. */
+static int canUseReplCompression(int client_types) {
+    return server.io_threads_num > 1 && (server.io_threads_client_types & client_types);
 }
 
 
@@ -1508,7 +1530,7 @@ void replconfCommand(client *c) {
             if ((getLongFromObjectOrReply(c,c->argv[j+1], &level,NULL) != C_OK))
                 return;
 
-            if (server.io_threads_num > 1) {
+            if (canUseReplCompression(IO_THREADS_CLIENT_TYPE_REPLICA | IO_THREADS_CLIENT_TYPE_REPLICA_COMPRESSED)) {
                 if (level == (long)server.repl_compression) {
                     serverLog(LL_NOTICE, "Client #%llu request for replication "
                             "compression with level %ld accepted",
@@ -1527,7 +1549,7 @@ void replconfCommand(client *c) {
             } else {
                 serverLog(LL_NOTICE, "Client #%llu request for replication "
                           "compression rejected. Replication compression is only "
-                          "enabled with IO threads.",
+                          "enabled with eligible IO threads.",
                           (unsigned long long)c->id);
                 c->compression_level = 0;
                 addReplyError(c, "Master has not enabled replication compression");
@@ -3254,12 +3276,17 @@ void syncWithMaster(connection *conn) {
             if (err) goto write_error;
         }
 
-        /* Try to setup client compression if we're configured so */
-        if (server.repl_compression > 0) {
+        /* Request compression only if the upstream connection can use an IO worker. */
+        if (server.repl_compression > 0 &&
+            canUseReplCompression(IO_THREADS_CLIENT_TYPE_MASTER | IO_THREADS_CLIENT_TYPE_MASTER_COMPRESSED))
+        {
             sds level = sdsfromlonglong(server.repl_compression);
             err = sendCommand(conn, "REPLCONF", "compression", level, NULL);
             sdsfree(level);
             if (err) goto write_error;
+        } else if (server.repl_compression > 0) {
+            serverLog(LL_NOTICE, "Not requesting replication compression from master: "
+                                "no eligible IO thread for master connections.");
         }
 
         /* Inform the master of our (slave) capabilities.
@@ -3347,8 +3374,12 @@ void syncWithMaster(connection *conn) {
         return;
     }
 
-    if (server.repl_state == REPL_STATE_RECEIVE_CLIENT_COMP && server.repl_compression <= 0)
+    if (server.repl_state == REPL_STATE_RECEIVE_CLIENT_COMP &&
+        (server.repl_compression <= 0 ||
+         !canUseReplCompression(IO_THREADS_CLIENT_TYPE_MASTER | IO_THREADS_CLIENT_TYPE_MASTER_COMPRESSED)))
+    {
         server.repl_state = REPL_STATE_RECEIVE_CAPA_REPLY;
+    }
 
     if (server.repl_state == REPL_STATE_RECEIVE_CLIENT_COMP) {
         err = receiveSynchronousResponse(conn);
@@ -4200,8 +4231,15 @@ void replDataBufReadFromConn(connection *conn, replDataBuf *buf, void (*error_ha
 /* Replication: Replica side.
  * Main channel read error handler */
 static void readReplBufferErrorHandler(connection *conn) {
-    serverLog(LL_WARNING, "Main channel error while reading from master: %s",
-              connGetLastError(conn));
+    if (connGetState(conn) == CONN_STATE_CLOSED) {
+        // if the connection is closed, there is no last error.
+        // RAM buffer size counts allocated capacity; used counts unapplied bytes
+        serverLog(LL_WARNING, "Main channel closed by master while reading replication data "
+                  "(%zu bytes accumulated, not yet applied).", server.repl_full_sync_buffer.used);
+    } else {
+        serverLog(LL_WARNING, "Main channel error while reading from master: %s",
+                  connGetLastError(conn));
+    }
     cancelReplicationHandshake(1);
 }
 
@@ -4237,6 +4275,11 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
     if (compressed_stream)
         serverAssert(server.master->compression_state);
 
+    /* Bytes consumed from all blocks so far, used to pace yielding to the
+     * event loop. Unlike ctx->applied_offset it counts input (possibly
+     * compressed) bytes, and unlike `processed` it isn't reset per block. */
+    size_t total_consumed = 0;
+
     blockingOperationStarts();
     while ((n = listFirst(buf->blocks))) {
         replDataBufBlock *o = listNodeValue(n);
@@ -4244,9 +4287,15 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
         zfree(n);
 
         size_t processed = 0;
-        while (processed < o->used) {
+        /* Copying all compressed bytes into the decompressor does not mean
+         * their commands have been applied. Drain its pending output before
+         * leaving the streaming state, even if this block is exhausted. */
+        while (processed < o->used ||
+               (compressed_stream && clientHasPendingCompressedData(c))) {
             /* Consumed bytes from the current block in the current iteration. */
             size_t consumed = 0;
+            /* Bytes passed to the command parser, after decompression (if decompression is needed). */
+            size_t applied = 0;
 
             if (compressed_stream) {
                 c->querybuf = sdsMakeRoomFor(c->querybuf, PROTO_IOBUF_LEN);
@@ -4258,10 +4307,14 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
                                                               c->querybuf + qblen,
                                                               avail,
                                                               &consumed);
-                serverAssert(decompressed >= 0);
+                if (decompressed < 0) {
+                    ret = C_ERR;
+                    break;
+                }
                 sdsIncrLen(c->querybuf, decompressed);
                 c->read_reploff += (long long) decompressed;
                 c->io_read_reploff += (long long int) decompressed;
+                applied = decompressed;
 
                 atomicIncr(server.stat_net_repl_input_decompressed_bytes, decompressed);
             } else {
@@ -4270,12 +4323,21 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
                 c->read_reploff += (long long int) bytes;
                 c->io_read_reploff += (long long int) bytes;
                 consumed = bytes;
+                applied = bytes;
             }
             c->lastinteraction = server.unixtime;
 
             /* We don't expect error return value but just in case. */
             ret = processInputBuffer(c);
             if (ret != C_OK) break;
+
+            /* Applying a command may get an error reply, e.g. the write is
+             * rejected by min-replicas-to-write. For an ASM import, this fails
+             * the task and clears this buffer, the task is retried later. */
+            if (!ctx->should_continue(ctx)) {
+                ret = C_ERR;
+                break;
+            }
 
             processed += consumed;
             buf->used -= consumed;
@@ -4291,13 +4353,14 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
 
             /* Check if we should yield back to the event loop */
             if (server.loading_process_events_interval_bytes &&
-                ((ctx->applied_offset + consumed) / server.loading_process_events_interval_bytes >
-                  ctx->applied_offset / server.loading_process_events_interval_bytes))
+                ((total_consumed + consumed) / server.loading_process_events_interval_bytes >
+                  total_consumed / server.loading_process_events_interval_bytes))
             {
                 ctx->yield_callback(ctx);
                 processEventsWhileBlocked();
             }
-            ctx->applied_offset += consumed;
+            total_consumed += consumed;
+            ctx->applied_offset += applied;
 
             /* Check if we should continue processing */
             if (!ctx->should_continue(ctx)) {
@@ -4677,6 +4740,10 @@ void replicationCacheMaster(client *c) {
     c->bufpos = 0;
     resetClient(c, -1);
     resetClientQbufState(c);
+    /* The discarded command may have been deferred during BUSY. A resumed
+     * connection must parse it again from the last applied replication offset. */
+    c->flags &= ~CLIENT_PENDING_COMMAND;
+    c->io_flags &= ~CLIENT_IO_PENDING_COMMAND;
 
     /* Save the master. Server.master will be set to null later by
      * replicationHandleMasterDisconnection(). */
@@ -4756,6 +4823,9 @@ void replicationResurrectCachedMaster(connection *conn) {
     server.master = server.cached_master;
     server.cached_master = NULL;
     server.master->conn = conn;
+    connEnableTcpNoDelay(conn);
+    if (server.tcpkeepalive)
+        connKeepAlive(conn,server.tcpkeepalive);
     connSetPrivateData(server.master->conn, server.master);
     server.master->flags &= ~(CLIENT_CLOSE_AFTER_REPLY|CLIENT_CLOSE_ASAP);
     server.master->authenticated = 1;
@@ -4892,7 +4962,7 @@ int replicationCountAOFAcksByOffset(long long offset) {
 /* WAIT for N replicas to acknowledge the processing of our latest
  * write command (and all the previous commands). */
 void waitCommand(client *c) {
-    mstime_t timeout;
+    uint64_t timeout;
     long numreplicas, ackreplicas;
     long long offset = c->woff;
 
@@ -4904,7 +4974,7 @@ void waitCommand(client *c) {
     /* Argument parsing. */
     if (getLongFromObjectOrReply(c,c->argv[1],&numreplicas,NULL) != C_OK)
         return;
-    if (getTimeoutFromObjectOrReply(c,c->argv[2],&timeout,UNIT_MILLISECONDS)
+    if (getMonotonicTimeoutFromObjectOrReply(c,c->argv[2],&timeout,UNIT_MILLISECONDS)
         != C_OK) return;
 
     /* First try without blocking at all. */
@@ -4926,7 +4996,7 @@ void waitCommand(client *c) {
 /* WAIT for N replicas and / or local master to acknowledge our latest
  * write command got synced to the disk. */
 void waitaofCommand(client *c) {
-    mstime_t timeout;
+    uint64_t timeout;
     long numreplicas, numlocal, ackreplicas, acklocal;
 
     /* Argument parsing. */
@@ -4934,7 +5004,7 @@ void waitaofCommand(client *c) {
         return;
     if (getPositiveLongFromObjectOrReply(c,c->argv[2],&numreplicas,NULL) != C_OK)
         return;
-    if (getTimeoutFromObjectOrReply(c,c->argv[3],&timeout,UNIT_MILLISECONDS) != C_OK)
+    if (getMonotonicTimeoutFromObjectOrReply(c, c->argv[3], &timeout, UNIT_MILLISECONDS) != C_OK)
         return;
 
     if (server.masterhost) {

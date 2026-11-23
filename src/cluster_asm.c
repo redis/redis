@@ -79,12 +79,16 @@ typedef struct asmTask {
     int rdb_channel_state;                  /* State of the RDB channel */
     unsigned long long dest_offset;         /* Destination offset */
     unsigned long long source_offset;       /* Source offset */
+    int phase;                              /* Snapshot, or incremental */
+    unsigned long long total_keys;          /* Total keys to migrate */
+    unsigned long long migrated_keys;       /* Already migrated keys */
     int cross_slot_during_propagating;      /* If cross-slot commands are encountered during propagating */
     int stream_eof_during_streaming;        /* If STREAM-EOF is received during streaming buffer */
     replDataBuf sync_buffer;                /* Buffer for the stream */
     client *main_channel_client;            /* Client for the main channel on the source side */
     client *rdb_channel_client;             /* Client for the RDB channel on the source side */
     long long retry_count;                  /* Number of retries for this task */
+    int retry_postponed;                    /* Logged that the retry waits for writes to be accepted */
     mstime_t create_time;                   /* Task creation time */
     mstime_t start_time;                    /* Task start time */
     mstime_t end_time;                      /* Task end time */
@@ -100,6 +104,14 @@ typedef struct asmBgTrimState {
     kvstore *target_kvstore;
     keysizesHist delta_keysizes_hist;
     keysizesHist delta_allocsizes_hist;
+    streamStatsHist delta_stream_hist; /* INFO Streams, tallied on BIO */
+    uint32_t keysizes_stats_epoch; /* db0's value captured at schedule; the
+                                      delta is applied only if it still matches
+                                      (no in-place empty happened meanwhile). */
+    int track_stream_stats;      /* stream-stats at schedule; the BIO thread reads
+                                    this instead of the live config. */
+    uint32_t stream_stats_epoch; /* db0's value at schedule; objects are tallied,
+                                    and the delta applied, only if it matches. */
 } asmBgTrimState;
 
 typedef struct asmTrimJob {
@@ -180,6 +192,11 @@ enum asmChannel {
     ASM_MIGRATE_RDB_CHANNEL        /* RDB channel for the migrate task */
 };
 
+enum asmPhase {
+    ASM_PHASE_SNAPSHOT = 1,        /* Slots snapshot phase. */
+    ASM_PHASE_INCREMENTAL          /* Incremental buffer phase. */
+};
+
 /* Global ASM manager */
 struct asmManager *asmManager = NULL;
 
@@ -194,7 +211,8 @@ void createReplicationBacklogIfNeeded(void);
 void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int flags, size_t size_hint);
 /* cluster_asm.c */
 static void asmStartImportTask(asmTask *task);
-static void asmTaskCancel(asmTask *task, const char *reason);
+static int asmTaskCancel(asmTask *task, const char *reason);
+static int asmCanFailTask(asmTask *task);
 static void asmSyncBufferReadFromConn(connection *conn);
 static void propagateTrimSlots(slotRangeArray *slots);
 void asmTrimJobSchedule(slotRangeArray *slots);
@@ -382,8 +400,12 @@ void asmTaskReset(asmTask *task) {
     task->rdb_channel_conn = NULL;
     task->dest_offset = 0;
     task->source_offset = 0;
+    task->phase = ASM_PHASE_SNAPSHOT;
+    task->total_keys = 0;
+    task->migrated_keys= 0;
     task->stream_eof_during_streaming = 0;
     task->cross_slot_during_propagating = 0;
+    task->retry_postponed = 0;
     replDataBufInit(&task->sync_buffer);
     task->main_channel_client = NULL;
     task->rdb_channel_client = NULL;
@@ -959,6 +981,14 @@ static void clusterMigrationCommandCancel(client *c) {
         return;
     }
 
+    if (listLength(asmManager->tasks)) {
+        asmTask *task = listNodeValue(listFirst(asmManager->tasks));
+        if ((!task_id || !strcmp(task->id, task_id)) && !asmCanFailTask(task)) {
+            addReplyError(c, "Slot migration is in handoff, only the cluster implementation can cancel it");
+            return;
+        }
+    }
+
     num_cancelled = clusterAsmCancel(task_id, "user request");
     addReplyLongLong(c, num_cancelled);
 }
@@ -967,7 +997,7 @@ static void clusterMigrationCommandCancel(client *c) {
 static void replyTaskStatus(client *c, asmTask *task) {
     mstime_t p = 0;
 
-    addReplyMapLen(c, 12);
+    addReplyMapLen(c, 18);
     addReplyBulkCString(c, "id");
     addReplyBulkCString(c, task->id);
     addReplyBulkCString(c, "slots");
@@ -995,6 +1025,50 @@ static void replyTaskStatus(client *c, asmTask *task) {
         p = task->end_time - task->paused_time;
     addReplyBulkCString(c, "write_pause_ms");
     addReplyLongLong(c, p);
+
+    addReplyBulkCString(c, "phase");
+    addReplyBulkCString(c, task->phase == ASM_PHASE_SNAPSHOT ? "snapshot" : "incremental");
+
+    /* Snapshot progress percentage. */
+    addReplyBulkCString(c, "snapshot_progress_perc");
+    unsigned long long migrated = task->migrated_keys;
+    /* Importing slots start empty, so their current key count reflects progress. */
+    if (task->operation == ASM_IMPORT && task->state == ASM_ACCUMULATE_BUF)
+        migrated = getKeyCountInSlotRangeArray(task->slots);
+    if (task->phase == ASM_PHASE_INCREMENTAL) {
+        addReplyDouble(c, 100);
+    } else {
+        addReplyDouble(c, task->total_keys ? (double)migrated / task->total_keys * 100 : 0);
+    }
+
+    /* Incremental progress percentage. */
+    addReplyBulkCString(c, "incremental_progress_perc");
+    if (task->phase == ASM_PHASE_SNAPSHOT) {
+        addReplyDouble(c, 0);
+    } else {
+        double progress = 0.0;
+        if (task->source_offset != 0) {
+            /* Measure acknowledged bytes against generated bytes on the source,
+             * and applied bytes against received bytes on the destination.
+             * Progress may decrease as more incremental data arrives. */
+            progress = (double)task->dest_offset / task->source_offset * 100;
+        }
+        addReplyDouble(c, task->state == ASM_COMPLETED ? 100 : min(progress, 99.99));
+    }
+
+    addReplyBulkCString(c, "snapshot_total_keys");
+    addReplyUnsignedLongLong(c, task->total_keys);
+    addReplyBulkCString(c, "snapshot_processed_keys");
+    addReplyUnsignedLongLong(c, task->phase == ASM_PHASE_INCREMENTAL ?
+                                task->total_keys : migrated);
+
+    /* Source: generated but not acknowledged. Destination: received but not applied.
+     * Completed tasks have no lag, even if the final offsets were not sampled. */
+    unsigned long long lag = 0;
+    if (task->state != ASM_COMPLETED && task->source_offset > task->dest_offset)
+        lag = task->source_offset - task->dest_offset;
+    addReplyBulkCString(c, "incremental_lag_bytes");
+    addReplyUnsignedLongLong(c, lag);
 }
 
 /* CLUSTER MIGRATION STATUS [ID <task-id> | ALL]
@@ -1155,6 +1229,10 @@ void asmImportSetFailed(asmTask *task) {
     serverAssert(task->operation == ASM_IMPORT);
     if (task->state == ASM_FAILED) return;
 
+    /* Retain progress before failed/canceled import data is trimmed. */
+    if (task->state == ASM_ACCUMULATE_BUF)
+        task->migrated_keys = getKeyCountInSlotRangeArray(task->slots);
+
     /* If we are in the RDB channel transfer state, we need to
      * close the client that was created for the RDB channel. */
     if (task->rdb_channel_conn && task->rdb_channel_state == ASM_RDBCHANNEL_TRANSFER) {
@@ -1217,6 +1295,9 @@ void asmMigrateSetFailed(asmTask *task) {
      * to make asmTaskReset work properly after migrate task failed  */
     replDataBufClear(&task->sync_buffer);
 
+    /* Resume writes if they were paused for the handoff. */
+    unpauseActions(PAUSE_DURING_SLOT_HANDOFF);
+
     /* Mark the task as failed and notify the cluster */
     task->state = ASM_FAILED;
     asmNotifyStateChange(task, ASM_EVENT_MIGRATE_FAILED);
@@ -1268,12 +1349,57 @@ void asmTaskFinalize(asmTask *task) {
     listLinkNodeHead(asmManager->archived_tasks, ln);
 }
 
-static void asmTaskCancel(asmTask *task, const char *reason) {
-    if (task->state == ASM_CANCELED) return;
+/* Returns 1 if the task sent or received STREAM-EOF and waits for the cluster
+ * implementation to update the slot configuration. */
+static int asmTaskInHandoff(asmTask *task) {
+    return (task->operation == ASM_MIGRATE && task->state == ASM_STREAM_EOF) ||
+           (task->operation == ASM_IMPORT && task->state == ASM_TAKEOVER);
+}
+
+/* May Redis fail this task on its own, on write pause timeout or cancel?
+ * Returns 1 if it can, 0 if it must keep the task and wait for the cluster
+ * implementation.
+ *
+ * After STREAM-EOF, the cluster implementation may give the slots to the
+ * destination at any moment, and neither node knows when. If the source fails
+ * the task now and resumes writes, the destination never sees those writes. If
+ * the destination fails the import, it trims the imported data.
+ *
+ * When this returns 0, Redis keeps the task and ignores every cancel except
+ * ASM_EVENT_CANCEL from the cluster implementation. The cluster implementation
+ * ends the migration with ASM_EVENT_DONE if the slots moved, or
+ * ASM_EVENT_CANCEL if they stayed.
+ *
+ * The legacy cluster always returns 1. Returning 0 is for alternative cluster
+ * implementations that cannot let Redis fail the task after STREAM-EOF. */
+static int asmCanFailTask(asmTask *task) {
+    UNUSED(task);
+    return 1; /* Safe to fail the task. */
+}
+
+/* Returns 1 if the task sent or received STREAM-EOF and waits for the cluster
+ * implementation to update the slot configuration. */
+int asmHandoffInProgress(void) {
+    if (!asmManager || listLength(asmManager->tasks) == 0) return 0;
+
+    asmTask *task = listNodeValue(listFirst(asmManager->tasks));
+    return asmTaskInHandoff(task);
+}
+
+/* See clusterAsmForceCancel() for 'force'. Returns 1 if the task was cancelled. */
+static int asmTaskCancelGeneric(asmTask *task, const char *reason, int force) {
+    if (task->state == ASM_CANCELED) return 0;
+    if (!force && !asmCanFailTask(task)) return 0;
 
     asmTaskSetFailed(task, "Cancelled due to %s", reason);
     task->state = ASM_CANCELED;
     asmTaskFinalize(task);
+    return 1;
+}
+
+/* Returns 1 if the task was cancelled. */
+static int asmTaskCancel(asmTask *task, const char *reason) {
+    return asmTaskCancelGeneric(task, reason, 0);
 }
 
 void asmImportTakeover(asmTask *task) {
@@ -1709,10 +1835,18 @@ void asmSlotSnapshotAndStreamStart(struct asmTask *task) {
     task->state = ASM_SEND_BULK_AND_STREAM;
     task->rdb_channel_state = ASM_RDBCHANNEL_TRANSFER;
 
+    /* Called immediately before fork, with no intervening keyspace changes. */
+    task->total_keys = getKeyCountInSlotRangeArray(task->slots);
+
     /* From the source node's perspective, the destination node begins to accumulate
      * the buffer while the RDB channel starts applying the slot snapshot data. */
     task->dest_state = ASM_ACCUMULATE_BUF;
     task->dest_slots_snapshot_time = server.mstime;
+}
+
+/* Return the key count captured before forking the child. */
+unsigned long long asmGetTaskTotalKeys(struct asmTask *task) {
+    return task ? task->total_keys : 0;
 }
 
 /* Called when the RDB channel has succeeded in sending the snapshot. */
@@ -1725,6 +1859,7 @@ void asmSlotSnapshotSucceed(struct asmTask *task) {
     task->main_channel_client->lastinteraction = server.unixtime;
 
     task->state = ASM_SEND_STREAM;
+    task->phase = ASM_PHASE_INCREMENTAL;
     task->rdb_channel_state = ASM_COMPLETED;
 }
 
@@ -1775,6 +1910,7 @@ void clusterSyncSlotsSnapshotEOF(client *c) {
      * just update the state here, and do it in beforeSleep(). */
     task->state = ASM_READY_TO_STREAM;
     connSetReadHandler(task->main_channel_conn, NULL);
+    task->phase = ASM_PHASE_INCREMENTAL;
 }
 
 /* CLUSTER SYNCSLOTS STREAM-EOF
@@ -2165,6 +2301,7 @@ void clusterSyncSlotsCommand(client *c) {
                                          task->source_offset - task->dest_offset,
                                          server.asm_handoff_max_lag_bytes);
                     task->state = ASM_HANDOFF_PREP;
+                    task->phase = ASM_PHASE_INCREMENTAL;
                     asmLogTaskEvent(task, ASM_EVENT_HANDOFF_PREP);
                     clusterAsmOnEvent(task->id, ASM_EVENT_HANDOFF_PREP, task->slots);
                 }
@@ -2224,6 +2361,29 @@ void clusterSyncSlotsCommand(client *c) {
                 kvstoreDictExpand(db->expires, slot, expire_size);
 
                 sdsfreesplitres(parts, count);
+            } else if (!strcasecmp(c->argv[j]->ptr, "snapshot-info")) {
+                /* snapshot-info key_count[:...]
+                 * New fields can be appended; ignore fields we do not yet understand. */
+                int count = 0;
+                sds info = c->argv[j + 1]->ptr;
+                sds *parts = sdssplitlen(info, sdslen(info), ":", 1, &count);
+                long long keys;
+                int valid = parts != NULL && count >= 1 &&
+                            string2ll(parts[0], sdslen(parts[0]), &keys) && keys >= 0;
+                sdsfreesplitres(parts, count);
+                if (!valid) {
+                    addReplyErrorFormat(c, "Invalid snapshot info: %s", info);
+                    return;
+                }
+
+                /* Replicas can receive this metadata through replication,
+                 * but only the importing RDB channel owns snapshot progress. */
+                asmTask *task = c->task;
+                if (task && task->operation == ASM_IMPORT &&
+                    c->conn == task->rdb_channel_conn)
+                {
+                    task->total_keys = keys;
+                }
             } else if (!strcasecmp(c->argv[j]->ptr, "asm-task")) {
                 /* asm-task task_id:source_node:dest_node:operation:state:slot_ranges */
                 if (clusterNodeIsMaster(getMyClusterNode())) {
@@ -2236,6 +2396,11 @@ void clusterSyncSlotsCommand(client *c) {
                 }
             } else if (!strcasecmp(c->argv[j]->ptr, "capa")) {
                 /* Ignore unrecognized capabilities. This is for future extensions. */
+            } else if (c->flags & CLIENT_MASTER) {
+                /* Tolerate options of a newer source or master, an error
+                 * reply would fail the import task. */
+                serverLog(LL_WARNING, "Unknown CLUSTER SYNCSLOTS CONF option %s",
+                                      (char *)c->argv[j]->ptr);
             } else {
                 addReplyErrorFormat(c, "Unknown option %s", (char *)c->argv[j]->ptr);
             }
@@ -2384,6 +2549,8 @@ int slotSnapshotSaveRio(int req, rio *rdb, int *error) {
 
     dictEntry *de;
     kvstoreDictIterator kvs_di;
+    size_t migrated_keys = 0;
+    mstime_t info_updated = 0;
 
     if (unlikely(asmDebugIsFailPointActive(ASM_MIGRATE_RDB_CHANNEL, ASM_SEND_BULK_AND_STREAM)))
         rioAbort(rdb); /* Simulate a failure */
@@ -2396,6 +2563,16 @@ int slotSnapshotSaveRio(int req, rio *rdb, int *error) {
     serverAssert(listLength(asmManager->tasks) == 1);
     asmTask *task = listNodeValue(listFirst(asmManager->tasks));
     serverAssert(task->operation == ASM_MIGRATE);
+
+    /* Send the snapshot total inherited from the parent at fork time. */
+    char info[64];
+    int len = snprintf(info, sizeof(info), "%llu", task->total_keys);
+    if (rioWriteBulkCount(rdb, '*', 5) == 0) goto werr;
+    if (rioWriteBulkString(rdb, "CLUSTER", 7) == 0) goto werr;
+    if (rioWriteBulkString(rdb, "SYNCSLOTS", 9) == 0) goto werr;
+    if (rioWriteBulkString(rdb, "CONF", 4) == 0) goto werr;
+    if (rioWriteBulkString(rdb, "SNAPSHOT-INFO", 13) == 0) goto werr;
+    if (rioWriteBulkString(rdb, info, len) == 0) goto werr;
 
     if (propagateModuleCommands(task, rdb) == C_ERR) goto werr;
 
@@ -2433,6 +2610,7 @@ int slotSnapshotSaveRio(int req, rio *rdb, int *error) {
                 int send_slot_info = 0;
 
                 kvstoreInitDictIterator(&kvs_di, server.db->keys, k);
+                kvstoreDictIteratorEnablePrefetch(&kvs_di);
                 while ((de = kvstoreDictIteratorNext(&kvs_di)) != NULL) {
                     /* Send slot info before the first key in the slot */
                     if (!send_slot_info) {
@@ -2456,6 +2634,15 @@ int slotSnapshotSaveRio(int req, rio *rdb, int *error) {
                     /* Save a key-value pair */
                     kvobj *o = dictGetKV(de);
                     if (slotSnapshotSaveKeyValuePair(rdb, o, db->id) == C_ERR) goto werr2;
+
+                    /* Use the same child-info channel and reporting interval as RDB saves. */
+                    if ((migrated_keys++ & 1023) == 0) {
+                        mstime_t now = mstime();
+                        if (now - info_updated >= 1000) {
+                            sendChildInfo(CHILD_INFO_TYPE_CURRENT_INFO, migrated_keys, "ASM");
+                            info_updated = now;
+                        }
+                    }
 
                     /* Delay return if required (for testing) */
                     if (unlikely(server.rdb_key_save_delay)) {
@@ -2491,6 +2678,8 @@ static void asmReadSyncBufferErrorHandler(connection *conn) {
 
     if (task->state == ASM_STREAMING_BUF) {
         freeClient(connGetPrivateData(conn));
+    } else if (connGetState(conn) == CONN_STATE_CLOSED) {
+        asmTaskSetFailed(task, "Main channel - Connection closed by source node");
     } else {
         asmTaskSetFailed(task, "Main channel - Read error: %s", connGetLastError(conn));
     }
@@ -2519,7 +2708,11 @@ static void asmSyncBufferReadFromConn(connection *conn) {
         buf->last_num_blocks = listLength(buf->blocks);
     }
 
+    size_t used = buf->used;
     replDataBufReadFromConn(conn, buf, asmReadSyncBufferErrorHandler);
+    /* Update read offset if the task is still running. */
+    if (task->state == ASM_ACCUMULATE_BUF || task->state == ASM_STREAMING_BUF)
+        task->source_offset += buf->used - used;
 }
 
 static void asmSyncBufferStreamYieldCallback(void *ctx) {
@@ -2527,8 +2720,11 @@ static void asmSyncBufferStreamYieldCallback(void *ctx) {
     asmTask *task = context->privdata;
     client *c = context->client;
 
+    /* Update applied offset on destination side. */
+    task->dest_offset = context->applied_offset;
+
     char offset[64];
-    ull2string(offset, sizeof(offset), context->applied_offset);
+    ull2string(offset, sizeof(offset), task->dest_offset);
 
     char *err = sendCommand(c->conn, "CLUSTER", "SYNCSLOTS", "ACK",
                     asmTaskStateToString(task->state), offset, NULL);
@@ -2537,8 +2733,8 @@ static void asmSyncBufferStreamYieldCallback(void *ctx) {
         sdsfree(err);
         freeClient(c);
     }
-    serverLog(LL_DEBUG, "Yielding sending ACK during streaming buffer, applied offset: %zu",
-                         context->applied_offset);
+    serverLog(LL_DEBUG, "Yielding sending ACK during streaming buffer, applied offset: %llu",
+                        task->dest_offset);
 }
 
 static int asmSyncBufferStreamShouldContinue(void *ctx) {
@@ -2624,6 +2820,17 @@ void asmImportIncrAppliedBytes(struct asmTask *task, size_t bytes) {
     task->dest_offset += bytes;
 }
 
+/* Track received bytes for destination-side incremental progress. This is only
+ * an estimate of catch-up progress: network delays may leave substantial data
+ * on the source or in transit, which is not included in the receive counter.
+ * Since the live streaming phase is usually short, we avoid the complexity of
+ * an additional mechanism to report the source offset to the destination. */
+void asmImportIncrReceivedBytes(struct asmTask *task, size_t bytes) {
+    /* Accumulated buffer is already counted by asmSyncBufferReadFromConn(). */
+    if (!task || task->state != ASM_WAIT_STREAM_EOF) return;
+    task->source_offset += bytes;
+}
+
 /* Send STREAM-EOF if the sync buffer stream is drained. */
 void asmSendStreamEofIfDrained(asmTask *task) {
     client *c = task->main_channel_client;
@@ -2685,6 +2892,11 @@ void asmBeforeSleep(void) {
     }
 
     if (task->operation == ASM_MIGRATE) {
+        /* Copy the latest child-info counter into the active task here, keeping
+         * childinfo independent of ASM. A small reporting delay is acceptable. */
+        if (task->state == ASM_SEND_BULK_AND_STREAM)
+            task->migrated_keys = server.stat_current_save_keys_processed;
+
         if (task->cross_slot_during_propagating) {
             asmTaskCancel(task, "propagating cross slot command");
             return;
@@ -2694,6 +2906,29 @@ void asmBeforeSleep(void) {
         if (task->state == ASM_HANDOFF)
             asmSendStreamEofIfDrained(task);
     }
+}
+
+/* Restart a failed import task. */
+static void asmImportRetry(asmTask *task) {
+    /* If this node denies writes (min-replicas-to-write is not satisfied or
+     * there is a disk error), it rejects the import stream and the task
+     * fails again. Do not retry until writes are accepted, log it once. */
+    const char *reason = NULL;
+    if (!checkGoodReplicasStatus())
+        reason = "not enough good replicas";
+    else if (writeCommandsDeniedByDiskError() != DISK_ERROR_TYPE_NONE)
+        reason = "writes are denied by a disk error";
+
+    if (reason) {
+        if (!task->retry_postponed)
+            serverLog(LL_NOTICE, "Import task %s is not retried, %s", task->id, reason);
+        task->retry_postponed = 1;
+        return;
+    }
+    asmTaskReset(task);
+    task->retry_count++;
+    serverAssert(task->state == ASM_NONE);
+    asmStartImportTask(task);
 }
 
 void asmCron(void) {
@@ -2706,12 +2941,7 @@ void asmCron(void) {
     if (task->operation == ASM_IMPORT) {
         if (task->state == ASM_FAILED) {
             /* Retry every 1 second */
-            if (asm_cron_runs % 10 == 0) {
-                asmTaskReset(task);
-                task->retry_count++;
-                serverAssert(task->state == ASM_NONE);
-                asmStartImportTask(task);
-            }
+            if (asm_cron_runs % 10 == 0) asmImportRetry(task);
         } else if (task->state == ASM_WAIT_STREAM_EOF) {
             if (asmImportSendACK(task) == C_ERR) return;
 
@@ -2776,8 +3006,12 @@ void asmCron(void) {
              * destination node becomes the winner, since it bumps its config 
              * epoch before taking over slot ownership. During this window, 
              * writes accepted by the source will not be replicated to the
-             * destination and those writes will be lost.*/
-            if (server.mstime - task->paused_time >= server.asm_write_pause_timeout) {
+             * destination and those writes will be lost. A cluster
+             * implementation may not allow this failure, then writes stay
+             * paused after STREAM-EOF, see asmCanFailTask(). */
+            if (asmCanFailTask(task) &&
+                server.mstime - task->paused_time >= server.asm_write_pause_timeout)
+            {
                 asmTaskSetFailed(task, "Write pause timeout during slot handoff: destination did not take ownership within %lld ms.",
                                  server.asm_write_pause_timeout);
                 return;
@@ -2793,16 +3027,14 @@ void asmCron(void) {
     }
 }
 
-/* Cancel a specific task if ID is provided, otherwise cancel all tasks. */
-int clusterAsmCancel(const char *task_id, const char *reason) {
+static int clusterAsmCancelGeneric(const char *task_id, const char *reason, int force) {
     if (asmManager == NULL) return 0;
 
     if (task_id) {
         asmTask *task = asmLookupTaskById(task_id);
         if (!task) return 0; /* Not found */
 
-        asmTaskCancel(task, reason);
-        return 1;
+        return asmTaskCancelGeneric(task, reason, force);
     } else {
         int num_cancelled = 0;
         listIter li;
@@ -2811,11 +3043,23 @@ int clusterAsmCancel(const char *task_id, const char *reason) {
         listRewind(asmManager->tasks, &li);
         while ((ln = listNext(&li)) != NULL) {
             asmTask *task = listNodeValue(ln);
-            asmTaskCancel(task, reason);
-            num_cancelled++;
+            num_cancelled += asmTaskCancelGeneric(task, reason, force);
         }
         return num_cancelled;
     }
+}
+
+/* Cancel a specific task if ID is provided, otherwise cancel all tasks.
+ * Returns the number of tasks cancelled. */
+int clusterAsmCancel(const char *task_id, const char *reason) {
+    return clusterAsmCancelGeneric(task_id, reason, 0);
+}
+
+/* Same as clusterAsmCancel(), but also cancels the task in ASM_STREAM_EOF
+ * state on the source or in ASM_TAKEOVER state on the destination, where a
+ * cancel is otherwise ignored, see asmCanFailTask(). */
+int clusterAsmForceCancel(const char *task_id, const char *reason) {
+    return clusterAsmCancelGeneric(task_id, reason, 1);
 }
 
 /* Cancel all tasks that overlap with the given slot ranges.
@@ -2829,10 +3073,8 @@ int clusterAsmCancelBySlotRangeArray(struct slotRangeArray *slots, const char *r
     listRewind(asmManager->tasks, &li);
     while ((ln = listNext(&li)) != NULL) {
         asmTask *task = listNodeValue(ln);
-        if (!slots || slotRangeArraysOverlap(task->slots, slots)) {
-            asmTaskCancel(task, reason);
-            num_cancelled++;
-        }
+        if (!slots || slotRangeArraysOverlap(task->slots, slots))
+            num_cancelled += asmTaskCancel(task, reason);
     }
     return num_cancelled;
 }
@@ -2844,9 +3086,9 @@ int clusterAsmCancelBySlot(int slot, const char *reason) {
 
     /* Cancel it if found. */
     asmTask *task = lookupAsmTaskBySlotRange(&req);
-    if (task) asmTaskCancel(task, reason);
+    if (!task) return 0;
 
-    return task ? 1 : 0;
+    return asmTaskCancel(task, reason);
 }
 
 /* Cancel all tasks if this node is no longer a primary, and cancel tasks
@@ -2866,10 +3108,8 @@ int clusterAsmCancelInvalidTasks(void) {
         clusterNode *source = clusterLookupNode(task->source, CLUSTER_NAMELEN);
         clusterNode *dest = clusterLookupNode(task->dest, CLUSTER_NAMELEN);
 
-        if (!source || !dest) {
-            asmTaskCancel(task, "node deleted");
-            num_cancelled++;
-        }
+        if (!source || !dest)
+            num_cancelled += asmTaskCancel(task, "node deleted");
     }
     return num_cancelled;
 }
@@ -2929,6 +3169,7 @@ int clusterAsmHandoff(const char *task_id, sds *err) {
 
     task->state = ASM_HANDOFF;
     task->paused_time = server.mstime;
+    pauseActions(PAUSE_DURING_SLOT_HANDOFF, LLONG_MAX, PAUSE_ACTIONS_CLIENT_WRITE_SET);
 
     /* Now that writes are paused and no more user commands will be fed to the
      * main channel, give modules a chance to propagate commands at the end of
@@ -2949,18 +3190,15 @@ int clusterAsmDone(const char *task_id, sds *err) {
         return C_ERR;
     }
 
-    int event = -1;
-    if (task->operation == ASM_IMPORT && task->state == ASM_TAKEOVER) {
-        event = ASM_EVENT_IMPORT_COMPLETED;
-    } else if (task->operation == ASM_MIGRATE && task->state == ASM_STREAM_EOF) {
-        event = ASM_EVENT_MIGRATE_COMPLETED;
-    } else {
+    if (!asmTaskInHandoff(task)) {
         *err = sdscatprintf(sdsempty(),
                             "ASM task is not in the correct state for config update: %s",
                             asmTaskStateToString(task->state));
         asmTaskCancel(task, "slots configuration updated");
         return C_ERR;
     }
+    int event = task->operation == ASM_IMPORT ? ASM_EVENT_IMPORT_COMPLETED :
+                                                ASM_EVENT_MIGRATE_COMPLETED;
 
     /* Clear error message if successful. */
     sdsfree(task->error);
@@ -2970,9 +3208,11 @@ int clusterAsmDone(const char *task_id, sds *err) {
     asmNotifyStateChange(task, event);
     asmTaskFinalize(task);
 
-    /* Trim the slots after the migrate task is completed. */
-    if (event == ASM_EVENT_MIGRATE_COMPLETED)
+    /* The migrate task is completed, resume writes and trim the slots. */
+    if (event == ASM_EVENT_MIGRATE_COMPLETED) {
+        unpauseActions(PAUSE_DURING_SLOT_HANDOFF);
         asmTrimJobSchedule(task->slots);
+    }
 
     return C_OK;
 }
@@ -2997,7 +3237,7 @@ int clusterAsmProcess(const char *task_id, int event, void *arg, char **err) {
             break;
         }
         case ASM_EVENT_CANCEL: {
-            num_cancelled = clusterAsmCancel(task_id, "user request");
+            num_cancelled = clusterAsmForceCancel(task_id, "user request");
             if (arg) *((int *)arg) = num_cancelled;
             ret = C_OK;
             break;
@@ -3089,19 +3329,29 @@ static void asmTrimJobPopulateDeltaHistograms(kvstore *kvs, void *userdata) {
     while ((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
         kvobj *kv = dictGetKV(de);
         if (!kv) continue;
+
+        /* INFO Streams rows (bg trim frees streams without streamKeyRemoved).
+         * Safe to read here: the trimmed slots are in a detached kvstore this
+         * thread owns. Gated on the state captured at schedule, not the live
+         * config, and only samples stamped with the captured generation are
+         * tallied; completion re-validates that generation. */
+        if (trim_job->bg->track_stream_stats && kv->type == OBJ_STREAM) {
+            streamTallyStreamSamples(kv->ptr, trim_job->bg->delta_stream_hist, trim_job->bg->stream_stats_epoch);
+        }
+
         int64_t *keysizes_row = keysizesHistRow(trim_job->bg->delta_keysizes_hist, kv->type);
         if (!keysizes_row) continue; /* untracked type, e.g. OBJ_MODULE */
 
         size_t len = getObjectLength(kv);
-        int size_bin = (len == 0) ? 0 : log2ceil(len) + 1; /* Only strings can be empty */
-        debugServerAssert(size_bin < MAX_KEYSIZES_BINS);
+        /* Strings, streams and bitmaps can be empty. */
+        int size_bin = (len == 0) ? 0 : min(log2ceil(len) + 1, MAX_KEYSIZES_BINS - 1);
         keysizes_row[size_bin]++;
 
         if (server.memory_tracking_enabled) {
             int64_t *allocsizes_row = keysizesHistRow(trim_job->bg->delta_allocsizes_hist, kv->type);
             size_t alloc_size = kvobjAllocSize(kv);
-            int alloc_bin = (alloc_size == 0) ? 0 : log2ceil(alloc_size) + 1;
-            debugServerAssert(alloc_bin < MAX_KEYSIZES_BINS);
+            int alloc_bin = (alloc_size == 0) ? 0 :
+                            min(log2ceil(alloc_size) + 1, MAX_KEYSIZES_BINS - 1);
             allocsizes_row[alloc_bin]++;
         }
     }
@@ -3115,12 +3365,30 @@ static void asmBackgroundTrimDoneCB(uint64_t client_id, void *userdata) {
     serverAssert(job && job->bg && job->client_id == client_id);
 
     kvstoreMetadata *meta = kvstoreGetMetadata(server.db[0].keys);
-    /* Apply histogram deltas only if the target kvstore has not changed. */
-    if (job->bg->target_kvstore == server.db[0].keys && meta) {
+    /* Apply the histogram deltas only if the target kvstore has not changed and
+     * its histograms were not zeroed meanwhile (a sync FLUSH empties it in
+     * place and advances its generation, see kvstoreOnEmpty). */
+    if (job->bg->target_kvstore == server.db[0].keys && meta &&
+        job->bg->keysizes_stats_epoch == meta->keysizes_stats_epoch)
+    {
         for (int row = 0; row < MAX_KEYSIZES_ROWS; row++) {
             for (int bin = 0; bin < MAX_KEYSIZES_BINS; bin++) {
                 meta->keysizes_hist[row][bin] -= job->bg->delta_keysizes_hist[row][bin];
                 meta->allocsizes_hist[row][bin] -= job->bg->delta_allocsizes_hist[row][bin];
+            }
+        }
+        /* The INFO Streams rows have a generation of their own, which a
+         * stale re-enable and a rebuild also advance, and were tallied only
+         * if tracking was on at schedule. The tally counted only samples that
+         * are in these rows, so the subtraction cannot go below zero. */
+        if (job->bg->track_stream_stats &&
+            job->bg->stream_stats_epoch == meta->stream_stats_epoch)
+        {
+            for (int m = 0; m < STREAM_DISTRIB_MAX; m++) {
+                for (int bin = 0; bin < MAX_KEYSIZES_BINS; bin++) {
+                    debugServerAssert(meta->stream_hist[m][bin] >= job->bg->delta_stream_hist[m][bin]);
+                    meta->stream_hist[m][bin] -= job->bg->delta_stream_hist[m][bin];
+                }
             }
         }
     }
@@ -3142,11 +3410,24 @@ static void asmBackgroundTrimDoneCB(uint64_t client_id, void *userdata) {
  * detached data, followed by a completion request that notifies the main thread
  * to apply the deltas, reply to the client if needed. */
 static void asmTriggerBackgroundTrim(asmTrimJob *job) {
+    redisDb *db = &server.db[0]; /* cluster mode has a single db */
     /* Allocate histogram tracking state only for background trim. */
     serverAssert(job && job->bg == NULL);
     job->bg = zcalloc(sizeof(*job->bg));
     /* Save the target kvstore for completion validation. */
-    job->bg->target_kvstore = server.db[0].keys;
+    job->bg->target_kvstore = db->keys;
+    /* Capture the histogram generations now, on the main thread: the completion
+     * applies a delta only if its generation still matches (see
+     * asmBackgroundTrimDoneCB). For the INFO Streams rows also capture the
+     * tracking state, which the BIO thread reads instead of the live config. */
+    kvstoreMetadata *meta = kvstoreGetMetadata(db->keys);
+    job->bg->keysizes_stats_epoch = meta ? meta->keysizes_stats_epoch : 0;
+    job->bg->track_stream_stats = server.stream_stats;
+    /* Off: these keys leave with their samples untallied, so the rows fall
+     * behind and enabling must start a new generation. */
+    if (!server.stream_stats && !server.stream_stats_needs_reset)
+        server.stream_stats_needs_reset = 1;
+    job->bg->stream_stats_epoch = meta ? meta->stream_stats_epoch : STREAM_DISTRIB_NEVER_COUNTED;
 
     /* Increment background trim counter. */
     asmManager->bg_trim_running++;
@@ -3186,19 +3467,19 @@ static void asmTriggerBackgroundTrim(asmTrimJob *job) {
     /* Move slot dictionaries from main DB to temp kvstores (O(1) per slot) */
     for (int i = 0; i < slots->num_ranges; i++) {
         for (int slot = slots->ranges[i].start; slot <= slots->ranges[i].end; slot++) {
-            total_keys += kvstoreDictSize(server.db[0].keys, slot);
-            kvstoreMoveDict(server.db[0].keys, keys, slot);
-            kvstoreMoveDict(server.db[0].expires, expires, slot);
-            estoreMoveEbuckets(server.db[0].subexpires, subexpires, slot);
-            kvstoreMoveDict(server.db[0].blessed_keys, blessed_keys, slot);
+            total_keys += kvstoreDictSize(db->keys, slot);
+            kvstoreMoveDict(db->keys, keys, slot);
+            kvstoreMoveDict(db->expires, expires, slot);
+            estoreMoveEbuckets(db->subexpires, subexpires, slot);
+            kvstoreMoveDict(db->blessed_keys, blessed_keys, slot);
         }
     }
     /* Move stream IDMP keys from main DB to temp dict (O(IDMP entries x number of slot ranges)) */
-    streamMoveIdmpKeys(server.db[0].stream_idmp_keys, stream_idmp_keys, slots);
+    streamMoveIdmpKeys(db->stream_idmp_keys, stream_idmp_keys, slots);
 
     /* kvstoreMoveDict bypassed blessUntrack, so fix up db 0's cached overhead
      * byte-count for the entries that just left its index. */
-    blessedIndexReconcileMoved(&server.db[0], blessed_keys);
+    blessedIndexReconcileMoved(db, blessed_keys);
 
     /* The temp blessed-keys index is freed on the BIO thread alongside the other
      * detached slot structures; the callback computes the keysize deltas. */

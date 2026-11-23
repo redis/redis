@@ -1818,6 +1818,112 @@ start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"] tags
     }
 }
 
+start_server {tags {acl external:skip}} {
+    test {BLESS SET/CLEAR belong to @write and @dangerous, GET/SCAN to @keyspace} {
+        foreach subcommand {bless|set bless|clear} {
+            assert_equal -1 [lsearch -exact [r ACL CAT keyspace] $subcommand]
+            assert_not_equal -1 [lsearch -exact [r ACL CAT write] $subcommand]
+            assert_not_equal -1 [lsearch -exact [r ACL CAT dangerous] $subcommand]
+            set command [lindex [r COMMAND INFO $subcommand] 0]
+            assert_not_equal -1 [lsearch -exact [lindex $command 2] write]
+        }
+        foreach subcommand {bless|get bless|scan} {
+            assert_not_equal -1 [lsearch -exact [r ACL CAT keyspace] $subcommand]
+            assert_equal -1 [lsearch -exact [r ACL CAT write] $subcommand]
+            assert_equal -1 [lsearch -exact [r ACL CAT dangerous] $subcommand]
+        }
+    }
+
+    foreach permissions {{+@keyspace} {+@all -@dangerous}} {
+    test "BLESS SET/CLEAR are not granted by $permissions" {
+        r DEL bless-key
+        r SET bless-key value
+        r ACL SETUSER bless-user reset on nopass ~* {*}$permissions
+        set client [redis_client]
+        $client AUTH bless-user ""
+
+        assert_error {NOPERM *'bless|set'*} {$client BLESS SET bless-key NO-EVICT}
+        assert_equal {} [r BLESS GET bless-key]
+        r BLESS SET bless-key NO-EVICT
+        assert_error {NOPERM *'bless|clear'*} {$client BLESS CLEAR bless-key NO-EVICT}
+        assert_equal {NO-EVICT} [r BLESS GET bless-key]
+
+        # GET and SCAN remain available through @keyspace.
+        assert_equal {NO-EVICT} [$client BLESS GET bless-key]
+        assert_equal {bless-key} [lindex [$client BLESS SCAN 0 NO-EVICT] 1]
+
+        $client close
+        r ACL DELUSER bless-user
+        r DEL bless-key
+    }
+    }
+
+    test {BLESS SET/CLEAR are granted by +@write} {
+        r DEL bless-key
+        r SET bless-key value
+        r ACL SETUSER bless-user reset on nopass ~* +@write
+        set client [redis_client]
+        $client AUTH bless-user ""
+
+        assert_equal 1 [$client BLESS SET bless-key NO-EVICT]
+        assert_equal {NO-EVICT} [r BLESS GET bless-key]
+        assert_equal 1 [$client BLESS CLEAR bless-key NO-EVICT]
+        assert_equal {} [r BLESS GET bless-key]
+
+        $client close
+        r ACL DELUSER bless-user
+        r DEL bless-key
+    }
+
+    test {BLESS SET/CLEAR can be granted individually by explicit subcommand permissions} {
+        r DEL bless-key
+        r SET bless-key value
+        r ACL SETUSER bless-user reset on nopass ~* +bless|set
+        set client [redis_client]
+        $client AUTH bless-user ""
+
+        assert_equal 1 [$client BLESS SET bless-key NO-EVICT]
+        assert_error {NOPERM *'bless|clear'*} {$client BLESS CLEAR bless-key NO-EVICT}
+        assert_equal {NO-EVICT} [r BLESS GET bless-key]
+
+        r ACL SETUSER bless-user reset on nopass ~* +bless|clear
+        assert_error {NOPERM *'bless|set'*} {$client BLESS SET bless-key NO-EVICT}
+        assert_equal 1 [$client BLESS CLEAR bless-key NO-EVICT]
+        assert_equal {} [r BLESS GET bless-key]
+
+        $client close
+        r ACL DELUSER bless-user
+        r DEL bless-key
+    }
+
+    test {BLESS SET/CLEAR keep RW key specs without UPDATE and accept either %R or %W} {
+        foreach subcommand {SET CLEAR} {
+            assert_equal {{bless-key RW}} [r COMMAND GETKEYSANDFLAGS BLESS $subcommand bless-key NO-EVICT]
+        }
+
+        r DEL bless-key bless-other
+        r SET bless-key value
+        r SET bless-other value
+        foreach permission {%R~bless-key %W~bless-key} {
+            r ACL SETUSER bless-user reset on nopass $permission +bless|set +bless|clear
+            set client [redis_client]
+            $client AUTH bless-user ""
+
+            assert_equal 1 [$client BLESS SET bless-key NO-EVICT]
+            assert_equal {NO-EVICT} [r BLESS GET bless-key]
+            assert_equal 1 [$client BLESS CLEAR bless-key NO-EVICT]
+            assert_equal {} [r BLESS GET bless-key]
+            foreach subcommand {SET CLEAR} {
+                assert_error {NOPERM *key*} {$client BLESS $subcommand bless-other NO-EVICT}
+            }
+
+            $client close
+        }
+        r ACL DELUSER bless-user
+        r DEL bless-key bless-other
+    }
+}
+
 start_server {overrides {user "default on nopass ~* +@all -flushdb"} tags {acl external:skip}} {
     test {ACL from config file and config rewrite} {
         assert_error {NOPERM *} {r flushdb}

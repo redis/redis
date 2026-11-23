@@ -2,6 +2,8 @@ set testmodule [file normalize tests/modules/stream.so]
 
 start_server {tags {"modules external:skip"}} {
     r module load $testmodule
+    # Also cover the INFO Streams bookkeeping: the module stream API.
+    arm_stream_stats_assert
 
     test {Module stream add and delete} {
         r del mystream

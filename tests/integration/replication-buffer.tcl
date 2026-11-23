@@ -321,6 +321,40 @@ test "Partial resynchronization is successful even client-output-buffer-limit is
     }
 }
 
+test "Replica is not disconnected when client-output-buffer-limit soft limit is less than repl-backlog-size rdbchannel=$rdbchannel" {
+    start_server {tags {"repl external:skip"}} {
+        start_server {} {
+            r config set save ""
+            r config set repl-backlog-size 100mb
+            r config set client-output-buffer-limit "replica 0 512k 1"
+            r config set repl-rdb-channel $rdbchannel
+
+            set replica [srv -1 client]
+            set replica_pid [srv -1 pid]
+            $replica config set repl-rdb-channel $rdbchannel
+            $replica replicaof [srv 0 host] [srv 0 port]
+            wait_for_sync $replica
+
+            pause_process $replica_pid
+            set big_str [string repeat A [expr 10*1024*1024]] ;# 10mb big string
+            r set key $big_str
+            r set key $big_str
+            # replica's output buffer stays above the soft limit for more than
+            # the soft limit seconds, but doesn't exceed repl-backlog-size.
+            for {set i 0} {$i < 4} {incr i} {
+                after 1000
+                r set key $big_str
+            }
+            resume_process $replica_pid
+
+            wait_for_ofs_sync r $replica
+            assert_equal [s client_output_buffer_limit_disconnections] {0}
+            assert_equal [s sync_full] {1}
+            assert_equal [s sync_partial_ok] {0}
+        }
+    }
+}
+
 # This test was added to make sure big keys added to the backlog do not trigger psync loop.
 test "Replica client-output-buffer size is limited to backlog_limit/16 when no replication data is pending rdbchannel=$rdbchannel" {
     proc client_field {r type f} {

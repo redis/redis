@@ -52,6 +52,9 @@ set content {} ;# Will be populated with Tcl side copy of the stream content.
 start_server {
     tags {"stream"}
 } {
+    # Also cover the INFO Streams bookkeeping: XADD/XTRIM/XDEL/XSETID paths.
+    arm_stream_stats_assert
+
     test "XADD wrong number of args" {
         assert_error {*wrong number of arguments for 'xadd' command} {r XADD mystream}
         assert_error {*wrong number of arguments for 'xadd' command} {r XADD mystream *}
@@ -3560,6 +3563,28 @@ start_server {
 
         r config set stream-node-max-entries $origin_max_entries
     }
+
+    test {XTRIM with exact MAXLEN and ACKED continues past nodes with unacked entries} {
+        r DEL mystream
+        set origin_max_entries [config_get_set stream-node-max-entries 2]
+
+        # Create 6 entries in 3 nodes (2 entries per node)
+        for {set i 1} {$i <= 6} {incr i} {
+            r XADD mystream $i-0 f v
+        }
+
+        r XGROUP CREATE mystream mygroup 0
+        r XREADGROUP GROUP mygroup consumer1 STREAMS mystream >
+
+        # 3-0 and 4-0 (second node) stay pending, the rest are acked
+        r XACK mystream mygroup 1-0 2-0 5-0 6-0
+
+        # The trim must not stop at the second node, 5-0 is acked and can go
+        assert_equal 3 [r XTRIM mystream MAXLEN = 3 ACKED]
+        assert_equal {{3-0 {f v}} {4-0 {f v}} {6-0 {f v}}} [r XRANGE mystream - +]
+
+        r config set stream-node-max-entries $origin_max_entries
+    }
 }
 
 start_server {tags {"stream needs:debug"} overrides {appendonly yes}} {
@@ -3668,6 +3693,84 @@ start_server {tags {"stream needs:debug"} overrides {appendonly yes stream-node-
         incr j
         assert {[r xlen mystream] == 91}
     }
+}
+
+start_server {tags {"stream needs:debug"} overrides {appendonly yes stream-node-max-entries 100}} {
+    test {XTRIM with ~ MINID and DELREF can reload from AOF correctly} {
+        # DELREF removes both the entries and their pending references. Replaying
+        # the rewritten command must not bring either back. See #15934.
+        foreach id {1-0 2-0 3-0 4-0} {
+            r XADD mystream $id f v
+        }
+        r XGROUP CREATE mystream mygroup 0
+        r XREADGROUP GROUP mygroup consumer1 COUNT 3 STREAMS mystream >
+        assert_equal 2 [r XTRIM mystream MINID ~ 3-0 DELREF]
+        assert_equal {{3-0 {f v}} {4-0 {f v}}} [r XRANGE mystream - +]
+        assert_equal 1 [lindex [r XPENDING mystream mygroup] 0]
+        r debug loadaof
+        assert_equal {{3-0 {f v}} {4-0 {f v}}} [r XRANGE mystream - +]
+        assert_equal 1 [lindex [r XPENDING mystream mygroup] 0]
+    }
+}
+
+start_server {tags {"stream"} overrides {stream-node-max-entries 2}} {
+    test {XADD with ~ MINID propagates the successor of the largest deleted ID} {
+        # With stream-node-max-entries 2 the six entries form three nodes.
+        # ACKED + LIMIT 3: the trim deletes 1-0 (acked, node 1), skips 2-0
+        # (pending, node 1), then deletes 3-0 and 4-0 (acked, node 2). The
+        # budget is exhausted before node 3, so 5-0 (acked) survives. The
+        # largest deleted ID is 4-0, and its successor 4-1 is propagated.
+        foreach id {1-0 2-0 3-0 4-0 5-0 6-0} {
+            r XADD trimmed $id f v
+        }
+        r XGROUP CREATE trimmed mygroup 0
+        r XREADGROUP GROUP mygroup consumer1 COUNT 6 STREAMS trimmed >
+        r XACK trimmed mygroup 1-0 3-0 4-0 5-0
+        set repl [attach_to_replication_stream]
+        r XADD trimmed ACKED MINID ~ 6-0 LIMIT 3 7-0 f v
+        assert_replication_stream $repl {
+            {select *}
+            {xadd trimmed ACKED MINID = 4-1 LIMIT 3 7-0 f v}
+        }
+        close_replication_stream $repl
+        assert_equal {{2-0 {f v}} {5-0 {f v}} {6-0 {f v}} {7-0 {f v}}} [r XRANGE trimmed - +]
+        assert_equal 2 [lindex [r XPENDING trimmed mygroup] 0]
+    } {} {needs:repl}
+
+    test {XADD with ~ MINID propagates a no-op boundary when nothing was deleted} {
+        # Two entries in one node, LIMIT 1 stops the trim before examining it,
+        # so nothing is deleted. The propagated MINID is the stream's first
+        # live ID (1-0), making replay a no-op.
+        foreach id {1-0 2-0} {
+            r XADD nochange $id f v
+        }
+        set repl [attach_to_replication_stream]
+        r XADD nochange ACKED MINID ~ 3-0 LIMIT 1 3-0 f v
+        assert_replication_stream $repl {
+            {select *}
+            {xadd nochange ACKED MINID = 1-0 LIMIT 1 3-0 f v}
+        }
+        close_replication_stream $repl
+        assert_equal {{1-0 {f v}} {2-0 {f v}} {3-0 {f v}}} [r XRANGE nochange - +]
+    } {} {needs:repl}
+
+    test {XTRIM with ~ MINID can propagate the last ID of a removed node that is a tombstone} {
+        # 2-0 was deleted before, so the node removed by the trim ends with a
+        # tombstone. Its successor is still exact: there is nothing live between
+        # 1-0 and 2-0, and the next node starts at 3-0.
+        foreach id {1-0 2-0 3-0} {
+            r XADD tombstone $id f v
+        }
+        r XDEL tombstone 2-0
+        set repl [attach_to_replication_stream]
+        assert_equal 1 [r XTRIM tombstone MINID ~ 3-0 KEEPREF]
+        assert_replication_stream $repl {
+            {select *}
+            {xtrim tombstone MINID = 2-1 KEEPREF}
+        }
+        close_replication_stream $repl
+        assert_equal {{3-0 {f v}}} [r XRANGE tombstone - +]
+    } {} {needs:repl}
 }
 
 start_server {tags {"stream"}} {
@@ -4087,4 +4190,246 @@ start_server {tags {"repl external:skip"}} {
         }
     }
 }
+}
+
+start_server {tags {"repl external:skip"} overrides {enable-debug-command yes}} {
+    set replica [srv 0 client]
+
+    start_server {} {
+        set master [srv 0 client]
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+
+        test "XADD IDMP applies a propagated append whose mapping is still tracked" {
+            $replica replicaof $master_host $master_port
+
+            wait_for_condition 50 100 {
+                [s 0 connected_slaves] == 1
+            } else {
+                fail "Replica didn't connect"
+            }
+
+            $master XADD mystream 1000-0 field "init"
+            $master XCFGSET mystream IDMP-DURATION 2
+
+            # Record a mapping on both nodes.
+            set id1 [$master XADD mystream IDMP p1 "req-1" * field "v1"]
+
+            # Freeze the replica's main thread: its cron is stalled, so its
+            # copy of the mapping outlives the master's, which expires after
+            # IDMP-DURATION.
+            $replica DEBUG SLEEP 4
+
+            # The master's mapping expired, so the retry appends a new entry
+            # and propagates it with an explicit ID.
+            set id2 [$master XADD mystream IDMP p1 "req-1" * field "v2"]
+            assert {$id1 ne $id2}
+
+            # The replica must apply the propagated append, replacing its
+            # stale copy of the mapping, instead of answering it as a
+            # duplicate: that would drop an entry the master acknowledged.
+            wait_for_condition 100 50 {
+                [$replica XLEN mystream] == 3
+            } else {
+                fail "Replica did not apply the propagated append: XLEN is [$replica XLEN mystream]"
+            }
+            assert_equal 1 [dict get [$replica XINFO STREAM mystream] iids-tracked]
+        }
+
+        test "XADD IDMP duplicate request is not appended on the replica" {
+            $master DEL mystream
+
+            # Retry the same request: the master answers with the recorded ID
+            # without appending, and propagates the original command with its
+            # wildcard ID. The replica must filter it out with its own copy of
+            # the mapping, not append an entry of its own.
+            set id1 [$master XADD mystream IDMP p1 "req-1" * field "v1"]
+            set id2 [$master XADD mystream IDMP p1 "req-1" * field "v2"]
+            assert_equal $id1 $id2
+
+            wait_for_condition 100 50 {
+                [$replica XLEN mystream] == 1
+            } else {
+                fail "Replica appended a duplicated XADD: XLEN is [$replica XLEN mystream]"
+            }
+        }
+
+        test "XIDMPRECORD replaces a stale mapping on the replica" {
+            $master DEL mystream
+
+            # Record a mapping, then freeze the replica so that its copy of
+            # the mapping outlives the master's, and record the same IID
+            # against a new stream ID on the master.
+            $master XADD mystream 1000-0 field "init"
+            $master XCFGSET mystream IDMP-DURATION 2
+            $master XADD mystream IDMP p1 "req-1" * field "v1"
+
+            $replica DEBUG SLEEP 4
+            # The explicit ID must be above the stream's last ID.
+            $master XADD mystream 9999999999999-0 field "new"
+            $master XIDMPRECORD mystream p1 "req-1" 9999999999999-0
+
+            wait_for_condition 100 50 {
+                [$replica XLEN mystream] == 3
+            } else {
+                fail "Replica did not catch up: XLEN is [$replica XLEN mystream]"
+            }
+            # The propagated record is authoritative: the replica must keep
+            # tracking exactly one mapping for the producer and stay
+            # consistent with the master.
+            assert_equal 1 [dict get [$replica XINFO STREAM mystream] iids-tracked]
+            assert_equal 1 [dict get [$master XINFO STREAM mystream] iids-tracked]
+        }
+    }
+}
+
+start_server {tags {"stream external:skip"} overrides {appendonly yes appendfsync always}} {
+    test "XADD IDMP appends after expiry survive an AOF restart" {
+        r XADD mystream 1000-0 field "init"
+        r XCFGSET mystream IDMP-DURATION 2
+        set id1 [r XADD mystream IDMP p1 "req-1" * field "v1"]
+
+        # Snapshot the mapping into the AOF, then let it expire and retry:
+        # the retry appends a new entry that is recorded in the AOF with an
+        # explicit ID.
+        r config set aof-use-rdb-preamble no
+        r BGREWRITEAOF
+        waitForBgrewriteaof r
+        after 3000
+        set id2 [r XADD mystream IDMP p1 "req-1" * field "v2"]
+        assert {$id1 ne $id2}
+
+        # The rewritten AOF restores the expired mapping and nothing expires
+        # while it loads: the replayed append must not be deduplicated away.
+        # All three entries must be present after the restart.
+        restart_server 0 true false
+
+        assert_equal 3 [r XLEN mystream]
+    }
+
+    test "XADD IDMP appends after expiry survive an AOF restart without rewrite" {
+        r DEL mystream
+        r XADD mystream 1000-0 field "init"
+        r XCFGSET mystream IDMP-DURATION 2
+        set id1 [r XADD mystream IDMP p1 "req-1" * field "v1"]
+
+        # Both XADDs stay in the incremental file (no BGREWRITEAOF): let the
+        # mapping expire, then the retry appends a new entry that is recorded
+        # in the AOF with an explicit ID.
+        after 3000
+        set id2 [r XADD mystream IDMP p1 "req-1" * field "v2"]
+        assert {$id1 ne $id2}
+
+        # On replay the first XADD records the mapping again and nothing
+        # expires while the file loads, so the second one used to be answered
+        # as a duplicate and dropped. All three entries must survive.
+        restart_server 0 true false
+
+        assert_equal 3 [r XLEN mystream]
+    }
+}
+
+# Retries must answer with the mapping that was recorded last, so every
+# replacement below is verified through the deduplicated reply.
+proc assert_idmp_retries {client expected} {
+    foreach {key iid id} $expected {
+        assert_equal $id [$client XADD $key IDMP p $iid * f retry]
+    }
+}
+
+# An upstream node propagates an XADD with an explicit ID when it appends an
+# entry for a mapping this node still tracks. The parser rejects that
+# combination from a regular client, so the incremental file is written by
+# hand and loaded with DEBUG LOADAOF. The IDs are far in the future, so
+# nothing expires while the file is replayed and the replacement runs on the
+# middle of the list, on the tail, with a longer next IID that still fits,
+# and through the walk fallback.
+start_server {tags {"stream needs:debug external:skip"} overrides {appendonly yes aof-use-rdb-preamble no appendfsync always auto-aof-rewrite-percentage 0}} {
+    set server_path [lindex [r config get dir] 1]
+    set aof_dirpath [file join $server_path appendonlydir]
+    set aof_incr_file [file join $aof_dirpath appendonly.aof.1.incr.aof]
+    set aof_manifest_file [file join $aof_dirpath appendonly.aof.manifest]
+
+    set expected {
+        s-mid      a                     9000000000001-0
+        s-mid      b                     9000000000004-0
+        s-mid      c                     9000000000003-0
+        s-tail     a                     9000000000001-0
+        s-tail     b                     9000000000003-0
+        s-fallback a                     9000000000003-0
+        s-fallback ppppppppppppppppppp   9000000000002-0
+        s-slack    req-9                 9000000000003-0
+        s-slack    req-10                9000000000002-0
+    }
+
+    test {XADD IDMP replaces a tracked mapping applied from the AOF} {
+        r config set appendonly no
+        r flushall
+        file delete -force $aof_dirpath
+
+        create_aof $aof_dirpath $aof_incr_file {
+            # a, b, c in insertion order, then b (the middle node) replaced.
+            append_to_aof [formatCommand XADD s-mid IDMP p a 9000000000001-0 f v1]
+            append_to_aof [formatCommand XADD s-mid IDMP p b 9000000000002-0 f v2]
+            append_to_aof [formatCommand XADD s-mid IDMP p c 9000000000003-0 f v3]
+            append_to_aof [formatCommand XADD s-mid IDMP p b 9000000000004-0 f v4]
+
+            # a replaced while it is the last mapping of the producer.
+            append_to_aof [formatCommand XADD s-tail IDMP p a 9000000000001-0 f v1]
+            append_to_aof [formatCommand XADD s-tail IDMP p b 9000000000002-0 f v2]
+            append_to_aof [formatCommand XADD s-tail IDMP p b 9000000000003-0 f v3]
+
+            # The IID after 'a' does not fit in the allocation of 'a', so the
+            # list has to be walked.
+            append_to_aof [formatCommand XADD s-fallback IDMP p a 9000000000001-0 f v1]
+            append_to_aof [formatCommand XADD s-fallback IDMP p ppppppppppppppppppp 9000000000002-0 f v2]
+            append_to_aof [formatCommand XADD s-fallback IDMP p a 9000000000003-0 f v3]
+
+            # 'req-10' is longer than 'req-9' but fits in the allocation of
+            # 'req-9', so it is copied into it.
+            append_to_aof [formatCommand XADD s-slack IDMP p req-9 9000000000001-0 f v1]
+            append_to_aof [formatCommand XADD s-slack IDMP p req-10 9000000000002-0 f v2]
+            append_to_aof [formatCommand XADD s-slack IDMP p req-9 9000000000003-0 f v3]
+        }
+        create_aof_manifest $aof_dirpath $aof_manifest_file {
+            append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
+        }
+
+        # The replayed commands carry no SELECT, so they land in DB 0, while
+        # the test client talks to DB 9 by default.
+        r debug loadaof
+        r select 0
+
+        assert_equal 4 [r XLEN s-mid]
+        assert_equal 3 [r XLEN s-tail]
+        assert_equal 3 [r XLEN s-fallback]
+        assert_equal 3 [r XLEN s-slack]
+        assert_equal 3 [dict get [r XINFO STREAM s-mid] iids-tracked]
+        assert_equal 2 [dict get [r XINFO STREAM s-tail] iids-tracked]
+        assert_equal 2 [dict get [r XINFO STREAM s-fallback] iids-tracked]
+        assert_equal 2 [dict get [r XINFO STREAM s-slack] iids-tracked]
+        assert_idmp_retries r $expected
+
+        # The same mappings must survive a round trip through RDB.
+        r debug reload
+        assert_idmp_retries r $expected
+
+        # A cold start has to load them from the AOF again.
+        restart_server 0 true false
+        r select 0
+        assert_idmp_retries r $expected
+
+        # The rewrite emits one XIDMPRECORD per mapping, so the rewritten
+        # file has to restore the same mappings.
+        r BGREWRITEAOF
+        waitForBgrewriteaof r
+        restart_server 0 true false
+        r select 0
+
+        assert_equal 4 [r XLEN s-mid]
+        assert_equal 3 [r XLEN s-tail]
+        assert_equal 3 [r XLEN s-fallback]
+        assert_equal 3 [r XLEN s-slack]
+        assert_idmp_retries r $expected
+    }
 }

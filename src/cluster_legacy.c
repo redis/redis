@@ -25,6 +25,7 @@
 #include "endianconv.h"
 #include "connection.h"
 
+#include <ctype.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -1092,6 +1093,13 @@ void clusterReset(int hard) {
         clusterSetNodeAsMaster(myself);
         replicationUnsetMaster();
         emptyData(-1,EMPTYDB_NO_FLAGS,NULL);
+        /* emptyData() only empties memory. Propagate a FLUSHALL so that the AOF
+         * (which would otherwise resurrect the old dataset on restart) and any
+         * sub-replicas (which keep their link across replicationUnsetMaster) are
+         * emptied too. */
+        robj *flushall = createStringObject("FLUSHALL",8);
+        alsoPropagate(-1,&flushall,1,PROPAGATE_AOF|PROPAGATE_REPL);
+        decrRefCount(flushall);
     }
 
     /* Close slots, reset manual failover state. */
@@ -1265,7 +1273,10 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     int cport, cfd;
     int max = MAX_CLUSTER_ACCEPTS_PER_CALL;
     char cip[NET_IP_STR_LEN];
-    int require_auth = TLS_CLIENT_AUTH_YES;
+    TLSAcceptConfig accept_config = {
+        .require_auth = TLS_CLIENT_AUTH_YES,
+        .is_cluster_bus = 1
+    };
     UNUSED(el);
     UNUSED(mask);
     UNUSED(privdata);
@@ -1285,7 +1296,7 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             return;
         }
 
-        connection *conn = connCreateAccepted(server.el, connTypeOfCluster(), cfd, &require_auth);
+        connection *conn = connCreateAccepted(server.el, connTypeOfCluster(), cfd, &accept_config);
 
         /* Make sure connection is not in an error state */
         if (connGetState(conn) != CONN_STATE_ACCEPTING) {
@@ -2131,6 +2142,41 @@ int verifyGossipSectionNodeIds(clusterMsgDataGossip *g, uint16_t count) {
     return invalid_ids;
 }
 
+/* Validates an address field received on the cluster bus, that is hdr->myip
+ * or the ip of a gossip entry. These end up in node->ip, from where they are
+ * written to nodes.conf, shown by CLUSTER NODES/SLOTS/SHARDS and embedded in
+ * -MOVED/-ASK redirections. The field must be NUL-terminated within its
+ * NET_IP_STR_LEN bytes and must not contain a character that corrupts one of
+ * those consumers: a control character (CR/LF ends a nodes.conf line, a log
+ * line and a RESP error reply), a space or a comma (field delimiters in
+ * nodes.conf and CLUSTER NODES), a quote (nodes.conf is parsed with
+ * sdssplitargs(), which treats quotes specially), or a square bracket (the
+ * field holds an address only, never "[ipv6]:port", so brackets have no
+ * legitimate use and only confuse redis-cli's parsing of CLUSTER NODES).
+ *
+ * This is deliberately looser than the check cluster-announce-ip is held to
+ * on the node that configures it. That config check only exists in recent
+ * versions, so in a mixed-version cluster older peers may still announce
+ * names outside its character set, such as a Docker alias with an
+ * underscore, directly in their PINGs or relayed in gossip. Rejecting them
+ * would break rolling upgrades, and accepting them is safe: the config check
+ * guards only this node's own cluster-announce-ip, while peer addresses are
+ * written to nodes.conf and read back verbatim, so anything that passes the
+ * delimiter checks above survives a restart. An empty string is valid: in
+ * hdr->myip it means the sender did not announce an address and the socket
+ * address is used instead. */
+static int isValidClusterMsgIp(const char *ip) {
+    const char *end = memchr(ip, '\0', NET_IP_STR_LEN);
+    if (end == NULL) return 0;
+    for (const char *p = ip; p < end; p++) {
+        unsigned char c = *p;
+        if (iscntrl(c) || c == ' ' || c == ',' || c == '"' || c == '\'' ||
+            c == '[' || c == ']')
+            return 0;
+    }
+    return 1;
+}
+
 /* Process the gossip section of PING or PONG packets.
  * Note that this function assumes that the packet is already sanity-checked
  * by the caller, not in the content of the gossip section, but in the
@@ -2156,6 +2202,18 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
         uint16_t flags = ntohs(g->flags);
         clusterNode *node;
         sds ci;
+
+        /* Skip an entry whose address would corrupt nodes.conf, CLUSTER NODES
+         * or a redirection reply, see isValidClusterMsgIp(). Only the entry
+         * is ignored, not the packet: the sender merely relays the address,
+         * possibly one it loaded from its own nodes.conf, and the rest of the
+         * packet still carries its own state and is answered as usual. */
+        if (!isValidClusterMsgIp(g->ip)) {
+            serverLog(LL_VERBOSE, "Ignoring gossip about node %.40s with an invalid address",
+                g->nodename);
+            g++;
+            continue;
+        }
 
         if (server.verbosity == LL_DEBUG) {
             ci = representClusterNodeFlags(sdsempty(), flags);
@@ -2717,8 +2775,7 @@ uint32_t writePingExt(clusterMsg *hdr, int gossipcount)  {
 
 /* We previously validated the extensions, so this function just needs to
  * handle the extensions. */
-void clusterProcessPingExtensions(clusterMsg *hdr, clusterLink *link) {
-    clusterNode *sender = link->node ? link->node : clusterLookupNode(hdr->sender, CLUSTER_NAMELEN);
+void clusterProcessPingExtensions(clusterMsg *hdr, clusterLink *link, clusterNode *sender) {
     char *ext_hostname = NULL;
     char *ext_humannodename = NULL;
     char *ext_shardid = NULL;
@@ -2726,6 +2783,10 @@ void clusterProcessPingExtensions(clusterMsg *hdr, clusterLink *link) {
     /* Loop through all the extensions and process them */
     clusterMsgPingExt *ext = getInitialPingExt(hdr, ntohs(hdr->count));
     while (extensions--) {
+        /* Compute the cursor to the next extension before running any
+         * handler, so that the loop does not depend on memory that a
+         * handler may have invalidated. */
+        clusterMsgPingExt *next = getNextPingExt(ext);
         uint16_t type = ntohs(ext->type);
         if (type == CLUSTERMSG_EXT_TYPE_HOSTNAME) {
             clusterMsgPingExtHostname *hostname_ext = (clusterMsgPingExtHostname *) &(ext->ext[0].hostname);
@@ -2737,14 +2798,20 @@ void clusterProcessPingExtensions(clusterMsg *hdr, clusterLink *link) {
             clusterMsgPingExtForgottenNode *forgotten_node_ext = &(ext->ext[0].forgotten_node);
             clusterNode *n = clusterLookupNode(forgotten_node_ext->name, CLUSTER_NAMELEN);
             if (n && n != myself && !(nodeIsSlave(myself) && myself->slaveof == n)) {
-                sds id = sdsnewlen(forgotten_node_ext->name, CLUSTER_NAMELEN);
-                dictEntry *de = dictAddOrFind(server.cluster->nodes_black_list, id);
-                if (dictGetKey(de) != id) sdsfree(id);
-                uint64_t expire = server.unixtime + ntohu64(forgotten_node_ext->ttl);
-                dictSetUnsignedIntegerVal(de, expire);
-                clusterDelNode(n);
-                clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|
-                                     CLUSTER_TODO_SAVE_CONFIG);
+                if (n == sender || n == link->node) {
+                    serverLog(LL_WARNING,
+                              "Ignoring FORGOTTEN_NODE for active sender %.40s while processing its packet",
+                              forgotten_node_ext->name);
+                } else {
+                    sds id = sdsnewlen(forgotten_node_ext->name, CLUSTER_NAMELEN);
+                    dictEntry *de = dictAddOrFind(server.cluster->nodes_black_list, id);
+                    if (dictGetKey(de) != id) sdsfree(id);
+                    uint64_t expire = server.unixtime + ntohu64(forgotten_node_ext->ttl);
+                    dictSetUnsignedIntegerVal(de, expire);
+                    clusterDelNode(n);
+                    clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|
+                                         CLUSTER_TODO_SAVE_CONFIG);
+                }
             }
         } else if (type == CLUSTERMSG_EXT_TYPE_SHARDID) {
             clusterMsgPingExtShardId *shardid_ext = (clusterMsgPingExtShardId *) &(ext->ext[0].shard_id);
@@ -2759,8 +2826,7 @@ void clusterProcessPingExtensions(clusterMsg *hdr, clusterLink *link) {
             serverLog(LL_VERBOSE, "Received unknown extension type %d", type);
         }
 
-        /* We know this will be valid since we validated it ahead of time */
-        ext = getNextPingExt(ext);
+        ext = next;
     }
 
     /* If the node did not send us a hostname extension, assume
@@ -2850,12 +2916,28 @@ int clusterProcessPacket(clusterLink *link) {
         explen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
         explen += (sizeof(clusterMsgDataGossip)*count);
 
+        /* Make sure the gossip entries implied by the count fit within the
+         * received packet before we read anything that follows them. */
+        if (totlen < explen) {
+            serverLog(LL_WARNING, "Received invalid %s packet with gossip count %d that exceeds "
+                "total packet length (%lld)", clusterGetMessageTypeString(type),
+                count, (unsigned long long) totlen);
+            return 1;
+        }
+
         /* If there is extension data, which doesn't have a fixed length,
          * loop through them and validate the length of it now. */
         if (hdr->mflags[0] & CLUSTERMSG_FLAG0_EXT_DATA) {
             clusterMsgPingExt *ext = getInitialPingExt(hdr, count);
             while (extensions--) {
-                uint16_t extlen = getPingExtLength(ext);
+                /* Make sure the fixed extension header fits before we read it. */
+                if ((totlen - explen) < sizeof(clusterMsgPingExt)) {
+                    serverLog(LL_WARNING, "Received invalid %s packet with extension data that exceeds "
+                        "total packet length (%lld)", clusterGetMessageTypeString(type),
+                        (unsigned long long) totlen);
+                    return 1;
+                }
+                uint32_t extlen = getPingExtLength(ext);
                 if (extlen < sizeof(clusterMsgPingExt) || extlen % 8 != 0) {
                     serverLog(LL_WARNING, "Received a %s packet without proper padding (%d bytes)",
                         clusterGetMessageTypeString(type), (int) extlen);
@@ -2875,6 +2957,22 @@ int clusterProcessPacket(clusterLink *link) {
                     if (datalen == 0 || str[datalen - 1] != '\0') {
                         serverLog(LL_WARNING,
                             "Received %s packet with missing null terminator in extension type %d",
+                            clusterGetMessageTypeString(type), exttype);
+                        return 1;
+                    }
+                    /* Hold the strings to the same rules as the
+                     * cluster-announce-hostname and
+                     * cluster-announce-human-nodename configs that produce
+                     * them: they are persisted in nodes.conf and returned to
+                     * clients, so a control character or a delimiter would
+                     * corrupt both. */
+                    size_t len = strlen(str);
+                    int valid = (exttype == CLUSTERMSG_EXT_TYPE_HOSTNAME) ?
+                        (len < NET_HOST_STR_LEN && isValidHostnameString(str, len)) :
+                        isValidAuxString(str, len);
+                    if (!valid) {
+                        serverLog(LL_VERBOSE,
+                            "Received %s packet with invalid characters in extension type %d",
                             clusterGetMessageTypeString(type), exttype);
                         return 1;
                     }
@@ -2948,6 +3046,22 @@ int clusterProcessPacket(clusterLink *link) {
         serverLog(LL_WARNING, "Received invalid %s packet of length %lld but expected length %lld",
             clusterGetMessageTypeString(type), (unsigned long long) totlen, (unsigned long long) explen);
         return 1;
+    }
+
+    /* The announced sender address can update the address we hold for the
+     * sender, so reject the packet if it would corrupt nodes.conf, CLUSTER
+     * NODES or a redirection reply. The addresses in the gossip section are
+     * checked one by one in clusterProcessGossipSection(), which skips only
+     * the offending entry: the sender merely relays those, so a bad one must
+     * not cost it the PONG and the liveness update this packet carries. */
+    if (type == CLUSTERMSG_TYPE_PING || type == CLUSTERMSG_TYPE_PONG ||
+        type == CLUSTERMSG_TYPE_MEET)
+    {
+        if (!isValidClusterMsgIp(hdr->myip)) {
+            serverLog(LL_VERBOSE, "Received %s packet with invalid sender address",
+                clusterGetMessageTypeString(type));
+            return 1;
+        }
     }
 
     sender = getNodeFromLinkAndMsg(link, hdr);
@@ -3349,7 +3463,7 @@ int clusterProcessPacket(clusterLink *link) {
         /* Get info from the gossip section */
         if (sender) {
             clusterProcessGossipSection(hdr,link);
-            clusterProcessPingExtensions(hdr,link);
+            clusterProcessPingExtensions(hdr,link,sender);
         }
     } else if (type == CLUSTERMSG_TYPE_FAIL) {
         clusterNode *failing;
@@ -6690,17 +6804,8 @@ int clusterAsmOnEvent(const char *task_id, int event, void *arg) {
             clusterDoBeforeSleep(CLUSTER_TODO_BROADCAST_PONG);
             clusterAsmProcess(task_id, ASM_EVENT_DONE, NULL, NULL);
             break;
-        case ASM_EVENT_MIGRATE_FAILED:
-            unpauseActions(PAUSE_DURING_SLOT_HANDOFF);
-            break;
         case ASM_EVENT_HANDOFF_PREP:
-            pauseActions(PAUSE_DURING_SLOT_HANDOFF,
-                         LLONG_MAX,
-                         PAUSE_ACTIONS_CLIENT_WRITE_SET);
             clusterAsmProcess(task_id, ASM_EVENT_HANDOFF, NULL, NULL);
-            break;
-        case ASM_EVENT_MIGRATE_COMPLETED:
-            unpauseActions(PAUSE_DURING_SLOT_HANDOFF);
             break;
         default:
             break;
