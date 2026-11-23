@@ -4026,7 +4026,7 @@ static int setConfigReplicaOfOption(standardConfig *config, sds* argv, int argc,
     }
 
     sdsfree(server.masterhost);
-    replicationSetMasterHost(NULL);
+    server.masterhost = NULL;
     if (!strcasecmp(argv[0], "no") && !strcasecmp(argv[1], "one")) {
         /* Cancel a connection requested by an earlier replicaof directive. */
         server.repl_state = REPL_STATE_NONE;
@@ -4038,7 +4038,7 @@ static int setConfigReplicaOfOption(standardConfig *config, sds* argv, int argc,
         *err = "Invalid master port";
         return 0;
     }
-    replicationSetMasterHost(sdsnew(argv[0]));
+    server.masterhost = sdsnew(argv[0]);
     server.repl_state = REPL_STATE_CONNECT;
     return 1;
 }
