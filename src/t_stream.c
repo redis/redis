@@ -5551,10 +5551,8 @@ void xdelexCommand(client *c) {
             } else {
                 /* This id doesn't exist. */
             }
-        } else if (streamEntryExists(s, id)) {
-            res = XDELEX_STILL_REFERENCED;
         } else {
-            /* Not referenced after all: this id doesn't exist. */
+            res = streamEntryExists(s, id) ? XDELEX_STILL_REFERENCED : XDELEX_NO_ID;
         }
 
         if (modified) server.dirty++;
