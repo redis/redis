@@ -4564,9 +4564,10 @@ void xackdelCommand(client *c) {
                 deleted++;
             }
 
-            /* If the entry was in the PEL but not found in the stream,
-             * we still consider it successfully deleted. */
-            res = can_delete ? XACKDEL_DELETED : XACKDEL_STILL_REFERENCED;
+            /* Acknowledging an entry that is already gone from the stream
+             * succeeds even if another group still has a pending reference. */
+            res = (can_delete || !streamEntryExists(s, id)) ?
+                  XACKDEL_DELETED : XACKDEL_STILL_REFERENCED;
         }
         addReplyLongLong(c, res);
     }
@@ -5551,7 +5552,7 @@ void xdelexCommand(client *c) {
                 /* This id doesn't exist. */
             }
         } else {
-            res = XDELEX_STILL_REFERENCED;
+            res = streamEntryExists(s, id) ? XDELEX_STILL_REFERENCED : XDELEX_NO_ID;
         }
 
         if (modified) server.dirty++;
