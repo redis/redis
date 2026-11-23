@@ -3587,6 +3587,26 @@ start_server {
     }
 }
 
+start_server {tags {"stream needs:debug external:skip"} overrides {appendonly yes key-memory-histograms yes propagation-error-behavior ignore}} {
+    test {XADD IDMP rejected from the AOF keeps slot memory accounting} {
+        # IDMP takes an explicit ID only from a master or the AOF. Append two
+        # XADDs with an ID below the top item to the AOF and replay it.
+        r XADD mystream IDMP p1 i0 * f v
+        set fp [open [get_last_incr_aof_path r] a]
+        puts -nonewline $fp [formatCommand XADD mystream IDMP p1 i1 1-0 f v]
+        puts -nonewline $fp [formatCommand XADD mystream IDMP p2 i0 1-0 f v]
+        close $fp
+
+        # Panics if a rejected XADD left the tracked slot size wrong
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+        r DEBUG LOADAOF
+        assert_equal 1 [r XLEN mystream]
+        assert_equal 1 [dict get [r XINFO STREAM mystream] pids-tracked]
+        assert_equal 1 [dict get [r XINFO STREAM mystream] iids-tracked]
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
+    }
+}
+
 start_server {tags {"stream needs:debug"} overrides {appendonly yes}} {
     test {XADD with MAXLEN > xlen can propagate correctly} {
         for {set j 0} {$j < 100} {incr j} {

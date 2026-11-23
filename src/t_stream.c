@@ -6634,21 +6634,18 @@ static idmpProducer *idmpFindProducer(stream *s, const char *pid, size_t pid_len
 /* Get or create an idmpProducer for the given producer ID.
  * Returns the producer, or NULL on allocation failure. */
 static idmpProducer *idmpGetOrCreateProducer(stream *s, const char *pid, size_t pid_len) {
+    idmpProducer *producer = idmpFindProducer(s, pid, pid_len);
+    if (producer) return producer;
+
     /* Create the producers rax tree if it doesn't exist */
     if (s->idmp_producers == NULL) {
         s->idmp_producers = raxNewEx(0, &s->alloc_size, 0);
     }
 
-    idmpProducer *producer = NULL;
-    raxNodeLink link;
-    int found = raxFindLink(s->idmp_producers, (unsigned char *)pid, pid_len, (void **)&producer, &link);
-    if (!found) {
-        /* Create a new producer */
-        producer = idmpProducerCreate(&s->alloc_size);
-        /* Insert into the rax tree - must succeed since we checked it doesn't exist */
-        serverAssert(raxInsertAt(s->idmp_producers, (unsigned char *)pid, pid_len, producer, NULL, &link));
-    }
-
+    /* Create a new producer */
+    producer = idmpProducerCreate(&s->alloc_size);
+    /* Insert into the rax tree - must succeed since we checked it doesn't exist */
+    serverAssert(raxTryInsert(s->idmp_producers, (unsigned char *)pid, pid_len, producer, NULL));
     return producer;
 }
 
