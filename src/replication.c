@@ -3648,7 +3648,8 @@ int cancelReplicationHandshake(int reconnect) {
     return 1;
 }
 
-/* Mirror the role in log_is_replica for atomic reads by logging threads. */
+/* Publish the role to logging threads without exposing masterhost to them.
+ * The caller is responsible for freeing the previous host. */
 void replicationSetMasterHost(sds host) {
     server.masterhost = host;
     atomicSet(server.log_is_replica, host != NULL);
