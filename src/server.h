@@ -1306,14 +1306,15 @@ enum {
 typedef int64_t keysizesHist[MAX_KEYSIZES_ROWS][MAX_KEYSIZES_BINS];
 
 /* INFO Streams histogram rows, one per metric, named stream_distrib_<unit>_
- * <property>. */
+ * <property>. A <unit> of "streams" marks a per-stream metric: a sample
+ * stands for one stream key. A <unit> of "cgroups" marks a per-group metric:
+ * a sample stands for one consumer group. INFO prints the rows in this
+ * order, so a new metric goes last. */
 typedef enum {
-    /* Per-stream metrics: one sample per stream key. */
     STREAM_DISTRIB_STREAMS_CGROUPS = 0, /* stream_distrib_streams_cgroups */
-    STREAM_DISTRIB_STREAMS_MAX_LAG,     /* stream_distrib_streams_max_lag */
-    /* Per-group metrics: one sample per consumer group. */
     STREAM_DISTRIB_CGROUPS_PEL,         /* stream_distrib_cgroups_pel */
     STREAM_DISTRIB_CGROUPS_CONSUMERS,   /* stream_distrib_cgroups_consumers */
+    STREAM_DISTRIB_STREAMS_MAX_LAG,     /* stream_distrib_streams_max_lag */
     STREAM_DISTRIB_MAX
 } streamDistribMetric;
 /* Same bins as keysizesHist, and plain storage like it: zeroing resets it. */

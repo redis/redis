@@ -156,9 +156,9 @@ unsigned long streamLength(const robj *subject) {
  * debug assertion cannot drift apart. */
 const char *const streamDistribMetricNames[STREAM_DISTRIB_MAX] = {
     [STREAM_DISTRIB_STREAMS_CGROUPS] = "stream_distrib_streams_cgroups",
-    [STREAM_DISTRIB_STREAMS_MAX_LAG] = "stream_distrib_streams_max_lag",
     [STREAM_DISTRIB_CGROUPS_PEL] = "stream_distrib_cgroups_pel",
     [STREAM_DISTRIB_CGROUPS_CONSUMERS] = "stream_distrib_cgroups_consumers",
+    [STREAM_DISTRIB_STREAMS_MAX_LAG] = "stream_distrib_streams_max_lag",
 };
 static_assert(STREAM_DISTRIB_MAX <= 8, "distrib_counted holds one bit per metric");
 /* The bit of 'metric' in a stamp's 'counted' byte. */
