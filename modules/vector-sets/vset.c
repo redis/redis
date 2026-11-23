@@ -598,6 +598,22 @@ int VADD_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     /* Parse options after the element string. */
     uint32_t quant_type = HNSW_QUANT_Q8; // Default quantization type.
+    int quant_type_set = 0; // Track an explicit quantization option (oneof).
+    /* Only enforce the oneof rule for genuine client-originated commands.
+     * Non-interactive execution contexts keep the historical last-option-wins
+     * behavior, because rejecting there would break data written by an older
+     * version:
+     *  - REPLICATED: verbatim VADD forwarded by an older primary during a
+     *    rolling upgrade (the primary already applied it);
+     *  - LUA / MULTI: script and transaction contexts;
+     *  - LOADING / ASYNC_LOADING: VADD replayed from AOF or RDB at restart
+     *    (a fake client is used, so CLIENT_MASTER and REPLICATED are unset).
+     * Interactive clients supplying conflicting quant options still get an
+     * error, which is what issue #16333 asks for. */
+    int enforce_quant_oneof = !(RedisModule_GetContextFlags(ctx) &
+            (REDISMODULE_CTX_FLAGS_REPLICATED | REDISMODULE_CTX_FLAGS_LUA |
+             REDISMODULE_CTX_FLAGS_MULTI | REDISMODULE_CTX_FLAGS_LOADING |
+             REDISMODULE_CTX_FLAGS_ASYNC_LOADING));
 
     for (int j = 2 + consumed_args + 1; j < argc; j++) {
         const char *opt = RedisModule_StringPtrLen(argv[j], NULL);
@@ -624,11 +640,37 @@ int VADD_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
             attrib = argv[j+1];
             j++; // skip argument.
         } else if (!strcasecmp(opt, "NOQUANT")) {
+            /* A repeated identical flag is harmless (same value) and must stay
+             * accepted: clients that always append a default must not break. */
+            if (enforce_quant_oneof && quant_type_set &&
+                quant_type != HNSW_QUANT_NONE)
+            {
+                RedisModule_Free(vec);
+                return RedisModule_ReplyWithError(ctx,
+                        "ERR multiple quantization options specified");
+            }
             quant_type = HNSW_QUANT_NONE;
+            quant_type_set = 1;
         } else if (!strcasecmp(opt, "BIN")) {
+            if (enforce_quant_oneof && quant_type_set &&
+                quant_type != HNSW_QUANT_BIN)
+            {
+                RedisModule_Free(vec);
+                return RedisModule_ReplyWithError(ctx,
+                        "ERR multiple quantization options specified");
+            }
             quant_type = HNSW_QUANT_BIN;
+            quant_type_set = 1;
         } else if (!strcasecmp(opt, "Q8")) {
+            if (enforce_quant_oneof && quant_type_set &&
+                quant_type != HNSW_QUANT_Q8)
+            {
+                RedisModule_Free(vec);
+                return RedisModule_ReplyWithError(ctx,
+                        "ERR multiple quantization options specified");
+            }
             quant_type = HNSW_QUANT_Q8;
+            quant_type_set = 1;
         } else {
             RedisModule_Free(vec);
             return RedisModule_ReplyWithError(ctx,"ERR invalid option after element");
