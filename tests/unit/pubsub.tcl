@@ -245,6 +245,115 @@ start_server {tags {"pubsub network"}} {
         $rd1 close
     }
 
+    # Publish to each channel and check that $psub gets the message from
+    # exactly the patterns that match it, in any order. $sub is subscribed to
+    # all the channels, so PUBSUB CHANNELS, which tries a pattern on every
+    # channel with subscribers, gives the expected matches.
+    proc assert_pattern_delivery {sub psub patterns channels} {
+        foreach p $patterns {
+            set matches($p) [r pubsub channels $p]
+        }
+        foreach ch $channels {
+            set want {}
+            foreach p $patterns {
+                if {[lsearch -exact $matches($p) $ch] >= 0} {lappend want $p}
+            }
+            assert_equal [expr {1 + [llength $want]}] [r publish $ch hello] "receivers of '$ch'"
+            assert_equal [list message $ch hello] [$sub read]
+            set got {}
+            foreach p $want {
+                set msg [$psub read]
+                assert_equal [list pmessage $ch hello] [lreplace $msg 1 1]
+                lappend got [lindex $msg 1]
+            }
+            assert_equal [lsort $want] [lsort $got] "patterns matching '$ch'"
+        }
+    }
+
+    test "PUBLISH reaches exactly the matching patterns" {
+        set sub [redis_deferring_client]
+        set psub [redis_deferring_client]
+        # Literal prefixes that nest, are shared, or end at an escape or a
+        # bracket, patterns longer than the channel, the empty pattern.
+        set patterns [list news.* news.sport.* news.sport.football news.sport.footballer \
+            news.?port.* {news.[st]*} {news.[^s]*} {news.\*} {new\s.*} * *.football ?ews.* \
+            n*s.* news {} nex* {[a-n]ews.*} "a\0b*"]
+        set channels [list news.sport.football news.weather news.* news newsx ne {} \
+            views.sport "a\0bc"]
+        subscribe $sub $channels
+        psubscribe $psub $patterns
+        assert_pattern_delivery $sub $psub $patterns $channels
+        punsubscribe $psub $patterns
+        $sub close
+        $psub close
+    }
+
+    test "PUBLISH reaches exactly the matching patterns after PUNSUBSCRIBE and disconnect" {
+        set sub [redis_deferring_client]
+        set psub [redis_deferring_client]
+        set psub2 [redis_deferring_client]
+        set bs "\\"
+        set ptokens [list a b . * ? {[ab]} {[^a]} {[b-a]} {[a} "${bs}*" "${bs}a" $bs]
+        set ctokens [list a b . * ? {[} $bs]
+        set patterns {}
+        for {set i 0} {$i < 300} {incr i} {
+            set p ""
+            for {set j [randomInt 6]} {$j > 0} {incr j -1} {
+                append p [lindex $ptokens [randomInt [llength $ptokens]]]
+            }
+            lappend patterns $p
+        }
+        set channels {}
+        for {set i 0} {$i < 60} {incr i} {
+            set ch ""
+            for {set j [randomInt 6]} {$j > 0} {incr j -1} {
+                append ch [lindex $ctokens [randomInt [llength $ctokens]]]
+            }
+            lappend channels $ch
+        }
+        set patterns [lsort -unique $patterns]
+        set channels [lsort -unique $channels]
+        subscribe $sub $channels
+        psubscribe $psub $patterns
+        assert_pattern_delivery $sub $psub $patterns $channels
+
+        # Drop every other pattern, so that some prefixes lose part of their
+        # patterns and some lose all of them, while $psub2 holds a few of
+        # the dropped ones until it disconnects.
+        set kept {}
+        set gone {}
+        set i 0
+        foreach p $patterns {
+            if {[incr i] % 2} {lappend gone $p} else {lappend kept $p}
+        }
+        set held [lrange $gone 0 9]
+        psubscribe $psub2 $held
+        punsubscribe $psub $gone
+        assert_equal [llength [concat $kept $held]] [r pubsub numpat]
+        $psub2 close
+        wait_for_condition 50 100 {
+            [r pubsub numpat] == [llength $kept]
+        } else {
+            fail "patterns of the closed client are still there"
+        }
+        assert_pattern_delivery $sub $psub $kept $channels
+
+        # Without patterns only the channel subscriber gets the messages.
+        punsubscribe $psub $kept
+        assert_equal 0 [r pubsub numpat]
+        foreach ch $channels {
+            assert_equal 1 [r publish $ch hello]
+            assert_equal [list message $ch hello] [$sub read]
+        }
+
+        # Prefixes that were dropped can come back.
+        psubscribe $psub $gone
+        assert_pattern_delivery $sub $psub $gone $channels
+        punsubscribe $psub $gone
+        $sub close
+        $psub close
+    }
+
     test "PUNSUBSCRIBE and UNSUBSCRIBE should always reply" {
         # Make sure we are not subscribed to any channel at all.
         r punsubscribe
