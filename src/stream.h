@@ -183,6 +183,8 @@ typedef struct streamReplyRangeArgs {
                                    MAXSIZE is checked against the absolute
                                    c->net_output_bytes_curr_cmd. */
     size_t emitted_before;      /* Entries already emitted before this call. */
+    size_t *pel_cleanup_budget; /* In/out: command-wide deleted PEL entry budget.
+                                   NULL disables cleanup. */
 } streamReplyRangeArgs;
 
 /* Prototypes of exported APIs. */

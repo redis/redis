@@ -2148,9 +2148,8 @@ static inline void streamPropagateXCLAIMCopyFree(int dbid, robj *key, robj *grou
     alsoPropagate(dbid,argv,14,PROPAGATE_AOF|PROPAGATE_REPL);
 }
 
-/* Propagate an XACK command to AOF and replicas. Used when a PEL entry is
- * removed implicitly (e.g. entry no longer exists during XCLAIM/XAUTOCLAIM)
- * and the NACK has no consumer, so XCLAIM propagation is not applicable. */
+/* Propagate an XACK command to AOF and replicas for implicit PEL cleanup.
+ * Used by XREADGROUP CLAIM and for unowned entries in XCLAIM/XAUTOCLAIM. */
 static inline void streamPropagateXACK(int dbid, robj *key, robj *groupname, robj *id) {
     robj *argv[4];
     argv[0] = shared.xack;
@@ -2417,25 +2416,23 @@ size_t streamReplyWithRange(client *c, stream *s, streamReplyRangeArgs *args) {
                     streamIteratorStop(&si);
                     break;
                 }
-            } else {
-                /* Like XCLAIM/XAUTOCLAIM, remove references to deleted entries.
-                 * Propagate using the requesting consumer so cleanup-only reads
-                 * also create that consumer on replicas and during AOF replay. */
+            } else if (args->pel_cleanup_budget && *args->pel_cleanup_budget) {
+                /* Remove references to deleted entries and propagate as XACK.
+                 * Do not increment propCount: XACK does not create a consumer,
+                 * so it must not suppress explicit consumer creation. */
                 unsigned char buf[sizeof(streamID)];
                 streamEncodeID(buf, &nack->id);
                 if (spi) {
                     robj *idarg = createObjectFromStreamID(&nack->id);
-                    robj *delivery_count = createStringObjectFromLongLong(nack->delivery_count);
-                    streamPropagateXCLAIMCopyFree(db_id,spi->keyname,group_last_id,spi->groupname,idarg,consumername,delivery_time,delivery_count);
-                    decrRefCount(delivery_count);
+                    streamPropagateXACK(db_id,spi->keyname,spi->groupname,idarg);
                     decrRefCount(idarg);
-                    if (propCount) (*propCount)++;
                 }
                 pelListUnlink(group, nack);
                 raxRemove(group->pel,buf,sizeof(buf),NULL);
                 if (nack->consumer)
                     raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
                 streamDestroyNACK(s, nack, buf);
+                (*args->pel_cleanup_budget)--;
             }
             streamIteratorStop(&si);
             
@@ -3079,6 +3076,7 @@ void xlenCommand(client *c) {
  * This is useful because while XREAD is a read command and can be called
  * on slaves, XREADGROUP is not. */
 #define XREAD_BLOCKED_DEFAULT_COUNT 1000
+#define XREADGROUP_PEL_CLEANUP_MAX 100
 void xreadCommand(client *c) {
     long long min_idle_time = -1; /* -1 means, no IDLE argument given. */
     uint64_t timeout = 0;
@@ -3291,6 +3289,12 @@ void xreadCommand(client *c) {
     /* Compute an absolute threshold by adding the bytes already accumulated
      * (non-zero inside MULTI/EXEC) to MAXSIZE. Zero means "no limit". */
     long long maxsize_threshold = maxsize ? maxsize + c->net_output_bytes_curr_cmd : 0;
+    /* Bound deletion and propagation work across both PEL walks and all streams.
+     * COUNT still limits delivered messages independently. Once this budget is
+     * exhausted, keep skipping deleted entries to preserve read/block behavior. */
+    size_t pel_cleanup_budget = XREADGROUP_PEL_CLEANUP_MAX;
+    if (count && (size_t)count < pel_cleanup_budget)
+        pel_cleanup_budget = count;
     for (int i = 0; i < streams_count; i++) {
         /* Stop scanning further streams once a cumulative limit is reached.
          * At least the first stream is always served, so a single message
@@ -3326,6 +3330,10 @@ void xreadCommand(client *c) {
                 while (nack) {
                     if (!streamEntryExists(s, &nack->id)) {
                         streamNACK *next = nack->pel_next;
+                        if (!pel_cleanup_budget) {
+                            nack = next;
+                            continue;
+                        }
                         unsigned char buf[sizeof(streamID)];
                         streamEncodeID(buf, &nack->id);
                         robj *idarg = createObjectFromStreamID(&nack->id);
@@ -3336,6 +3344,7 @@ void xreadCommand(client *c) {
                         if (nack->consumer)
                             raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
                         streamDestroyNACK(s, nack, buf);
+                        pel_cleanup_budget--;
                         cleaned = 1;
                         nack = next;
                         continue;
@@ -3463,6 +3472,7 @@ void xreadCommand(client *c) {
                 .group = groups ? groups[i] : NULL, .consumer = consumer,
                 .flags = flags, .spi = &spi, .propCount = &propCount,
                 .maxsize = maxsize_threshold, .emitted_before = total_entries,
+                .pel_cleanup_budget = &pel_cleanup_budget,
             };
             /* New deliveries (XREADGROUP without NOACK) add entries to this
              * group's PEL; snapshot it around the read for INFO Streams. */
