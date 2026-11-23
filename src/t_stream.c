@@ -168,10 +168,9 @@ static_assert(STREAM_DISTRIB_MAX <= 8, "distrib_counted holds one bit per metric
  * max-lag row (streamLagState) are declared in stream.h, since defrag.c
  * follows them. */
 
-/* Set for the life of the process once the generation counter has wrapped.
- * Read only where a mismatch is otherwise a bug, in streamLagIsMember() and
- * in streamUpdateStat()'s assertion, so it is kept out of struct redisServer,
- * where it would shift the hot fields behind it for nothing. */
+/* Set for the life of the process once the generation counter has wrapped,
+ * see "the max-lag row" below. Only assertions read it, so it is kept out
+ * of struct redisServer. */
 static int stream_stats_wrapped = 0;
 
 /* Zero the stream histograms in 'meta' and start a new generation: every
@@ -179,9 +178,7 @@ static int stream_stats_wrapped = 0;
  * delta captured against it is discarded on completion. Generations come from
  * one server-wide counter, so a stamp carried into another db by MOVE while
  * stats were off cannot match there; the counter skips 0, the value of fresh
- * metadata, and the never-counted sentinel. A wrap is recorded for the life
- * of the process: from then on a stamp untouched for 2^32 generations can
- * pass as current, which streamLagIsMember() otherwise treats as a bug. */
+ * metadata, and the never-counted sentinel. A wrap is recorded. */
 void streamStatsResetMeta(kvstoreMetadata *meta) {
     if (++server.stream_stats_generation == STREAM_DISTRIB_NEVER_COUNTED) {
         server.stream_stats_generation = 1;
@@ -327,7 +324,10 @@ static void streamStatsReenterStructural(redisDb *db, stream *s, streamCG *cg) {
  * rest. streamCleanupEntryCGroupRefs() refreshes group stamps without the
  * stream's, so it frees an old heap first. And while stats are off, a group
  * command or the XSETID clamp frees the heap, which would miss the change:
- * see streamLagFreeHeapWhileOff(). XGROUP DESTROY frees it too.
+ * see streamLagFreeHeapWhileOff(). XGROUP DESTROY frees it too. A group's
+ * old stamp can pass as current as well, with an in-heap bit and a slot
+ * from a heap that is gone, so streamLagIsMember() believes the bit only if
+ * the slot holds the group.
  *
  * The lag here does not account for tombstones between the group's position
  * and the end of the stream, so it is an upper bound of the undelivered
@@ -476,15 +476,9 @@ static inline int streamLagHeldAt(const iheap *h, uint32_t slot, const streamCG 
 
 /* Whether 'cg', whose stamp is of the current generation, is a member of its
  * stream's heap. The stamp's bit is believed only if the heap agrees, that
- * is, if the group's slot holds it. A disagreement is a bookkeeping bug,
- * except after an epoch wrap: the epoch is 32 bits and moves once per db
- * emptied in place and per reset, so a stamp untouched for 2^32 generations
- * can pass as current while its bit and slot describe a heap long gone. The
- * wrap is recorded (streamStatsResetMeta()), so until one has happened a
- * disagreement is asserted, and after one it is handled: the bit is cleared
- * and the group is not a member. Acting on the slot regardless would re-key
- * or remove whatever group sits there now, index past the end of the heap,
- * or dereference a NULL heap. */
+ * is, if the group's slot holds it. They can disagree once the generation
+ * counter has wrapped, see "the max-lag row" above: the bit is then cleared
+ * and the group is not a member. */
 static inline int streamLagIsMember(streamLagState *ls, streamDistribStamp *st, streamCG *cg) {
     if (!(st->counted & STREAM_CG_IN_LAG_HEAP)) return 0;
     if (streamLagHeldAt(ls->heap, streamStampSlot(st), cg)) return 1;
@@ -540,9 +534,8 @@ static void streamLagFreeHeap(stream *s) {
 
 /* While stats are off nothing keeps a heap up to date. A group command or
  * the XSETID clamp can change a group's position, which the heap would miss,
- * so they free it. A heap that is kept then never holds an outdated
- * position, which matters once the generation counter has wrapped and an
- * old heap can pass as current. The members keep their in-heap bits, so the
+ * so they free it. A heap must never hold an outdated position: see "the
+ * max-lag row" above. The members keep their in-heap bits, so the
  * generation is condemned as well, as in streamLagGroupLeaving(): the next
  * enable must not trust those bits. */
 static inline void streamLagFreeHeapWhileOff(stream *s) {
