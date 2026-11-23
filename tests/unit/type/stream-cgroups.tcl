@@ -3491,17 +3491,17 @@ start_server {
         }
 
         test "XREADGROUP CLAIM shares cleanup budget across streams" {
-            foreach key {cleanup1 cleanup2} {
+            foreach key {cleanup{t}1 cleanup{t}2} {
                 r DEL $key
                 foreach id {1-0 2-0 3-0} {r XADD $key $id f v}
                 r XGROUP CREATE $key group1 0
                 r XREADGROUP GROUP group1 consumer1 STREAMS $key >
                 r XTRIM $key MAXLEN 0
             }
-            r XREADGROUP GROUP group1 consumer2 CLAIM 0 COUNT 2 STREAMS cleanup1 cleanup2 > >
-            assert_equal [lindex [r XPENDING cleanup1 group1] 0] 1
-            assert_equal [lindex [r XPENDING cleanup2 group1] 0] 3
-            r DEL cleanup1 cleanup2
+            r XREADGROUP GROUP group1 consumer2 CLAIM 0 COUNT 2 STREAMS cleanup{t}1 cleanup{t}2 > >
+            assert_equal [lindex [r XPENDING cleanup{t}1 group1] 0] 1
+            assert_equal [lindex [r XPENDING cleanup{t}2 group1] 0] 3
+            r DEL cleanup{t}1 cleanup{t}2
         }
 
         test "XREADGROUP CLAIM cleanup preserves history and blocking behavior" {
