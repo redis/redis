@@ -536,6 +536,24 @@ start_server {tags {"cli"}} {
         assert_equal \{\"K\\\\x00\\\\x01ey\":\"V\\\\x00\\\\x01alue\"\} [run_cli --quoted-json hgetall npkey]
     }
 
+    test_tty_cli "Double quote in quoted JSON mode" {
+        # --quoted-json outputs the quoted (sdscatrepr) form of a string as a
+        # JSON string, so the \" that form uses for a double quote has to be
+        # escaped as \\\". Writing it as \\" would end the JSON string early.
+        r hset quote test {a"b}
+        assert_equal {"a\"b"} [run_cli --json hget quote test]
+        assert_equal {"a\\\"b"} [run_cli --quoted-json hget quote test]
+        # a backslash followed by a double quote
+        r hset quote test {\"}
+        assert_equal {"\\\""} [run_cli --json hget quote test]
+        assert_equal {"\\\\\\\""} [run_cli --quoted-json hget quote test]
+        # double quotes in map keys and values
+        r del quote
+        r hset quote {k"ey} {v"alue}
+        assert_equal {{"k\"ey":"v\"alue"}} [run_cli --json hgetall quote]
+        assert_equal {{"k\\\"ey":"v\\\"alue"}} [run_cli --quoted-json hgetall quote]
+    }
+
     test_nontty_cli "Status reply" {
         assert_equal "OK" [run_cli set key bar]
         assert_equal "bar" [r get key]
