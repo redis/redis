@@ -48,10 +48,10 @@ typedef struct {
                          STREAM_DISTRIB_STREAMS_MAX_LAG says instead whether the
                          group is in its stream's max-lag heap (defined as
                          STREAM_CG_IN_LAG_HEAP in t_stream.c). */
-    uint8_t slot[3];  /* The group's index in its stream's max-lag heap
-                         (streamLagState.heap), as a 24-bit little-endian
-                         number; meaningful only while the in-heap bit above
-                         is set. */
+    uint32_t slot:24; /* The group's index in its stream's max-lag heap
+                         (streamLagState.heap); meaningful only while the
+                         in-heap bit above is set. 24 bits, so that it can
+                         share a 32-bit word with 'counted'. */
 } streamDistribStamp;
 
 /* Per-stream state of the max-lag row, kept in the metadata of the groups

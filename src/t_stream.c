@@ -451,19 +451,12 @@ static inline uint64_t streamLagKey(streamCG *cg) {
     return cg->entries_read == SCG_INVALID_ENTRIES_READ ? UINT64_MAX : (uint64_t) cg->entries_read;
 }
 
-static inline uint32_t streamStampSlot(const streamDistribStamp *st) {
-    return st->slot[0] | (uint32_t) st->slot[1] << 8 | (uint32_t) st->slot[2] << 16;
-}
-
 static void streamLagSetSlot(void *item, uint32_t slot) {
-    streamDistribStamp *st = streamCGStamp((streamCG *) item);
-    st->slot[0] = slot & 0xff;
-    st->slot[1] = (slot >> 8) & 0xff;
-    st->slot[2] = (slot >> 16) & 0xff;
+    streamCGStamp((streamCG *) item)->slot = slot;
 }
 
 static uint32_t streamLagGetSlot(void *item) {
-    return streamStampSlot(streamCGStamp((streamCG *) item));
+    return streamCGStamp((streamCG *) item)->slot;
 }
 
 static const iheapType streamLagHeapType = { streamLagSetSlot, streamLagGetSlot };
@@ -481,7 +474,7 @@ static inline int streamLagHeldAt(const iheap *h, uint32_t slot, const streamCG 
  * and the group is not a member. */
 static inline int streamLagIsMember(streamLagState *ls, streamDistribStamp *st, streamCG *cg) {
     if (!(st->counted & STREAM_CG_IN_LAG_HEAP)) return 0;
-    if (streamLagHeldAt(ls->heap, streamStampSlot(st), cg)) return 1;
+    if (streamLagHeldAt(ls->heap, st->slot, cg)) return 1;
     /* Without a wrap this is a bookkeeping bug. */
     serverAssert(stream_stats_wrapped);
     st->counted &= ~STREAM_CG_IN_LAG_HEAP;
@@ -575,7 +568,7 @@ static void streamLagGroupTouched(redisDb *db, stream *s, streamCG *cg) {
     debugServerAssert(st->epoch == streamStatsEpochOf(db));
     int64_t old = streamLagSample(s);
     if (streamLagIsMember(ls, st, cg)) {
-        iheapUpdate(ls->heap, streamStampSlot(st), streamLagKey(cg));
+        iheapUpdate(ls->heap, st->slot, streamLagKey(cg));
     } else if (raxSize(s->cgroups) <= streamLagMaxMembers() &&
                (!ls->heap || iheapCount(ls->heap) < STREAM_LAG_MAX_MEMBERS))
     {
@@ -617,7 +610,7 @@ static void streamLagMemberMoved(redisDb *db, stream *s, streamCG *cg) {
     debugServerAssert(server.stream_stats);
     if (st->epoch != streamStatsEpochOf(db) || !streamLagIsMember(ls, st, cg)) return;
     debugServerAssert(s->distrib_epoch == streamStatsEpochOf(db));
-    iheapUpdate(ls->heap, streamStampSlot(st), streamLagKey(cg));
+    iheapUpdate(ls->heap, st->slot, streamLagKey(cg));
 }
 
 /* XGROUP DESTROY: a freed group must not stay in the heap.
@@ -650,7 +643,7 @@ static void streamLagGroupLeaving(redisDb *db, stream *s, streamCG *cg) {
     streamDistribStamp *st = streamCGStamp(cg);
     serverAssert(st->epoch == streamStatsEpochOf(db));
     if (!streamLagIsMember(ls, st, cg)) return;
-    iheapRemove(ls->heap, streamStampSlot(st));
+    iheapRemove(ls->heap, st->slot);
     st->counted &= ~STREAM_CG_IN_LAG_HEAP;
 }
 
@@ -717,7 +710,7 @@ void streamLagGroupMoved(stream *s, streamCG *from, streamCG *to) {
     if (!s->cgroups) return;
     iheap *h = streamLagStateOf(s)->heap;
     if (!h) return;
-    uint32_t slot = streamStampSlot(streamCGStamp(to));
+    uint32_t slot = streamCGStamp(to)->slot;
     if (slot < iheapCount(h) && h->e[slot].item == from) h->e[slot].item = to;
 }
 
@@ -738,7 +731,7 @@ static void streamLagAssert(redisDb *db, stream *s) {
         streamDistribStamp *st = streamCGStamp(cg);
         if (st->epoch != epoch || !(st->counted & STREAM_CG_IN_LAG_HEAP)) continue;
         members++;
-        uint32_t slot = streamStampSlot(st);
+        uint32_t slot = st->slot;
         if (!streamLagHeldAt(h, slot, cg) || h->e[slot].key != streamLagKey(cg))
             serverPanic("streamLagAssert: a member group is not where its slot says");
     }
@@ -4308,7 +4301,7 @@ streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, lo
     streamDistribStamp *st = streamCGStamp(cg);
     st->epoch = STREAM_DISTRIB_NEVER_COUNTED;
     st->counted = 0;
-    memset(st->slot, 0, sizeof(st->slot));
+    st->slot = 0;
     raxInsertAt(s->cgroups,(unsigned char*)name,namelen,cg,NULL,&link);
     return cg;
 }
