@@ -2307,6 +2307,7 @@ struct redisServer {
     long long stat_evictedkeys;     /* Number of evicted keys (maxmemory) */
     long long stat_evictedclients;  /* Number of evicted clients */
     long long stat_evictedscripts;  /* Number of evicted lua scripts. */
+    long long stat_tracking_table_evicted_keys; /* Keys removed by the tracking table limit */
     long long stat_total_eviction_exceeded_time;  /* Total time over the memory limit, unit us */
     monotime stat_last_eviction_exceeded_time;  /* Timestamp of current eviction start, unit us */
     long long stat_keyspace_hits;   /* Number of successful lookups of keys */
