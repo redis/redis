@@ -221,6 +221,73 @@ test "Migrate a slot with multi-user shard subscriptions, verify sunsubscribe is
     $nodefrom(link) ACL DELUSER slotuser
 }
 
+# tot-mem excluding the query buffer of the client with the given id, and the
+# sum of tot-mem of the clients counted in mem_clients_normal
+proc client_mem_no_qbuf_by_id {link id} {
+    foreach c [split [string trim [$link client list]] "\r\n"] {
+        if {[string match "id=$id *" $c]} {
+            regexp {tot-mem=([0-9]+)} $c - mem
+            regexp { qbuf=([0-9]+)} $c - qbuf
+            regexp {qbuf-free=([0-9]+)} $c - qbuf_free
+            return [expr {$mem - $qbuf - $qbuf_free}]
+        }
+    }
+    fail "client id=$id not found"
+}
+
+proc normal_clients_tot_mem {link} {
+    set sum 0
+    foreach type {normal pubsub} {
+        foreach c [split [string trim [$link client list type $type]] "\r\n"] {
+            regexp {tot-mem=([0-9]+)} $c - mem
+            incr sum $mem
+        }
+    }
+    return $sum
+}
+
+test "Migrate a slot, verify the shard channel name is uncharged from its subscribers" {
+    set channelname "{big}[string repeat x 50000]"
+    set slot [$cluster cluster keyslot $channelname]
+    array set nodefrom [$cluster masternode_for_slot $slot]
+    array set nodeto [$cluster masternode_notfor_slot $slot]
+
+    # Two subscribers sharing the channel name object
+    set clients {}
+    set ids {}
+    for {set i 0} {$i < 2} {incr i} {
+        set c [redis_deferring_client_by_addr $nodefrom(host) $nodefrom(port)]
+        $c client id
+        lappend ids [$c read]
+        $c ssubscribe $channelname
+        $c read
+        lappend clients $c
+    }
+    set mems {}
+    foreach id $ids { lappend mems [client_mem_no_qbuf_by_id $nodefrom(link) $id] }
+
+    assert_equal {OK} [$nodefrom(link) cluster setslot $slot migrating $nodeto(id)]
+    assert_equal {OK} [$nodeto(link) cluster setslot $slot importing $nodefrom(id)]
+    assert_equal {OK} [$nodefrom(link) cluster setslot $slot node $nodeto(id)]
+    foreach c $clients {
+        assert_equal sunsubscribe [lindex [$c read] 0]
+    }
+
+    foreach id $ids mem $mems {
+        assert_morethan_equal [expr {$mem - [client_mem_no_qbuf_by_id $nodefrom(link) $id]}] 50000
+    }
+    # The clients memory stats are refreshed by clientsCron, after which the
+    # name, no longer charged to anyone, isn't removed from the total either.
+    wait_for_condition 50 100 {
+        abs([status $nodefrom(link) mem_clients_normal] - [normal_clients_tot_mem $nodefrom(link)]) < 50000
+    } else {
+        fail "mem_clients_normal [status $nodefrom(link) mem_clients_normal] != clients tot-mem [normal_clients_tot_mem $nodefrom(link)]"
+    }
+
+    assert_equal {OK} [$nodeto(link) cluster setslot $slot node $nodeto(id)]
+    foreach c $clients { $c close }
+}
+
 test "Reset cluster, verify sunsubscribe message" {
     set channelname ch4
     set slot [$cluster cluster keyslot $channelname]

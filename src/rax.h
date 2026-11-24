@@ -205,8 +205,9 @@ typedef struct raxIterator {
  * MUST commit (or discard) immediately after the find; do not interleave
  * other rax calls on the same tree, do not retain across yield points.
  * The commit itself is allowed to realloc `stopnode` (raxReallocForData,
- * raxAddChild) and update *parentlink in-place -- the link's own fields
- * survive the commit, but a second commit on the same link is undefined. */
+ * raxLinkChild, raxAddSlot) and update *parentlink in-place -- the link's
+ * own fields survive the commit, but a second commit on the same link is
+ * undefined. */
 #define RAX_LEAF_PARENT_STOP (-1)  /* on fixed-len, when walk stop at a leaf parent */
 typedef struct raxNodeLink {
     raxNode  *stopnode;     /* Stop node. */

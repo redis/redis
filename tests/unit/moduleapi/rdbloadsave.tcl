@@ -69,16 +69,19 @@ start_server {tags {"modules external:skip debug_defrag:skip"}} {
 
         r set k v2
         r config set rdb-key-save-delay 10000000
+        set loglines [count_log_lines 0]
         r bgrewriteaof
-
-        # RM_RdbLoad() should kill aof fork
-        assert_equal OK [r test.rdbload aoftest.rdb]
-
         wait_for_condition 50 100 {
-            [string match {*Killing*AOF*child*} [exec tail -20 < [srv 0 stdout]]]
+            [s aof_rewrite_in_progress] == 1
         } else {
-            fail "Can't find 'Killing AOF child' in recent log lines"
+            fail "AOF rewrite didn't start"
         }
+        set child_pid [get_child_pid 0]
+
+        # RM_RdbLoad() should kill aof fork, and wait for it before returning
+        assert_equal OK [r test.rdbload aoftest.rdb]
+        assert_equal 0 [process_is_alive $child_pid]
+        wait_for_log_messages 0 [list "*Killing running AOF rewrite child: $child_pid*"] $loglines 1 0
 
         # Verify the value in the loaded rdb
         assert_equal v1 [r get k]

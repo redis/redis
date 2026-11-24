@@ -4998,8 +4998,9 @@ start_server {tags {"bitmap" "bitmap-roaring"}} {
         # keys are the set bits of the others.
         for {set i 0} {$i < 20} {incr i} {
             foreach {unit max} {byte 14000 bit 110000} {
-                set start [randomSignedInt $max]
-                set end [randomSignedInt $max]
+                # Normalize "-0" from randomSignedInt to "0" for integer arguments.
+                set start [expr {[randomSignedInt $max]}]
+                set end [expr {[randomSignedInt $max]}]
                 set expected [r bitrangeintarray bitmap:str{t} $start $end $unit]
                 foreach key {bitmap:native{t} bitmap:strnot{t} bitmap:nativenot{t}} option {{} zeros zeros} {
                     assert_equal $expected [r bitrangeintarray $key $start $end $unit {*}$option] \

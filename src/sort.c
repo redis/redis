@@ -42,8 +42,9 @@ redisSortOperation *createSortOperation(int type, robj *pattern) {
  * when it is non-NULL. */
 robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
     kvobj *kv;
-    char *p, *f, *k;
-    sds spat, ssub;
+    char *p, *f, *k, *ssub;
+    char subbuf[LONG_STR_SIZE];
+    sds spat;
     robj *keyobj, *fieldobj = NULL, *val;
 
     int prefixlen, sublen, postfixlen, fieldlen;
@@ -56,19 +57,20 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
         return subst;
     }
 
-    /* The substitution object may be specially encoded. If so we create
-     * a decoded object on the fly. Otherwise getDecodedObject will just
-     * increment the ref count, that we'll decrement later. */
-    subst = getDecodedObject(subst);
-    ssub = subst->ptr;
+    /* The substitution object may be integer encoded. If so we format it
+     * on the stack, as it is only copied into the key name below. */
+    if (sdsEncodedObject(subst)) {
+        ssub = subst->ptr;
+        sublen = sdslen(ssub);
+    } else {
+        sublen = ll2string(subbuf,sizeof(subbuf),(long)subst->ptr);
+        ssub = subbuf;
+    }
 
     /* If we can't find '*' in the pattern we return NULL as to GET a
      * fixed key does not make sense. */
     p = strchr(spat,'*');
-    if (!p) {
-        decrRefCount(subst);
-        return NULL;
-    }
+    if (!p) return NULL;
 
     /* Find out if we're dealing with a hash dereference. */
     if ((f = strstr(p+1, "->")) != NULL && *(f+2) != '\0') {
@@ -80,14 +82,12 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
 
     /* Perform the '*' substitution. */
     prefixlen = p-spat;
-    sublen = sdslen(ssub);
     postfixlen = sdslen(spat)-(prefixlen+1)-(fieldlen ? fieldlen+2 : 0);
     keyobj = createStringObject(NULL,prefixlen+sublen+postfixlen);
     k = keyobj->ptr;
     memcpy(k,spat,prefixlen);
     memcpy(k+prefixlen,ssub,sublen);
     memcpy(k+prefixlen+sublen,p+1,postfixlen);
-    decrRefCount(subst); /* Incremented by decodeObject() */
 
     /* Lookup substituted key */
     kv = lookupKeyRead(db, keyobj);
@@ -172,6 +172,19 @@ int sortCompare(const void *s1, const void *s2) {
         }
     }
     return server.sort_desc ? -cmp : cmp;
+}
+
+/* Create a sort vector element from a value read in place: the 'len' bytes
+ * at 'str', or the integer 'll' when 'str' is NULL. When 'decode' is set the
+ * integer is formatted once here, as ALPHA without BY compares the elements
+ * as strings and would otherwise format it again on every comparison. */
+static robj *createSortElement(const char *str, size_t len, long long ll, int decode) {
+    char buf[LONG_STR_SIZE];
+
+    if (str) return createStringObject(str,len);
+    if (!decode) return createStringObjectFromLongLong(ll);
+    len = ll2string(buf,sizeof(buf),ll);
+    return createStringObject(buf,len);
 }
 
 /* The SORT command is the most complex command in Redis. Warning: this code
@@ -315,6 +328,12 @@ void sortCommandGeneric(client *c, int readonly) {
         return;
     }
 
+    /* A module may sort a sorted set that was just emptied, e.g. from the
+     * notification fired by a ZPOP of its last member, before the key itself
+     * is deleted. Treat it as a missing key. */
+    if (sortval && sortval->type == OBJ_ZSET && zsetLength(sortval) == 0)
+        sortval = NULL;
+
     /* Now we need to protect sortval incrementing its count, in the future
      * SORT may have options able to overwrite/delete keys during the sorting
      * and the sorted key itself may get destroyed */
@@ -337,15 +356,6 @@ void sortCommandGeneric(client *c, int readonly) {
         dontsort = 0;
         alpha = 1;
         sortby = NULL;
-    }
-
-    /* Destructively convert listpack encoded sorted sets for SORT. */
-    if (sortval->type == OBJ_ZSET && sortval->encoding == OBJ_ENCODING_LISTPACK) {
-        if (server.memory_tracking_enabled)
-            oldsize = kvobjAllocSize(sortval);
-        zsetConvert(sortval, OBJ_ENCODING_BTREE);
-        if (server.memory_tracking_enabled)
-            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), sortval, oldsize, kvobjAllocSize(sortval));
     }
 
     /* Obtain the length of the object to sort. */
@@ -443,10 +453,12 @@ void sortCommandGeneric(client *c, int readonly) {
         if (server.memory_tracking_enabled)
             oldsize = kvobjAllocSize(sortval);
         setTypeIterator si;
-        sds sdsele;
+        char *str;
+        size_t len;
+        int64_t llele;
         setTypeInitIterator(&si, sortval, SET_ITER_SKIP_EXPIRED);
-        while((sdsele = setTypeNextObject(&si)) != NULL) {
-            vector[j].obj = createObject(OBJ_STRING,sdsele);
+        while(setTypeNext(&si, &str, &len, &llele) != -1) {
+            vector[j].obj = createSortElement(str,len,llele,alpha && !sortby);
             vector[j].u.score = 0;
             vector[j].u.cmpobj = NULL;
             j++;
@@ -454,6 +466,56 @@ void sortCommandGeneric(client *c, int readonly) {
         setTypeResetIterator(&si);
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), sortval, oldsize, kvobjAllocSize(sortval));
+    } else if (sortval->type == OBJ_ZSET && sortval->encoding == OBJ_ENCODING_LISTPACK) {
+        unsigned char *lp = sortval->ptr;
+        unsigned char *eptr = NULL, *sptr = NULL;
+        unsigned char *vstr;
+        unsigned int vlen;
+        long long vlong;
+
+        if (dontsort) {
+            /* Special handling for a listpack encoded sorted set, if 'dontsort'
+             * is true. Load only the requested range directly from the listpack. */
+            int rangelen = vectorlen;
+
+            if (rangelen) {
+                eptr = desc ? lpSeek(lp,-2-(2*start)) : lpSeek(lp,2*start);
+                serverAssertWithInfo(c,sortval,eptr != NULL);
+                sptr = lpNext(lp,eptr);
+                serverAssertWithInfo(c,sortval,sptr != NULL);
+            }
+
+            while (rangelen--) {
+                serverAssertWithInfo(c,sortval,eptr != NULL);
+                vstr = lpGetValue(eptr,&vlen,&vlong);
+                vector[j].obj = createSortElement((char *)vstr,vlen,vlong,alpha && !sortby);
+                vector[j].u.score = 0;
+                vector[j].u.cmpobj = NULL;
+                j++;
+                if (desc)
+                    zzlPrev(lp,&eptr,&sptr);
+                else
+                    zzlNext(lp,&eptr,&sptr);
+            }
+            /* Fix start/end: output code is not aware of this optimization. */
+            end -= start;
+            start = 0;
+        } else {
+            /* Load every element of a listpack encoded sorted set, the actual
+             * sorting is performed later on the vector. */
+            eptr = lpSeek(lp,0);
+            serverAssertWithInfo(c,sortval,eptr != NULL);
+            sptr = lpNext(lp,eptr);
+            serverAssertWithInfo(c,sortval,sptr != NULL);
+            while (eptr) {
+                vstr = lpGetValue(eptr,&vlen,&vlong);
+                vector[j].obj = createSortElement((char *)vstr,vlen,vlong,alpha && !sortby);
+                vector[j].u.score = 0;
+                vector[j].u.cmpobj = NULL;
+                j++;
+                zzlNext(lp,&eptr,&sptr);
+            }
+        }
     } else if (sortval->type == OBJ_ZSET && dontsort) {
         /* Special handling for a sorted set, if 'dontsort' is true.
          * This makes sure we return elements in the sorted set original

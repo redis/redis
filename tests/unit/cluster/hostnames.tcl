@@ -31,7 +31,9 @@ proc build_cluster_bus_ping {sender_name sender_port sender_cport extensions_dat
     return $hdr
 }
 
-proc build_hostname_extension {hostname_bytes} {
+# Build a string PING extension: type 0 is CLUSTERMSG_EXT_TYPE_HOSTNAME, type 1
+# is CLUSTERMSG_EXT_TYPE_HUMAN_NODENAME. The caller supplies the NUL terminator.
+proc build_hostname_extension {hostname_bytes {type 0}} {
     set ext_header_size 8
     set total_ext_len [expr {$ext_header_size + [string length $hostname_bytes]}]
     set padded_len [expr {(($total_ext_len + 7) / 8) * 8}]
@@ -39,7 +41,7 @@ proc build_hostname_extension {hostname_bytes} {
 
     set ext ""
     append ext [binary format I $padded_len]
-    append ext [binary format S 0]
+    append ext [binary format S $type]
     append ext [binary format S 0]
     append ext $hostname_bytes
     append ext [string repeat \x00 $padding_len]
@@ -304,5 +306,40 @@ test "PING with hostname extension missing null terminator is rejected" {
 
     close $fd
     resume_process $node1_pid
+}
+
+test "PING with invalid characters in hostname or nodename extension is rejected" {
+    set CLUSTERMSG_EXT_TYPE_HOSTNAME 0
+    set CLUSTERMSG_EXT_TYPE_HUMAN_NODENAME 1
+
+    set node1_id [R 1 CLUSTER MYID]
+    set sender_port [srv -1 port]
+    set sender_cport [expr {$sender_port + 10000}]
+
+    # Freeze node 1 so its real PINGs cannot overwrite an injected value.
+    set node1_pid [srv -1 pid]
+    pause_process $node1_pid
+
+    # Each value would be shown to clients and written to nodes.conf, where
+    # CR/LF ends the line, and space and comma are field delimiters.
+    set cases [list \
+        $CLUSTERMSG_EXT_TYPE_HOSTNAME "evil\r\n+PWN" \
+        $CLUSTERMSG_EXT_TYPE_HOSTNAME "evil host" \
+        $CLUSTERMSG_EXT_TYPE_HOSTNAME [string repeat a 256] \
+        $CLUSTERMSG_EXT_TYPE_HUMAN_NODENAME "evil\r\n+PWN" \
+        $CLUSTERMSG_EXT_TYPE_HUMAN_NODENAME "evil,name" \
+    ]
+    foreach {exttype value} $cases {
+        set ext [build_hostname_extension "$value\x00" $exttype]
+        set packet [build_cluster_bus_ping $node1_id $sender_port $sender_cport $ext]
+        set loglines [count_log_lines 0]
+        set fd [send_cluster_bus_packet 0 $packet]
+        wait_for_log_messages 0 [list "*invalid characters in extension type $exttype*"] $loglines 50 100
+        close $fd
+    }
+    assert_no_match "*evil*" [R 0 CLUSTER NODES]
+
+    resume_process $node1_pid
+    wait_for_cluster_state ok
 }
 }

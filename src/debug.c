@@ -303,7 +303,7 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
         setTypeResetIterator(&si);
     } else if (o->type == OBJ_ZSET) {
         unsigned char eledigest[20];
-
+        if (zsetLength(o) == 0) return;
         if (o->encoding == OBJ_ENCODING_LISTPACK) {
             unsigned char *zl = o->ptr;
             unsigned char *eptr, *sptr;
@@ -570,6 +570,9 @@ void debugCommand(client *c) {
         const char *help[] = {
 "AOF-FLUSH-SLEEP <microsec>",
 "    Server will sleep before flushing the AOF, this is used for testing.",
+"AOF-FLUSH-FORCE <ERROR|STALL> <0|1>",
+"    ERROR: force the AOF flush to fail (set the AOF write error status).",
+"    STALL: skip the AOF flush so the durable offset stalls (no error).",
 "ASSERT",
 "    Crash by assertion failed.",
 "BITMAP-RAW <key>",
@@ -699,6 +702,8 @@ void debugCommand(client *c) {
 "    Pause the server's main process during various replication steps.",
 "DICT-RESIZING <0|1>",
 "    Enable or disable the main dict and expire dict resizing.",
+"HOTKEYS-SHIFT-START <milliseconds>",
+"    Move the start of the current HOTKEYS tracking <milliseconds> into the past.",
 "SCRIPT <LIST|<sha>>",
 "    Output SHA and content of all scripts or of a specific script with its SHA.",
 "MARK-INTERNAL-CLIENT [UNMARK]",
@@ -1175,6 +1180,16 @@ NULL
     {
         server.aof_flush_sleep = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"aof-flush-force") && c->argc == 4) {
+        if (!strcasecmp(c->argv[2]->ptr,"error")) {
+            server.aof_flush_force_error = atoi(c->argv[3]->ptr);
+        } else if (!strcasecmp(c->argv[2]->ptr,"stall")) {
+            server.aof_flush_force_stall = atoi(c->argv[3]->ptr);
+        } else {
+            addReplySubcommandSyntaxError(c);
+            return;
+        }
+        addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"replicate") && c->argc >= 3) {
         replicationFeedSlaves(server.slaves, -1,
                 c->argv + 2, c->argc - 2);
@@ -1313,6 +1328,15 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"pause-cron") && c->argc == 3)
     {
         server.pause_cron = atoi(c->argv[2]->ptr);
+        addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"hotkeys-shift-start") && c->argc == 3) {
+        long long ms;
+        if (getLongLongFromObjectOrReply(c, c->argv[2], &ms, NULL) != C_OK) return;
+        if (!server.hotkeys) {
+            addReplyError(c, "HOTKEYS tracking was not started");
+            return;
+        }
+        server.hotkeys->start -= ms;
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"replybuffer") && c->argc == 4 ) {
         if(!strcasecmp(c->argv[2]->ptr, "peak-reset-time")) {

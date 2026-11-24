@@ -59,6 +59,7 @@ size_t zbtreeAllocSize(const zbtreeSet *zs);
 void zbtreeDismissMemory(zbtreeSet *zs);
 void zbtreeReserve(zbtreeSet *zs, unsigned long count);
 int zbtreeTryReserve(zbtreeSet *zs, uint64_t count);
+void zbtreeShrinkToFit(zbtreeSet *zs);
 
 /* Active defragmentation. Start may move the set itself and therefore returns
  * its current address. Step moves at most one leaf, one external member, and
@@ -77,10 +78,27 @@ int zbtreeDefragStep(zbtreeSet *zs, zbtreeDefragState *state,
 int zbtreeScore(zbtreeSet *zs, sds ele, double *score);
 int zbtreeScoreRaw(zbtreeSet *zs, const unsigned char *ele,
                    size_t elelen, double *score);
-/* Look up up to 16 scores. Bit i of the result says whether scores[i] exists. */
+/* Hash a member once for lookups in several sets. */
+uint32_t zbtreeMemberHash(const unsigned char *ele, size_t elelen);
+int zbtreeScoreRawWithHash(zbtreeSet *zs, uint32_t hash,
+                           const unsigned char *ele, size_t elelen,
+                           double *score);
+/* Most members one batch lookup takes. The results are bitmasks in an
+ * unsigned int, so this must stay below 32. */
 #define ZBT_SCORE_BATCH_SIZE 16
+/* Look up the scores of up to ZBT_SCORE_BATCH_SIZE members. Bit i of the
+ * result says whether members[i] exists; scores[i] is written only then. */
 unsigned int zbtreeScores(zbtreeSet *zs, const sds *members, unsigned int count,
                           double *scores);
+/* Same for raw members whose hashes come from zbtreeMemberHash(). Only the
+ * members whose bit is set in 'want' are looked up (bits at or above 'count'
+ * are ignored). scores[i] is written only for members that exist, and
+ * 'scores' may be NULL to test membership. The caller must not be iterating
+ * 'zs': a lookup may advance an index resize. */
+unsigned int zbtreeScoresRawWithHash(zbtreeSet *zs, const uint32_t *hashes,
+                                     const unsigned char **ptrs,
+                                     const size_t *lens, unsigned int count,
+                                     unsigned int want, double *scores);
 int zbtreeFindForAdd(zbtreeSet *zs, sds ele, double *score,
                      zbtreeInsertPosition *position);
 long zbtreeRank(zbtreeSet *zs, sds ele, int reverse, double *score);

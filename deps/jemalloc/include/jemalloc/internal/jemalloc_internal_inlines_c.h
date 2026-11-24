@@ -366,13 +366,13 @@ iget_defrag_hint(tsdn_t *tsdn, void* ptr) {
 				for (uint32_t i=0; i< bin_info->n_shards; i++) {
 					bin_t *bb = arena_get_bin(arena, binind, i);
 					curslabs += bb->stats.nonfull_slabs;
-					/* Deduct the regs in full slabs (they're not part of the game) */
-					unsigned long full_slabs = bb->stats.curslabs - bb->stats.nonfull_slabs;
+					/* Deduct the regs in full slabs (they're not part of the game).
+					 * nonfull_slabs doesn't include slabcur, so exclude it here too. */
+					unsigned long full_slabs = bb->stats.curslabs - bb->stats.nonfull_slabs - (bb->slabcur ? 1 : 0);
 					curregs += bb->stats.curregs - full_slabs * bin_info->nregs;
 					if (bb->slabcur) {
-						/* Remove slabcur from the overall utilization (not a candidate to nove from) */
+						/* Remove slabcur from the overall utilization (not a candidate to move from) */
 						curregs -= bin_info->nregs - edata_nfree_get(bb->slabcur);
-						curslabs -= 1;
 					}
 				}
 				/* Compare the utilization ratio of the slab in question to the total average

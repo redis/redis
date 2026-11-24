@@ -58,6 +58,23 @@ static void rdbChannelCleanup(void);
  * the instance is configured to have no persistence. */
 int RDBGeneratedByReplication = 0;
 
+/* Resume buffered replication after a yielding long command ends. Nested yields
+ * may still be BUSY. Clients owned by an IO thread (including those in transit)
+ * need no recovery: IO threads never stop parsing because of BUSY.
+ *
+ * Use tid, not running_tid: only a main-thread-owned client can safely join
+ * unblocked_clients. Module cleanup can run on a background thread holding the
+ * GIL, like unblockPostponedClients; do not use the IO-thread handoff protocol
+ * here. Queue execution for a safe point in beforeSleep, outside cleanup and
+ * processEventsWhileBlocked. CLIENT_UNBLOCKED keeps the client on the main
+ * thread until then. */
+void replicationResumeMasterClient(void) {
+    if (isInsideYieldingLongCommand()) return;
+    if (!server.masterhost || !server.master) return;
+    if (server.master->tid != IOTHREAD_MAIN_THREAD_ID) return;
+    queueClientForReprocessing(server.master);
+}
+
 /* Set the replication compression level. When Redis is built without
  * compression support (BUILD_COMPRESSION=yes enables it) the level is always
  * forced to 0, so replication compression stays completely disabled and the
@@ -4258,6 +4275,11 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
     if (compressed_stream)
         serverAssert(server.master->compression_state);
 
+    /* Bytes consumed from all blocks so far, used to pace yielding to the
+     * event loop. Unlike ctx->applied_offset it counts input (possibly
+     * compressed) bytes, and unlike `processed` it isn't reset per block. */
+    size_t total_consumed = 0;
+
     blockingOperationStarts();
     while ((n = listFirst(buf->blocks))) {
         replDataBufBlock *o = listNodeValue(n);
@@ -4265,9 +4287,15 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
         zfree(n);
 
         size_t processed = 0;
-        while (processed < o->used) {
+        /* Copying all compressed bytes into the decompressor does not mean
+         * their commands have been applied. Drain its pending output before
+         * leaving the streaming state, even if this block is exhausted. */
+        while (processed < o->used ||
+               (compressed_stream && clientHasPendingCompressedData(c))) {
             /* Consumed bytes from the current block in the current iteration. */
             size_t consumed = 0;
+            /* Bytes passed to the command parser, after decompression (if decompression is needed). */
+            size_t applied = 0;
 
             if (compressed_stream) {
                 c->querybuf = sdsMakeRoomFor(c->querybuf, PROTO_IOBUF_LEN);
@@ -4279,10 +4307,14 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
                                                               c->querybuf + qblen,
                                                               avail,
                                                               &consumed);
-                serverAssert(decompressed >= 0);
+                if (decompressed < 0) {
+                    ret = C_ERR;
+                    break;
+                }
                 sdsIncrLen(c->querybuf, decompressed);
                 c->read_reploff += (long long) decompressed;
                 c->io_read_reploff += (long long int) decompressed;
+                applied = decompressed;
 
                 atomicIncr(server.stat_net_repl_input_decompressed_bytes, decompressed);
             } else {
@@ -4291,12 +4323,21 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
                 c->read_reploff += (long long int) bytes;
                 c->io_read_reploff += (long long int) bytes;
                 consumed = bytes;
+                applied = bytes;
             }
             c->lastinteraction = server.unixtime;
 
             /* We don't expect error return value but just in case. */
             ret = processInputBuffer(c);
             if (ret != C_OK) break;
+
+            /* Applying a command may get an error reply, e.g. the write is
+             * rejected by min-replicas-to-write. For an ASM import, this fails
+             * the task and clears this buffer, the task is retried later. */
+            if (!ctx->should_continue(ctx)) {
+                ret = C_ERR;
+                break;
+            }
 
             processed += consumed;
             buf->used -= consumed;
@@ -4312,13 +4353,14 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
 
             /* Check if we should yield back to the event loop */
             if (server.loading_process_events_interval_bytes &&
-                ((ctx->applied_offset + consumed) / server.loading_process_events_interval_bytes >
-                  ctx->applied_offset / server.loading_process_events_interval_bytes))
+                ((total_consumed + consumed) / server.loading_process_events_interval_bytes >
+                  total_consumed / server.loading_process_events_interval_bytes))
             {
                 ctx->yield_callback(ctx);
                 processEventsWhileBlocked();
             }
-            ctx->applied_offset += consumed;
+            total_consumed += consumed;
+            ctx->applied_offset += applied;
 
             /* Check if we should continue processing */
             if (!ctx->should_continue(ctx)) {
@@ -4698,6 +4740,10 @@ void replicationCacheMaster(client *c) {
     c->bufpos = 0;
     resetClient(c, -1);
     resetClientQbufState(c);
+    /* The discarded command may have been deferred during BUSY. A resumed
+     * connection must parse it again from the last applied replication offset. */
+    c->flags &= ~CLIENT_PENDING_COMMAND;
+    c->io_flags &= ~CLIENT_IO_PENDING_COMMAND;
 
     /* Save the master. Server.master will be set to null later by
      * replicationHandleMasterDisconnection(). */

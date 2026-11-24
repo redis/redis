@@ -455,6 +455,39 @@ int TestStringPrintf(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_OK;
 }
 
+/* TEST.DICT.RESEEK -- Test the return value of the dict iterator reseek. */
+int TestDictReseek(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
+    RedisModuleDict *d = RedisModule_CreateDict(NULL);
+    RedisModule_DictSetC(d,"a",1,NULL);
+    RedisModule_DictSetC(d,"c",1,NULL);
+    RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(d,"^",NULL,0);
+
+    int ok = 1;
+    size_t keylen;
+    char *key;
+    if (RedisModule_DictIteratorReseekC(iter,"==","c",1) != REDISMODULE_OK) ok = 0;
+    key = RedisModule_DictNextC(iter,&keylen,NULL);
+    if (!key || keylen != 1 || key[0] != 'c') ok = 0;
+    if (RedisModule_DictIteratorReseekC(iter,"==","b",1) != REDISMODULE_ERR) ok = 0;
+    if (RedisModule_DictIteratorReseekC(iter,">","c",1) != REDISMODULE_ERR) ok = 0;
+    if (RedisModule_DictIteratorReseekC(iter,">=","b",1) != REDISMODULE_OK) ok = 0;
+    key = RedisModule_DictNextC(iter,&keylen,NULL);
+    if (!key || keylen != 1 || key[0] != 'c') ok = 0;
+
+    RedisModule_DictIteratorStop(iter);
+    RedisModule_FreeDict(NULL,d);
+
+    if (ok) {
+        RedisModule_ReplyWithSimpleString(ctx,"OK");
+    } else {
+        RedisModule_ReplyWithError(ctx,"Unexpected dict iterator reseek result");
+    }
+    return REDISMODULE_OK;
+}
+
 int failTest(RedisModuleCtx *ctx, const char *msg) {
     RedisModule_ReplyWithError(ctx, msg);
     return REDISMODULE_ERR;
@@ -907,6 +940,9 @@ int TestBasics(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     T("test.notify", "");
     if (!TestAssertStringReply(ctx,reply,"OK",2)) goto fail;
 
+    T("test.dict.reseek", "");
+    if (!TestAssertStringReply(ctx,reply,"OK",2)) goto fail;
+
     T("test.callreplywitharrayreply", "");
     if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_ARRAY) goto fail;
     if (RedisModule_CallReplyLength(reply) != 2) goto fail;
@@ -1025,6 +1061,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"test.string.printf",
         TestStringPrintf,"write deny-oom",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"test.dict.reseek",
+        TestDictReseek,"readonly",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"test.ctxflags",

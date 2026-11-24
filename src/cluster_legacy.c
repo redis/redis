@@ -25,6 +25,7 @@
 #include "endianconv.h"
 #include "connection.h"
 
+#include <ctype.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -1272,7 +1273,10 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     int cport, cfd;
     int max = MAX_CLUSTER_ACCEPTS_PER_CALL;
     char cip[NET_IP_STR_LEN];
-    int require_auth = TLS_CLIENT_AUTH_YES;
+    TLSAcceptConfig accept_config = {
+        .require_auth = TLS_CLIENT_AUTH_YES,
+        .is_cluster_bus = 1
+    };
     UNUSED(el);
     UNUSED(mask);
     UNUSED(privdata);
@@ -1292,7 +1296,7 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             return;
         }
 
-        connection *conn = connCreateAccepted(server.el, connTypeOfCluster(), cfd, &require_auth);
+        connection *conn = connCreateAccepted(server.el, connTypeOfCluster(), cfd, &accept_config);
 
         /* Make sure connection is not in an error state */
         if (connGetState(conn) != CONN_STATE_ACCEPTING) {
@@ -2138,6 +2142,41 @@ int verifyGossipSectionNodeIds(clusterMsgDataGossip *g, uint16_t count) {
     return invalid_ids;
 }
 
+/* Validates an address field received on the cluster bus, that is hdr->myip
+ * or the ip of a gossip entry. These end up in node->ip, from where they are
+ * written to nodes.conf, shown by CLUSTER NODES/SLOTS/SHARDS and embedded in
+ * -MOVED/-ASK redirections. The field must be NUL-terminated within its
+ * NET_IP_STR_LEN bytes and must not contain a character that corrupts one of
+ * those consumers: a control character (CR/LF ends a nodes.conf line, a log
+ * line and a RESP error reply), a space or a comma (field delimiters in
+ * nodes.conf and CLUSTER NODES), a quote (nodes.conf is parsed with
+ * sdssplitargs(), which treats quotes specially), or a square bracket (the
+ * field holds an address only, never "[ipv6]:port", so brackets have no
+ * legitimate use and only confuse redis-cli's parsing of CLUSTER NODES).
+ *
+ * This is deliberately looser than the check cluster-announce-ip is held to
+ * on the node that configures it. That config check only exists in recent
+ * versions, so in a mixed-version cluster older peers may still announce
+ * names outside its character set, such as a Docker alias with an
+ * underscore, directly in their PINGs or relayed in gossip. Rejecting them
+ * would break rolling upgrades, and accepting them is safe: the config check
+ * guards only this node's own cluster-announce-ip, while peer addresses are
+ * written to nodes.conf and read back verbatim, so anything that passes the
+ * delimiter checks above survives a restart. An empty string is valid: in
+ * hdr->myip it means the sender did not announce an address and the socket
+ * address is used instead. */
+static int isValidClusterMsgIp(const char *ip) {
+    const char *end = memchr(ip, '\0', NET_IP_STR_LEN);
+    if (end == NULL) return 0;
+    for (const char *p = ip; p < end; p++) {
+        unsigned char c = *p;
+        if (iscntrl(c) || c == ' ' || c == ',' || c == '"' || c == '\'' ||
+            c == '[' || c == ']')
+            return 0;
+    }
+    return 1;
+}
+
 /* Process the gossip section of PING or PONG packets.
  * Note that this function assumes that the packet is already sanity-checked
  * by the caller, not in the content of the gossip section, but in the
@@ -2163,6 +2202,18 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
         uint16_t flags = ntohs(g->flags);
         clusterNode *node;
         sds ci;
+
+        /* Skip an entry whose address would corrupt nodes.conf, CLUSTER NODES
+         * or a redirection reply, see isValidClusterMsgIp(). Only the entry
+         * is ignored, not the packet: the sender merely relays the address,
+         * possibly one it loaded from its own nodes.conf, and the rest of the
+         * packet still carries its own state and is answered as usual. */
+        if (!isValidClusterMsgIp(g->ip)) {
+            serverLog(LL_VERBOSE, "Ignoring gossip about node %.40s with an invalid address",
+                g->nodename);
+            g++;
+            continue;
+        }
 
         if (server.verbosity == LL_DEBUG) {
             ci = representClusterNodeFlags(sdsempty(), flags);
@@ -2909,6 +2960,22 @@ int clusterProcessPacket(clusterLink *link) {
                             clusterGetMessageTypeString(type), exttype);
                         return 1;
                     }
+                    /* Hold the strings to the same rules as the
+                     * cluster-announce-hostname and
+                     * cluster-announce-human-nodename configs that produce
+                     * them: they are persisted in nodes.conf and returned to
+                     * clients, so a control character or a delimiter would
+                     * corrupt both. */
+                    size_t len = strlen(str);
+                    int valid = (exttype == CLUSTERMSG_EXT_TYPE_HOSTNAME) ?
+                        (len < NET_HOST_STR_LEN && isValidHostnameString(str, len)) :
+                        isValidAuxString(str, len);
+                    if (!valid) {
+                        serverLog(LL_VERBOSE,
+                            "Received %s packet with invalid characters in extension type %d",
+                            clusterGetMessageTypeString(type), exttype);
+                        return 1;
+                    }
                 } else if (exttype == CLUSTERMSG_EXT_TYPE_FORGOTTEN_NODE) {
                     if (datalen < sizeof(clusterMsgPingExtForgottenNode)) {
                         serverLog(LL_WARNING,
@@ -2979,6 +3046,22 @@ int clusterProcessPacket(clusterLink *link) {
         serverLog(LL_WARNING, "Received invalid %s packet of length %lld but expected length %lld",
             clusterGetMessageTypeString(type), (unsigned long long) totlen, (unsigned long long) explen);
         return 1;
+    }
+
+    /* The announced sender address can update the address we hold for the
+     * sender, so reject the packet if it would corrupt nodes.conf, CLUSTER
+     * NODES or a redirection reply. The addresses in the gossip section are
+     * checked one by one in clusterProcessGossipSection(), which skips only
+     * the offending entry: the sender merely relays those, so a bad one must
+     * not cost it the PONG and the liveness update this packet carries. */
+    if (type == CLUSTERMSG_TYPE_PING || type == CLUSTERMSG_TYPE_PONG ||
+        type == CLUSTERMSG_TYPE_MEET)
+    {
+        if (!isValidClusterMsgIp(hdr->myip)) {
+            serverLog(LL_VERBOSE, "Received %s packet with invalid sender address",
+                clusterGetMessageTypeString(type));
+            return 1;
+        }
     }
 
     sender = getNodeFromLinkAndMsg(link, hdr);
@@ -6721,17 +6804,8 @@ int clusterAsmOnEvent(const char *task_id, int event, void *arg) {
             clusterDoBeforeSleep(CLUSTER_TODO_BROADCAST_PONG);
             clusterAsmProcess(task_id, ASM_EVENT_DONE, NULL, NULL);
             break;
-        case ASM_EVENT_MIGRATE_FAILED:
-            unpauseActions(PAUSE_DURING_SLOT_HANDOFF);
-            break;
         case ASM_EVENT_HANDOFF_PREP:
-            pauseActions(PAUSE_DURING_SLOT_HANDOFF,
-                         LLONG_MAX,
-                         PAUSE_ACTIONS_CLIENT_WRITE_SET);
             clusterAsmProcess(task_id, ASM_EVENT_HANDOFF, NULL, NULL);
-            break;
-        case ASM_EVENT_MIGRATE_COMPLETED:
-            unpauseActions(PAUSE_DURING_SLOT_HANDOFF);
             break;
         default:
             break;
