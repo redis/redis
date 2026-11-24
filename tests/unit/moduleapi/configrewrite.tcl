@@ -251,3 +251,20 @@ start_server [list tags {modules external:skip}] {
         assert_equal [list "arg with space" plain] [dict get $mod args]
     }
 }
+
+set quoted_module_dir [file normalize [tmpdir "config rewrite quoted"]]
+set quoted_module "$quoted_module_dir/module's configs.so"
+file copy -force $rewrite_module_two $quoted_module
+start_server [list tags {modules external:skip}] {
+    test {CONFIG REWRITE quotes module path and args containing a single quote} {
+        r module load $quoted_module "it's" plain
+        r config rewrite
+        set contents [read_file [srv 0 config_file]]
+        assert {[string first "loadmodule \"$quoted_module\" \"it's\" plain\n" $contents] >= 0}
+
+        restart_server 0 true false
+        set mod [lsearch -inline -index 1 [r module list] configs]
+        assert_equal $quoted_module [dict get $mod path]
+        assert_equal [list "it's" plain] [dict get $mod args]
+    }
+}

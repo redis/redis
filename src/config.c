@@ -1838,10 +1838,13 @@ void rewriteConfigBindOption(standardConfig *config, const char *name, struct re
 }
 
 /* Append a single loadmodule argument to 'line', quoting it only when it
- * contains characters (such as spaces) that the config parser would split
- * on or interpret, so that it is read back as one argument. */
+ * contains characters (such as spaces or quotes) that the config parser would
+ * split on or interpret, so that it is read back as one argument.
+ * sdsneedsrepr() does not flag a single quote, but sdssplitargs() treats an
+ * unquoted one as the start of a quoted token, so check for it as well. */
 static sds rewriteConfigCatArg(sds line, sds arg) {
-    if (sdsneedsrepr(arg)) return sdscatrepr(line, arg, sdslen(arg));
+    if (sdsneedsrepr(arg) || memchr(arg, '\'', sdslen(arg)))
+        return sdscatrepr(line, arg, sdslen(arg));
     return sdscatsds(line, arg);
 }
 
