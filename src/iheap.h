@@ -91,6 +91,8 @@ int iheapPop(iheap *h, uint64_t *key, void **item);
 /* Bulk load: append entries in any order, then call iheapBuild() once. The
  * heap is not valid between the first append and the build. */
 void iheapAppend(iheap **hp, uint64_t key, void *item);
+/* Make a valid heap of the entries in the array, in O(n). Every moved entry
+ * gets a setSlot call. It completes a bulk load started with iheapAppend(). */
 void iheapBuild(iheap *h);
 
 /* Check every invariant. Returns 1 when the heap is consistent. O(n). */
