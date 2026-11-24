@@ -373,6 +373,11 @@ static inline int isPositionFilled(const dictBucket *b, int pos) {
     return b->presence & (1u << pos);
 }
 
+/* True if the bucket holds at most one entry. */
+static inline int bucketHasAtMostOneEntry(const dictBucket *b) {
+    return (b->presence & (b->presence - 1)) == 0;
+}
+
 static inline dictBucket *getChildBucket(const dictBucket *b) {
     return b->chained ? (dictBucket *)(void *)b->slots[DICT_BUCKET_SLOTS - 1] : NULL;
 }
@@ -465,7 +470,7 @@ static void bucketConvertToChained(dict *d, dictBucket *b, int table) {
 static void pruneLastBucket(dict *d, dictBucket *before_last, dictBucket *last, int table) {
     assert(before_last->chained && getChildBucket(before_last) == last);
     assert(!last->chained);
-    assert(last->presence == 0 || __builtin_popcount(last->presence) == 1);
+    assert(bucketHasAtMostOneEntry(last));
     before_last->chained = 0;
     assert(!isPositionFilled(before_last, DICT_BUCKET_SLOTS - 1));
     if (last->presence != 0) {
@@ -496,7 +501,7 @@ static void fillBucketHole(dict *d, dictBucket *b, int pos, int table) {
         }
         int pos_in_last = __builtin_ctz(last->presence);
         moveEntry(b, pos, last, pos_in_last);
-        if (last->presence == 0 || __builtin_popcount(last->presence) == 1) {
+        if (bucketHasAtMostOneEntry(last)) {
             pruneLastBucket(d, before_last, last, table);
         }
         return;
@@ -511,7 +516,7 @@ static void compactAfterDelete(dict *d, dictBucket *b, dictBucket *parent, int p
     if (d->pauserehash != 0) return;
     if (b->chained)
         fillBucketHole(d, b, pos, table);
-    else if (parent && (b->presence == 0 || __builtin_popcount(b->presence) == 1))
+    else if (parent && bucketHasAtMostOneEntry(b))
         pruneLastBucket(d, parent, b, table);
 }
 
@@ -528,7 +533,7 @@ static void compactBucketChain(dict *d, size_t bucket_index, int table) {
             freeChildBucket(d, next, table);
             continue;
         }
-        if (!next->chained && (next->presence == 0 || __builtin_popcount(next->presence) == 1)) {
+        if (!next->chained && bucketHasAtMostOneEntry(next)) {
             pruneLastBucket(d, b, next, table);
             return;
         }
