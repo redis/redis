@@ -114,6 +114,67 @@ start_server {tags {"info" "external:skip"}} {
             assert {$p50_debug >= $p50_set}
         } {} {needs:debug}
 
+        test {latencystats: percentiles configured out of order (incl p0/p100)} {
+            r config resetstat
+            r CONFIG SET latency-tracking yes
+            # Out-of-order list including p0 and p100 exercises the single-pass
+            # batch percentile resolver's sort/scatter and the p0->lowest /
+            # else->highest equivalent-value handling. The emitted values must
+            # stay consistent with the per-percentile path: monotonic
+            # non-decreasing by percentile regardless of the configured order.
+            r CONFIG SET latency-tracking-info-percentiles "100.0 0.0 99.9 50.0"
+            # Build a real spread in the debug-command histogram (fast + slow).
+            for {set i 0} {$i < 20} {incr i} { r debug sleep 0 }
+            r debug sleep 0.03
+            r debug sleep 0.05
+            set line [latency_percentiles_usec debug]
+            # Labels emitted in the configured (unordered) order.
+            assert_match {*p100=*p0=*p99.9=*p50=*} $line
+            assert {[regexp {p0=([0-9.]+)} $line -> p0]}
+            assert {[regexp {p50=([0-9.]+)} $line -> p50]}
+            assert {[regexp {p99\.9=([0-9.]+)} $line -> p999]}
+            assert {[regexp {p100=([0-9.]+)} $line -> p100]}
+            # Monotonic by percentile despite the unordered emission order
+            # (a sort/scatter mismatch between label and value would break this).
+            assert {$p0 <= $p50}
+            assert {$p50 <= $p999}
+            assert {$p999 <= $p100}
+            # The spread is real: p100 reflects the ~50ms samples, well above p0.
+            assert {$p100 >= 30000}
+            assert {$p0 < $p100}
+        } {} {needs:debug}
+
+        test {latencystats: stack and heap percentile contexts preserve output} {
+            r config resetstat
+            r CONFIG SET latency-tracking yes
+            # Keep this histogram unchanged while testing different configs.
+            # Millisecond samples have wide buckets, exposing a p0 boundary error.
+            r debug sleep 0.005
+            r debug sleep 0.015
+            r debug sleep 0.03
+            foreach percentiles {
+                {0}
+                {100 0 99.9 50 0 50}
+                {100 0 99.9 50 1 2 3 4 5 6 7 8 9 10 25 75}
+            } {
+                r CONFIG SET latency-tracking-info-percentiles $percentiles
+                set batch [split [latency_percentiles_usec debug] ,]
+                assert_equal [llength $percentiles] [llength $batch]
+                # Cross the stack/heap boundary while keeping the same prefix.
+                foreach length {17 64} {
+                    set padded $percentiles
+                    while {[llength $padded] < $length} { lappend padded 100 }
+                    r CONFIG SET latency-tracking-info-percentiles $padded
+                    set heap [split [latency_percentiles_usec debug] ,]
+                    assert_equal $length [llength $heap]
+                    assert_equal $batch [lrange $heap 0 [expr {[llength $batch] - 1}]]
+                }
+            }
+            r CONFIG SET latency-tracking-info-percentiles ""
+            assert_equal {} [latency_percentiles_usec debug]
+            assert_equal OK [r CONFIG SET latency-tracking-info-percentiles "50 99 99.9"]
+        } {} {needs:debug}
+
         test {errorstats: failed call authentication error} {
             r config resetstat
             assert_match {} [errorstat ERR]
@@ -640,16 +701,28 @@ start_server {tags {"info" "external:skip"} overrides {io-threads 4 io-threads-d
 }
 
 start_server {tags {"info" "external:skip"}} {
+    # Total number of child (overflow) buckets in all the hash tables printed
+    # by DEBUG HTSTATS <db> full.
+    proc htstats_child_buckets {htstats} {
+        set total 0
+        foreach {_ n} [regexp -all -inline {child buckets: ([0-9]+)} $htstats] {
+            incr total $n
+        }
+        return $total
+    }
+
     test {memory: database and pubsub overhead and rehashing dict count} {
         r flushall
 
-        # Better not set ht0_size to 4 since there is a probability that all
-        # keys will end up in the same bucket and rehashing will ended instantly.
-        set ht0_size [expr 1 << 3]
-        # ht1 size is twice the size of ht0
-        set ht1_size [expr $ht0_size << 1]
+        # Fill an 8-bucket table with one entry less than its slot capacity,
+        # so the next entry fills it and the one after that triggers
+        # rehashing. Don't use a table with a single bucket, since then all the
+        # keys end up in the same bucket and rehashing ends instantly.
+        set bucket_size 64
+        set ht0_buckets 8
+        set ht1_buckets 16
 
-        populate [expr $ht0_size - 1]
+        populate [expr {$ht0_buckets * [dict_bucket_slots] - 1}]
 
         # Verify rehashing is not ongoing
         wait_for_condition 100 10 {
@@ -658,12 +731,14 @@ start_server {tags {"info" "external:skip"}} {
             fail "Rehashing did not finish in time"
         }
 
-        # Verify the info reflects steady state
+        # Verify the info reflects steady state. Entries that don't fit in the
+        # top-level bucket they hash to go to child buckets, which are counted
+        # too; how many depends on the hash seed.
         set info_mem [r info memory]
         set mem_stats [r memory stats]
+        set children [htstats_child_buckets [r debug HTSTATS 9 full]]
         assert_equal [getInfoProperty $info_mem mem_overhead_db_hashtable_rehashing] {0}
-        set ptr_size [expr {[s arch_bits] == 32 ? 4 : 8}]
-        assert_equal [dict get $mem_stats overhead.db.hashtable.lut] [expr $ht0_size * $ptr_size]
+        assert_equal [dict get $mem_stats overhead.db.hashtable.lut] [expr ($ht0_buckets + $children) * $bucket_size]
         assert_equal [dict get $mem_stats overhead.db.hashtable.rehashing] {0}
         assert_equal [dict get $mem_stats db.dict.rehashing.count] {0}
 
@@ -674,16 +749,19 @@ start_server {tags {"info" "external:skip"}} {
         r set this_must_be_rehashed 1
         r info memory
         r memory stats
+        r debug HTSTATS 9 full
         set res [r exec]
         set info_mem [lindex $res 2]
         set mem_stats [lindex $res 3]
+        set children [htstats_child_buckets [lindex $res 4]]
 
-        # Verify the info reflects rehashing state
-        assert_range [getInfoProperty $info_mem mem_overhead_db_hashtable_rehashing] 1 [expr $ht0_size * $ptr_size]
-        assert_equal [dict get $mem_stats overhead.db.hashtable.lut] [expr ($ht0_size + $ht1_size) * $ptr_size]
-        assert_equal [dict get $mem_stats overhead.db.hashtable.rehashing] [expr $ht0_size * $ptr_size]
+        # Verify the info reflects rehashing state. The rehashing overhead is
+        # the top-level array of the table that is being rehashed.
+        assert_range [getInfoProperty $info_mem mem_overhead_db_hashtable_rehashing] 1 [expr $ht0_buckets * $bucket_size]
+        assert_equal [dict get $mem_stats overhead.db.hashtable.lut] [expr ($ht0_buckets + $ht1_buckets + $children) * $bucket_size]
+        assert_equal [dict get $mem_stats overhead.db.hashtable.rehashing] [expr $ht0_buckets * $bucket_size]
         assert_equal [dict get $mem_stats db.dict.rehashing.count] {1}
-    }
+    } {} {needs:debug}
 
     test {memory: used_memory_peak_time is updated when used_memory_peak is updated} {
         r flushall

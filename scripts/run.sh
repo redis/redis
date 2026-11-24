@@ -17,9 +17,10 @@ set -eu
 SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)" || exit 1
 . "$SCRIPT_DIR/lib/manifest.sh"
 cd "$REPO_ROOT"
+PROG_SUFFIX="${PROG_SUFFIX:-}"
 
-if [ ! -x src/redis-server ]; then
-  echo "ERROR: src/redis-server is not built. Run 'make build' (or 'make -C src all') first."
+if [ ! -x "src/redis-server$PROG_SUFFIX" ]; then
+  echo "ERROR: src/redis-server$PROG_SUFFIX is not built. Run 'make build' (or 'make -C src all') first."
   exit 1
 fi
 
@@ -81,6 +82,6 @@ if [ -z "$load_flags" ]; then
 fi
 
 # shellcheck disable=SC2086
-echo "==> exec src/redis-server$load_flags ${ARGS:-}"
+echo "==> exec src/redis-server$PROG_SUFFIX$load_flags ${ARGS:-}"
 # shellcheck disable=SC2086
-exec src/redis-server $load_flags ${ARGS:-}
+exec "src/redis-server$PROG_SUFFIX" $load_flags ${ARGS:-}

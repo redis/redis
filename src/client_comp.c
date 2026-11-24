@@ -496,11 +496,12 @@ int decompressInto(compressionState *state, char *buf, size_t buflen) {
 
 /* Read data from input_buf and decompress it immediately. The result is written
  * into output_buf.
- * Return number of bytes decompressed. *consumed stores number of bytes consumed
- * from input_buf.
- * Note, that we may have enough compressed data inside input buf so that decompressing
- * it will exceed output_len. The function must be ran in a loop until input_buf
- * is fully consumed - so make sure to have free space in output_buf on each call. */
+ * Return the number of bytes decompressed, or -1 on decompression failure.
+ * *consumed stores the number of bytes consumed from input_buf.
+ * Consuming input_buf may only copy bytes into the decompressor's internal
+ * buffer. Call again with available output space while input remains or
+ * clientHasPendingCompressedData() is true, using input_len 0 to drain pending
+ * data after input_buf is fully consumed. */
 int clientReadBufAndDecompress(client *c, char *input_buf, size_t input_len,
                              char *output_buf, size_t output_len, size_t *consumed)
 {
@@ -526,12 +527,13 @@ int clientReadBufAndDecompress(client *c, char *input_buf, size_t input_len,
 
         int decompressed = decompressInto(state, output_buf + tot_decompressed,
                                           output_len - tot_decompressed);
-        if (decompressed <= 0) {
-            /* Compression library failure, we should close the connection */
-            if (decompressed < 0)
-                c->conn->state = CONN_STATE_CLOSED;
-            break;
+        if (decompressed < 0) {
+            /* The decoder cannot continue after an error, even if this call
+             * produced some output before reaching the invalid data. */
+            c->conn->state = CONN_STATE_CLOSED;
+            return -1;
         }
+        if (decompressed == 0) break;
         tot_decompressed += decompressed;
     }
 
@@ -735,8 +737,10 @@ int clientConnRead(client *c, void *buf, size_t buf_len, int *nread_out) {
         /* When draining pending data we only decompress what we have already
          * read from the socket without issuing another socket read. The actual
          * socket read happens when the event loop handles a read event, in which
-         * case handle_pending is not set. */
-        if (!state->handle_pending) {
+         * case handle_pending is not set. A full input buffer must be drained
+         * before reading more: a zero-length read can return 0, which the
+         * connection layer interprets as EOF. */
+        if (!state->handle_pending && state->input.written < state->input.size) {
             nread = connRead(c->conn,
                              state->input.data + state->input.written,
                              state->input.size - state->input.written);
@@ -763,7 +767,7 @@ int clientConnRead(client *c, void *buf, size_t buf_len, int *nread_out) {
 
     /* No need to give pending work to the main thread as the client must be
      * sent to an IO-thread soon enough. */
-    if (c->running_tid != IOTHREAD_MAIN_THREAD_ID) {
+    if (c->running_tid != IOTHREAD_MAIN_THREAD_ID || isInsideYieldingLongCommand()) {
         if (connGetState(c->conn) == CONN_STATE_CONNECTED && clientHasPendingCompressedData(c)) {
             clientCompressionPendingAdd(c);
         } else if (state->pending_data_node) {

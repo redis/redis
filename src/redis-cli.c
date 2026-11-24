@@ -74,8 +74,8 @@
 
 #define CLUSTER_MANAGER_INVALID_HOST_ARG \
     "[ERR] Invalid arguments: you need to pass either a valid " \
-    "address (ie. 120.0.0.1:7000) or space separated IP " \
-    "and port (ie. 120.0.0.1 7000)\n"
+    "address (ie. 120.0.0.1:7000 or [::1]:7000) or space " \
+    "separated IP and port (ie. 120.0.0.1 7000)\n"
 #define CLUSTER_MANAGER_MODE() (config.cluster_manager_command.name != NULL)
 #define CLUSTER_MANAGER_MASTERS_COUNT(nodes, replicas) ((nodes)/((replicas) + 1))
 #define CLUSTER_MANAGER_COMMAND(n,...) \
@@ -405,16 +405,27 @@ void dictListDestructor(dict *d, void *val)
     listRelease((list*)val);
 }
 
+/* Erase the current terminal row and return the cursor to its beginning. */
+static void clearCurrentLine(void) {
+    if (IS_TTY_OR_FAKETTY()) {
+        printf("\033[2K\r");
+    }
+}
+
+/* Erase from the cursor to the end of the terminal screen without moving it. */
+static void clearToEndOfScreen(void) {
+    if (IS_TTY_OR_FAKETTY()) {
+        printf("\033[0J");
+    }
+}
+
 /* Erase the lines before printing, and returns the number of lines printed */
 int cleanPrintfln(char *fmt, ...) {
     va_list args;
     char buf[1024]; /* limitation */
     int char_count, line_count = 0;
 
-    /* Clear the line if in TTY */
-    if (IS_TTY_OR_FAKETTY()) {
-        printf("\033[2K\r");
-    }
+    clearCurrentLine();
 
     va_start(args, fmt);
     char_count = vsnprintf(buf, sizeof(buf), fmt, args);
@@ -456,6 +467,10 @@ typedef struct {
 static helpEntry *helpEntries = NULL;
 static int helpEntriesLen = 0;
 
+/* Reasonable bounds for COMMAND replies, far above any real values. */
+#define CLI_LEGACY_COMMAND_ARITY_LIMIT 1024
+#define CLI_LEGACY_COMMAND_MAX_ENTRIES 4096
+
 /* For backwards compatibility with pre-7.0 servers.
  * cliLegacyInitHelp() sets up the helpEntries array with the command and group
  * names from the commands.c file. However the Redis instance we are connecting
@@ -474,12 +489,21 @@ static void cliLegacyIntegrateHelp(void) {
 
     /* Scan the array reported by COMMAND and fill only the entries that
      * don't already match what we have. */
-    for (size_t j = 0; j < reply->elements; j++) {
+    for (size_t j = 0; j < reply->elements && j < CLI_LEGACY_COMMAND_MAX_ENTRIES; j++) {
         redisReply *entry = reply->element[j];
         if (entry->type != REDIS_REPLY_ARRAY || entry->elements < 4 ||
             entry->element[0]->type != REDIS_REPLY_STRING ||
             entry->element[1]->type != REDIS_REPLY_INTEGER ||
             entry->element[3]->type != REDIS_REPLY_INTEGER) break;
+
+        long long arity = entry->element[1]->integer;
+        int firstkey = entry->element[3]->integer == 1;
+        /* Bound each generated params string before taking the absolute value
+         * or narrowing the server-reported arity to int. */
+        if (arity > CLI_LEGACY_COMMAND_ARITY_LIMIT || arity < -CLI_LEGACY_COMMAND_ARITY_LIMIT)
+            continue;
+        int args = (int)(arity < 0 ? -arity : arity) - 1;
+
         char *cmdname = entry->element[0]->str;
         int i;
 
@@ -505,14 +529,12 @@ static void cliLegacyIntegrateHelp(void) {
         new->docs.args = NULL;
         new->docs.numargs = 0;
         new->docs.params = sdsempty();
-        int args = llabs(entry->element[1]->integer);
-        args--; /* Remove the command name itself. */
-        if (entry->element[3]->integer == 1) {
+        if (firstkey) {
             new->docs.params = sdscat(new->docs.params,"key ");
             args--;
         }
         while(args-- > 0) new->docs.params = sdscat(new->docs.params,"arg ");
-        if (entry->element[1]->integer < 0)
+        if (arity < 0)
             new->docs.params = sdscat(new->docs.params,"...options...");
         new->docs.summary = "Help not available";
         new->docs.since = "Not known";
@@ -544,7 +566,7 @@ static void cliAddCommandDocArg(cliCommandArg *cmdArg, redisReply *argMap) {
         return;
     }
 
-    for (size_t i = 0; i < argMap->elements; i += 2) {
+    for (size_t i = 0; i + 1 < argMap->elements; i += 2) {
         assert(argMap->element[i]->type == REDIS_REPLY_STRING);
         char *key = argMap->element[i]->str;
         if (!strcmp(key, "name")) {
@@ -641,11 +663,17 @@ static void cliFillInCommandHelpEntry(helpEntry *help, char *cmdname, char *subc
 static helpEntry *cliInitCommandHelpEntry(char *cmdname, char *subcommandname,
                                           helpEntry *next, redisReply *specs,
                                           dict *groups) {
+    /* Defensive bound: the reply is untrusted, and if for any reason it yields
+     * more entries than cliCountCommands() allocated, stop instead of writing
+     * past the end of the helpEntries array. helpEntriesLen still holds the
+     * allocated count here; cliInitCommandHelpEntries() trims it only after
+     * the fill. */
+    if (next >= helpEntries + helpEntriesLen) return next;
     helpEntry *help = next++;
     cliFillInCommandHelpEntry(help, cmdname, subcommandname);
 
     assert(specs->type == REDIS_REPLY_MAP || specs->type == REDIS_REPLY_ARRAY);
-    for (size_t j = 0; j < specs->elements; j += 2) {
+    for (size_t j = 0; j + 1 < specs->elements; j += 2) {
         assert(specs->element[j]->type == REDIS_REPLY_STRING);
         char *key = specs->element[j]->str;
         if (!strcmp(key, "summary")) {
@@ -671,10 +699,14 @@ static helpEntry *cliInitCommandHelpEntry(char *cmdname, char *subcommandname,
             help->docs.numargs = arguments->elements;
             cliMakeCommandDocArgs(arguments, help->docs.args);
             help->docs.params = makeHint(NULL, 0, 0, help->docs);
-        } else if (!strcmp(key, "subcommands")) {
+        } else if (!strcmp(key, "subcommands") && subcommandname == NULL) {
+            /* Only top-level commands may have subcommands. Redis has no nested
+             * subcommands, and cliCountCommands() only reserves space for one
+             * level, so ignore any deeper nesting a malicious server might send.
+             * Together with the count that keeps allocation and fill in lockstep. */
             redisReply *subcommands = specs->element[j + 1];
             assert(subcommands->type == REDIS_REPLY_MAP || subcommands->type == REDIS_REPLY_ARRAY);
-            for (size_t i = 0; i < subcommands->elements; i += 2) {
+            for (size_t i = 0; i + 1 < subcommands->elements; i += 2) {
                 assert(subcommands->element[i]->type == REDIS_REPLY_STRING);
                 char *subcommandname = subcommands->element[i]->str;
                 redisReply *subcommand = subcommands->element[i + 1];
@@ -690,13 +722,18 @@ static helpEntry *cliInitCommandHelpEntry(char *cmdname, char *subcommandname,
 static size_t cliCountCommands(redisReply* commandTable) {
     size_t numCommands = commandTable->elements / 2;
 
-    /* The command docs table maps command names to a map of their specs. */    
-    for (size_t i = 0; i < commandTable->elements; i += 2) {
+    /* The command docs table maps command names to a map of their specs.
+     * The reply comes from the server and may be malformed, so every paired
+     * access is guarded with `i + 1 < elements` to avoid reading past the
+     * element array on an odd-length reply. Only one level of subcommands is
+     * counted here; that must match the fill side in
+     * cliInitCommandHelpEntry(), which refuses to recurse deeper. */
+    for (size_t i = 0; i + 1 < commandTable->elements; i += 2) {
         assert(commandTable->element[i]->type == REDIS_REPLY_STRING);  /* Command name. */
         assert(commandTable->element[i + 1]->type == REDIS_REPLY_MAP ||
                commandTable->element[i + 1]->type == REDIS_REPLY_ARRAY);
         redisReply *map = commandTable->element[i + 1];
-        for (size_t j = 0; j < map->elements; j += 2) {
+        for (size_t j = 0; j + 1 < map->elements; j += 2) {
             assert(map->element[j]->type == REDIS_REPLY_STRING);
             char *key = map->element[j]->str;
             if (!strcmp(key, "subcommands")) {
@@ -752,7 +789,7 @@ void cliInitGroupHelpEntries(dict *groups) {
 /* Initializes help entries for all commands in the COMMAND DOCS reply. */
 void cliInitCommandHelpEntries(redisReply *commandTable, dict *groups) {
     helpEntry *next = helpEntries;
-    for (size_t i = 0; i < commandTable->elements; i += 2) {
+    for (size_t i = 0; i + 1 < commandTable->elements; i += 2) {
         assert(commandTable->element[i]->type == REDIS_REPLY_STRING);
         char *cmdname = commandTable->element[i]->str;
 
@@ -761,6 +798,10 @@ void cliInitCommandHelpEntries(redisReply *commandTable, dict *groups) {
         redisReply *cmdspecs = commandTable->element[i + 1];
         next = cliInitCommandHelpEntry(cmdname, NULL, next, cmdspecs, groups);
     }
+    /* The number actually filled in may be lower than the count returned by
+     * cliCountCommands() if the reply was malformed. Trim helpEntriesLen so we
+     * never sort or read uninitialized trailing entries. */
+    helpEntriesLen = next - helpEntries;
 }
 
 /* Does the server version support a command/argument only available "since" some version?
@@ -1674,8 +1715,9 @@ static int cliSwitchProto(void) {
         }
     }
 
-    /* Retrieve server version string for later use. */
-    for (size_t i = 0; i < reply->elements; i += 2) {
+    /* Retrieve server version string for later use. The reply is untrusted,
+     * so make sure each key has a value before reading it. */
+    for (size_t i = 0; i + 1 < reply->elements; i += 2) {
         assert(reply->element[i]->type == REDIS_REPLY_STRING);
         char *key = reply->element[i]->str;
         if (!strcmp(key, "version")) {
@@ -1732,7 +1774,11 @@ static int cliConnect(int flags) {
         if (!context->err && config.tls) {
             const char *err = NULL;
             if (cliSecureConnection(context, config.sslconfig, &err) == REDIS_ERR && err) {
-                fprintf(stderr, "Could not negotiate a TLS connection: %s\n", err);
+                /* Honor CC_QUIET like the generic failure path below: probe
+                 * connections would otherwise report the same failure that the
+                 * real connection attempt reports right after. */
+                if (!(flags & CC_QUIET))
+                    fprintf(stderr, "Could not negotiate a TLS connection: %s\n", err);
                 redisFree(context);
                 context = NULL;
                 return REDIS_ERR;
@@ -3071,9 +3117,17 @@ static int parseOptions(int argc, char **argv) {
             config.sslconfig.ciphers = argv[++i];
         } else if (!strcmp(argv[i],"--insecure")) {
             config.sslconfig.skip_cert_verify = 1;
+        } else if (!strcmp(argv[i],"--no-verify-hostname")) {
+            config.sslconfig.skip_hostname_verify = 1;
+        } else if (!strcmp(argv[i],"--tls-expected-peer-name") && !lastarg) {
+            config.sslconfig.expected_peer_name = argv[++i];
         #ifdef TLS1_3_VERSION
         } else if (!strcmp(argv[i],"--tls-ciphersuites") && !lastarg) {
             config.sslconfig.ciphersuites = argv[++i];
+        #endif
+        #if CLI_TLS_SUPPORTS_GROUPS
+        } else if (!strcmp(argv[i],"--tls-groups") && !lastarg) {
+            config.sslconfig.groups = argv[++i];
         #endif
 #endif
         } else if (!strcmp(argv[i],"-v") || !strcmp(argv[i], "--version")) {
@@ -3154,6 +3208,35 @@ static int parseOptions(int argc, char **argv) {
         exit(1);
     }
 
+    /* Identity verification options. --no-verify-hostname drops to chain-only
+     * validation, so it contradicts an explicit expected identity; --insecure
+     * verifies nothing at all, so an expected identity could never be checked. */
+    if (config.sslconfig.expected_peer_name) {
+        if (config.sslconfig.skip_hostname_verify) {
+            fprintf(stderr, "Options --tls-expected-peer-name and --no-verify-hostname "
+                            "are mutually exclusive.\n");
+            exit(1);
+        }
+        if (config.sslconfig.skip_cert_verify) {
+            fprintf(stderr, "Option --insecure cannot be combined with "
+                            "--tls-expected-peer-name.\n");
+            exit(1);
+        }
+        int parent_domains = 0;
+        const char *name_err = cliValidateExpectedPeerNames(config.sslconfig.expected_peer_name,
+                                                            &parent_domains);
+        if (name_err) {
+            fprintf(stderr, "Invalid --tls-expected-peer-name: %s.\n", name_err);
+            exit(1);
+        }
+        if (parent_domains) {
+            fprintf(stderr, "Warning: --tls-expected-peer-name has %d entr%s beginning "
+                            "with a dot; such an entry is a parent-domain pattern that "
+                            "matches any subdomain at any depth, not a single host.\n",
+                            parent_domains, parent_domains == 1 ? "y" : "ies");
+        }
+    }
+
     return i;
 }
 
@@ -3175,13 +3258,24 @@ static void usage(int err) {
     FILE *target = err ? stderr: stdout;
     const char *tls_usage =
 #ifdef USE_OPENSSL
-"  --tls              Establish a secure TLS connection.\n"
-"  --sni <host>       Server name indication for TLS.\n"
+"  --tls              Establish a secure TLS connection. The server certificate\n"
+"                     must chain to the trusted CA and carry the expected\n"
+"                     identity: the name given to --sni, or else the host that\n"
+"                     was dialed (as an IP or DNS SAN).\n"
+"  --sni <host>       Server name indication for TLS. Also the identity the\n"
+"                     server certificate is verified against.\n"
 "  --cacert <file>    CA Certificate file to verify with.\n"
 "  --cacertdir <dir>  Directory where trusted CA certificates are stored.\n"
 "                     If neither cacert nor cacertdir are specified, the default\n"
 "                     system-wide trusted root certs configuration will apply.\n"
 "  --insecure         Allow insecure TLS connection by skipping cert validation.\n"
+"  --no-verify-hostname\n"
+"                     Verify only that the server certificate chains to the\n"
+"                     trusted CA, not that it carries the expected identity.\n"
+"  --tls-expected-peer-name <names>\n"
+"                     Verify the server certificate against these identities\n"
+"                     instead of the dialed host or SNI: a space-separated list\n"
+"                     of DNS names (any match succeeds) or a single IP address.\n"
 "  --cert <file>      Client certificate to authenticate with.\n"
 "  --key <file>       Private key file to authenticate with.\n"
 "  --tls-ciphers <list> Sets the list of preferred ciphers (TLSv1.2 and below)\n"
@@ -3192,6 +3286,10 @@ static void usage(int err) {
 "                     in order of preference from highest to lowest separated by colon (\":\").\n"
 "                     See the ciphers(1ssl) manpage for more information about the syntax of this string,\n"
 "                     and specifically for TLSv1.3 ciphersuites.\n"
+#endif
+#if CLI_TLS_SUPPORTS_GROUPS
+"  --tls-groups <list> Sets the list of preferred TLS groups\n"
+"                     in order of preference from highest to lowest separated by colon (\":\").\n"
 #endif
 #endif
 "";
@@ -3380,11 +3478,17 @@ static int issueCommandRepeat(int argc, char **argv, long repeat) {
         if (config.cluster_reissue_command || context == NULL ||
             context->err == REDIS_ERR_IO || context->err == REDIS_ERR_EOF)
         {
+            /* The previous connection used RESP3 via HELLO 3; temporarily promote resp3
+            * so cliConnect() re-sends HELLO 3 for this reconnect only. */
+            int resend_resp3 = config.current_resp3 && config.resp3 == 0;
+            if (resend_resp3) config.resp3 = 2;
             if (cliConnect(CC_FORCE) != REDIS_OK) {
+                if (resend_resp3) config.resp3 = 0;
                 cliPrintContextError();
                 config.cluster_reissue_command = 0;
                 return REDIS_ERR;
             }
+            if (resend_resp3) config.resp3 = 0;
             /* Reset dbnum after reconnecting so we can re-select the previous db in cliSelect(). */
             config.dbnum = 0;
             cliSelect();
@@ -4102,12 +4206,21 @@ static int parseClusterNodeAddress(char *addr, char **ip_ptr, int *port_ptr,
         if (bus_port_ptr != NULL)
             *bus_port_ptr = atoi(c + 1);
     }
-    c = strrchr(addr, ':');
-    if (c != NULL) {
+
+    if (addr[0] == '[') {
+        /* [IPv6]:port */
+        c = strchr(addr, ']');
+        if (c == NULL || c[1] != ':') return 0;
+        *c = '\0';
+        *ip_ptr = addr + 1;
+        *port_ptr = atoi(c + 2);
+    } else {
+        c = strrchr(addr, ':');
+        if (c == NULL) return 0;
         *c = '\0';
         *ip_ptr = addr;
-        *port_ptr = atoi(++c);
-    } else return 0;
+        *port_ptr = atoi(c + 1);
+    }
     return 1;
 }
 
@@ -7719,7 +7832,10 @@ static int clusterManagerCommandAddNode(int argc, char **argv) {
         }
     }
 
-    if (reply) freeReplyObject(reply);
+    if (reply) {
+        freeReplyObject(reply);
+        reply = NULL;
+    }
 
     // Send CLUSTER MEET command to the new node
     clusterManagerLogInfo(">>> Send CLUSTER MEET to node %s:%d to make it "
@@ -9768,6 +9884,7 @@ typeinfo type_set = { "set", "SCARD", "members" };
 typeinfo type_hash = { "hash", "HLEN", "fields" };
 typeinfo type_zset = { "zset", "ZCARD", "members" };
 typeinfo type_stream = { "stream", "XLEN", "entries" };
+typeinfo type_bitmap = { "bitmap", "BITCOUNT", "set bits" };
 typeinfo type_other = { "other", NULL, "?" };
 
 static typeinfo* typeinfo_add(dict *types, char* name, typeinfo* type_template) {
@@ -9914,6 +10031,17 @@ static void sendReadOnly(void) {
     freeReplyObject(read_reply);
 }
 
+/* Try to avoid updating LRU/LFU metadata while inspecting keys. Ignore error
+ * replies for compatibility with servers that don't support CLIENT NO-TOUCH. */
+static void sendNoTouch(void) {
+    redisReply *reply = redisCommand(context, "CLIENT NO-TOUCH ON");
+    if (reply == NULL) {
+        fprintf(stderr, "\nI/O error\n");
+        exit(1);
+    }
+    freeReplyObject(reply);
+}
+
 static int displayKeyStatsProgressbar(unsigned long long sampled,
                                       unsigned long long total_keys);
 
@@ -9934,6 +10062,7 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
     typeinfo_add(types_dict, "hash", &type_hash);
     typeinfo_add(types_dict, "zset", &type_zset);
     typeinfo_add(types_dict, "stream", &type_stream);
+    typeinfo_add(types_dict, "bitmap", &type_bitmap);
 
     signal(SIGINT, longStatLoopModeStop);
     /* Total keys pre scanning */
@@ -9946,6 +10075,7 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
     
     /* Use readonly in cluster */
     sendReadOnly();
+    sendNoTouch();
 
     /* SCAN loop */
     do {
@@ -9986,7 +10116,7 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
             totlen += keys->element[i]->len;
             sampled++;
 
-            if(type->biggest<sizes[i]) {
+            if(type->biggest<sizes[i] || (!type->biggest_key && type->sizecmd)) {
                 /* Keep track of biggest key name for this type */
                 if (type->biggest_key)
                     sdsfree(type->biggest_key);
@@ -10024,7 +10154,7 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
                 dictInitIterator(&di, types_dict);
                 while ((de = dictNext(&di))) {
                     typeinfo *current_type = dictGetVal(de);
-                    if (current_type->biggest > 0) {
+                    if (current_type->biggest_key) {
                         line_count += cleanPrintfln("Biggest %-9s found so far %s with %llu %s",
                             current_type->name, current_type->biggest_key, current_type->biggest,
                             !memkeys? current_type->sizeunit: "bytes");
@@ -11077,7 +11207,7 @@ static void updateKeyType(redisReply *element, unsigned long long size, typeinfo
     type->totalsize += size;
     type->count++;
 
-    if (type->biggest<size) {
+    if (type->biggest<size || (!type->biggest_key && type->sizecmd)) {
         /* Keep track of biggest key name for this type */
         if (type->biggest_key)
             sdsfree(type->biggest_key);
@@ -11100,6 +11230,13 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
     list *top_sizes;
     long long refresh_time = mstime();
 
+    /* Skip setup and scanning when the selected database is empty. */
+    total_keys = getDbSize();
+    if (total_keys == 0) {
+        printf("The database is empty.\n");
+        exit(0);
+    }
+
     if (cursor != 0) {
         it = cursor;
     }
@@ -11117,6 +11254,7 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
     typeinfo_add(memkeys_types_dict, "hash", &type_hash);
     typeinfo_add(memkeys_types_dict, "zset", &type_zset);
     typeinfo_add(memkeys_types_dict, "stream", &type_stream);
+    typeinfo_add(memkeys_types_dict, "bitmap", &type_bitmap);
 
     /* We could use only one typeinfo dictionary if we add new fields to save
      * both memkey and bigkey info. Not sure it would make sense in findBigKeys(). */
@@ -11127,6 +11265,7 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
     typeinfo_add(bigkeys_types_dict, "hash", &type_hash);
     typeinfo_add(bigkeys_types_dict, "zset", &type_zset);
     typeinfo_add(bigkeys_types_dict, "stream", &type_stream);
+    typeinfo_add(bigkeys_types_dict, "bitmap", &type_bitmap);
 
     size_dist key_length_dist;
     size_dist_entry distribution[] = {
@@ -11151,9 +11290,6 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
 
     signal(SIGINT, longStatLoopModeStop);
 
-    /* Total keys pre scanning */
-    total_keys = getDbSize();
-
     /* Status message */
     printf("\n# Scanning the entire keyspace to find the biggest keys and distribution information.\n");
     printf("# Use -i 0.1 to sleep 0.1 sec per 100 SCAN commands (not usually needed).\n");
@@ -11163,6 +11299,7 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
 
     /* Use readonly in cluster */
     sendReadOnly();
+    sendNoTouch();
 
     /* SCAN loop */
     do {
@@ -11233,22 +11370,45 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
         freeReplyObject(reply);
     } while(force_cancel_loop == 0 && it != 0);
 
-    displayKeyStats(sampled, total_keys, total_size, memkeys_types_dict, bigkeys_types_dict, top_sizes,
-                    top_sizes_limit, 0);
+    /* With a pattern, an empty sample means nothing matched: replace the empty
+     * report with an explanation. Without a pattern, keep the report even when
+     * nothing was sampled (keys expired or deleted mid-scan, or an empty
+     * resumed portion of the keyspace). */
+    int no_match = config.pattern && sampled == 0;
 
-    /* Additional data at the end of the SCAN loop.
-     * Using cleanPrintfln in case we want to print during the SCAN loop. */
-    cleanPrintfln("");
-    displayKeyStatsSizeDist(keysize_histogram);
-    cleanPrintfln("");
-    displayKeyStatsLengthDist(&key_length_dist);
-    cleanPrintfln("");
-    displayKeyStatsType(sampled, memkeys_types_dict, bigkeys_types_dict);
+    if (no_match) {
+        /* Clear leftover rows when replacing the live stats with a shorter message. */
+        clearToEndOfScreen();
+        
+        if (it != 0) {
+            cleanPrintfln("Scan interrupted: no keys matched the specified pattern in the scanned portion.");
+        } else if (cursor != 0) {
+            cleanPrintfln("No keys matched the specified pattern in the scanned portion of the keyspace.");
+        } else {
+            cleanPrintfln("No keys matched the specified pattern.");
+        }
+    } else {
+        displayKeyStats(sampled, total_keys, total_size, memkeys_types_dict, bigkeys_types_dict, top_sizes,
+                        top_sizes_limit, 0);
+
+        /* Additional data, only printed once the SCAN loop is done. It lands
+         * below the live report, so it needs no clearing; cleanPrintfln keeps
+         * it ready to be added to the live refresh. */
+        cleanPrintfln("");
+        displayKeyStatsSizeDist(keysize_histogram);
+        cleanPrintfln("");
+        displayKeyStatsLengthDist(&key_length_dist);
+        cleanPrintfln("");
+        displayKeyStatsType(sampled, memkeys_types_dict, bigkeys_types_dict);
+        
+        if (it != 0) {
+            cleanPrintfln("");
+            cleanPrintfln("Scan interrupted.");
+        }
+    }
 
     if (it != 0) {
-        printf("\n");
-        printf("Scan interrupted:\n");
-        printf("Use 'redis-cli --keystats --cursor %llu' to restart from the last cursor.\n", it);
+        cleanPrintfln("Use 'redis-cli --keystats --cursor %llu' to restart from the last cursor.", it);
     }
 
     if (memkeys_types) zfree(memkeys_types);

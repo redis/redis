@@ -56,6 +56,80 @@ proc dumpAllHashes {client} {
 
 ############################### TESTS #########################################
 
+start_server {tags {"hash external:skip"}} {
+    test "Listpack field expiry updates preserve ordering and values" {
+        r config set hash-max-listpack-entries 512
+        r config set hash-max-listpack-value 4096
+        set base 4102444800000
+        set large "[string repeat x 513]\x00tail"
+        set values [list a 0 b $large c -9223372036854775808 d 007 e tail]
+        r hset ordered {*}$values
+        assert_equal {1} [r hpexpireat ordered [expr {$base - 1000}] FIELDS 1 a]
+        assert_equal {1} [r hpexpireat ordered $base FIELDS 1 b]
+        assert_equal {1} [r hpexpireat ordered [expr {$base + 1000}] FIELDS 1 c]
+        set expected [dict create a [expr {$base - 1000}] b $base \
+                                  c [expr {$base + 1000}] d -1 e -1]
+        assert_encoding listpackex ordered
+
+        # Exercise equal TTLs, movement in both directions, and transitions
+        # between volatile and persistent fields, including duplicate fields.
+        set updates [list \
+            [list HPEXPIREAT ordered $base FIELDS 2 b b] \
+            [list HPEXPIREAT ordered [expr {$base + 500}] FIELDS 1 b] \
+            [list HPEXPIREAT ordered [expr {$base - 500}] FIELDS 1 b] \
+            [list HPEXPIREAT ordered [expr {$base + 2000}] FIELDS 1 b] \
+            [list HPEXPIREAT ordered [expr {$base - 2000}] FIELDS 1 b] \
+            [list HPERSIST ordered FIELDS 2 b b] \
+            [list HPEXPIREAT ordered $base FIELDS 1 d] \
+            [list HPEXPIREAT ordered [expr {$base + 3000}] FIELDS 1 e] \
+            [list HPERSIST ordered FIELDS 1 e] \
+            [list HPEXPIREAT ordered $base FIELDS 5 e d c b a] \
+            [list HPEXPIREAT ordered [expr {$base + 1}] FIELDS 5 a b c d e] \
+            [list HPERSIST ordered FIELDS 5 c a e b d]]
+
+        foreach update $updates {
+            set replies {}
+            if {[lindex $update 0] eq "HPEXPIREAT"} {
+                foreach field [lrange $update 5 end] {
+                    dict set expected $field [lindex $update 2]
+                    lappend replies 1
+                }
+            } else {
+                foreach field [lrange $update 4 end] {
+                    lappend replies [expr {[dict get $expected $field] == -1 ? -1 : 1}]
+                    dict set expected $field -1
+                }
+            }
+            assert_equal $replies [r {*}$update]
+            assert_equal [dict values $expected] \
+                         [r hpexpiretime ordered FIELDS 5 {*}[dict keys $expected]]
+            set fields [r hkeys ordered]
+            set expiries [r hpexpiretime ordered FIELDS 5 {*}$fields]
+            set previous 0
+            foreach expiry $expiries {
+                # Persistent fields sort after all volatile fields.
+                if {$expiry == -1} { set expiry 9223372036854775807 }
+                assert {$expiry >= $previous}
+                set previous $expiry
+            }
+            foreach {field value} $values {
+                assert_equal $value [r hget ordered $field]
+            }
+            assert_encoding listpackex ordered
+        }
+
+        # Restore must preserve both the listpack and its field expiries.
+        assert_equal {1 1 1} [r hpexpireat ordered $base FIELDS 3 c a b]
+        assert_equal [list $base $base $base -1 -1] \
+                     [r hpexpiretime ordered FIELDS 5 a b c d e]
+        r restore restored 0 [r dump ordered]
+        assert_encoding listpackex restored
+        assert_equal [r hgetall ordered] [r hgetall restored]
+        assert_equal [r hpexpiretime ordered FIELDS 5 a b c d e] \
+                     [r hpexpiretime restored FIELDS 5 a b c d e]
+    }
+}
+
 start_server {tags {"external:skip needs:debug"}} {
     foreach type {listpackex hashtable} {
         if {$type eq "hashtable"} {
@@ -318,16 +392,21 @@ start_server {tags {"external:skip needs:debug"}} {
         }
         
         test "HPEXPIRETIME persists after RDB reload ($type)" {
-            r del myhash
-            r hset myhash field1 value1 field2 value2
-            r hpexpire myhash 500 NX FIELDS 1 field1
-            set before [r HPEXPIRETIME myhash FIELDS 1 field1]
-            r debug reload
-            set after [r HPEXPIRETIME myhash FIELDS 1 field1]
-            assert_equal $before $after
-            # field2 should not have expiration
-            assert_equal [r HTTL myhash FIELDS 1 field2] $T_NO_EXPIRY
-            assert_equal [get_stat_subexpiry r] 1
+            # Retry with a longer TTL when DEBUG RELOAD is slow.
+            assert_with_retry 3 iter {
+                r del myhash
+                r hset myhash field1 value1 field2 value2
+                set ttl_ms [expr {500 * $iter}]
+                r hpexpire myhash $ttl_ms NX FIELDS 1 field1
+                set before [r HPEXPIRETIME myhash FIELDS 1 field1]
+                r debug reload
+                set after [r HPEXPIRETIME myhash FIELDS 1 field1]
+            } {
+                $before == $after &&
+                [r HTTL myhash FIELDS 1 field2] == $T_NO_EXPIRY &&
+                [get_stat_subexpiry r] == 1
+            }
+
             # Wait for field1 to expire robustly
             wait_for_condition 50 20 { [get_stat_subexpiry r] == 0 } else { fail "subexpiry should be 0" } 
             assert_equal [r hget myhash field1] ""
@@ -1810,6 +1889,12 @@ start_server {tags {"external:skip needs:debug"}} {
                 # Nothing will be replicated as f4 is persisted already.
                 r hgetex h4 PERSIST FIELDS 1 f4
 
+                # Only the updated fields are replicated: f4 has no TTL to
+                # persist and f9 does not exist.
+                r hsetex h4 EX 1000 FIELDS 1 f5 v5
+                r hgetex h4 PERSIST FIELDS 3 f4 f5 f9
+                r hgetex h4 EX 10000 FIELDS 3 f4 f5 f9
+
                 # Replicated as hdel
                 r hgetdel h4 FIELDS 1 f4
 
@@ -1859,6 +1944,9 @@ start_server {tags {"external:skip needs:debug"}} {
                     {exec}
                     {hsetex h4 PXAT * FIELDS 1 f4 v4}
                     {hpersist h4 FIELDS 1 f4}
+                    {hsetex h4 PXAT * FIELDS 1 f5 v5}
+                    {hpersist h4 FIELDS 1 f5}
+                    {hpexpireat h4 * FIELDS 2 f4 f5}
                     {hdel h4 f4}
                 }
             }
@@ -1966,6 +2054,41 @@ start_server {tags {"external:skip needs:debug"}} {
                 assert_equal [array get keyAndFields1] [array get keyAndFields2]
 
             } {} {needs:debug}
+
+            test {HPERSIST replayed from AOF after field expiry time must persist the field} {
+                r flushall
+                r hset h1 f1 v1 f2 v2
+                r hpexpire h1 50 FIELDS 1 f1
+                # Persisted before expiry on the live server
+                assert_equal [r hpersist h1 FIELDS 1 f1] {1}
+                after 100
+
+                # On replay, HPEXPIREAT carries a timestamp in the past and the
+                # following HPERSIST must still be applied (the field was alive
+                # when the command was executed).
+                r debug loadaof
+                assert_equal [r hget h1 f1] v1
+                assert_equal [r httl h1 FIELDS 1 f1] {-1}
+                assert_equal [lsort [r hkeys h1]] {f1 f2}
+            } {} {needs:debug}
+
+            test {HPERSIST of an expired field is not replayed from AOF as a persist} {
+                r debug set-active-expire 0
+                r flushall
+                r hset h1 f1 v1 f2 v2
+                r hpexpire h1 1 FIELDS 1 f1
+                r hexpire h1 100 FIELDS 1 f2
+                after 10
+                # f1 is expired (not yet deleted) and is rejected, f2 is persisted
+                assert_equal [r hpersist h1 FIELDS 2 f1 f2] {-2 1}
+
+                # The AOF must hold the persist of f2 only: on replay nothing is
+                # expired by the local clock, so f1 would otherwise be revived.
+                r debug loadaof
+                assert_equal [r hget h1 f1] {}
+                assert_equal [r httl h1 FIELDS 2 f1 f2] {-2 -1}
+                r debug set-active-expire 1
+            } {OK} {needs:debug}
         }
 
         # Based on test, with same name, at expire.tcl:
@@ -1973,6 +2096,7 @@ start_server {tags {"external:skip needs:debug"}} {
             # Make sure that both relative and absolute expire commands are propagated
             # Consider also comment of the test, with same name, at expire.tcl
 
+            r debug set-active-expire 0
             r flushall ; # Clean up keyspace to avoid interference by keys from other tests
             set repl [attach_to_replication_stream]
 
@@ -1980,12 +2104,29 @@ start_server {tags {"external:skip needs:debug"}} {
             r hset h1 f1 v1
             r hexpireat h1 [expr [clock seconds]+100] NX FIELDS 1 f1
             r hset h2 f2 v2
-            r hpexpireat h2 [expr [clock seconds]*1000+100000] NX FIELDS 1 f2
+            set absolute_expire [expr {[clock milliseconds] + 100000}]
+            assert_equal {1} [r hpexpireat h2 $absolute_expire NX FIELDS 1 f2]
+            # An unchanged TTL still succeeds and propagates, including duplicates.
+            assert_equal {1 1} [r hpexpireat h2 $absolute_expire FIELDS 2 f2 f2]
             r hset h3 f3 v3 f4 v4 f5 v5
             # hpersist does nothing here. Verify it is not propagated.
             r hpersist h3 FIELDS 1 f5
             r hexpire h3 100 FIELDS 3 f3 f4 non_exists_field
             r hpersist h3 FIELDS 1 f3
+            # Only the fields that were actually persisted are propagated. f1 is
+            # expired but not yet deleted: a replica never expires fields on its
+            # own, so propagating it would revive it there.
+            r hset h4 f1 v1 f2 v2 f3 v3
+            r hpexpire h4 1 FIELDS 1 f1
+            r hexpire h4 100 FIELDS 1 f2
+            after 10
+            assert_equal [r hpersist h4 FIELDS 4 f1 f2 f3 non_exists_field] {-2 1 -1 -2}
+            # Same, as a queued command of MULTI/EXEC
+            r hexpire h4 100 FIELDS 2 f2 f3
+            r multi
+            r hpersist h4 FIELDS 4 f1 f2 non_exists_field f3
+            r hset h4 f6 v6
+            assert_equal [r exec] {{-2 1 -2 1} 1}
 
             assert_replication_stream $repl {
                 {select *}
@@ -1993,12 +2134,23 @@ start_server {tags {"external:skip needs:debug"}} {
                 {hpexpireat h1 * NX FIELDS 1 f1}
                 {hset h2 f2 v2}
                 {hpexpireat h2 * NX FIELDS 1 f2}
+                {hpexpireat h2 * FIELDS 2 f2 f2}
                 {hset h3 f3 v3 f4 v4 f5 v5}
                 {hpexpireat h3 * FIELDS 2 f3 f4}
                 {hpersist h3 FIELDS 1 f3}
+                {hset h4 f1 v1 f2 v2 f3 v3}
+                {hpexpireat h4 * FIELDS 1 f1}
+                {hpexpireat h4 * FIELDS 1 f2}
+                {hpersist h4 FIELDS 1 f2}
+                {hpexpireat h4 * FIELDS 2 f2 f3}
+                {multi}
+                {hpersist h4 FIELDS 2 f2 f3}
+                {hset h4 f6 v6}
+                {exec}
             }
             close_replication_stream $repl
-        } {} {needs:repl}
+            r debug set-active-expire 1
+        } {OK} {needs:repl}
 
         test {HRANDFIELD delete expired fields and propagate DELs to replica} {
             r debug set-active-expire 0
@@ -2099,6 +2251,46 @@ start_server {tags {"external:skip needs:debug"}} {
                 # This is because TTLs are always replicated as absolute values
                 assert_equal [dumpAllHashes $primary] [dumpAllHashes $replica]
             }
+
+            test {HPERSIST applied by replica after field expiry time must persist the field} {
+                $primary flushall
+                $primary hset h1 f1 v1 f2 v2
+                $primary hpexpire h1 500 FIELDS 1 f1
+                assert {[$primary wait 1 0] == 1}
+
+                # Stall the replica so that it applies HPERSIST only after f1's
+                # absolute expiry time has passed.
+                set rd [redis_deferring_client]
+                $rd debug sleep 1
+                after 100
+                assert_equal [$primary hpersist h1 FIELDS 1 f1] {1}
+                assert_equal [$rd read] {OK}
+                $rd close
+                assert {[$primary wait 1 0] == 1}
+
+                # The field was alive on the primary when HPERSIST ran, so the
+                # replica must persist it as well rather than treating it as gone.
+                assert_equal [$replica hget h1 f1] v1
+                assert_equal [$replica httl h1 FIELDS 1 f1] {-1}
+                assert_equal [dumpAllHashes $primary] [dumpAllHashes $replica]
+            }
+
+            test {HPERSIST by a user client on a writable replica does not revive an expired field} {
+                $primary debug set-active-expire 0
+                $primary flushall
+                $primary hset h1 f1 v1 f2 v2
+                $primary hpexpire h1 1 FIELDS 1 f1
+                assert {[$primary wait 1 0] == 1}
+                after 10
+
+                # Only commands of the master bypass the expiry check: a user
+                # command on the replica sees the field as expired, like reads do.
+                $replica config set replica-read-only no
+                assert_equal [$replica hpersist h1 FIELDS 1 f1] {-2}
+                assert_equal [$replica hget h1 f1] {}
+                $replica config set replica-read-only yes
+                $primary debug set-active-expire 1
+            } {OK}
         }
 
         test "Test HSETEX command replication" {

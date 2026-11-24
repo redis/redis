@@ -37,23 +37,7 @@ static void exitScriptTimedoutMode(scriptRunCtx *run_ctx) {
     serverAssert(scriptIsTimedout());
     run_ctx->flags &= ~SCRIPT_TIMEDOUT;
     blockingOperationEnds();
-    /* if we are a replica and we have an active master, set it for continue processing */
-    if (server.masterhost && server.master) {
-        /* Master running in IO thread needs to be sent to main thread so that
-         * it can process any pending commands ASAP without waiting for the next
-         * read.
-         * We don't queue the client for reprocessing in this case as it will
-         * create contention with main thread when it deals with unblocked
-         * clients - see comment above queueClientForReprocessing. */
-        if (server.master->running_tid != IOTHREAD_MAIN_THREAD_ID) {
-            pauseIOThread(server.master->tid);
-            enqueuePendingClientsToMainThread(server.master, 0);
-            resumeIOThread(server.master->tid);
-            return;
-        }
-
-        queueClientForReprocessing(server.master);
-    }
+    replicationResumeMasterClient();
 }
 
 static void enterScriptTimedoutMode(scriptRunCtx *run_ctx) {
@@ -404,7 +388,9 @@ static int scriptVerifyCommandArity(struct redisCommand *cmd, int argc, sds *err
 static int scriptVerifyACL(client *c, sds *err) {
     /* Check the ACLs. */
     int acl_errpos;
-    int acl_retval = ACLCheckAllPerm(c, &acl_errpos);
+    /* 'c' is the script engine's fake client, which has no pending command, so
+     * the keys are extracted from c->argv. */
+    int acl_retval = ACLCheckAllPerm(c, c->current_pending_cmd, &acl_errpos);
     if (acl_retval != ACL_OK) {
         addACLLogEntry(c,acl_retval,ACL_LOG_CTX_LUA,acl_errpos,NULL,NULL);
         sds msg = getAclErrorMessage(acl_retval, c->user, c->cmd, c->argv[acl_errpos]->ptr, 0);

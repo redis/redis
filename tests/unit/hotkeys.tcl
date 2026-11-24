@@ -163,6 +163,19 @@ start_server {tags {external:skip "hotkeys"}} {
         assert_equal {OK} [r hotkeys reset]
     }
 
+    test {HOTKEYS START - with DURATION 0} {
+        assert_equal {OK} [r hotkeys start METRICS 1 CPU DURATION 0]
+
+        set result [lindex [r hotkeys get] 0]
+        if {[llength $result] > 0 && [lindex $result 0] ne "tracking-active"} {
+            set result [hotkeys_array_to_dict $result]
+        }
+        assert_equal 1 [dict get $result "tracking-active"]
+
+        assert_equal {OK} [r hotkeys stop]
+        assert_equal {OK} [r hotkeys reset]
+    }
+
     test {HOTKEYS START - with SAMPLE parameter} {
         assert_equal {OK} [r hotkeys start METRICS 2 CPU NET SAMPLE 10]
         assert_equal {OK} [r hotkeys stop]
@@ -226,6 +239,24 @@ start_server {tags {external:skip "hotkeys"}} {
 
         assert_equal {OK} [r hotkeys reset]
     }
+
+    test {HOTKEYS GET - collection-duration-ms beyond 2^31 milliseconds} {
+        assert_equal {OK} [r hotkeys start METRICS 1 CPU]
+        # Tracking for 25 days, longer than 2^31 ms (24.8 days).
+        set age [expr {25 * 24 * 3600 * 1000}]
+        assert_equal {OK} [r debug hotkeys-shift-start $age]
+
+        # While tracking
+        set result [lindex [r hotkeys get] 0]
+        assert_morethan_equal [dict get $result "collection-duration-ms"] $age
+
+        # After stopping
+        assert_equal {OK} [r hotkeys stop]
+        set result [lindex [r hotkeys get] 0]
+        assert_morethan_equal [dict get $result "collection-duration-ms"] $age
+
+        assert_equal {OK} [r hotkeys reset]
+    } {} {needs:debug}
 
     test {HOTKEYS - nested commands} {
         assert_equal {OK} [r hotkeys start METRICS 1 NET]

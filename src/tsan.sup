@@ -19,3 +19,7 @@ race:malloc_mutex_trylock_final
 #   execution which would incur too big of a cost.
 # - the race happens rarely
 race:connSocketAddr
+
+# Logging only checks whether masterhost is NULL. A stale role prefix
+# during a replication role change is acceptable.
+race_top:^getLogReplicationRole$

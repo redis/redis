@@ -20,7 +20,17 @@
 #define HNSW_DEFAULT_M  16     /* Used when 0 is given at creation time. */
 #define HNSW_MIN_M      4      /* Probably even too low already. */
 #define HNSW_MAX_M      4096   /* Safeguard sanity limit. */
+#define HNSW_MAX_LEVEL  16     /* Max level nodes can reach. */
 #define HNSW_MAX_THREADS 32    /* Maximum number of concurrent threads */
+
+/* Upper bound on the number of uint64_t "params" a single serialized node can
+ * legitimately contain. Used to reject corrupted/oversized RDB payloads before
+ * allocating: id + packed level/version word, then for each of up to
+ * HNSW_MAX_LEVEL+1 layers a (num_links, max_links) header, up to HNSW_MAX_M*4
+ * link IDs and one worst-link word, plus a trailing l2/range word. See
+ * hnsw_insert_serialized(). */
+#define HNSW_MAX_SERIALIZED_NODE_PARAMS \
+    (2 + ((uint64_t)HNSW_MAX_LEVEL + 1) * (2 + (uint64_t)HNSW_MAX_M * 4 + 1) + 1)
 
 /* Quantization types you can enable at creation time in hnsw_new() */
 #define HNSW_QUANT_NONE  0   // No quantization.

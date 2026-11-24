@@ -1,0 +1,174 @@
+# cluster-bus-port-protected-mode makes an unauthenticated cluster bus port an
+# explicit choice.
+#
+# The cluster bus port has no authentication of its own: any host able to reach it
+# can speak the cluster protocol and potentially threaten the whole cluster - a
+# MEET from an unknown host is enough to have it added as a node, with its gossip
+# trusted. What authenticates it is tls-cluster, which makes every peer present a
+# certificate verified against the CA. The option defaults to yes and refuses an
+# unauthenticated bus, in the spirit of protected-mode; the operator waives it
+# with "cluster-bus-port-protected-mode no" once the port is known to be
+# firewalled off.
+#
+# Note that the suite's default.conf waives protection for every server it
+# starts (non-TLS runs have no TLS to offer), so the tests below that care about
+# the default state must set the option, or bypass default.conf altogether.
+
+# Writes a two-file configuration into $dir: the given directives go to
+# inner.conf, which main.conf pulls in with "include" before setting the port and
+# the directory. Anything in inner.conf is therefore parsed before the rest of
+# main.conf, which is what the include test below needs to exercise.
+proc write_included_conf {dir port inner_lines} {
+    set fd [open $dir/inner.conf w]
+    foreach line $inner_lines { puts $fd $line }
+    close $fd
+
+    set fd [open $dir/main.conf w]
+    puts $fd "include $dir/inner.conf"
+    puts $fd "port $port"
+    puts $fd "dir $dir"
+    close $fd
+}
+
+tags {external:skip cluster} {
+
+    test {cluster-bus-port-protected-mode defaults to yes and refuses an unauthenticated bus} {
+        # No config file at all: this observes the compiled-in default rather
+        # than anything the suite configures. "--daemonize yes" only matters if
+        # this check ever regresses: the server would then start instead of
+        # failing, and exec would return at once instead of blocking forever.
+        catch {exec src/redis-server --cluster-enabled yes --port 0 --daemonize yes} err
+        assert_match {*FATAL CONFIG FILE ERROR*} $err
+        assert_match {*cluster-bus-port-protected-mode is enabled but tls-cluster is disabled*} $err
+        assert_match {*'cluster-bus-port-protected-mode no'*} $err
+    }
+
+    test {protection is judged after the whole configuration is loaded} {
+        # The check runs when the OUTERMOST config load finishes, so directives
+        # that reach the server through "include" are accounted for. This matters
+        # because an included file ends at the position of its "include" line,
+        # before the rest of the parent file has been parsed. start_server cannot
+        # be used here: it generates the config file itself and offers no way to
+        # place directives behind an include.
+        set dir [file normalize [tmpdir cluster-bus-include]]
+        set logf $dir/redis.log
+        set port [find_available_port $::baseport $::portcount]
+
+        # cluster mode arrives via the include: the node does open a cluster bus,
+        # so the default protection must still refuse an unauthenticated one.
+        write_included_conf $dir $port {"cluster-enabled yes"}
+        catch {exec src/redis-server $dir/main.conf --daemonize yes} err
+        assert_match {*cluster-bus-port-protected-mode is enabled but tls-cluster is disabled*} $err
+
+        # And the waiver arrives via the include too: it is honoured, and the
+        # node starts with an unauthenticated bus.
+        write_included_conf $dir $port {"cluster-enabled yes" "cluster-bus-port-protected-mode no"}
+        exec src/redis-server $dir/main.conf --daemonize yes --logfile $logf
+        wait_for_condition 100 100 {
+            [count_message_lines $logf "Ready to accept"] > 0
+        } else {
+            fail "Server did not start; log: $logf"
+        }
+        # Connect over the plain port: this server knows nothing about the
+        # suite's TLS configuration, in a --tls run just as much as without it.
+        set rd [redis 127.0.0.1 $port 0 0]
+        assert_equal {cluster-bus-port-protected-mode no} [$rd config get cluster-bus-port-protected-mode]
+        assert_equal 1 [status $rd cluster_enabled]
+        assert_equal 1 [count_message_lines $logf "cluster bus port is not authenticated"]
+        catch {$rd shutdown nosave}
+        $rd close
+    }
+
+    # A standalone instance opens no cluster bus port, so the default protection
+    # must not stop it from starting without any TLS at all.
+    start_server {overrides {cluster-bus-port-protected-mode yes tls-cluster no}} {
+        test {cluster-bus-port-protected-mode only applies to cluster mode} {
+            assert_equal {cluster-bus-port-protected-mode yes} [r config get cluster-bus-port-protected-mode]
+            assert_equal {tls-cluster no} [r config get tls-cluster]
+            assert_equal 0 [s cluster_enabled]
+            assert_equal {PONG} [r ping]
+            # Outside cluster mode the two options are unrelated, so both stay
+            # freely settable.
+            r config set cluster-bus-port-protected-mode no
+            r config set cluster-bus-port-protected-mode yes
+            assert_equal 0 [count_log_message 0 "cluster bus port is not authenticated"]
+            # cluster-bus-port-protected-mode expects cluster-enabled to be immutable
+            assert_error {*can't set immutable config*} {r config set cluster-enabled yes}
+        }
+    }
+
+    start_cluster 1 0 {overrides {cluster-bus-port-protected-mode no tls-cluster no}} {
+        test {waiving protection starts a cluster node with an unauthenticated bus} {
+            assert_equal 1 [s cluster_enabled]
+            assert_equal {tls-cluster no} [r config get tls-cluster]
+            wait_for_cluster_state ok
+        }
+
+        test {waived protection is reported in the log} {
+            verify_log_message 0 "*cluster bus port is not authenticated*" 0
+        }
+
+        test {CONFIG SET cluster-bus-port-protected-mode yes is refused while the bus is unauthenticated} {
+            assert_error {*can't enable cluster-bus-port-protected-mode while tls-cluster is disabled*} {
+                r config set cluster-bus-port-protected-mode yes
+            }
+            assert_equal {cluster-bus-port-protected-mode no} [r config get cluster-bus-port-protected-mode]
+        }
+    }
+
+    # The other direction, and the atomic transitions between the two states,
+    # need a cluster bus that can actually run on TLS.
+    if {$::tls} {
+        start_cluster 1 0 {overrides {cluster-bus-port-protected-mode yes}} {
+            test {a cluster node starts with its bus authenticated by tls-cluster} {
+                assert_equal 1 [s cluster_enabled]
+                assert_equal {tls-cluster yes} [r config get tls-cluster]
+                wait_for_cluster_state ok
+                assert_equal 0 [count_log_message 0 "cluster bus port is not authenticated"]
+            }
+
+            test {CONFIG SET tls-cluster no is refused while protected mode is enabled} {
+                assert_error {*can't disable tls-cluster while cluster-bus-port-protected-mode is enabled*} {
+                    r config set tls-cluster no
+                }
+                assert_equal {tls-cluster yes} [r config get tls-cluster]
+                assert_equal 0 [count_log_message 0 "cluster bus port is not authenticated"]
+            }
+
+            test {a single CONFIG SET can un-authenticate the bus, in either argument order} {
+                # Every setter of a CONFIG SET runs before the first apply
+                # callback, so the pair is judged on the state it produces and
+                # not on the order it is written in.
+                foreach args {{cluster-bus-port-protected-mode no tls-cluster no}
+                              {tls-cluster no cluster-bus-port-protected-mode no}} {
+                    set logged [count_log_message 0 "cluster bus port is not authenticated"]
+                    r config set {*}$args
+                    assert_equal {tls-cluster no} [r config get tls-cluster]
+                    assert_equal {cluster-bus-port-protected-mode no} [r config get cluster-bus-port-protected-mode]
+                    # Leaving TLS is reported once, as it is at startup.
+                    assert_equal [expr {$logged + 1}] [count_log_message 0 "cluster bus port is not authenticated"]
+
+                    # And back: enabling protection again needs TLS back on.
+                    r config set tls-cluster yes cluster-bus-port-protected-mode yes
+                    assert_equal {tls-cluster yes} [r config get tls-cluster]
+                    assert_equal {cluster-bus-port-protected-mode yes} [r config get cluster-bus-port-protected-mode]
+                }
+            }
+
+            test {each option can also be changed on its own, in the safe order} {
+                # A single command is not the only way out, and the refusals say
+                # so: waiving protection before disabling tls-cluster, and
+                # authenticating the bus before enabling protection, are accepted
+                # as separate calls, since the check only judges the state each
+                # one produces.
+                r config set cluster-bus-port-protected-mode no
+                r config set tls-cluster no
+                assert_equal {tls-cluster no} [r config get tls-cluster]
+
+                r config set tls-cluster yes
+                r config set cluster-bus-port-protected-mode yes
+                assert_equal {cluster-bus-port-protected-mode yes} [r config get cluster-bus-port-protected-mode]
+            }
+        }
+    }
+}

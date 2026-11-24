@@ -396,8 +396,8 @@ tags "modules external:skip" {
     test "perkey-expire: active expire (cron) fires the per-key job without a read" {
         start_server [list overrides [list loadmodule "$testmodule"]] {
             r debug set-active-expire 1
-            r set ak v px 50
             r pkmeta.reset
+            r set ak v px 50
             # Never touch ak — let the active-expire cycle reap it. The poll loop
             # only issues pkmeta.empty_firecount, which does not access ak.
             wait_for_condition 50 20 {
@@ -406,6 +406,24 @@ tags "modules external:skip" {
                 fail "active expire did not fire the per-key job for ak"
             }
             assert_equal {ak} [r pkmeta.empty_firelog]
+        }
+    }
+
+    test "perkey-expire: active field expire (cron) fires the per-key job without a read" {
+        start_server [list overrides [list loadmodule "$testmodule"]] {
+            r debug set-active-expire 1
+            # Field g outlives f, so hk survives its field's expiry and the job
+            # can attach metadata (fire_count, not empty_fire_count).
+            r hset hk f v g w
+            r hpexpire hk 100 FIELDS 1 f
+            r pkmeta.reset
+            # A fixed client-side wait and a single observation, deliberately not
+            # wait_for_condition: every command drains pending per-key jobs at the
+            # tail of its call(), so a poll loop would drain the job itself and
+            # pass even if the active-expire cycle never did.
+            after 500
+            assert_equal 1 [r pkmeta.firecount]
+            assert_equal "notified" [r pkmeta.getmeta hk]
         }
     }
 }

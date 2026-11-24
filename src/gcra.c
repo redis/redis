@@ -211,6 +211,8 @@ void gcraCommand(client *c) {
          * decision to keep the implicit expiraty.
          * NOTE: idea is same as in redis-cell. */
         long long when = new_tat_us / 1000;
+        /* KSN ran since `link` was taken; check it first. */
+        dbRefreshLink(c->db, key->ptr, &link, tatobj);
         kv = setExpireByLink(c, c->db, key->ptr, when, link);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
 
@@ -268,6 +270,8 @@ void gcraSetValueCommand(client *c) {
 
     /* Just like the base GCRA command we set the expire time of the key implicitly. */
     long long when_ms = when / 1000;
+    /* KSN ran since `link` was taken; check it first. */
+    dbRefreshLink(c->db, key->ptr, &link, tatobj);
     kv = setExpireByLink(c, c->db, key->ptr, when_ms, link);
     notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
     server.dirty++;

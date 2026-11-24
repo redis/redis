@@ -1,0 +1,89 @@
+{
+    "BITRANGEINTARRAY": {
+        "summary": "Returns the offsets of the set or clear bits in a range of a bitmap.",
+        "complexity": "O(N + M) where N is the number of bytes in the range for a string, or the number of bitmap containers in the range (and of runs of set bits in it, with ZEROS), and M is the number of returned integers. With LIMIT, the scan stops after count matches, or after completing their last byte in BYTE units.",
+        "group": "bitmap",
+        "since": "8.12.0",
+        "arity": -4,
+        "function": "bitrangeintarrayCommand",
+        "command_flags": [
+            "READONLY"
+        ],
+        "acl_categories": [
+            "BITMAP"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "start",
+                "type": "integer"
+            },
+            {
+                "name": "end",
+                "type": "integer"
+            },
+            {
+                "name": "unit",
+                "type": "oneof",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "byte",
+                        "type": "pure-token",
+                        "token": "BYTE"
+                    },
+                    {
+                        "name": "bit",
+                        "type": "pure-token",
+                        "token": "BIT"
+                    }
+                ]
+            },
+            {
+                "name": "count",
+                "token": "LIMIT",
+                "type": "integer",
+                "optional": true
+            },
+            {
+                "name": "zeros",
+                "token": "ZEROS",
+                "type": "pure-token",
+                "optional": true
+            }
+        ],
+        "reply_schema": {
+            "description": "Offsets of the set bits in the range, or of the clear bits with ZEROS, in ascending order. The range is interpreted as in BITCOUNT: negative indexes count from the end, and the unit defaults to BYTE. Unlike BITPOS, the range never extends past the end of the bitmap, so no clear bits are returned beyond it. With LIMIT, the lowest count offsets in the range are returned. In BYTE units the reply also completes the byte holding the last of them, so it can hold up to 7 more offsets and the next page can start at the following byte. Missing keys and empty ranges return an empty array.",
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+                "type": "integer",
+                "minimum": 0
+            }
+        }
+    }
+}

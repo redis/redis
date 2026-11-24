@@ -14,13 +14,13 @@
 #include "bio.h"
 #include "redisassert.h"
 #include "ebuckets.h"
-#include "entry.h"
+#include "hash_entry.h"
 #include "vector.h"
 #include <math.h>
 
 /* Threshold for HEXPIRE and HPERSIST to be considered whether it is worth to
  * update the expiration time of the hash object in global HFE DS. */
-#define HASH_NEW_EXPIRE_DIFF_THRESHOLD max(4000, 1<<EB_BUCKET_KEY_PRECISION)
+#define HASH_NEW_EXPIRE_DIFF_THRESHOLD 4000
 
 /* Reserve 2 bits out of hash-field expiration time for possible future lightweight
  * indexing/categorizing of fields. It can be achieved by hacking HFE as follows:
@@ -30,10 +30,10 @@
  * Redis will also need to expose kind of HEXPIRESCAN and HEXPIRECOUNT for this
  * idea. Yet to be better defined.
  *
- * HFE_MAX_ABS_TIME_MSEC constraint must be enforced only at API level. Internally,
- * the expiration time can be up to EB_EXPIRE_TIME_MAX for future readiness.
+ * The SUBEXPIRE_MAX_ABS_TIME_MSEC constraint (see server.h) must be enforced only at API
+ * level. Internally, the expiration time can be up to EB_EXPIRE_TIME_MAX for future
+ * readiness.
  */
-#define HFE_MAX_ABS_TIME_MSEC (EB_EXPIRE_TIME_MAX >> 2)
 
 typedef enum GetFieldRes {
     /* common (Used by hashTypeGet* value family) */
@@ -46,7 +46,7 @@ typedef enum GetFieldRes {
 
 typedef listpackEntry CommonEntry; /* extend usage beyond lp */
 
-#define FIELDS_STACK_SIZE 16
+#define FIELDS_STACK_SIZE 64
 
 /* A vec with an embedded stack buffer, used to collect field robj pointers
  * for subkey notifications without heap allocation in the common case. */
@@ -62,7 +62,7 @@ static inline vec *fieldvecInit(fieldvec *fv, size_t cap) {
 static ExpireAction onFieldExpire(eItem item, void *ctx);
 static ExpireMeta* hentryGetExpireMeta(const eItem field);
 static void hexpireGenericCommand(client *c, long long basetime, int unit);
-static void hfieldPersist(robj *hashObj, Entry *entry);
+static void hfieldPersist(robj *hashObj, HashEntry *hEntry);
 static void propagateHashFieldDeletion(redisDb *db, sds key, char *field, size_t fieldLen);
 
 /* hash dictType funcs */
@@ -121,11 +121,6 @@ dictType entryHashDictTypeWithHFE = {
  * triggered from activeExpireCycle() function and in turn will invoke "local"
  * HFE Active sub-expiration for each hash instance that has expired fields.
  *----------------------------------------------------------------------------*/
-EbucketsType subexpiresBucketsType = {
-    .onDeleteItem = NULL,
-    .getExpireMeta = hashGetExpireMeta,   /* get ExpireMeta attached to each hash */
-    .itemsAddrAreOdd = 0,                 /* Addresses of dict are even */
-};
 
 /* htExpireMetadata - ebuckets-type for hash fields with time-Expiration. ebuckets
  * instance Will be attached to each hash that has at least one field with expiry
@@ -234,12 +229,12 @@ static void dictEntryDestructor(dict *d, void *entry) {
     size_t *alloc_size = htGetMetadataSize(d);
 
     /* If attached TTL to the field, then remove it from hash's private ebuckets. */
-    if (entryGetExpiry(entry) != EB_EXPIRE_TIME_INVALID) {
+    if (hEntryGetExpiry(entry) != EB_EXPIRE_TIME_INVALID) {
         htMetadataEx *dictExpireMeta = htGetMetadataEx(d);
-        ebRemove(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, entry);
+        ebRemove(&dictExpireMeta->elemExpires, &hashFieldExpireBucketsType, entry);
     }
 
-    entryFree(entry, &usable);
+    hEntryFree(entry, &usable);
     *alloc_size -= usable;
 
     /* Don't have to update global HFE DS. It's unnecessary. Implementing this
@@ -263,7 +258,7 @@ static size_t hashDictWithExpireMetadataBytes(dict *d) {
 static void hashDictWithExpireOnRelease(dict *d) {
     /* for sure allocated with metadata. Otherwise, this func won't be registered */
     htMetadataEx *dictExpireMeta = htGetMetadataEx(d);
-    ebDestroy(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, NULL);
+    ebDestroy(&dictExpireMeta->elemExpires, &hashFieldExpireBucketsType, NULL);
 }
 
 /*-----------------------------------------------------------------------------
@@ -333,7 +328,11 @@ static hashTemplate *hashTemplateArrayGetTemplate(hashTemplateArray *hta);
  * Later, it is applied on main thread in cron, key refs are actually dropped. */
 static redisAtomic uintptr_t bio_pending_drops = 0;
 
-static uint64_t pendingDropHash(const void *key) { return (uint64_t)(uintptr_t)key; }
+/* The id is mixed, as ids are small integers and the dict takes the hash tag
+ * of an entry from the top byte of the hash. */
+static uint64_t pendingDropHash(const void *key) {
+    return dictIdHash((uint64_t)(uintptr_t)key);
+}
 static dictType pendingDropDictType = { pendingDropHash, NULL, NULL, NULL, NULL, NULL, NULL };
 
 /* BIO thread: Increment deleted key count for the template id. */
@@ -373,6 +372,12 @@ static int hashTypeSdsArrayFitsLp(sds *arr, unsigned long long n) {
     return sum >= 0 && lpSafeToAdd(NULL, sum);
 }
 
+/* True if the hash uses one of the template encodings. */
+static inline int hashTypeIsTemplate(const robj *o) {
+    return o->encoding == OBJ_ENCODING_TMPL_LP ||
+           o->encoding == OBJ_ENCODING_TMPL_ARRAY;
+}
+
 /* by_id is a chunked array: fixed-size chunks of template pointers. */
 #define TMPL_CHUNK_SIZE 128  /* template ids per chunk */
 
@@ -400,13 +405,20 @@ static tmplIdChunk *tmplIdGetOrCreateChunk(size_t id) {
     return htemplates->by_id[chunk_idx];
 }
 
-/* Get lowest free id. Caller guarantees a gap exists. */
+/* Get lowest free id. Caller guarantees a gap exists. Chunks below
+ * by_id_free_chunk_hint are full, the scan starts there. */
 static size_t tmplIdGetLowestFree(void) {
-    size_t chunk_idx = 0;
+    size_t chunk_idx = htemplates->by_id_free_chunk_hint;
+#ifdef DEBUG_ASSERTIONS
+    /* Chunks below the hint must be full. */
+    for (size_t i = 0; i < chunk_idx; i++)
+        serverAssert(htemplates->by_id[i] && htemplates->by_id[i]->used == TMPL_CHUNK_SIZE);
+#endif
     while (chunk_idx < htemplates->by_id_cap && htemplates->by_id[chunk_idx] &&
            htemplates->by_id[chunk_idx]->used == TMPL_CHUNK_SIZE) {
         chunk_idx++;
     }
+    htemplates->by_id_free_chunk_hint = chunk_idx;
     tmplIdChunk *chunk = chunk_idx < htemplates->by_id_cap ? htemplates->by_id[chunk_idx] : NULL;
     size_t id = chunk_idx * TMPL_CHUNK_SIZE;
     while (chunk && chunk->slots[id % TMPL_CHUNK_SIZE] != NULL) id++;
@@ -418,6 +430,8 @@ static size_t tmplIdGetLowestFree(void) {
 static uint64_t tmplIdAllocate(hashTemplate *tmpl) {
     int no_gaps = dictSize(htemplates->by_fields) == htemplates->by_id_next;
     size_t id = no_gaps ? htemplates->by_id_next++ : tmplIdGetLowestFree();
+    /* Every lower id is in use, the hint can move up. */
+    if (no_gaps) htemplates->by_id_free_chunk_hint = id / TMPL_CHUNK_SIZE;
     tmplIdChunk *chunk = tmplIdGetOrCreateChunk(id);
     chunk->slots[id % TMPL_CHUNK_SIZE] = tmpl;
     chunk->used++;
@@ -429,6 +443,8 @@ static void tmplIdRecycle(uint64_t id) {
     size_t chunk_idx = id / TMPL_CHUNK_SIZE;
     tmplIdChunk *chunk = htemplates->by_id[chunk_idx];
     chunk->slots[id % TMPL_CHUNK_SIZE] = NULL;
+    if (htemplates->by_id_free_chunk_hint > chunk_idx)
+        htemplates->by_id_free_chunk_hint = chunk_idx;
     /* Free the chunk once it holds no live ids so the id space shrinks. */
     if (--chunk->used == 0) {
         zfree(chunk);
@@ -446,6 +462,7 @@ static void tmplIdRecycle(uint64_t id) {
         htemplates->by_id_cap = 0;
         htemplates->by_id_chunks = 0;
         htemplates->by_id_next = 0;
+        htemplates->by_id_free_chunk_hint = 0;
     }
 }
 
@@ -459,41 +476,57 @@ hashTemplate *hashTemplateGetById(uint64_t id) {
 
 /* Defrag the template struct and re-point every reference
  * to it (by_id slot, by_fields key, by_fields_lp value).*/
-hashTemplate *hashTemplateDefrag(hashTemplate *tmpl) {
-    /* Field-name array and the strings it holds. */
+void hashTemplateDefrag(hashTemplate *tmpl, dictEntry *bf, monotime endtime) {
+    /* Field-name array. */
     sds *newfields = activeDefragAlloc(tmpl->fields);
     if (newfields) tmpl->fields = newfields;
-    for (unsigned long long i = 0; i < tmpl->field_count; i++) {
+
+    /* Field names, checking the clock every 128 so a wide template cannot
+     * blow the time budget. On timeout, defrag_field keeps the position, the
+     * leftover is picked up when the template is scanned again. */
+    unsigned long long i = tmpl->defrag_field;
+    long iterations = 0;
+    while (i < tmpl->field_count) {
         sds newsds = activeDefragSds(tmpl->fields[i]);
         if (newsds) tmpl->fields[i] = newsds;
+        server.stat_active_defrag_scanned++;
+        i++;
+        if (++iterations > 128) {
+            if (getMonotonicUs() > endtime) break;
+            iterations = 0;
+        }
     }
-
-    /* Find the entries referencing tmpl (by_fields key) and its blob
-     * (by_fields_lp key+value) before any realloc frees the old pointers. */
-    uint64_t bf_hash = dictGetHash(htemplates->by_fields, tmpl);
-    dictEntry *bf = dictFindByHashAndPtr(htemplates->by_fields, tmpl, bf_hash);
-    dictEntry *lp = tmpl->fields_lp ? dictFind(htemplates->by_fields_lp, tmpl->fields_lp) : NULL;
+    tmpl->defrag_field = (i >= tmpl->field_count) ? 0 : i;
 
     /* fields_lp blob (the by_fields_lp key). */
+    dictEntry *lp = NULL;
     if (tmpl->fields_lp) {
-        unsigned char *newlp = activeDefragAlloc(tmpl->fields_lp);
+        unsigned char *oldlp = tmpl->fields_lp;
+        unsigned char *newlp = activeDefragAlloc(oldlp);
         if (newlp) {
+            /* oldlp is freed, find its entry by pointer. */
+            uint64_t hash = dictGetHash(htemplates->by_fields_lp, newlp);
+            lp = dictFindByHashAndPtr(htemplates->by_fields_lp, oldlp, hash);
+            serverAssert(lp);
             tmpl->fields_lp = newlp;
-            if (lp) dictSetKey(htemplates->by_fields_lp, lp, newlp);
+            dictSetKey(htemplates->by_fields_lp, lp, newlp);
         }
     }
 
     /* The struct itself: by_id slot, by_fields key, by_fields_lp value. */
     uint64_t id = tmpl->id;
     hashTemplate *newtmpl = activeDefragAlloc(tmpl);
-    if (!newtmpl) return tmpl;
+    if (!newtmpl) return;
 
     tmplIdChunk *chunk = htemplates->by_id[id / TMPL_CHUNK_SIZE];
     chunk->slots[id % TMPL_CHUNK_SIZE] = newtmpl;
 
-    if (bf) dictSetKey(htemplates->by_fields, bf, newtmpl);
-    if (lp) dictSetVal(htemplates->by_fields_lp, lp, newtmpl);
-    return newtmpl;
+    dictSetKey(htemplates->by_fields, bf, newtmpl);
+    if (newtmpl->fields_lp) {
+        if (!lp) lp = dictFind(htemplates->by_fields_lp, newtmpl->fields_lp);
+        serverAssert(lp);
+        dictSetVal(htemplates->by_fields_lp, lp, newtmpl);
+    }
 }
 
 /* Defrag by_id top array (once, at idx 0) and the chunk at 'idx'. */
@@ -700,6 +733,7 @@ static hashTemplate *hashTemplateCreateInternal(uint64_t hash, sds *fields,
     tmpl->fields = zmalloc(sizeof(sds) * field_count);
     tmpl->fields_lp = NULL; /* Lazy built on first save/lookup due to RESTORE. */
     tmpl->fields_lp_last_used = 0;
+    tmpl->defrag_field = 0;
     tmpl->mem_size = sizeof(*tmpl) + sizeof(sds) * field_count;
 
     for (unsigned long long i = 0; i < field_count; i++) {
@@ -940,48 +974,6 @@ long long hashTemplateFieldIndex(hashTemplate *tmpl, sds field) {
     return -(lo + 1);
 }
 
-/* Return the template with `field` inserted at `insert_pos` (key-ref taken). */
-static hashTemplate *hashTemplateForInsertedField(hashTemplate *tmpl, sds field,
-                                                  long long insert_pos) {
-    serverAssert(insert_pos >= 0 && (unsigned long long)insert_pos <= tmpl->field_count);
-    unsigned long long new_count = tmpl->field_count + 1;
-    sds stack_fields[HASH_TMPL_STACK_ENTRIES];
-    sds *new_fields = (new_count <= HASH_TMPL_STACK_ENTRIES) ?
-                      stack_fields : zmalloc(sizeof(sds) * new_count);
-    memcpy(new_fields, tmpl->fields, sizeof(sds) * insert_pos);
-    new_fields[insert_pos] = field;
-    memcpy(&new_fields[insert_pos + 1], &tmpl->fields[insert_pos],
-           sizeof(sds) * (tmpl->field_count - insert_pos));
-
-    /* Incremental hash: add the new field's hash. */
-    uint64_t new_hash = tmpl->hash + computeFieldHash(field);
-    hashTemplate *new_tmpl = hashTemplateGetOrCreateWithHash(new_hash, new_fields, new_count);
-    hashTemplateIncrKeyRef(new_tmpl);
-    if (new_fields != stack_fields) zfree(new_fields);
-    return new_tmpl;
-}
-
-/* Return the template with the field at `idx` deleted (key-ref taken).
- * Precondition: at least one field remains. */
-static hashTemplate *hashTemplateForDeletedField(hashTemplate *tmpl, long long idx) {
-    serverAssert(tmpl->field_count >= 2); /* at least one field remains after delete */
-    serverAssert(idx >= 0 && (unsigned long long)idx < tmpl->field_count);
-    unsigned long long new_count = tmpl->field_count - 1;
-    sds stack_fields[HASH_TMPL_STACK_ENTRIES];
-    sds *new_fields = (new_count <= HASH_TMPL_STACK_ENTRIES) ?
-                      stack_fields : zmalloc(sizeof(sds) * new_count);
-    unsigned long long j = 0;
-    for (unsigned long long i = 0; i < tmpl->field_count; i++)
-        if ((long long)i != idx) new_fields[j++] = tmpl->fields[i];
-
-    /* Incremental hash: subtract the removed field's hash. */
-    uint64_t new_hash = tmpl->hash - computeFieldHash(tmpl->fields[idx]);
-    hashTemplate *new_tmpl = hashTemplateGetOrCreateWithHash(new_hash, new_fields, new_count);
-    hashTemplateIncrKeyRef(new_tmpl);
-    if (new_fields != stack_fields) zfree(new_fields);
-    return new_tmpl;
-}
-
 /* Return 1 if fields are strictly ascending (sorted, no duplicates), else 0. */
 int hashTemplateValidateFields(sds *fields, unsigned long long field_count) {
     for (unsigned long long i = 1; i < field_count; i++)
@@ -1016,8 +1008,7 @@ static hashTemplate *hashTemplateLpGetTemplate(unsigned char *lp) {
 
 /* Return the shared template of a template-encoded hash (TMPL_LP or TMPL_ARRAY). */
 hashTemplate *hashTypeGetTemplate(robj *o) {
-    serverAssert(o->encoding == OBJ_ENCODING_TMPL_LP ||
-                 o->encoding == OBJ_ENCODING_TMPL_ARRAY);
+    serverAssert(hashTypeIsTemplate(o));
     return (o->encoding == OBJ_ENCODING_TMPL_LP) ?
         hashTemplateLpGetTemplate(o->ptr) :
         hashTemplateArrayGetTemplate(o->ptr);
@@ -1159,6 +1150,7 @@ void hashTemplateLpFree(unsigned char *lp) {
 static hashTemplate *hashTemplateArrayGetTemplate(hashTemplateArray *hta) {
     hashTemplate *tmpl = hashTemplateGetById(hta->tmpl_id);
     serverAssert(tmpl != NULL);
+    serverAssert(tmpl->field_count == hta->field_count);
     return tmpl;
 }
 
@@ -1167,20 +1159,40 @@ static hashTemplate *hashTemplateArrayGetTemplate(hashTemplateArray *hta) {
  * Otherwise copies them with sdsdup. */
 static hashTemplateArray *hashTemplateArrayCreate(hashTemplate *tmpl, sds *values, int take) {
     unsigned long long n = tmpl->field_count;
-    hashTemplateArray *hta = zmalloc(sizeof(*hta) + sizeof(sds) * n);
+    size_t usable;
+    hashTemplateArray *hta = zmalloc_usable(sizeof(*hta) + sizeof(sds) * n, &usable);
     hta->tmpl_id = tmpl->id;
     hta->field_count = n;
+    hta->alloc_size = usable;
 
-    for (unsigned long long i = 0; i < n; i++)
+    for (unsigned long long i = 0; i < n; i++) {
         hta->values[i] = take ? values[i] : sdsdup(values[i]);
+        hta->alloc_size += sdsAllocSize(hta->values[i]);
+    }
 
     hashTemplateIncrKeyRef(tmpl);
+    return hta;
+}
+
+static hashTemplateArray *hashTemplateArrayResize(hashTemplateArray *hta, unsigned long long field_count) {
+    size_t old_usable, new_usable;
+    hta = zrealloc_usable(hta, sizeof(*hta) + sizeof(sds) * field_count,
+                          &new_usable, &old_usable);
+    hta->alloc_size += new_usable;
+    hta->alloc_size -= old_usable;
     return hta;
 }
 
 /* Free a hashTemplateArray (release key ref and free data). May run in a BIO
  * lazyfree thread: uses the tmpl_id/field_count, never the registry. */
 void hashTemplateArrayFree(hashTemplateArray *hta) {
+#ifdef DEBUG_ASSERTIONS
+    size_t values_size = 0;
+    for (unsigned long long i = 0; i < hta->field_count; i++)
+        values_size += sdsAllocSize(hta->values[i]);
+    debugServerAssert(hta->alloc_size - values_size == zmalloc_usable_size(hta));
+#endif
+
     for (unsigned long long i = 0; i < hta->field_count; i++)
         sdsfree(hta->values[i]);
 
@@ -1214,6 +1226,367 @@ robj *createHashObjectFromTemplate(hashTemplate *tmpl, sds *values, int take) {
         o->encoding = OBJ_ENCODING_TMPL_ARRAY;
     }
     return o;
+}
+
+/* Move a template hash to `new_tmpl` whose field set must already match the
+ * values held by the key. */
+static void hashTypeTmplSwitch(robj *o, hashTemplate *old_tmpl, hashTemplate *new_tmpl) {
+    hashTemplateIncrKeyRef(new_tmpl);
+    if (o->encoding == OBJ_ENCODING_TMPL_LP) {
+        o->ptr = hashTemplateLpSetTemplate(o->ptr, new_tmpl);
+    } else {
+        serverAssert(o->encoding == OBJ_ENCODING_TMPL_ARRAY);
+        hashTemplateArray *hta = o->ptr;
+        hta->tmpl_id = new_tmpl->id;
+        hta->field_count = new_tmpl->field_count;
+    }
+    hashTemplateDecrKeyRef(old_tmpl);
+}
+
+/* Overwrite the value of the field at template index `idx`. Returns 1 if
+ * `value` was adopted. */
+static int hashTypeTmplWriteValueAt(robj *o, long long idx, sds value, int take) {
+    if (o->encoding == OBJ_ENCODING_TMPL_LP) {
+        unsigned char *lp = o->ptr;
+        unsigned char *p = hashTemplateLpSeekValue(lp, idx);
+        o->ptr = lpReplace(lp, &p, (unsigned char *)value, sdslen(value));
+        serverAssert(o->ptr != NULL);
+        return 0;
+    } else {
+        serverAssert(o->encoding == OBJ_ENCODING_TMPL_ARRAY);
+        hashTemplateArray *hta = o->ptr;
+        serverAssert((unsigned long long)idx < hta->field_count);
+        hta->alloc_size -= sdsAllocSize(hta->values[idx]);
+        sdsfree(hta->values[idx]);
+        hta->values[idx] = take ? value : sdsdup(value);
+        hta->alloc_size += sdsAllocSize(hta->values[idx]);
+        return take != 0;
+    }
+}
+
+/* A field an HSET-style command adds to a template hash. */
+typedef struct {
+    sds field;
+    sds value;
+    unsigned long long insert_pos;
+    int arg_idx;          /* argv order, so the last of duplicate fields sets the value */
+} tmplNewField;
+
+/* qsort comparator: field name ascending, then argv position. */
+static int tmplNewFieldCmp(const void *a, const void *b) {
+    const tmplNewField *x = a, *y = b;
+    int cmp = sdscmplen(x->field, y->field);
+    return cmp ? cmp : x->arg_idx - y->arg_idx;
+}
+
+/* Add new fields to a template hash with a single template switch. `new_fields`
+ * must be sorted by field name and have no duplicates, and insert_pos must be
+ * the field's final position in the new template. Values are copied. */
+static void hashTypeTmplAddFields(redisDb *db, robj *o, hashTemplate *tmpl,
+                                  tmplNewField *new_fields, int num_new_fields)
+{
+    unsigned long long old_field_count = tmpl->field_count;
+
+    /* Check if the listpack needs to be converted to array */
+    if (o->encoding == OBJ_ENCODING_TMPL_LP &&
+        old_field_count + num_new_fields > server.hash_max_listpack_entries)
+    {
+        hashTypeConvert(db, o, OBJ_ENCODING_TMPL_ARRAY);
+    }
+
+    /* Merge old and new names into the new template's field array. */
+    unsigned long long total_field_count = old_field_count + num_new_fields;
+    sds stack_fields[HASH_TMPL_STACK_ENTRIES];
+    sds *fields_arr = (total_field_count <= HASH_TMPL_STACK_ENTRIES) ? stack_fields :
+                                                                     zmalloc(sizeof(sds) * total_field_count);
+    uint64_t hash = tmpl->hash;
+    unsigned long long old_pos = 0;
+    int added = 0;
+    for (unsigned long long i = 0; i < total_field_count; i++) {
+        if (added < num_new_fields && new_fields[added].insert_pos == i) {
+            fields_arr[i] = new_fields[added].field;
+            hash += computeFieldHash(new_fields[added].field); /* incremental set hash */
+            added++;
+        } else {
+            serverAssert(old_pos < old_field_count);
+            fields_arr[i] = tmpl->fields[old_pos++];
+        }
+    }
+    serverAssert(added == num_new_fields && old_pos == old_field_count);
+
+    hashTemplate *new_tmpl = hashTemplateGetOrCreateWithHash(hash, fields_arr, total_field_count);
+    if (fields_arr != stack_fields) zfree(fields_arr);
+    
+    /* Update the values */
+    if (o->encoding == OBJ_ENCODING_TMPL_LP) {
+        unsigned char *lp = o->ptr;
+        for (int i = 0; i < num_new_fields; i++) {
+            sds v = new_fields[i].value;
+            serverAssert(new_fields[i].insert_pos <= old_field_count + (unsigned long long)i);
+            /* Check if this is an insert or an append */
+            if (new_fields[i].insert_pos < old_field_count + (unsigned long long)i) {
+                unsigned char *p = hashTemplateLpSeekValue(lp, new_fields[i].insert_pos);
+                lp = lpInsertString(lp, (unsigned char *)v, sdslen(v), p, LP_BEFORE, NULL);
+            } else {
+                lp = lpAppend(lp, (unsigned char *)v, sdslen(v));
+            }
+            serverAssert(lp != NULL);
+        }
+        o->ptr = lp;
+    } else {
+        serverAssert(o->encoding == OBJ_ENCODING_TMPL_ARRAY);
+        serverAssert(num_new_fields > 0);
+        hashTemplateArray *hta = hashTemplateArrayResize(o->ptr, total_field_count);
+
+        /* Open a gap: move the old values from the first insert position
+         * onwards to the end of the array. Then fill each slot in order,
+         * either with the next new value or with the next old one. */
+        unsigned long long first = new_fields[0].insert_pos;
+        serverAssert(first <= old_field_count);
+        memmove(&hta->values[first + num_new_fields], &hta->values[first],
+                sizeof(sds) * (old_field_count - first));
+        old_pos = first + num_new_fields;
+        added = 0;
+        for (unsigned long long i = first; added < num_new_fields; i++) {
+            serverAssert(i < total_field_count);
+            if (new_fields[added].insert_pos == i) {
+                hta->values[i] = sdsdup(new_fields[added].value);
+                hta->alloc_size += sdsAllocSize(hta->values[i]);
+                added++;
+            } else {
+                serverAssert(old_pos < total_field_count);
+                hta->values[i] = hta->values[old_pos++];
+            }
+        }
+        o->ptr = hta;
+    }
+    hashTypeTmplSwitch(o, tmpl, new_tmpl);
+}
+
+/* Set the `n` field-value pairs at argv[i * 2] and argv[i * 2 + 1] on a template
+ * hash: an existing field's value is overwritten in place and the fields the
+ * template lacks are all added in a single template switch.
+ * Returns the number of fields added. */
+static int hashTypeTmplSetFields(redisDb *db, robj *o, robj **argv, int n) {
+    hashTemplate *tmpl = hashTypeGetTemplate(o);
+    tmplNewField stack_new_fields[HASH_TMPL_STACK_ENTRIES];
+    tmplNewField *new_fields = (n <= HASH_TMPL_STACK_ENTRIES) ? stack_new_fields :
+                               zmalloc(sizeof(tmplNewField) * n);
+    int num_new_fields = 0;
+
+    /* One pass: overwrite the fields that exist, collect the ones that do not.
+     * Binary searching here is the only field lookup the command does. */
+    for (int i = 0; i < n; i++) {
+        sds field = argv[i * 2]->ptr;
+        sds value = argv[i * 2 + 1]->ptr;
+
+        long long idx = hashTemplateFieldIndex(tmpl, field);
+        if (idx >= 0) {
+            hashTypeTmplWriteValueAt(o, idx, value, 0); /* Existing field */
+            continue;
+        }
+
+        /* Temporarily set insert pos for the existing template.
+         * Later, it will be adjusted for the new template below */
+        new_fields[num_new_fields].insert_pos = -idx - 1;
+        new_fields[num_new_fields].field = field;
+        new_fields[num_new_fields].value = value;
+        new_fields[num_new_fields].arg_idx = i;
+        num_new_fields++;
+    }
+
+    if (num_new_fields > 0) {
+        /* Sort and drop duplicates, keeping the last occurrence of a field
+         * given more than once, so its last value wins. A single field needs
+         * neither. */
+        if (num_new_fields > 1) {
+            qsort(new_fields, num_new_fields, sizeof(*new_fields), tmplNewFieldCmp);
+            int unique = 0;
+            for (int i = 0; i < num_new_fields; i++) {
+                /* Skip the entry if the next one is the same field. */
+                if (i + 1 < num_new_fields &&
+                    sdscmplen(new_fields[i].field, new_fields[i + 1].field) == 0)
+                {
+                    continue;
+                }
+                new_fields[unique++] = new_fields[i];
+            }
+            num_new_fields = unique;
+        }
+
+        /* So far insert_pos is where the field goes among the OLD template fields.
+         * Every new field placed before it shifts it right by one, so its
+         * final position in the new template is insert_pos + k. */
+        for (int k = 0; k < num_new_fields; k++) {
+            serverAssert(new_fields[k].insert_pos <= tmpl->field_count);
+            new_fields[k].insert_pos += k;
+        }
+
+        hashTypeTmplAddFields(db, o, tmpl, new_fields, num_new_fields);
+    }
+
+    if (new_fields != stack_new_fields) zfree(new_fields);
+    return num_new_fields;
+}
+
+/* Reply with the value of the field at template index `idx`. */
+static void addTmplValueToReply(client *c, robj *o, long long idx) {
+    if (o->encoding == OBJ_ENCODING_TMPL_LP) {
+        unsigned int vlen;
+        long long vll;
+        unsigned char *p = hashTemplateLpSeekValue(o->ptr, idx);
+        unsigned char *vstr = lpGetValue(p, &vlen, &vll);
+        if (vstr)
+            addReplyBulkCBuffer(c, vstr, vlen);
+        else
+            addReplyBulkLongLong(c, vll);
+    } else {
+        serverAssert(o->encoding == OBJ_ENCODING_TMPL_ARRAY);
+        hashTemplateArray *hta = o->ptr;
+        serverAssert((unsigned long long)idx < hta->field_count);
+        sds value = hta->values[idx];
+        addReplyBulkCBuffer(c, value, sdslen(value));
+    }
+}
+
+/* qsort comparator for template field indexes. */
+static int tmplIdxCmp(const void *a, const void *b) {
+    long long x = *(const long long *)a;
+    long long y = *(const long long *)b;
+    return (x > y) - (x < y);
+}
+
+/* Delete fields from a template hash with a single template switch. `del_indexes`
+ * holds the template indexes of the fields to delete, in any order. Each index
+ * must be valid and given once. */
+static void hashTypeTmplDropFields(robj *o, hashTemplate *tmpl,
+                                   long long *del_indexes,
+                                   unsigned long long num_del_fields)
+{
+    unsigned long long old_field_count = tmpl->field_count;
+    serverAssert(num_del_fields > 0 && num_del_fields <= old_field_count);
+
+    /* The walks below expect ascending indexes. */
+    if (num_del_fields > 1)
+        qsort(del_indexes, num_del_fields, sizeof(*del_indexes), tmplIdxCmp);
+
+    if (num_del_fields == old_field_count) {
+        /* Losing the last field turns the hash into a plain empty listpack.
+         * Caller will delete the key. */
+        if (o->encoding == OBJ_ENCODING_TMPL_LP) {
+            hashTemplateLpFree(o->ptr);
+        } else {
+            serverAssert(o->encoding == OBJ_ENCODING_TMPL_ARRAY);
+            hashTemplateArrayFree(o->ptr);
+        }
+        o->ptr = lpNew(0);
+        o->encoding = OBJ_ENCODING_LISTPACK;
+        return;
+    }
+
+    /* The surviving fields, in order, are the new field set. */
+    unsigned long long new_field_count = old_field_count - num_del_fields;
+    fieldvec fvfields;
+    vec *vfields = fieldvecInit(&fvfields, new_field_count);
+    uint64_t hash = tmpl->hash;
+    unsigned long long kept = 0, dropped = 0;
+
+    for (unsigned long long i = 0; i < old_field_count; i++) {
+        if (dropped < num_del_fields && del_indexes[dropped] == (long long)i) {
+            hash -= computeFieldHash(tmpl->fields[i]); /* incremental set hash */
+            dropped++;
+        } else {
+            vecPush(vfields, tmpl->fields[i]);
+        }
+    }
+    serverAssert(vecSize(vfields) == new_field_count && dropped == num_del_fields);
+
+    hashTemplate *new_tmpl = hashTemplateGetOrCreateWithHash(hash, (sds *)vecData(vfields), new_field_count);
+    vecRelease(vfields);
+
+    /* Update the values */
+    if (o->encoding == OBJ_ENCODING_TMPL_LP) {
+        /* Collect the dropped entries in one walk, then delete them in one pass. */
+        unsigned char *lp = o->ptr;
+        fieldvec fvps;
+        vec *vps = fieldvecInit(&fvps, num_del_fields);
+        /* Seek the first dropped entry; each next one is `distance` entries
+         * after the previous, so step forward instead of a fresh seek. */
+        vecPush(vps, hashTemplateLpSeekValue(lp, del_indexes[0]));
+        for (unsigned long long i = 1; i < num_del_fields; i++) {
+            unsigned long long distance = del_indexes[i] - del_indexes[i - 1];
+            unsigned char *p = lpNextN(lp, vecGet(vps, i - 1), distance);
+            serverAssert(p != NULL);
+            vecPush(vps, p);
+        }
+        o->ptr = lpBatchDelete(lp, (unsigned char **)vecData(vps), num_del_fields);
+        vecRelease(vps);
+    } else {
+        serverAssert(o->encoding == OBJ_ENCODING_TMPL_ARRAY);
+        hashTemplateArray *hta = o->ptr;
+        /* Same walk as the field loop above, this time over the values. */
+        kept = dropped = 0;
+        for (unsigned long long i = 0; i < old_field_count; i++) {
+            if (dropped < num_del_fields && del_indexes[dropped] == (long long)i) {
+                hta->alloc_size -= sdsAllocSize(hta->values[i]);
+                sdsfree(hta->values[i]);
+                dropped++;
+            } else {
+                hta->values[kept++] = hta->values[i];
+            }
+        }
+        serverAssert(kept == new_field_count && dropped == num_del_fields);
+        o->ptr = hashTemplateArrayResize(hta, new_field_count);
+    }
+    hashTypeTmplSwitch(o, tmpl, new_tmpl);
+}
+
+/* Delete the `n` fields in argv[] from a template hash in a single template
+ * switch, pushing the fields actually deleted into `vdeleted` in argv order.
+ * With `c`, each value is replied first (HGETDEL), null for a miss or repeat. */
+static void hashTypeTmplDeleteFields(robj *o, robj **argv, int n, vec *vdeleted, client *c) {
+    hashTemplate *tmpl = hashTypeGetTemplate(o);
+    unsigned long long old_field_count = tmpl->field_count;
+    unsigned long long num_del_fields = 0;
+    /* Fields are collected first and dropped all at once at the end. Since the 
+     * hash stays untouched during the scan, a field given twice in argv would be 
+     * found twice: delmark[] marks the fields seen in an earlier argv position. */
+    unsigned char stack_delmark[HASH_TMPL_STACK_ENTRIES] = {0};
+    unsigned char *delmark = NULL;
+    long long stack_del_indexes[HASH_TMPL_STACK_ENTRIES];
+    long long *del_indexes = (n <= HASH_TMPL_STACK_ENTRIES) ? stack_del_indexes :
+                                                              zmalloc(sizeof(long long) * n);
+    for (int i = 0; i < n; i++) {
+        long long idx = hashTemplateFieldIndex(tmpl, argv[i]->ptr);
+        /* Skip missing fields or if a field given twice in argv. */
+        if (idx < 0 || (delmark && delmark[idx])) {
+            if (c) addReplyNull(c);
+            continue;
+        }
+        /* Reply while the values are still in place. */
+        if (c) addTmplValueToReply(c, o, idx);
+        
+        /* Mark the field as deleted */
+        if (n > 1) {
+            if (delmark == NULL) {
+                delmark = (old_field_count <= HASH_TMPL_STACK_ENTRIES) ?
+                          stack_delmark : zcalloc(old_field_count);
+            }
+            serverAssert((unsigned long long)idx < old_field_count);
+            delmark[idx] = 1;
+        }
+        
+        /* Mark field idx to delete */
+        del_indexes[num_del_fields++] = idx;
+        vecPush(vdeleted, argv[i]);
+    }
+    
+    /* Delete the fields */
+    if (num_del_fields > 0)
+        hashTypeTmplDropFields(o, tmpl, del_indexes, num_del_fields);
+
+    if (delmark && delmark != stack_delmark) zfree(delmark);
+    if (del_indexes != stack_del_indexes) zfree(del_indexes);
 }
 
 /*-----------------------------------------------------------------------------
@@ -1350,8 +1723,10 @@ void listpackExExpire(redisDb *db, kvobj *kv, ExpireInfo *info) {
         serverAssert(ptr && lpGetIntegerValue(ptr, &val));
 
         /* Fields are ordered by expiry time. If we reached to a non-expired
-         * or a non-volatile field, we know rest is not yet expired. */
-        if (val == HASH_LP_NO_TTL || (uint64_t) val > info->now)
+         * or a non-volatile field, we know rest is not yet expired. A field is
+         * expired iff its expire-time is strictly less than `now`, matching
+         * lazy-expiry semantics (see hashTypeIsExpired()) and ebExpire(). */
+        if (val == HASH_LP_NO_TTL || (uint64_t) val >= info->now)
             break;
 
         /* Collect expired field for subkey notification. */
@@ -1424,19 +1799,52 @@ void listpackExAddNew(robj *o, char *field, size_t flen,
     listpackExAddInternal(o, ent);
 }
 
-/* If expiry time is changed, this function will place field into the correct
- * position. First, it deletes the field and re-inserts to the listpack ordered
- * by expiry time. */
+/* Update a field's expiry while preserving expiry-time order. If the tuple
+ * cannot stay at its current position, delete and re-insert it in the
+ * listpack. */
 static void listpackExUpdateExpiry(robj *o, sds field,
                                    unsigned char *fptr,
                                    unsigned char *vptr,
                                    uint64_t expire_at) {
+    listpackEx *lpt = o->ptr;
+
+    /* Keep the tuple in place if changing its TTL preserves the sorted
+     * order. A persistent field sorts after every volatile field. Only the
+     * neighbor in the direction of the change can constrain the new TTL. */
+    unsigned char *tptr = lpNext(lpt->lp, vptr);
+    long long oldttl, adjacent;
+    serverAssert(tptr && lpGetIntegerValue(tptr, &oldttl));
+    if ((uint64_t)oldttl == expire_at)
+        return;
+
+    int later = expire_at == HASH_LP_NO_TTL ||
+                (oldttl != HASH_LP_NO_TTL && expire_at > (uint64_t)oldttl);
+    unsigned char *neighbor;
+    int inplace;
+    if (later) {
+        neighbor = lpNextN(lpt->lp, tptr, 3);
+        if (neighbor) {
+            serverAssert(neighbor && lpGetIntegerValue(neighbor, &adjacent));
+        }
+        inplace = !neighbor || adjacent == HASH_LP_NO_TTL ||
+                  (expire_at != HASH_LP_NO_TTL && expire_at <= (uint64_t)adjacent);
+    } else {
+        neighbor = lpPrev(lpt->lp, fptr);
+        if (neighbor)
+            serverAssert(lpGetIntegerValue(neighbor, &adjacent));
+        inplace = !neighbor || (adjacent != HASH_LP_NO_TTL &&
+                                expire_at >= (uint64_t)adjacent);
+    }
+    if (inplace) {
+        lpt->lp = lpReplaceInteger(lpt->lp, &tptr, expire_at);
+        return;
+    }
+
     unsigned int slen = 0;
     long long val = 0;
     unsigned char tmp[512] = {0};
     unsigned char *valstr;
     sds tmpval = NULL;
-    listpackEx *lpt = o->ptr;
 
     /* Copy value */
     valstr = lpGetValue(vptr, &slen, &val);
@@ -1667,9 +2075,9 @@ GetFieldRes hashTypeGetFromHashTable(robj *o, sds field, sds *value, uint64_t *e
     if (de == NULL)
         return GETF_NOT_FOUND;
 
-    Entry *entry = dictGetKey(de);
-    *expiredAt = entryGetExpiry(entry);
-    *value = entryGetValue(entry);
+    HashEntry *hEntry = dictGetKey(de);
+    *expiredAt = hEntryGetExpiry(hEntry);
+    *value = hEntryGetValue(hEntry);
     return GETF_OK;
 }
 
@@ -1984,23 +2392,23 @@ int hashTypeSet(redisDb *db, kvobj *o, sds field, sds value, int flags) {
         if (link == NULL) {
             /* Create entry and transfer value ownership if possible */
             size_t usable;
-            Entry *newEntry = entryCreate(field, value, newEntryFlags, &usable);
+            HashEntry *hNewEntry = hEntryCreate(field, value, newEntryFlags, &usable);
 
-            dictSetKeyAtLink(ht, newEntry, &bucket, 1);
+            dictSetKeyAtLink(ht, hNewEntry, &bucket, 1);
             *alloc_size += usable;
         } else {
             /* Existing field - update value in entry */
-            Entry *oldEntry = dictGetKey(*link);
+            HashEntry *hOldEntry = dictGetKey(*link);
 
             /* Check if old entry has expiration before potentially freeing it */
-            uint64_t oldExpireAt = entryGetExpiry(oldEntry);
+            uint64_t oldExpireAt = hEntryGetExpiry(hOldEntry);
             uint64_t newExpireAt = EB_EXPIRE_TIME_INVALID;
 
             /* If attached TTL to the old field, then remove it from hash's
              * private ebuckets. We do this before updating the value because
              * the entry might be reallocated and freed. */
             if (oldExpireAt != EB_EXPIRE_TIME_INVALID) {
-                hfieldPersist(o, oldEntry);
+                hfieldPersist(o, hOldEntry);
                 if (flags & HASH_SET_KEEP_TTL) {
                     newExpireAt = oldExpireAt;
                     newEntryFlags |= ENTRY_HAS_EXPIRY;
@@ -2008,20 +2416,20 @@ int hashTypeSet(redisDb *db, kvobj *o, sds field, sds value, int flags) {
             }
             
             ssize_t usableDiff;
-            Entry *newEntry = entryUpdate(oldEntry, value, newEntryFlags, &usableDiff);
+            HashEntry *hNewEntry = hEntryUpdate(hOldEntry, value, newEntryFlags, &usableDiff);
 
             /* If entry was reallocated, update the dict key */
-            if (newEntry != oldEntry) {
-                /* entryUpdate already freed the old entry if needed */
+            if (hNewEntry != hOldEntry) {
+                /* hEntryUpdate already freed the old entry if needed */
                 /* Update the dict to point to the new entry using dictSetKeyAtLink (no_value=1) */
-                dictSetKeyAtLink(ht, newEntry, &link, 0);
+                dictSetKeyAtLink(ht, hNewEntry, &link, 0);
             }
 
             /* If keeping TTL, add the (potentially new) entry back to ebuckets */
             if (newExpireAt != EB_EXPIRE_TIME_INVALID) {
                 dict *d = o->ptr;
                 htMetadataEx *dictExpireMeta = htGetMetadataEx(d);
-                ebAdd(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, newEntry, newExpireAt);
+                ebAdd(&dictExpireMeta->elemExpires, &hashFieldExpireBucketsType, hNewEntry, newExpireAt);
             }
 
             *alloc_size += usableDiff;
@@ -2036,76 +2444,21 @@ int hashTypeSet(redisDb *db, kvobj *o, sds field, sds value, int flags) {
         long long field_idx = hashTemplateFieldIndex(tmpl, field);
         int is_new = field_idx < 0;
 
-        /* Promote TMPL_LP -> TMPL_ARRAY up front if the value or field count no
-         * longer fits a listpack. The template (and field_idx) is unchanged. */
-        if (o->encoding == OBJ_ENCODING_TMPL_LP &&
-            (sdslen(value) > server.hash_max_listpack_value ||
-             !lpSafeToAdd(o->ptr, sdslen(value)) ||
-             (is_new && tmpl->field_count + 1 > server.hash_max_listpack_entries)))
-        {
-            hashTypeConvert(db, o, OBJ_ENCODING_TMPL_ARRAY);
-        }
-
         if (!is_new) {
             /* Field exists - update value in place. */
-            if (o->encoding == OBJ_ENCODING_TMPL_LP) {
-                unsigned char *lp = o->ptr;
-                unsigned char *p = hashTemplateLpSeekValue(lp, field_idx);
-                o->ptr = lpReplace(lp, &p, (unsigned char *)value, sdslen(value));
-                serverAssert(o->ptr != NULL);
-            } else {
-                hashTemplateArray *hta = o->ptr;
-                if (hta->values[field_idx]) sdsfree(hta->values[field_idx]);
-                if (flags & HASH_SET_TAKE_VALUE) {
-                    hta->values[field_idx] = value;  /* adopt, don't copy */
-                    value = NULL;
-                } else {
-                    hta->values[field_idx] = sdsdup(value);
-                }
-            }
+            if (hashTypeTmplWriteValueAt(o, field_idx, value, flags & HASH_SET_TAKE_VALUE))
+                value = NULL; /* adopted */
             update = 1;
             goto cleanup;
         }
 
-        /* Field not in tmpl - switch to the template that adds it at insert_pos. */
-        long long insert_pos = -field_idx - 1;
-        unsigned long long new_field_count = tmpl->field_count + 1;
-        hashTemplate *new_tmpl = hashTemplateForInsertedField(tmpl, field, insert_pos);
-
-        /* Insert value at insert_pos in existing structure. */
-        if (o->encoding == OBJ_ENCODING_TMPL_LP) {
-            unsigned char *lp = o->ptr;
-            /* Update template ID. */
-            lp = hashTemplateLpSetTemplate(lp, new_tmpl);
-            /* Insert value at position (offset +1 for template ID). */
-            if ((unsigned long long)insert_pos == tmpl->field_count) {
-                lp = lpAppend(lp, (unsigned char *)value, sdslen(value));
-            } else {
-                unsigned char *p = hashTemplateLpSeekValue(lp, insert_pos);
-                lp = lpInsertString(lp, (unsigned char *)value, sdslen(value), p, LP_BEFORE, NULL);
-            }
-            serverAssert(lp != NULL);
-            hashTemplateDecrKeyRef(tmpl);
-            o->ptr = lp;
-        } else {
-            hashTemplateArray *hta = o->ptr;
-            /* Expand struct and shift elements to make room. */
-            hta = zrealloc(hta, sizeof(*hta) + sizeof(sds) * new_field_count);
-            if ((unsigned long long)insert_pos < tmpl->field_count) {
-                memmove(&hta->values[insert_pos + 1], &hta->values[insert_pos],
-                        sizeof(sds) * (tmpl->field_count - insert_pos));
-            }
-            if (flags & HASH_SET_TAKE_VALUE) {
-                hta->values[insert_pos] = value;  /* adopt, don't copy */
-                value = NULL;
-            } else {
-                hta->values[insert_pos] = sdsdup(value);
-            }
-            hashTemplateDecrKeyRef(tmpl);
-            hta->tmpl_id = new_tmpl->id;
-            hta->field_count = new_tmpl->field_count;
-            o->ptr = hta;
-        }
+        /* Field not in tmpl. Adding it will switch the template holding it. */
+        tmplNewField new_field = { 
+            .field = field, 
+            .value = value,
+            .insert_pos = -field_idx - 1 
+        };
+        hashTypeTmplAddFields(db, o, tmpl, &new_field, 1);
     } else {
         serverPanic("Unknown hash encoding");
     }
@@ -2132,26 +2485,26 @@ cleanup:
 SetExRes hashTypeSetExpiryHT(HashTypeSetEx *exInfo, sds field, uint64_t expireAt) {
     dict *ht = exInfo->hashObj->ptr;
     dictEntryLink link = NULL;
-    Entry *entryNew = NULL;
+    HashEntry *hNewEntry = NULL;
 
     link = dictFindLink(ht, field, NULL);
     if (link == NULL)
         return HSETEX_NO_FIELD;
 
     dictEntry *existingEntry = *link;
-    Entry *oldEntry = dictGetKey(existingEntry);
+    HashEntry *hOldEntry = dictGetKey(existingEntry);
     /* Special value of EXPIRE_TIME_INVALID indicates field should be persisted.*/
     if (expireAt == EB_EXPIRE_TIME_INVALID) {
         /* Return error if already there is no ttl. */
-        if (entryGetExpiry(oldEntry) == EB_EXPIRE_TIME_INVALID)
+        if (hEntryGetExpiry(hOldEntry) == EB_EXPIRE_TIME_INVALID)
             return HSETEX_NO_CONDITION_MET;
 
-        hfieldPersist(exInfo->hashObj, oldEntry);
+        hfieldPersist(exInfo->hashObj, hOldEntry);
         return HSETEX_OK;
     }
 
     /* If field doesn't have expiry metadata attached */
-    if (!entryHasExpiry(oldEntry)) {
+    if (!hEntryHasExpiry(hOldEntry)) {
         size_t *alloc_size = htGetMetadataSize(ht);
 
         /* For fields without expiry, LT condition is considered valid */
@@ -2159,10 +2512,10 @@ SetExRes hashTypeSetExpiryHT(HashTypeSetEx *exInfo, sds field, uint64_t expireAt
             return HSETEX_NO_CONDITION_MET;
 
         ssize_t usableDiff;
-        entryNew = entryUpdate(oldEntry, NULL, ENTRY_HAS_EXPIRY, &usableDiff);
+        hNewEntry = hEntryUpdate(hOldEntry, NULL, ENTRY_HAS_EXPIRY, &usableDiff);
         *alloc_size += usableDiff;
     } else { /* field has ExpireMeta struct attached */
-        uint64_t prevExpire = entryGetExpiry(oldEntry);
+        uint64_t prevExpire = hEntryGetExpiry(hOldEntry);
 
         /* If field has valid expiration time, then check GT|LT|NX */
         if (prevExpire != EB_EXPIRE_TIME_INVALID) {
@@ -2177,7 +2530,7 @@ SetExRes hashTypeSetExpiryHT(HashTypeSetEx *exInfo, sds field, uint64_t expireAt
 
             /* remove old expiry time from hash's private ebuckets */
             htMetadataEx *dm = htGetMetadataEx(ht);
-            ebRemove(&dm->hfe, &hashFieldExpireBucketsType, oldEntry);
+            ebRemove(&dm->elemExpires, &hashFieldExpireBucketsType, hOldEntry);
 
             /* Track of minimum expiration time (only later update global HFE DS) */
             if (exInfo->minExpireFields > prevExpire)
@@ -2192,10 +2545,10 @@ SetExRes hashTypeSetExpiryHT(HashTypeSetEx *exInfo, sds field, uint64_t expireAt
         }
 
         /* Reuse hfOld as hfNew and rewrite its expiry with ebAdd() */
-        entryNew = oldEntry;
+        hNewEntry = hOldEntry;
     }
 
-    dictSetKeyAtLink(ht, entryNew, &link, 0);  /* newItem=0 for updating existing entry */
+    dictSetKeyAtLink(ht, hNewEntry, &link, 0);  /* newItem=0 for updating existing entry */
 
 
     /* If expired, then delete the field and propagate the deletion.
@@ -2212,7 +2565,7 @@ SetExRes hashTypeSetExpiryHT(HashTypeSetEx *exInfo, sds field, uint64_t expireAt
         exInfo->minExpireFields = expireAt;
 
     htMetadataEx *dm = htGetMetadataEx(ht);
-    ebAdd(&dm->hfe, &hashFieldExpireBucketsType, entryNew, expireAt);
+    ebAdd(&dm->elemExpires, &hashFieldExpireBucketsType, hNewEntry, expireAt);
     return HSETEX_OK;
 }
 
@@ -2260,7 +2613,7 @@ void initDictExpireMetadata(robj *o) {
     dict *ht = o->ptr;
 
     htMetadataEx *m = htGetMetadataEx(ht);
-    m->hfe = ebCreate();     /* Allocate HFE DS */
+    m->elemExpires = ebCreate();     /* Allocate HFE DS */
     m->expireMeta.trash = 1; /* mark as trash (as long it wasn't ebAdd()) */
 }
 
@@ -2297,7 +2650,7 @@ int hashTypeSetExInit(robj *key, kvobj *o, client *c, redisDb *db,
              * notifications or even removal of the hash */
 
             /* Fillup dict HFE metadata */
-            m->hfe = ebCreate();     /* Allocate HFE DS */
+            m->elemExpires = ebCreate();     /* Allocate HFE DS */
             m->expireMeta.trash = 1; /* mark as trash (as long it wasn't ebAdd()) */
         }
     }
@@ -2395,39 +2748,7 @@ int hashTypeDelete(robj *o, void *field) {
         hashTemplate *tmpl = hashTypeGetTemplate(o);
         long long idx = hashTemplateFieldIndex(tmpl, field);
         if (idx >= 0) {
-            long long old_count = tmpl->field_count;
-            long long new_count = old_count - 1;
-
-            if (new_count == 0) {
-                /* Last field deleted - convert to empty listpack. */
-                if (o->encoding == OBJ_ENCODING_TMPL_LP)
-                    hashTemplateLpFree(o->ptr);
-                else
-                    hashTemplateArrayFree(o->ptr);
-                o->ptr = lpNew(0);
-                o->encoding = OBJ_ENCODING_LISTPACK;
-            } else {
-                hashTemplate *new_tmpl = hashTemplateForDeletedField(tmpl, idx);
-
-                if (o->encoding == OBJ_ENCODING_TMPL_LP) {
-                    /* Delete value at idx. */
-                    unsigned char *lp = o->ptr;
-                    unsigned char *p = hashTemplateLpSeekValue(lp, idx);
-                    lp = lpDeleteRangeWithEntry(lp, &p, 1);
-                    lp = hashTemplateLpSetTemplate(lp, new_tmpl);
-                    o->ptr = lp;
-                } else {
-                    hashTemplateArray *hta = o->ptr;
-                    sdsfree(hta->values[idx]);
-                    memmove(&hta->values[idx], &hta->values[idx + 1],
-                            sizeof(sds) * (old_count - idx - 1));
-                    hta->tmpl_id = new_tmpl->id;
-                    hta->field_count = new_count;
-                    hta = zrealloc(hta, sizeof(*hta) + sizeof(sds) * new_count);
-                    o->ptr = hta;
-                }
-                hashTemplateDecrKeyRef(tmpl);
-            }
+            hashTypeTmplDropFields(o, tmpl, &idx, 1);
             deleted = 1;
         }
     } else {
@@ -2464,7 +2785,7 @@ unsigned long hashTypeLength(const robj *o, int subtractExpiredFields) {
             htMetadataEx *meta = htGetMetadataEx(d);
             /* If dict registered in global HFE DS */
             if (meta->expireMeta.trash == 0)
-                expiredItems = ebExpireDryRun(meta->hfe,
+                expiredItems = ebExpireDryRun(meta->elemExpires,
                                               &hashFieldExpireBucketsType,
                                               commandTimeSnapshot());
         }
@@ -2499,10 +2820,7 @@ size_t hashTypeAllocSize(const robj *o) {
         size = lpBytes(lp);
     } else if (o->encoding == OBJ_ENCODING_TMPL_ARRAY) {
         hashTemplateArray *hta = o->ptr;
-        size = sizeof(hashTemplateArray) + sizeof(sds) * hta->field_count;
-        for (unsigned long long i = 0; i < hta->field_count; i++) {
-            if (hta->values[i]) size += sdsAllocSize(hta->values[i]);
-        }
+        size = hta->alloc_size;
     } else {
         serverPanic("Unknown hash encoding");
     }
@@ -2629,8 +2947,8 @@ int hashTypeNext(hashTypeIterator *hi, int skipExpiredFields) {
     } else if (hi->encoding == OBJ_ENCODING_HT) {
 
         while ((hi->de = dictNext(&hi->di)) != NULL) {
-            Entry *e = dictGetKey(hi->de);
-            hi->expire_time = entryGetExpiry(e);
+            HashEntry *hE = dictGetKey(hi->de);
+            hi->expire_time = hEntryGetExpiry(hE);
             /* this condition still valid if expire_time equals EB_EXPIRE_TIME_INVALID */
             if (skipExpiredFields && ((mstime_t)hi->expire_time < commandTimeSnapshot()))
                 continue;
@@ -2693,14 +3011,14 @@ void hashTypeCurrentFromListpack(hashTypeIterator *hi, int what,
  */
 void hashTypeCurrentFromHashTable(hashTypeIterator *hi, int what, char **str, size_t *len, uint64_t *expireTime) {
     serverAssert(hi->encoding == OBJ_ENCODING_HT);
-    Entry *e = dictGetKey(hi->de);
+    HashEntry *hE = dictGetKey(hi->de);
 
     if (what & OBJ_HASH_KEY) {
-        sds field = entryGetField(e);
+        sds field = hEntryGetField(hE);
         *str = field;
         *len = sdslen(field);
     } else {
-        sds val = entryGetValue(e);
+        sds val = hEntryGetValue(hE);
         *str = val;
         *len = sdslen(val);
     }
@@ -2808,12 +3126,12 @@ sds hashTypeCurrentObjectNewSds(hashTypeIterator *hi, int what) {
 }
 
 /* Return the key at the current iterator position as a new entry. */
-Entry *hashTypeCurrentObjectNewEntry(hashTypeIterator *hi, size_t *usable) {
+HashEntry *hashTypeCurrentObjectNewEntry(hashTypeIterator *hi, size_t *usable) {
     char fieldBuf[LONG_STR_SIZE], valueBuf[LONG_STR_SIZE];
     unsigned char *fieldStr, *valueStr;
     size_t fieldLen, valueLen;
     long long fieldLl, valueLl;
-    Entry *entry;
+    HashEntry *hEntry;
 
     /* Get field */
     hashTypeCurrentObject(hi, OBJ_HASH_KEY, &fieldStr, &fieldLen, &fieldLl, NULL);
@@ -2834,10 +3152,10 @@ Entry *hashTypeCurrentObjectNewEntry(hashTypeIterator *hi, size_t *usable) {
 
     /* Create entry with field and value, using iterator's expire_time */
     uint32_t entryFlags = ENTRY_TAKE_VALUE | ((hasExpiry) ? ENTRY_HAS_EXPIRY : 0); 
-    entry = entryCreate(field, value, entryFlags, usable);
-    sdsfree(field);  /* entryCreate() doesn't take ownership of field */
+    hEntry = hEntryCreate(field, value, entryFlags, usable);
+    sdsfree(field);  /* hEntryCreate() doesn't take ownership of field */
 
-    return entry;
+    return hEntry;
 }
 
 static kvobj *hashTypeLookupWriteOrCreate(client *c, robj *key) {
@@ -2854,8 +3172,7 @@ static kvobj *hashTypeLookupWriteOrCreate(client *c, robj *key) {
 
 /* Can a TMPL_LP / TMPL_ARRAY hash be re-encoded as a plain listpack? */
 static int hashTypeCanConvertTmplToListpack(robj *o) {
-    serverAssert(o->encoding == OBJ_ENCODING_TMPL_LP ||
-                 o->encoding == OBJ_ENCODING_TMPL_ARRAY);
+    serverAssert(hashTypeIsTemplate(o));
     hashTemplate *tmpl = hashTypeGetTemplate(o);
 
     if (tmpl->field_count > server.hash_max_listpack_entries)
@@ -2880,8 +3197,7 @@ static int hashTypeCanConvertTmplToListpack(robj *o) {
  * abstracts over both template encodings, so one body covers every
  * source/target pair. 'with_hfe' implies 'HT with hfe'. */
 static void hashTypeConvertTmplToListpackOrHT(robj *o, int lp_enc, int with_hfe) {
-    serverAssert(o->encoding == OBJ_ENCODING_TMPL_LP ||
-                 o->encoding == OBJ_ENCODING_TMPL_ARRAY);
+    serverAssert(hashTypeIsTemplate(o));
     int target_enc = hashTypeCanConvertTmplToListpack(o) ? lp_enc : OBJ_ENCODING_HT;
     int src_enc = o->encoding;
     void *old_ptr = o->ptr;
@@ -2898,7 +3214,7 @@ static void hashTypeConvertTmplToListpackOrHT(robj *o, int lp_enc, int with_hfe)
         size_t usable, *alloc_size;
         if (with_hfe) {
             htMetadataEx *meta = htGetMetadataEx(d);
-            meta->hfe = ebCreate();
+            meta->elemExpires = ebCreate();
             meta->expireMeta.trash = 1;
             alloc_size = &meta->alloc_size;
         } else {
@@ -2906,8 +3222,8 @@ static void hashTypeConvertTmplToListpackOrHT(robj *o, int lp_enc, int with_hfe)
         }
 
         while (hashTypeNext(&hi, 0) != C_ERR) {
-            Entry *entry = hashTypeCurrentObjectNewEntry(&hi, &usable);
-            int ret = dictAdd(d, entry, NULL);
+            HashEntry *hEntry = hashTypeCurrentObjectNewEntry(&hi, &usable);
+            int ret = dictAdd(d, hEntry, NULL);
             serverAssert(ret == DICT_OK);
             *alloc_size += usable;
         }
@@ -3021,10 +3337,10 @@ void hashTypeConvertListpack(robj *o, int enc) {
 
         size_t usable, *alloc_size = htGetMetadataSize(dict);
         while (hashTypeNext(&hi, 0) != C_ERR) {
-            Entry *entry = hashTypeCurrentObjectNewEntry(&hi, &usable);
-            ret = dictAdd(dict, entry, NULL);
+            HashEntry *hEntry = hashTypeCurrentObjectNewEntry(&hi, &usable);
+            ret = dictAdd(dict, hEntry, NULL);
             if (ret != DICT_OK) {
-                entryFree(entry, NULL); /* Needed for gcc ASAN */
+                hEntryFree(hEntry, NULL); /* Needed for gcc ASAN */
                 hashTypeResetIterator(&hi);  /* Needed for gcc ASAN */
                 serverLogHexDump(LL_WARNING,"listpack with dup elements dump",
                     o->ptr,lpBytes(o->ptr));
@@ -3066,7 +3382,7 @@ void hashTypeConvertListpackEx(redisDb *db, robj *o, int enc) {
         dictExpireMeta = htGetMetadataEx(dict);
 
         /* Fillup dict HFE metadata */
-        dictExpireMeta->hfe = ebCreate();     /* Allocate HFE DS */
+        dictExpireMeta->elemExpires = ebCreate();     /* Allocate HFE DS */
         dictExpireMeta->expireMeta.trash = 1; /* mark as trash (as long it wasn't ebAdd()) */
 
         hashTypeInitIterator(&hi, o);
@@ -3074,10 +3390,10 @@ void hashTypeConvertListpackEx(redisDb *db, robj *o, int enc) {
         size_t usable, *alloc_size = &dictExpireMeta->alloc_size;
         while (hashTypeNext(&hi, 0) != C_ERR) {
             /* Create entry with both field and value */
-            Entry *entry = hashTypeCurrentObjectNewEntry(&hi, &usable);
-            ret = dictAdd(dict, entry, NULL);
+            HashEntry *hEntry = hashTypeCurrentObjectNewEntry(&hi, &usable);
+            ret = dictAdd(dict, hEntry, NULL);
             if (ret != DICT_OK) {
-                entryFree(entry, NULL); /* Needed for gcc ASAN */
+                hEntryFree(hEntry, NULL); /* Needed for gcc ASAN */
                 hashTypeResetIterator(&hi);  /* Needed for gcc ASAN */
                 serverLogHexDump(LL_WARNING,"listpack with dup elements dump",
                                  lpt->lp,lpBytes(lpt->lp));
@@ -3086,7 +3402,7 @@ void hashTypeConvertListpackEx(redisDb *db, robj *o, int enc) {
             *alloc_size += usable;
 
             if (hi.expire_time != EB_EXPIRE_TIME_INVALID)
-                ebAdd(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, entry, hi.expire_time);
+                ebAdd(&dictExpireMeta->elemExpires, &hashFieldExpireBucketsType, hEntry, hi.expire_time);
         }
         hashTypeResetIterator(&hi);
         listpackExFree(lpt);
@@ -3503,7 +3819,7 @@ robj *hashTypeDup(kvobj *o, uint64_t *minHashExpire) {
             d = dictCreate(&entryHashDictTypeWithHFE);
             dictExpireMetaSrc = htGetMetadataEx((dict *) o->ptr);
             dictExpireMetaDst = htGetMetadataEx(d);
-            dictExpireMetaDst->hfe = ebCreate();     /* Allocate HFE DS */
+            dictExpireMetaDst->elemExpires = ebCreate();     /* Allocate HFE DS */
             dictExpireMetaDst->expireMeta.trash = 1; /* mark as trash (as long it wasn't ebAdd()) */
 
             /* Extract the minimum expire time of the source hash (Will be used by caller
@@ -3516,7 +3832,7 @@ robj *hashTypeDup(kvobj *o, uint64_t *minHashExpire) {
         size_t usable, *alloc_size = htGetMetadataSize(d);
         hashTypeInitIterator(&hi, o);
         while (hashTypeNext(&hi, 0) != C_ERR) {
-            Entry *newEntry;
+            HashEntry *hNewEntry;
             uint64_t expireTime;
             /* Extract a field-value pair from an original hash object.*/
             char *field, *value;
@@ -3529,17 +3845,17 @@ robj *hashTypeDup(kvobj *o, uint64_t *minHashExpire) {
             sds newValueSds = sdsnewlen(value, valueLen);
             /* Create new entry with field and value, optional expiry. */
             if (expireTime == EB_EXPIRE_TIME_INVALID) {
-                newEntry = entryCreate(newFieldSds, newValueSds, 
-                                       ENTRY_TAKE_VALUE, &usable);
+                hNewEntry = hEntryCreate(newFieldSds, newValueSds,
+                                         ENTRY_TAKE_VALUE, &usable);
             } else {
-                newEntry = entryCreate(newFieldSds, newValueSds, 
-                                       ENTRY_TAKE_VALUE | ENTRY_HAS_EXPIRY, &usable);
-                ebAdd(&dictExpireMetaDst->hfe, &hashFieldExpireBucketsType, newEntry, expireTime);
+                hNewEntry = hEntryCreate(newFieldSds, newValueSds,
+                                         ENTRY_TAKE_VALUE | ENTRY_HAS_EXPIRY, &usable);
+                ebAdd(&dictExpireMetaDst->elemExpires, &hashFieldExpireBucketsType, hNewEntry, expireTime);
             }
             sdsfree(newFieldSds); /* (Only value ownership transferred to entry) */
 
             /* Add entry to new hash object. */
-            dictAdd(d, newEntry, NULL);  /* no_value=1, so value is NULL */
+            dictAdd(d, hNewEntry, NULL);  /* no_value=1, so value is NULL */
             *alloc_size += usable;
         }
         hashTypeResetIterator(&hi);
@@ -3562,16 +3878,8 @@ robj *hashTypeDup(kvobj *o, uint64_t *minHashExpire) {
         hobj->encoding = OBJ_ENCODING_TMPL_LP;
     } else if (o->encoding == OBJ_ENCODING_TMPL_ARRAY) {
         hashTemplateArray *hta = o->ptr;
-        unsigned long long n = hta->field_count;
-
-        /* Create new array structure with duplicated values. */
-        hashTemplateArray *new_hta = zmalloc(sizeof(*new_hta) + sizeof(sds) * n);
-        new_hta->tmpl_id = hta->tmpl_id;
-        new_hta->field_count = n;
-        hashTemplateIncrKeyRef(hashTemplateGetById(new_hta->tmpl_id));
-        for (unsigned long long i = 0; i < n; i++) {
-            new_hta->values[i] = sdsdup(hta->values[i]);
-        }
+        hashTemplate *tmpl = hashTemplateArrayGetTemplate(hta);
+        hashTemplateArray *new_hta = hashTemplateArrayCreate(tmpl, hta->values, 0);
 
         hobj = createObject(OBJ_HASH, new_hta);
         hobj->encoding = OBJ_ENCODING_TMPL_ARRAY;
@@ -3601,12 +3909,12 @@ void hashReplyFromListpackEntry(client *c, listpackEntry *e) {
 void hashTypeRandomElement(robj *hashobj, unsigned long hashsize, CommonEntry *key, CommonEntry *val) {
     if (hashobj->encoding == OBJ_ENCODING_HT) {
         dictEntry *de = dictGetFairRandomKey(hashobj->ptr);
-        Entry *entry = dictGetKey(de);
-        sds field = entryGetField(entry);
+        HashEntry *hEntry = dictGetKey(de);
+        sds field = hEntryGetField(hEntry);
         key->sval = (unsigned char*) field;
         key->slen = sdslen(field);
         if (val) {
-            sds s = entryGetValue(entry);
+            sds s = hEntryGetValue(hEntry);
             val->sval = (unsigned char*)s;
             val->slen = sdslen(s);
         }
@@ -3691,7 +3999,7 @@ uint64_t hashTypeExpire(redisDb *db, kvobj *o, uint32_t *quota, int updateSubexp
         htMetadataEx *dictExpireMeta = htGetMetadataEx(d);
 
         info.onExpireItem = onFieldExpire;
-        ebExpire(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, &info);
+        ebExpire(&dictExpireMeta->elemExpires, &hashFieldExpireBucketsType, &info);
     }
 
     /* Update quota left */
@@ -3828,7 +4136,7 @@ uint64_t hashTypeGetMinExpire(robj *o, int accurate) {
             return EB_EXPIRE_TIME_INVALID;
 
         htMetadataEx *expireMeta = htGetMetadataEx(d);
-        return ebGetNextTimeToExpire(expireMeta->hfe, &hashFieldExpireBucketsType);
+        return ebGetNextTimeToExpire(expireMeta->elemExpires, &hashFieldExpireBucketsType);
     }
 }
 
@@ -3847,7 +4155,7 @@ int hashTypeIsFieldsWithExpire(robj *o) {
         if (!isDictWithMetaHFE(d))
             return 0;
         htMetadataEx *meta = htGetMetadataEx(d);
-        return ebGetTotalItems(meta->hfe, &hashFieldExpireBucketsType) != 0;
+        return ebGetTotalItems(meta->elemExpires, &hashFieldExpireBucketsType) != 0;
     }
 }
 
@@ -3887,7 +4195,7 @@ void hashTypeFree(robj *o) {
 
 ebuckets *hashTypeGetDictMetaHFE(dict *d) {
     htMetadataEx *dictExpireMeta = htGetMetadataEx(d);
-    return &dictExpireMeta->hfe;
+    return &dictExpireMeta->elemExpires;
 }
 
 /*-----------------------------------------------------------------------------
@@ -4006,6 +4314,10 @@ void hsetCommand(client *c) {
     if (kv->encoding == OBJ_ENCODING_LISTPACK && numfields >= 5 && lpLength(kv->ptr) == 0) {
         /* Fresh wide build: single dict pass (last-wins) + one batch append. */
         created = hashTypeBuildFreshListpack(kv, c->argv + 2, numfields);
+    } else if (hashTypeIsTemplate(kv)) {
+        /* Template hash: existing fields are overwritten in place and the
+         * missing ones are added in a single template switch. */
+        created = hashTypeTmplSetFields(c->db, kv, c->argv + 2, numfields);
     } else {
         for (i = 2; i < c->argc; i += 2)
             created += !hashTypeSet(c->db, kv, c->argv[i]->ptr, c->argv[i+1]->ptr, HASH_SET_COPY | HASH_SET_NO_TEMPLATE_CONVERT);
@@ -4309,7 +4621,8 @@ void himportSetCommand(client *c) {
      *
      * In the future this can be improved to send the fields only once instead of
      * on every SET, lowering the propagation cost further. */
-    if (shouldPropagate(PROPAGATE_AOF | PROPAGATE_REPL)) {
+    int prop_target = (PROPAGATE_AOF | PROPAGATE_REPL) & server.allowed_propagate_targets;
+    if (shouldPropagate(prop_target)) {
         /* Presize the payload: field-name footprint + value bytes (over-estimate ok). */
         sds payload = createRawDumpPayload(o, c->argv[2], c->db->id, 0,
                                            tmpl->mem_size + total_values_length);
@@ -4321,7 +4634,7 @@ void himportSetCommand(client *c) {
                 restore_pl,
                 shared.replace
         };
-        alsoPropagate(c->db->id, rargv, 5, PROPAGATE_AOF | PROPAGATE_REPL);
+        alsoPropagate(c->db->id, rargv, 5, prop_target);
         decrRefCount(restore_pl);
     }
     preventCommandPropagation(c);
@@ -4360,38 +4673,6 @@ void himportDiscardCommand(client *c) {
  * Remove all fieldsets from this client. */
 void himportDiscardallCommand(client *c) {
     addReplyLongLong(c, himportFieldsetsFree(c));
-}
-
-/* Parse expire time from argument and do boundary checks. */
-static int parseExpireTime(client *c, robj *o, int unit, long long basetime,
-                           long long *expire)
-{
-    long long val;
-
-    /* Read the expiry time from command */
-    if (getLongLongFromObjectOrReply(c, o, &val, NULL) != C_OK)
-        return C_ERR;
-
-    if (val < 0) {
-        addReplyError(c,"invalid expire time, must be >= 0");
-        return C_ERR;
-    }
-
-    if (unit == UNIT_SECONDS) {
-        if (val > (long long) HFE_MAX_ABS_TIME_MSEC / 1000) {
-            addReplyErrorExpireTime(c);
-            return C_ERR;
-        }
-        val *= 1000;
-    }
-
-    if (val > (long long) HFE_MAX_ABS_TIME_MSEC - basetime) {
-        addReplyErrorExpireTime(c);
-        return C_ERR;
-    }
-    val += basetime;
-    *expire = val;
-    return C_OK;
 }
 
 /* Flags that are used as part of HGETEX and HSETEX commands. */
@@ -4466,7 +4747,7 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
 
             *flags |= HFE_EX;
             i++;
-            if (parseExpireTime(c, c->argv[i], UNIT_SECONDS,
+            if (parseSubkeyExpireTime(c, c->argv[i], UNIT_SECONDS,
                                 commandTimeSnapshot(), expire_time) != C_OK)
                 return C_ERR;
 
@@ -4480,7 +4761,7 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
 
             *flags |= HFE_PX;
             i++;
-            if (parseExpireTime(c, c->argv[i], UNIT_MILLISECONDS,
+            if (parseSubkeyExpireTime(c, c->argv[i], UNIT_MILLISECONDS,
                                 commandTimeSnapshot(), expire_time) != C_OK)
                 return C_ERR;
 
@@ -4494,7 +4775,7 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
 
             *flags |= HFE_EXAT;
             i++;
-            if (parseExpireTime(c, c->argv[i], UNIT_SECONDS, 0, expire_time) != C_OK)
+            if (parseSubkeyExpireTime(c, c->argv[i], UNIT_SECONDS, 0, expire_time) != C_OK)
                 return C_ERR;
 
             *expire_time_pos = i;
@@ -4507,7 +4788,7 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
 
             *flags |= HFE_PXAT;
             i++;
-            if (parseExpireTime(c, c->argv[i], UNIT_MILLISECONDS, 0,
+            if (parseSubkeyExpireTime(c, c->argv[i], UNIT_MILLISECONDS, 0,
                                 expire_time) != C_OK)
                 return C_ERR;
 
@@ -4648,25 +4929,33 @@ void hsetexCommand(client *c) {
     if (set_expiry)
         hashTypeSetExInit(c->argv[1], o, c, c->db, 0, &setex);
 
-    for (int i = 0; i < field_count; i++) {
-        sds field = c->argv[first_field_pos + (i * 2)]->ptr;
-        sds value = c->argv[first_field_pos + (i * 2) + 1]->ptr;
+    if (hashTypeIsTemplate(o)) {
+        /* Template hash: set every field at once in a single template switch. */
+        serverAssert(!set_expiry);
+        hashTypeTmplSetFields(c->db, o, c->argv + first_field_pos, field_count);
+        for (int i = 0; i < field_count; i++)
+            vecPush(vset, c->argv[first_field_pos + (i * 2)]);
+    } else {
+        for (int i = 0; i < field_count; i++) {
+            sds field = c->argv[first_field_pos + (i * 2)]->ptr;
+            sds value = c->argv[first_field_pos + (i * 2) + 1]->ptr;
 
-        int opt = HASH_SET_COPY | HASH_SET_NO_TEMPLATE_CONVERT;
-        /* If we are going to set the expiration time later, no need to discard
-         * it as part of set operation now. */
-        if (flags & (HFE_EX | HFE_PX | HFE_EXAT | HFE_PXAT | HFE_KEEPTTL))
-            opt |= HASH_SET_KEEP_TTL;
+            int opt = HASH_SET_COPY | HASH_SET_NO_TEMPLATE_CONVERT;
+            /* If we are going to set the expiration time later, no need to discard
+             * it as part of set operation now. */
+            if (flags & (HFE_EX | HFE_PX | HFE_EXAT | HFE_PXAT | HFE_KEEPTTL))
+                opt |= HASH_SET_KEEP_TTL;
 
-        hashTypeSet(c->db, o, field, value, opt);
-        vecPush(vset, c->argv[first_field_pos + (i * 2)]);
-        /* Update the expiration time. */
-        if (set_expiry) {
-            int ret = hashTypeSetEx(o, field, expire_time, &setex);
-            if (ret == HSETEX_OK) {
-                vecPush(vupdated, c->argv[first_field_pos + (i * 2)]);
-            } else if (ret == HSETEX_DELETED) {
-                vecPush(vdeleted, c->argv[first_field_pos + (i * 2)]);
+            hashTypeSet(c->db, o, field, value, opt);
+            vecPush(vset, c->argv[first_field_pos + (i * 2)]);
+            /* Update the expiration time. */
+            if (set_expiry) {
+                int ret = hashTypeSetEx(o, field, expire_time, &setex);
+                if (ret == HSETEX_OK) {
+                    vecPush(vupdated, c->argv[first_field_pos + (i * 2)]);
+                } else if (ret == HSETEX_DELETED) {
+                    vecPush(vdeleted, c->argv[first_field_pos + (i * 2)]);
+                }
             }
         }
     }
@@ -4989,20 +5278,26 @@ void hgetdelCommand(client *c) {
     vec *vdeleted = fieldvecInit(&fvdeleted, num_fields);
 
     addReplyArrayLen(c, num_fields);
-    for (int i = 4; i < c->argc; i++) {
-        const int flags = HFE_LAZY_NO_NOTIFICATION |
-                          HFE_LAZY_NO_SIGNAL |
-                          HFE_LAZY_AVOID_HASH_DEL |
-                          HFE_LAZY_NO_UPDATE_KEYSIZES |
-                          HFE_LAZY_NO_UPDATE_ALLOCSIZES;
-        res = addHashFieldToReply(c, o, c->argv[i]->ptr, flags);
-        if (res == GETF_EXPIRED) {
-            vecPush(vexpired, c->argv[i]);
-        }
-        /* Try to delete only if it's found and not expired lazily. */
-        if (res == GETF_OK) {
-            vecPush(vdeleted, c->argv[i]);
-            serverAssert(hashTypeDelete(o, c->argv[i]->ptr) == 1);
+    if (o && hashTypeIsTemplate(o)) {
+        /* Template hash: reply every value, then drop all the fields in one
+         * template switch. */
+        hashTypeTmplDeleteFields(o, c->argv + 4, c->argc - 4, vdeleted, c);
+    } else {
+        for (int i = 4; i < c->argc; i++) {
+            const int flags = HFE_LAZY_NO_NOTIFICATION |
+                              HFE_LAZY_NO_SIGNAL |
+                              HFE_LAZY_AVOID_HASH_DEL |
+                              HFE_LAZY_NO_UPDATE_KEYSIZES |
+                              HFE_LAZY_NO_UPDATE_ALLOCSIZES;
+            res = addHashFieldToReply(c, o, c->argv[i]->ptr, flags);
+            if (res == GETF_EXPIRED) {
+                vecPush(vexpired, c->argv[i]);
+            }
+            /* Try to delete only if it's found and not expired lazily. */
+            if (res == GETF_OK) {
+                vecPush(vdeleted, c->argv[i]);
+                serverAssert(hashTypeDelete(o, c->argv[i]->ptr) == 1);
+            }
         }
     }
 
@@ -5170,7 +5465,7 @@ void hgetexCommand(client *c) {
             notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hpersist", c->argv[1],
                                            c->db->id, (robj**)vecData(vupdated), vecSize(vupdated));
             /* Build canonical HPERSIST command: HPERSIST key FIELDS numfields field1 field2 ... */
-            canonical_argc = 4 + num_fields;
+            canonical_argc = 4 + vecSize(vupdated);
             canonical_argv = zmalloc(sizeof(robj*) * canonical_argc);
             canonical_argv[idx++] = shared.hpersist;
             incrRefCount(shared.hpersist);
@@ -5180,7 +5475,7 @@ void hgetexCommand(client *c) {
             notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hexpire", c->argv[1],
                                            c->db->id, (robj**)vecData(vupdated), vecSize(vupdated));
             /* Build canonical HPEXPIREAT command: HPEXPIREAT key timestamp FIELDS numfields field1 field2 ... */
-            canonical_argc = 5 + num_fields;
+            canonical_argc = 5 + vecSize(vupdated);
             canonical_argv = zmalloc(sizeof(robj*) * canonical_argc);
             canonical_argv[idx++] = shared.hpexpireat;
             incrRefCount(shared.hpexpireat);
@@ -5189,12 +5484,14 @@ void hgetexCommand(client *c) {
             canonical_argv[idx++] = createStringObjectFromLongLong(expire_time); /* timestamp */
         }
 
+        /* Only the updated fields are propagated */
+        robj **updated = (robj**)vecData(vupdated);
         canonical_argv[idx++] = shared.fields;
         incrRefCount(shared.fields);
-        canonical_argv[idx++] = createStringObjectFromLongLong(num_fields);
-        for (int i = 0; i < num_fields; i++) {
-            canonical_argv[idx++] = c->argv[first_field_pos + i];
-            incrRefCount(c->argv[first_field_pos + i]);
+        canonical_argv[idx++] = createStringObjectFromLongLong(vecSize(vupdated));
+        for (size_t i = 0; i < vecSize(vupdated); i++) {
+            canonical_argv[idx++] = updated[i];
+            incrRefCount(updated[i]);
         }
 
         replaceClientCommandVector(c, canonical_argc, canonical_argv);
@@ -5247,12 +5544,19 @@ void hdelCommand(client *c) {
 
     if (o->encoding == OBJ_ENCODING_HT)
         dictPauseAutoResize((dict*)o->ptr);
-    for (j = 2; j < c->argc; j++) {
-        if (hashTypeDelete(o,c->argv[j]->ptr)) {
-            vecPush(vdeleted, c->argv[j]);
-            if (hashTypeLength(o, 0) == 0) {
-                keyremoved = 1;
-                break;
+
+    /* Template hash: drop all the fields in one template switch. */
+    if (hashTypeIsTemplate(o)) {
+        hashTypeTmplDeleteFields(o, c->argv + 2, c->argc - 2, vdeleted, NULL);
+        keyremoved = (hashTypeLength(o, 0) == 0);
+    } else {
+        for (j = 2; j < c->argc; j++) {
+            if (hashTypeDelete(o,c->argv[j]->ptr)) {
+                vecPush(vdeleted, c->argv[j]);
+                if (hashTypeLength(o, 0) == 0) {
+                    keyremoved = 1;
+                    break;
+                }
             }
         }
     }
@@ -5364,14 +5668,14 @@ void genericHgetallCommand(client *c, int flags) {
      * Collect a batch of dict entries, prefetch their Entry structs and
      * value SDS data, then emit replies while the data is cache-warm.
      * This hides the latency of pointer chasing through scattered
-     * heap allocations (dictEntry → Entry → value SDS). */
+     * heap allocations (bucket → Entry → value SDS). */
 #define HGETALL_BATCH 16
     if (o->encoding == OBJ_ENCODING_HT) {
         int skip_expired = !server.allow_access_expired;
         dict *d = o->ptr;
         dictIterator di;
         dictInitSafeIterator(&di, d);
-        Entry *batch_entry[HGETALL_BATCH];
+        HashEntry *hBatchEntry[HGETALL_BATCH];
         sds batch_val[HGETALL_BATCH];
 
         while (1) {
@@ -5382,9 +5686,9 @@ void genericHgetallCommand(client *c, int flags) {
             while (batch_count < HGETALL_BATCH) {
                 dictEntry *de = dictNext(&di);
                 if (!de) break;
-                Entry *e = dictGetKey(de);
-                batch_entry[batch_count++] = e;
-                redis_prefetch_read(e);
+                HashEntry *hE = dictGetKey(de);
+                hBatchEntry[batch_count++] = hE;
+                redis_prefetch_read(hE);
             }
             if (batch_count == 0) break;
 
@@ -5393,15 +5697,15 @@ void genericHgetallCommand(client *c, int flags) {
              * the batch by compacting in place. */
             int valid_count = 0;
             for (int i = 0; i < batch_count; i++) {
-                Entry *e = batch_entry[i];
+                HashEntry *hE = hBatchEntry[i];
                 if (skip_expired) {
-                    uint64_t expire_time = entryGetExpiry(e);
+                    uint64_t expire_time = hEntryGetExpiry(hE);
                     if (expire_time != EB_EXPIRE_TIME_INVALID && (mstime_t)expire_time < commandTimeSnapshot())
                         continue;
                 }
-                batch_entry[valid_count] = e;
+                hBatchEntry[valid_count] = hE;
                 if (flags & OBJ_HASH_VALUE) {
-                    sds val = entryGetValue(e);
+                    sds val = hEntryGetValue(hE);
                     batch_val[valid_count] = val;
                     redis_prefetch_read(val);
                 }
@@ -5411,7 +5715,7 @@ void genericHgetallCommand(client *c, int flags) {
             /* Phase 3: emit replies — field + value data is cache-warm. */
             for (int i = 0; i < valid_count; i++) {
                 if (flags & OBJ_HASH_KEY) {
-                    sds field = entryGetField(batch_entry[i]);
+                    sds field = hEntryGetField(hBatchEntry[i]);
                     addReplyBulkCBuffer(c, field, sdslen(field));
                     count++;
                 }
@@ -5585,13 +5889,13 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
         if (hash->encoding == OBJ_ENCODING_HT) {
             while (count--) {
                 dictEntry *de = dictGetFairRandomKey(hash->ptr);
-                Entry *entry = dictGetKey(de);
-                sds fieldStr = entryGetField(entry);
+                HashEntry *hEntry = dictGetKey(de);
+                sds fieldStr = hEntryGetField(hEntry);
                 if (withvalues && c->resp > 2)
                     addReplyArrayLen(c,2);
                 addReplyBulkCBuffer(c, fieldStr, sdslen(fieldStr));
                 if (withvalues) {
-                    sds value = entryGetValue(entry);
+                    sds value = hEntryGetValue(hEntry);
                     addReplyBulkCBuffer(c, value, sdslen(value));
                 }
                 if (c->flags & CLIENT_CLOSE_ASAP)
@@ -5756,8 +6060,8 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
         /* Add all the elements into the temporary array. */
         dictInitIterator(&di, ht);
         while((de = dictNext(&di)) != NULL) {
-            Entry *e = dictGetKey(de);
-            pairs[idx++] = (struct FieldValPair) {entryGetField(e), entryGetValue(e)};
+            HashEntry *hE = dictGetKey(de);
+            pairs[idx++] = (struct FieldValPair) {hEntryGetField(hE), hEntryGetValue(hE)};
         }
         dictResetIterator(&di);
 
@@ -5797,9 +6101,9 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
         while(added < count) {
             dictEntry *de = dictGetFairRandomKey(hash->ptr);
             serverAssert(de != NULL);
-            Entry *e = dictGetKey(de);
-            sds field = entryGetField(e);
-            sds value = entryGetValue(e);
+            HashEntry *hE = dictGetKey(de);
+            sds field = hEntryGetField(hE);
+            sds value = hEntryGetValue(hE);
 
             /* Try to add the object to the dictionary. If it already exists
             * free it, otherwise increment the number of objects we have
@@ -5908,12 +6212,12 @@ void hrandfieldCommand(client *c) {
 
 static ExpireMeta* hentryGetExpireMeta(const eItem e) {
     /* extract the expireMeta from the field (entry) */
-    return entryRefExpiryMeta((Entry *)e);
+    return hEntryRefExpiryMeta((HashEntry *)e);
 }
 
 /* Remove TTL from the field. Assumed ExpireMeta is attached and has valid value */
-static void hfieldPersist(robj *hashObj, Entry *entry) {
-    uint64_t fieldExpireTime = entryGetExpiry(entry);
+static void hfieldPersist(robj *hashObj, HashEntry *hEntry) {
+    uint64_t fieldExpireTime = hEntryGetExpiry(hEntry);
     if (fieldExpireTime == EB_EXPIRE_TIME_INVALID)
         return;
 
@@ -5922,7 +6226,7 @@ static void hfieldPersist(robj *hashObj, Entry *entry) {
     htMetadataEx *dictExpireMeta = htGetMetadataEx(d);
 
     /* Remove field from private HFE DS */
-    ebRemove(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, entry);
+    ebRemove(&dictExpireMeta->elemExpires, &hashFieldExpireBucketsType, hEntry);
 
     /* Don't have to update global HFE DS. It's unnecessary. Implementing this
      * would introduce significant complexity and overhead for an operation that
@@ -5943,10 +6247,9 @@ static void propagateHashFieldDeletion(redisDb *db, sds key, char *field, size_t
     };
 
     enterExecutionUnit(1, 0);
-    int prev_replication_allowed = server.replication_allowed;
-    server.replication_allowed = 1;
-    alsoPropagate(db->id,argv, 3, PROPAGATE_AOF|PROPAGATE_REPL);
-    server.replication_allowed = prev_replication_allowed;
+    /* Field expiration is decided by the server, so it must be propagated even
+     * if the command that triggered it asked not to propagate. */
+    alsoPropagateForced(db->id,argv, 3, PROPAGATE_AOF|PROPAGATE_REPL);
     exitExecutionUnit();
 
     /* Propagate the HDEL command */
@@ -5959,14 +6262,14 @@ static void propagateHashFieldDeletion(redisDb *db, sds key, char *field, size_t
 /* Called during active expiration of hash-fields. Propagate to replica & Delete. */
 static ExpireAction onFieldExpire(eItem item, void *ctx) {
     OnFieldExpireCtx *expCtx = ctx;
-    Entry *e = item;
+    HashEntry *hE = item;
     kvobj *kv = expCtx->hashObj;
     size_t oldsize = 0;
     sds key = kvobjGetKey(kv);
 
     if (server.memory_tracking_enabled)
         oldsize = kvobjAllocSize(kv);
-    sds field = entryGetField(e);
+    sds field = hEntryGetField(hE);
 
     /* Collect expired field for subkey notification (before deletion) */
     if (expCtx->vexpired)
@@ -5985,6 +6288,16 @@ static ExpireAction onFieldExpire(eItem item, void *ctx) {
     if (expCtx->activeEx)
         server.stat_expired_subkeys_active++;
     return ACT_REMOVE_EXP_ITEM;
+}
+
+/* Returns 1 if the hash currently has an ExpireMeta attached, i.e. it is
+ * encoded as LISTPACK_EX or as a hashtable with the HFE dict type. Only such
+ * hashes can be registered in db->subexpires. */
+int hashHasSubexpiry(const kvobj *o) {
+    serverAssert(o->type == OBJ_HASH);
+    return o->encoding == OBJ_ENCODING_LISTPACK_EX ||
+           (o->encoding == OBJ_ENCODING_HT &&
+            ((dict *)o->ptr)->type == &entryHashDictTypeWithHFE);
 }
 
 /* Retrieve the ExpireMeta associated with the hash.
@@ -6026,7 +6339,7 @@ static int parseHashCommandArgs(client *c, HashCommandArgs *args,
     args->fieldsPos = -1;
     args->expireTimePos = 2;
 
-    if (parseExpireTime(c, c->argv[2], unit, basetime, &args->expireTime) != C_OK) {
+    if (parseSubkeyExpireTime(c, c->argv[2], unit, basetime, &args->expireTime) != C_OK) {
         return C_ERR;
     }
 
@@ -6139,9 +6452,7 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
     }
 
     /* Template encodings don't support HFE. */
-    if (hashObj->encoding == OBJ_ENCODING_TMPL_LP ||
-        hashObj->encoding == OBJ_ENCODING_TMPL_ARRAY)
-    {
+    if (hashTypeIsTemplate(hashObj)) {
         hashTemplate *tmpl = hashTypeGetTemplate(hashObj);
 
         addReplyArrayLen(c, numFields);
@@ -6197,7 +6508,7 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
                 continue;
             }
 
-            if (expire <= commandTimeSnapshot()) {
+            if (expire < commandTimeSnapshot()) {
                 addReplyLongLong(c, HFE_GET_NO_FIELD);
                 continue;
             }
@@ -6223,8 +6534,8 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
                 continue;
             }
 
-            Entry *entry = dictGetKey(de);
-            uint64_t expire = entryGetExpiry(entry);
+            HashEntry *hEntry = dictGetKey(de);
+            uint64_t expire = hEntryGetExpiry(hEntry);
             if (expire == EB_EXPIRE_TIME_INVALID) {
                 addReplyLongLong(c, HFE_GET_NO_TTL); /* no ttl */
                 continue;
@@ -6484,9 +6795,7 @@ void hpersistCommand(client *c) {
     }
 
     /* Template encodings don't support HFE. */
-    if (hashObj->encoding == OBJ_ENCODING_TMPL_LP ||
-        hashObj->encoding == OBJ_ENCODING_TMPL_ARRAY)
-    {
+    if (hashTypeIsTemplate(hashObj)) {
         hashTemplate *tmpl = hashTypeGetTemplate(hashObj);
 
         addReplyArrayLen(c, numFields);
@@ -6499,10 +6808,6 @@ void hpersistCommand(client *c) {
         }
         return;
     }
-
-    /* Track which fields were successfully persisted for subkey notification. */
-    fieldvec fvpersisted;
-    vec *vpersisted = fieldvecInit(&fvpersisted, numFields);
 
     if (hashObj->encoding == OBJ_ENCODING_LISTPACK) {
         addReplyArrayLen(c, numFields);
@@ -6519,50 +6824,66 @@ void hpersistCommand(client *c) {
             else
                 addReplyLongLong(c, HFE_PERSIST_NO_TTL);
         }
-        vecRelease(vpersisted);
         return;
-    } else if (hashObj->encoding == OBJ_ENCODING_LISTPACK_EX) {
+    }
+
+    /* A command of the master, or replayed from the AOF, is applied as the
+     * master executed it: a field that is already expired by this node's clock
+     * is not considered expired, it was still alive when the master ran
+     * HPERSIST. Expired fields are left to the master's explicit deletion. */
+    const int obey = mustObeyClient(c);
+
+    /* argv indexes of not-persisted fields, to strip from the propagated cmd:
+     * a field expired here but not yet deleted is still valid on a replica
+     * (see 'obey') and must not get revived. */
+    int *notPersisted = NULL, notPersistedCount = 0;
+
+    if (hashObj->encoding == OBJ_ENCODING_LISTPACK_EX) {
         long long prevExpire;
         unsigned char *fptr, *vptr, *tptr;
         listpackEx *lpt = hashObj->ptr;
         size_t oldsize = 0;
+        if (server.memory_tracking_enabled)
+            oldsize = kvobjAllocSize(hashObj);
 
         addReplyArrayLen(c, numFields);
         for (int i = 0 ; i < numFields ; i++) {
-            sds field = c->argv[numFieldsAt + 1 + i]->ptr;
+            int argIdx = numFieldsAt + 1 + i;
+            sds field = c->argv[argIdx]->ptr;
+            int res;
 
             fptr = lpFirst(lpt->lp);
             if (fptr != NULL)
                 fptr = lpFind(lpt->lp, fptr, (unsigned char*)field, sdslen(field), 2);
 
             if (!fptr) {
-                addReplyLongLong(c, HFE_PERSIST_NO_FIELD);
-                continue;
+                res = HFE_PERSIST_NO_FIELD;
+            } else {
+                vptr = lpNext(lpt->lp, fptr);
+                serverAssert(vptr);
+                tptr = lpNext(lpt->lp, vptr);
+                serverAssert(tptr && lpGetIntegerValue(tptr, &prevExpire));
+
+                if (prevExpire == HASH_LP_NO_TTL) {
+                    res = HFE_PERSIST_NO_TTL;
+                } else if (!obey && prevExpire < commandTimeSnapshot()) {
+                    /* Already expired. Pretend there is no such field. */
+                    res = HFE_PERSIST_NO_FIELD;
+                } else {
+                    listpackExUpdateExpiry(hashObj, field, fptr, vptr, HASH_LP_NO_TTL);
+                    res = HFE_PERSIST_OK;
+                }
             }
 
-            vptr = lpNext(lpt->lp, fptr);
-            serverAssert(vptr);
-            tptr = lpNext(lpt->lp, vptr);
-            serverAssert(tptr && lpGetIntegerValue(tptr, &prevExpire));
-
-            if (prevExpire == HASH_LP_NO_TTL) {
-                addReplyLongLong(c, HFE_PERSIST_NO_TTL);
-                continue;
+            addReplyLongLong(c, res);
+            if (res != HFE_PERSIST_OK) {
+                if (notPersisted == NULL)
+                    notPersisted = zmalloc(sizeof(int) * numFields);
+                notPersisted[notPersistedCount++] = argIdx;
             }
-
-            if (prevExpire < commandTimeSnapshot()) {
-                addReplyLongLong(c, HFE_PERSIST_NO_FIELD);
-                continue;
-            }
-
-            if (server.memory_tracking_enabled)
-                oldsize = kvobjAllocSize(hashObj);
-            listpackExUpdateExpiry(hashObj, field, fptr, vptr, HASH_LP_NO_TTL);
-            if (server.memory_tracking_enabled)
-                updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), hashObj, oldsize, kvobjAllocSize(hashObj));
-            addReplyLongLong(c, HFE_PERSIST_OK);
-            vecPush(vpersisted, c->argv[numFieldsAt + 1 + i]);
         }
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), hashObj, oldsize, kvobjAllocSize(hashObj));
     } else if (hashObj->encoding == OBJ_ENCODING_HT) {
         dict *d = hashObj->ptr;
         size_t oldsize = 0;
@@ -6571,29 +6892,33 @@ void hpersistCommand(client *c) {
 
         addReplyArrayLen(c, numFields);
         for (int i = 0 ; i < numFields ; i++) {
-            sds field = c->argv[numFieldsAt + 1 + i]->ptr;
+            int argIdx = numFieldsAt + 1 + i;
+            sds field = c->argv[argIdx]->ptr;
             dictEntry *de = dictFind(d, field);
+            int res;
+
             if (de == NULL) {
-                addReplyLongLong(c, HFE_PERSIST_NO_FIELD);
-                continue;
+                res = HFE_PERSIST_NO_FIELD;
+            } else {
+                HashEntry *hEntry = dictGetKey(de);
+                uint64_t expire = hEntryGetExpiry(hEntry);
+                if (expire == EB_EXPIRE_TIME_INVALID) {
+                    res = HFE_PERSIST_NO_TTL;
+                } else if (!obey && (long long) expire < commandTimeSnapshot()) {
+                    /* Already expired. Pretend there is no such field. */
+                    res = HFE_PERSIST_NO_FIELD;
+                } else {
+                    hfieldPersist(hashObj, hEntry);
+                    res = HFE_PERSIST_OK;
+                }
             }
 
-            Entry *entry = dictGetKey(de);
-            uint64_t expire = entryGetExpiry(entry);
-            if (expire == EB_EXPIRE_TIME_INVALID) {
-                addReplyLongLong(c, HFE_PERSIST_NO_TTL);
-                continue;
+            addReplyLongLong(c, res);
+            if (res != HFE_PERSIST_OK) {
+                if (notPersisted == NULL)
+                    notPersisted = zmalloc(sizeof(int) * numFields);
+                notPersisted[notPersistedCount++] = argIdx;
             }
-
-            /* Already expired. Pretend there is no such field */
-            if ( (long long) expire < commandTimeSnapshot()) {
-                addReplyLongLong(c, HFE_PERSIST_NO_FIELD);
-                continue;
-            }
-
-            hfieldPersist(hashObj, entry);
-            addReplyLongLong(c, HFE_PERSIST_OK);
-            vecPush(vpersisted, c->argv[numFieldsAt + 1 + i]);
         }
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), hashObj, oldsize, kvobjAllocSize(hashObj));
@@ -6603,11 +6928,19 @@ void hpersistCommand(client *c) {
 
     /* Generates a hpersist event if the expiry time associated with any field
      * has been successfully deleted. */
-    if (vecSize(vpersisted)) {
+    long persisted = numFields - notPersistedCount;
+    if (persisted) {
+        /* Partial result: propagate only the persisted fields */
+        if (notPersistedCount) {
+            rewriteClientCommandRemoveArguments(c, notPersisted, notPersistedCount);
+            robj *count = createStringObjectFromLongLong(persisted);
+            rewriteClientCommandArgument(c, numFieldsAt, count);
+            decrRefCount(count);
+        }
         notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hpersist", c->argv[1],
-                                       c->db->id, (robj**)vecData(vpersisted), vecSize(vpersisted));
+                                       c->db->id, c->argv + numFieldsAt + 1, persisted);
         keyModified(c, c->db, c->argv[1], hashObj, 1);
         server.dirty++;
     }
-    vecRelease(vpersisted);
+    zfree(notPersisted);
 }

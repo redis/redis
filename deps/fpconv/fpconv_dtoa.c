@@ -51,26 +51,30 @@
 #define absv(n) ((n) < 0 ? -(n) : (n))
 #define minv(a, b) ((a) < (b) ? (a) : (b))
 
-static uint64_t tens[] = { 10000000000000000000U,
-                           1000000000000000000U,
-                           100000000000000000U,
-                           10000000000000000U,
-                           1000000000000000U,
-                           100000000000000U,
-                           10000000000000U,
-                           1000000000000U,
-                           100000000000U,
-                           10000000000U,
-                           1000000000U,
-                           100000000U,
-                           10000000U,
-                           1000000U,
-                           100000U,
-                           10000U,
-                           1000U,
-                           100U,
-                           10U,
-                           1U };
+/* Must stay const: generate_digits() divides part1 by tens[i], and the compiler
+ * can only replace those divisions with multiply-shifts if it may assume the
+ * table's contents. Dropping const puts a real 64-bit divq back on the hot
+ * double->string path. */
+static const uint64_t tens[] = { 10000000000000000000U,
+                                 1000000000000000000U,
+                                 100000000000000000U,
+                                 10000000000000000U,
+                                 1000000000000000U,
+                                 100000000000000U,
+                                 10000000000000U,
+                                 1000000000000U,
+                                 100000000000U,
+                                 10000000000U,
+                                 1000000000U,
+                                 100000000U,
+                                 10000000U,
+                                 1000000U,
+                                 100000U,
+                                 10000U,
+                                 1000U,
+                                 100U,
+                                 10U,
+                                 1U };
 
 static inline uint64_t get_dbits(double d) {
     union
@@ -176,7 +180,7 @@ static int generate_digits(Fp *fp, Fp *upper, Fp *lower, char *digits, int *K) {
     uint64_t part2 = upper->frac & (one.frac - 1);
 
     int idx = 0, kappa = 10;
-    uint64_t *divp;
+    const uint64_t *divp;
     /* 1000000000 */
     for (divp = tens + 10; kappa > 0; divp++) {
         uint64_t div = *divp;
@@ -199,7 +203,7 @@ static int generate_digits(Fp *fp, Fp *upper, Fp *lower, char *digits, int *K) {
     }
 
     /* 10 */
-    uint64_t *unit = tens + 18;
+    const uint64_t *unit = tens + 18;
 
     while (true) {
         part2 *= 10;

@@ -96,5 +96,15 @@ size_t
 lzf_decompress (const void *const in_data,  size_t in_len,
                 void             *out_data, size_t out_len);
 
+/*
+ * lzf_decompress2() is a faster, drop-in replacement for lzf_decompress()
+ * (see lzf_d_2.c). Same compressed format and same contract (pass the exact
+ * uncompressed length). Redis uses it for RDB loading; lzf_decompress() above
+ * is retained as the reference/test oracle.
+ */
+size_t
+lzf_decompress2 (const void *const in_data,  size_t in_len,
+                 void             *out_data, size_t out_len);
+
 #endif
 
