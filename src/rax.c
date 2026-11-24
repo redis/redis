@@ -2692,7 +2692,6 @@ static int _rax_test_cmpkey(const void *a, const void *b) {
 int raxTest(int argc, char **argv, int flags) {
     UNUSED(argc);
     UNUSED(argv);
-    UNUSED(flags);
 
     int err = 0;
 
@@ -3134,6 +3133,53 @@ int raxTest(int argc, char **argv, int flags) {
                 }
                 raxFree(r); /* values are integers, not heap pointers */
             }
+        }
+    }
+
+    if (flags & REDIS_TEST_LARGE_MEMORY) {
+        TEST("raxInsert: more than RAX_NODE_MAX_SIZE bytes below a new edge") {
+            /* A compressed node holds at most RAX_NODE_MAX_SIZE bytes. When
+             * the bytes below the new edge 'c' fit, raxInsertAt() builds the
+             * branch with raxNewBranch(). When they don't, it falls back to
+             * raxAddChild() and the generic loop, which splits them:
+             *
+             *   MAX bytes:      [c] -> "MAX bytes" -> leaf
+             *   MAX+1 bytes:    [c] -> "MAX bytes" -> [x] -> leaf
+             *   MAX+100 bytes:  [c] -> "MAX bytes" -> "100 bytes" -> leaf
+             *
+             * Peak memory is about 1GB: the key, plus its copy in the tree. */
+            static const size_t extra[] = {0, 1, 100};
+            static const int newnodes[] = {2, 3, 3}; /* nodes below [c] */
+            size_t maxlen = 1+RAX_NODE_MAX_SIZE+100;
+            unsigned char *key = rax_malloc(maxlen);
+            key[0] = 'c';
+            for (size_t j = 1; j < maxlen; j++) key[j] = (unsigned char)('a'+j%26);
+
+            size_t alloc_size = 0;
+            rax *r = raxNewEx(0, &alloc_size, 0);
+            assert(raxInsert(r, (unsigned char*)"a", 1, (void*)(uintptr_t)1, NULL) == 1);
+            assert(raxInsert(r, (unsigned char*)"b", 1, (void*)(uintptr_t)2, NULL) == 1);
+            uint64_t numnodes = r->numnodes;
+
+            for (size_t e = 0; e < sizeof(extra)/sizeof(extra[0]); e++) {
+                size_t len = 1+RAX_NODE_MAX_SIZE+extra[e];
+                assert(raxInsert(r, key, len, (void*)(uintptr_t)3, NULL) == 1);
+                assert(r->numnodes == numnodes+newnodes[e]);
+                err += _rax_verify_alloc_size(r, alloc_size);
+
+                void *val = NULL;
+                assert(raxFind(r, key, len, &val) == 1 && val == (void*)(uintptr_t)3);
+                assert(raxFind(r, key, len-1, NULL) == 0);
+
+                void *removed = NULL;
+                assert(raxRemove(r, key, len, &removed) == 1 &&
+                       removed == (void*)(uintptr_t)3);
+                assert(r->numnodes == numnodes);
+                err += _rax_verify_alloc_size(r, alloc_size);
+            }
+            assert(raxSize(r) == 2);
+            raxFree(r); /* values are integers, not heap pointers */
+            rax_free(key);
         }
     }
 
