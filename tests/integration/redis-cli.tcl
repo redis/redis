@@ -551,6 +551,18 @@ start_server {tags {"cli"}} {
         assert_equal "tab\tnewline" [run_cli get key]
     }
 
+    tags {needs:debug} {
+        test_tty_cli "Big number reply" {
+            assert_equal "(big number) 1234567999999999999999999999999999999" [run_cli -3 debug protocol bignum]
+        }
+
+        test_nontty_cli "Big number reply" {
+            assert_equal "1234567999999999999999999999999999999" [run_cli -3 debug protocol bignum]
+            assert_equal "1234567999999999999999999999999999999" [run_cli -3 --csv debug protocol bignum]
+            assert_equal {"1234567999999999999999999999999999999"} [run_cli --json debug protocol bignum]
+        }
+    }
+
     test_nontty_cli "Multi-bulk reply" {
         r del list
         r rpush list foo

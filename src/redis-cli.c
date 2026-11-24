@@ -1919,6 +1919,9 @@ static sds cliFormatReplyTTY(redisReply *r, char *prefix) {
     case REDIS_REPLY_DOUBLE:
         out = sdscatprintf(out,"(double) %s\n",r->str);
     break;
+    case REDIS_REPLY_BIGNUM:
+        out = sdscatprintf(out,"(big number) %s\n",r->str);
+    break;
     case REDIS_REPLY_STRING:
     case REDIS_REPLY_VERB:
         /* If you are producing output for the standard output we want
@@ -2125,6 +2128,7 @@ static sds cliFormatReplyRaw(redisReply *r) {
         out = sdscatprintf(out,"%lld",r->integer);
         break;
     case REDIS_REPLY_DOUBLE:
+    case REDIS_REPLY_BIGNUM:
         out = sdscatprintf(out,"%s",r->str);
         break;
     case REDIS_REPLY_SET:
@@ -2173,6 +2177,7 @@ static sds cliFormatReplyCSV(redisReply *r) {
         out = sdscatprintf(out,"%lld",r->integer);
     break;
     case REDIS_REPLY_DOUBLE:
+    case REDIS_REPLY_BIGNUM:
         out = sdscatprintf(out,"%s",r->str);
         break;
     case REDIS_REPLY_STRING:
@@ -2245,6 +2250,7 @@ static sds cliFormatReplyJson(sds out, redisReply *r, int mode) {
         break;
     case REDIS_REPLY_STRING:
     case REDIS_REPLY_VERB:
+    case REDIS_REPLY_BIGNUM:
         out = jsonStringOutput(out,r->str,r->len,mode);
         break;
     case REDIS_REPLY_NIL:
