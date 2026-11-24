@@ -442,9 +442,11 @@ uint64_t dictCStrCaseHash(const void *key) {
     return dictGenCaseHashFunction((unsigned char*)key, strlen((char*)key));
 }
 
-/* Dict hash function for client */
+/* Dict hash function for client. The id is mixed, as client ids are small
+ * sequential integers and the dict takes the hash tag of an entry from the
+ * top byte of the hash. */
 uint64_t dictClientHash(const void *key) {
-    return ((client *)key)->id;
+    return dictIdHash(((client *)key)->id);
 }
 
 /* Dict compare function for client */
@@ -574,18 +576,12 @@ int dictResizeAllowed(size_t moreMem, double usedRatio) {
     }
 }
 
-/* dbDictType prefetch callbacks.
- * The main keyspace stores a kvobj as the entry's "stored key" (no_value=1).
- * The state machine in memory_prefetch.c calls these hooks to:
- *  - Bring the kvobj head into L1 before keyCompare runs (only useful when
- *    the entry holds an out-of-line pointer; embedded kvobjs are already
- *    in cache from the entry prefetch).
- *  - Bring kv->ptr into L1 when the value lives in its own allocation
- *    (RAW strings, listpacks, ...), since the caller reads it next. */
-static void *dbDictPrefetchEntryKey(const dictEntry *de) {
-    return dictEntryIsKey(de) ? NULL : dictGetKey(de);
-}
-
+/* dbDictType prefetch callback.
+ * The main keyspace stores a kvobj as the entry's "stored key" (no_value=1),
+ * so the bucket slots hold the kvobj pointers, and the entry prefetch of the
+ * prefetch state machine (dictPrefetchNext() in dict.c) already brings the
+ * kvobj head in. This hook brings kv->ptr into L1 when the value lives in its
+ * own allocation (RAW strings, listpacks, ...), since the caller reads it next. */
 static void *dbDictPrefetchEntryValue(const dictEntry *de) {
     kvobj *kv = dictGetKey(de);
     if (inlineEncodedObject(kv)) return NULL;
@@ -641,7 +637,6 @@ dictType dbDictType = {
     .no_value = 1,          /* keys and values are unified (kvobj) */
     .keys_are_odd = 0,      /* simple kvobj (robj) struct */
     .keyFromStoredKey = kvGetKey,    /* get key from stored-key */
-    .prefetchEntryKey = dbDictPrefetchEntryKey,
     .prefetchEntryValue = dbDictPrefetchEntryValue,
 };
 
@@ -1085,6 +1080,29 @@ void updateClientMemoryUsage(client *c) {
     c->last_memory_usage = mem;
     c->last_memory_shared = c->reply_bytes_shared;
     c->last_memory_unshared = c->reply_bytes_unshared;
+    c->last_watch_pubsub_mem = c->watched_keys_mem + c->pubsub_names_mem;
+}
+
+void updateClientWatchPubsubMemoryUsage(client *c) {
+    if (!c->conn) return;
+    size_t watch_pubsub_mem = c->watched_keys_mem + c->pubsub_names_mem;
+    if (watch_pubsub_mem == c->last_watch_pubsub_mem) return;
+    size_t mem = c->last_memory_usage - c->last_watch_pubsub_mem + watch_pubsub_mem;
+    server.stat_clients_type_memory[c->last_memory_type] =
+        server.stat_clients_type_memory[c->last_memory_type] - c->last_memory_usage + mem;
+    if (c->mem_usage_bucket) {
+        clientMemUsageBucket *bucket = getMemUsageBucket(mem);
+        c->mem_usage_bucket->mem_usage_sum -= c->last_memory_usage;
+        bucket->mem_usage_sum += mem;
+        if (bucket != c->mem_usage_bucket) {
+            listDelNode(c->mem_usage_bucket->clients, c->mem_usage_bucket_node);
+            c->mem_usage_bucket = bucket;
+            listAddNodeTail(bucket->clients, c);
+            c->mem_usage_bucket_node = listLast(bucket->clients);
+        }
+    }
+    c->last_memory_usage = mem;
+    c->last_watch_pubsub_mem = watch_pubsub_mem;
 }
 
 int clientEvictionAllowed(client *c) {
@@ -1141,6 +1159,7 @@ static int updateClientMemUsageAndBucketInternal(client *c, int unshared_refresh
     removeClientFromMemUsageBucket(c, allow_eviction);
 
     if (!allow_eviction) {
+        updateClientWatchPubsubMemoryUsage(c);
         return 0;
     }
 
@@ -2348,6 +2367,7 @@ void createSharedObjects(void) {
     shared.bulk = createStringObject("BULK",4);
     shared.zpopmin = createStringObject("ZPOPMIN",7);
     shared.zpopmax = createStringObject("ZPOPMAX",7);
+    shared.zmove = createStringObject("ZMOVE",5);
     shared.multi = createStringObject("MULTI",5);
     shared.exec = createStringObject("EXEC",4);
     shared.hset = createStringObject("HSET",4);
@@ -2487,6 +2507,8 @@ void initServerConfig(void) {
     server.aof_rewrite_base_size = 0;
     server.aof_rewrite_scheduled = 0;
     server.aof_flush_sleep = 0;
+    server.aof_flush_force_stall = 0;
+    server.aof_flush_force_error = 0;
     server.aof_last_fsync = time(NULL) * 1000;
     server.aof_cur_timestamp = 0;
     atomicSet(server.aof_bio_fsync_status,C_OK);
@@ -3225,6 +3247,7 @@ void initServer(void) {
         server.stat_clients_type_memory[j] = 0;
     server.stat_clients_shared_memory = 0;
     server.stat_clients_unshared_memory = 0;
+    server.stat_clients_watch_pubsub_shared_overcount = 0;
     server.stat_cluster_links_memory = 0;
     server.cron_malloc_stats.zmalloc_used = 0;
     server.cron_malloc_stats.process_rss = 0;
@@ -4954,7 +4977,9 @@ int processCommand(client *c) {
     if (deny_write_type != DISK_ERROR_TYPE_NONE &&
         (is_write_command || c->cmd->proc == pingCommand))
     {
-        if (obey_client) {
+        /* The ASM import client is a master client, but this node is not a
+         * replica. Reject the command, the import task fails instead. */
+        if (obey_client && !(c->flags & CLIENT_ASM_IMPORTING)) {
             if (!server.repl_ignore_disk_write_error && c->cmd->proc != pingCommand) {
                 serverPanic("Replica was unable to write command to disk.");
             } else {
@@ -5900,7 +5925,7 @@ void addReplyCommandKeySpecs(client *c, struct redisCommand *cmd) {
                 addReplyLongLong(c, cmd->key_specs[i].fk.keynum.keystep);
                 break;
             default:
-                serverPanic("Invalid find_keys key spec type %d", cmd->key_specs[i].begin_search_type);
+                serverPanic("Invalid find_keys key spec type %d", cmd->key_specs[i].find_keys_type);
         }
     }
 }
@@ -8007,8 +8032,8 @@ void dismissClientMemory(client *c) {
 /* Dismiss the hash table bucket arrays of a dict. */
 void dismissDictBucketsMemory(dict *d) {
     if (!d) return;
-    dismissMemory(d->ht_table[0], DICTHT_SIZE(d->ht_size_exp[0]) * sizeof(dictEntry*));
-    dismissMemory(d->ht_table[1], DICTHT_SIZE(d->ht_size_exp[1]) * sizeof(dictEntry*));
+    dismissMemory(d->ht_table[0], DICTHT_SIZE(d->ht_size_exp[0]) * DICT_BUCKET_BYTES);
+    dismissMemory(d->ht_table[1], DICTHT_SIZE(d->ht_size_exp[1]) * DICT_BUCKET_BYTES);
 }
 
 /* Dismiss the hash table bucket arrays for all dicts in the given kvstore. */

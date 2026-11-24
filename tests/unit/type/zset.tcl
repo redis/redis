@@ -1042,6 +1042,147 @@ start_server {tags {"zset"}} {
             assert_equal {b 3 c 5} [r zinter 2 zseta{t} zsetb{t} withscores]
         }
 
+        test "ZINTER/ZINTERSTORE/ZINTERCARD in batches of members - $encoding" {
+            # The inputs after the first are large enough to be B+ trees.
+            # Use sizes around the lookup batch, misses in different inputs
+            # and LIMIT values inside and across batches.
+            foreach n {1 7 8 9 16 17 200} {
+                r del za{t} zb{t} zc{t} zout{t}
+                set expected {}
+                for {set i 0} {$i < $n} {incr i} {
+                    r zadd za{t} $i m$i
+                    if {$i % 2 == 0} {r zadd zb{t} [expr {$i * 10}] m$i}
+                    if {$i % 3 == 0} {r zadd zc{t} [expr {$i * 100}] m$i}
+                    if {$i % 6 == 0} {lappend expected m$i [expr {$i * 111}]}
+                }
+                # Members only in the larger inputs must not be reported.
+                set xs {}
+                set ys {}
+                for {set i 0} {$i < 300} {incr i} {
+                    lappend xs $i x$i
+                    lappend ys $i y$i
+                }
+                r zadd zb{t} {*}$xs
+                r zadd zc{t} {*}$ys
+                assert_encoding btree zb{t}
+                assert_encoding btree zc{t}
+                set card [expr {[llength $expected] / 2}]
+                assert_equal $card [r zintercard 3 za{t} zb{t} zc{t}]
+                assert_equal $card [r zintercard 3 za{t} zb{t} zc{t} limit 0]
+                assert_equal [expr {($n + 1) / 2}] [r zintercard 2 za{t} zb{t}]
+                foreach limit {1 2 7 8 9 16 17 33} {
+                    assert_equal [expr {min($card, $limit)}] \
+                        [r zintercard 3 za{t} zb{t} zc{t} limit $limit]
+                    assert_equal [expr {min(($n + 1) / 2, $limit)}] \
+                        [r zintercard 2 za{t} zb{t} limit $limit]
+                }
+                assert_equal $expected [r zinter 3 za{t} zb{t} zc{t} withscores]
+                assert_equal $card [r zinterstore zout{t} 3 za{t} zb{t} zc{t}]
+                assert_equal $expected [r zrange zout{t} 0 -1 withscores]
+
+                # The same input more than once, and a destination that is
+                # also an input.
+                assert_equal [r zinter 2 za{t} zb{t} withscores] \
+                    [r zinter 3 za{t} zb{t} zb{t} weights 1 1 0 withscores]
+                assert_equal [expr {($n + 1) / 2}] [r zintercard 3 za{t} zb{t} za{t}]
+                assert_equal $card [r zinterstore zc{t} 3 za{t} zb{t} zc{t}]
+                assert_equal $expected [r zrange zc{t} 0 -1 withscores]
+                assert_equal [expr {($n + 1) / 2}] \
+                    [r zinterstore za{t} 2 za{t} zb{t}]
+            }
+        }
+
+        test "ZINTER batches with a single member left - $encoding" {
+            # Each batch of the smallest input has one member in the second
+            # input, and the third input holds every other one of them.
+            r del za{t} zb{t} zc{t} zd{t}
+            set a {}; set b {}; set c {}; set d {}
+            set expected {}
+            for {set i 0} {$i < 400} {incr i} {
+                lappend a $i m$i
+                lappend d [expr {$i * 1000}] m$i
+                if {$i % 8 != 3} continue
+                lappend b [expr {$i * 10}] m$i
+                if {($i / 8) % 2} continue
+                lappend c [expr {$i * 100}] m$i
+                lappend expected m$i [expr {$i * 1111}]
+            }
+            for {set i 0} {$i < 500} {incr i} {
+                if {$i < 450} {lappend b $i x$i}
+                lappend c $i y$i
+                lappend d $i z$i
+            }
+            r zadd za{t} {*}$a
+            r zadd zb{t} {*}$b
+            r zadd zc{t} {*}$c
+            r zadd zd{t} {*}$d
+            foreach key {za{t} zb{t} zc{t} zd{t}} {assert_encoding btree $key}
+            set card [expr {[llength $expected] / 2}]
+            assert_equal $card [r zintercard 4 za{t} zb{t} zc{t} zd{t}]
+            assert_equal 50 [r zintercard 3 za{t} zb{t} zd{t}]
+            assert_equal 3 [r zintercard 4 za{t} zb{t} zc{t} zd{t} limit 3]
+            assert_equal $expected [r zinter 4 za{t} zb{t} zc{t} zd{t} withscores]
+        }
+
+        test "ZINTER batches with weights, aggregates and removed members - $encoding" {
+            r del za{t} zb{t} zc{t} sa{t}
+            for {set i 0} {$i < 400} {incr i} {
+                r zadd za{t} $i $i
+                r zadd zb{t} [expr {-$i}] $i
+                r zadd zc{t} 1 $i
+            }
+            # Removed members leave deleted entries in the member index.
+            for {set i 0} {$i < 400} {incr i 3} {r zrem zb{t} $i}
+            for {set i 0} {$i < 20} {incr i} {r sadd sa{t} [expr {$i * 2}]}
+            r zadd za{t} inf 397
+            r zadd zb{t} -inf 398
+
+            set sum {}
+            set min {}
+            set max {}
+            for {set i 0} {$i < 400} {incr i} {
+                if {$i % 3 == 0} continue
+                # za * 2 + zb * 1 + zc * 0.
+                if {$i == 397} {
+                    lappend sum [list $i inf]
+                    lappend min [list $i -397]
+                    lappend max [list $i inf]
+                } elseif {$i == 398} {
+                    lappend sum [list $i -inf]
+                    lappend min [list $i -inf]
+                    lappend max [list $i 796]
+                } else {
+                    lappend sum [list $i $i]
+                    lappend min [list $i [expr {-$i}]]
+                    lappend max [list $i [expr {$i * 2}]]
+                }
+            }
+            foreach {aggregate expected} [list sum $sum min $min max $max] {
+                set expected [lsort -command {apply {{x y} {
+                    set sx [lindex $x 1]; set sy [lindex $y 1]
+                    if {$sx != $sy} {return [expr {$sx < $sy ? -1 : 1}]}
+                    return [string compare [lindex $x 0] [lindex $y 0]]
+                }}} $expected]
+                set got {}
+                foreach {member score} [r zinter 3 za{t} zb{t} zc{t} \
+                        weights 2 1 0 aggregate $aggregate withscores] {
+                    lappend got [list $member $score]
+                }
+                assert_equal $expected $got
+            }
+
+            # A set as the first input, in front of B+ trees.
+            set card 0
+            for {set i 0} {$i < 20} {incr i} {
+                if {($i * 2) % 3 != 0} {incr card}
+            }
+            assert_equal $card [r zintercard 3 sa{t} za{t} zb{t}]
+            assert_equal $card [llength [r zinter 3 sa{t} za{t} zb{t}]]
+            # A set after the first input uses the member-by-member loop.
+            r sadd sa{t} {*}[r zrange zc{t} 0 -1]
+            assert_equal [r zcard zb{t}] [r zintercard 3 zb{t} sa{t} za{t}]
+        }
+
         test "ZINTERCARD with illegal arguments" {
             assert_error "ERR syntax error*" {r zintercard 1 zseta{t} zseta{t}}
             assert_error "ERR syntax error*" {r zintercard 1 zseta{t} bar_arg}
@@ -1056,6 +1197,101 @@ start_server {tags {"zset"}} {
             assert_equal 2 [r zintercard 2 zseta{t} zsetb{t} limit 0]
             assert_equal 1 [r zintercard 2 zseta{t} zsetb{t} limit 1]
             assert_equal 2 [r zintercard 2 zseta{t} zsetb{t} limit 10]
+        }
+
+        test "ZINTERCARD with a single distinct input - $encoding" {
+            assert_equal 3 [r zcard zseta{t}]
+            assert_equal 3 [r zintercard 1 zseta{t}]
+            assert_equal 3 [r zintercard 1 zseta{t} limit 0]
+            assert_equal 2 [r zintercard 1 zseta{t} limit 2]
+            assert_equal 3 [r zintercard 1 zseta{t} limit 3]
+            assert_equal 3 [r zintercard 1 zseta{t} limit 10]
+            assert_equal 3 [r zintercard 3 zseta{t} zseta{t} zseta{t}]
+            assert_equal 1 [r zintercard 2 zseta{t} zseta{t} limit 1]
+            assert_equal 0 [r zintercard 1 zsetnokey{t}]
+            assert_equal 0 [r zintercard 2 zsetnokey{t} zsetnokey{t} limit 1]
+
+            r del zintercardset{t}
+            r sadd zintercardset{t} a b c d
+            assert_equal 4 [r zintercard 1 zintercardset{t}]
+            assert_equal 3 [r zintercard 2 zintercardset{t} zintercardset{t} limit 3]
+            r set zintercardstr{t} foo
+            assert_error "WRONGTYPE*" {r zintercard 1 zintercardstr{t}}
+            assert_error "ERR LIMIT*" {r zintercard 1 zseta{t} limit -1}
+            r del zintercardset{t} zintercardstr{t}
+        }
+
+        test "ZINTER/ZINTERCARD probing a hashtable set - $encoding" {
+            # Short and integer members, and members of 123 to 125 and 300
+            # bytes around the set lookup's stack buffer.
+            set short {a 12345 -3 abcdefgh}
+            set long {}
+            foreach len {123 124 125 300} {
+                lappend long [string repeat x $len]
+            }
+            r del zprobes{t} zprobel{t} sprobe{t}
+            set i 0
+            foreach m $short {
+                r zadd zprobes{t} [incr i] $m
+                r zadd zprobes{t} [incr i] "$m-miss"
+            }
+            set i 0
+            foreach m $long {
+                r zadd zprobel{t} [incr i] $m
+                r zadd zprobel{t} [incr i] "$m-miss"
+            }
+            assert_encoding btree zprobel{t}
+            r sadd sprobe{t} {*}$short {*}$long
+            for {set j 0} {$j < 200} {incr j} {r sadd sprobe{t} filler$j}
+            assert_encoding hashtable sprobe{t}
+
+            assert_equal 4 [r zintercard 2 zprobes{t} sprobe{t}]
+            assert_equal 2 [r zintercard 2 zprobes{t} sprobe{t} limit 2]
+            assert_equal 4 [r zintercard 2 zprobel{t} sprobe{t}]
+            assert_equal 4 [r zintercard 3 zprobel{t} sprobe{t} zprobel{t}]
+            assert_equal {a 2 12345 4 -3 6 abcdefgh 8} \
+                [r zinter 2 zprobes{t} sprobe{t} withscores]
+            assert_equal {a 1 12345 3 -3 5 abcdefgh 7} \
+                [r zinter 2 zprobes{t} sprobe{t} weights 1 0 withscores]
+            assert_equal [list [lindex $long 0] 3 [lindex $long 1] 5 \
+                               [lindex $long 2] 7 [lindex $long 3] 9] \
+                [r zinter 2 zprobel{t} sprobe{t} weights 1 2 withscores]
+            assert_equal 4 [r zinterstore zprobed{t} 2 sprobe{t} zprobel{t}]
+            assert_equal $long [r zrange zprobed{t} 0 -1]
+            r del zprobes{t} zprobel{t} sprobe{t} zprobed{t}
+        }
+
+        test "ZINTER/ZINTERCARD iterating a large B+ tree input - $encoding" {
+            # More than one leaf; the first half builds reversed leaves.
+            r del zbig{t} zother{t}
+            for {set i 1} {$i <= 400} {incr i} {
+                set k [expr {$i <= 200 ? 201 - $i : $i}]
+                r zadd zbig{t} $k m$k
+            }
+            set expected {}
+            for {set k 1} {$k <= 400} {incr k} {
+                if {$k % 3 == 0} {
+                    r zadd zother{t} [expr {$k * 10}] m$k
+                    lappend expected m$k [expr {$k * 11}]
+                } else {
+                    r zadd zother{t} $k other$k
+                }
+            }
+            r zadd zother{t} 1000000 extra
+            assert_encoding btree zbig{t}
+            assert_encoding btree zother{t}
+            set n [expr {[llength $expected] / 2}]
+            assert_equal $n [r zintercard 2 zbig{t} zother{t}]
+            foreach limit {1 2 15 16 17 18 32 95 96 97 132 133 134 1000} {
+                assert_equal [expr {min($limit, $n)}] \
+                    [r zintercard 2 zbig{t} zother{t} limit $limit]
+                assert_equal [expr {min($limit, $n)}] \
+                    [r zintercard 3 zbig{t} zother{t} zbig{t} limit $limit]
+            }
+            assert_equal $expected [r zinter 2 zbig{t} zother{t} withscores]
+            assert_equal $n [r zinterstore zbigdst{t} 2 zother{t} zbig{t}]
+            assert_equal $expected [r zrange zbigdst{t} 0 -1 withscores]
+            r del zbig{t} zother{t} zbigdst{t}
         }
 
         test "ZINTER RESP3 - $encoding" {
@@ -1579,6 +1815,141 @@ start_server {tags {"zset"}} {
         r config set zset-max-listpack-entries $original_max
     }
 
+    test {ZINTER, ZINTERCARD and ZMSCORE on B+ tree sets match listpack} {
+        set old_entries [lindex [r config get zset-max-listpack-entries] 1]
+        set old_value [lindex [r config get zset-max-listpack-value] 1]
+        # A fixed seed, so that a failure can be reproduced.
+        expr {srand(15635)}
+
+        # Lengths 0 to 4, 7 to 9, 15 to 17 and 36, mostly differing in the
+        # last bytes, with many members sharing a leaf tag.
+        proc zbt_member {len i} {
+            if {$len == 0} {return ""}
+            set id [format %x $i]
+            if {[string length $id] >= $len} {
+                return [string range $id end-[expr {$len - 1}] end]
+            }
+            return "[string repeat m [expr {$len - [string length $id]}]]$id"
+        }
+        set pool {}
+        foreach len {0 1 2 3 4 7 8 9 15 16 17 36} {
+            for {set i 0} {$i < 300} {incr i} {
+                lappend pool [zbt_member $len $i]
+            }
+        }
+        set pool [lsort -unique $pool]
+
+        # The same sets, each in both encodings: A, B and C are large,
+        # S is small and stays a listpack, U is a plain set.
+        unset -nocomplain zbt_args
+        foreach name {a b c s} pct {70 60 50 3} {
+            set zbt_args($name) {}
+            foreach m $pool {
+                if {[expr {rand() * 100}] < $pct} {
+                    lappend zbt_args($name) [expr {int(rand() * 1000)}] $m
+                }
+            }
+        }
+        set umembers {}
+        set imembers {}
+        foreach m $pool {
+            if {rand() < 0.4} {lappend umembers $m}
+            if {[regexp {^(0|[1-9][0-9]*)$} $m]} {lappend imembers $m}
+        }
+        r del zbtx-u{t} zbtx-i{t}
+        r sadd zbtx-u{t} {*}$umembers
+        r sadd zbtx-i{t} {*}$imembers
+        assert_encoding intset zbtx-i{t}
+
+        r config set zset-max-listpack-value 64
+        foreach {enc entries} {lp 1000000 bt 0} {
+            r config set zset-max-listpack-entries $entries
+            foreach name {a b c} {
+                r del zbtx-$name-$enc{t}
+                r zadd zbtx-$name-$enc{t} {*}$zbt_args($name)
+            }
+        }
+        # R prepends every member, building reversed leaves.
+        set zbt_args(r) {}
+        set score [llength $pool]
+        r del zbtx-r-lp{t} zbtx-r-bt{t}
+        foreach m $pool {
+            incr score -1
+            lappend zbt_args(r) $score $m
+            r zadd zbtx-r-bt{t} $score $m
+        }
+        r config set zset-max-listpack-entries 1000000
+        r zadd zbtx-r-lp{t} {*}$zbt_args(r)
+        r config set zset-max-listpack-entries 128
+        r del zbtx-s{t}
+        r zadd zbtx-s{t} {*}$zbt_args(s)
+        assert_encoding listpack zbtx-s{t}
+        foreach name {a b c r} {
+            assert_encoding listpack zbtx-$name-lp{t}
+            assert_encoding btree zbtx-$name-bt{t}
+        }
+
+        proc zbt_check {} {
+            set cmds {
+                {zintercard 2 A B} {zintercard 2 A B limit 1}
+                {zintercard 2 A B limit 7} {zintercard 2 B A limit 0}
+                {zintercard 3 A B C} {zintercard 2 A A} {zintercard 3 A B A}
+                {zintercard 1 A} {zintercard 1 R limit 5} {zintercard 2 R R limit 0}
+                {zintercard 1 zbtx-u{t}} {zinter 1 A withscores}
+                {zintercard 2 zbtx-s{t} B} {zintercard 2 zbtx-u{t} A}
+                {zintercard 3 zbtx-u{t} A B} {zintercard 2 zbtx-i{t} A}
+                {zinter 2 A B withscores} {zinter 2 B A}
+                {zinter 3 A B C weights 1 2 3 aggregate max withscores}
+                {zinter 3 A B A aggregate min withscores}
+                {zinter 2 zbtx-s{t} A withscores}
+                {zinter 3 zbtx-u{t} A B withscores}
+                {zinter 2 zbtx-i{t} B weights 2 1 withscores}
+                {zintercard 2 A R} {zinter 2 A R withscores}
+                {zinter 3 B R C aggregate max withscores}
+            }
+            foreach cmd $cmds {
+                foreach enc {lp bt} {
+                    set c [string map [list A zbtx-a-$enc{t} B zbtx-b-$enc{t} \
+                                            C zbtx-c-$enc{t} R zbtx-r-$enc{t}] $cmd]
+                    set reply($enc) [r {*}$c]
+                }
+                assert_equal $reply(lp) $reply(bt)
+            }
+            foreach name {a r} {
+                for {set i 0} {$i < [llength $::zbt_probe]} {incr i 40} {
+                    set members [lrange $::zbt_probe $i [expr {$i + 39}]]
+                    assert_equal [r zmscore zbtx-$name-lp{t} {*}$members] \
+                                 [r zmscore zbtx-$name-bt{t} {*}$members]
+                }
+            }
+        }
+        set ::zbt_probe {}
+        foreach m $pool {
+            if {rand() < 0.15} {lappend ::zbt_probe $m "${m}x"}
+        }
+        zbt_check
+
+        # Again after a large ZREM, which may leave a member index resize in
+        # progress.
+        set removed {}
+        foreach {score m} $zbt_args(a) {
+            if {rand() < 0.8} {lappend removed $m}
+        }
+        r zrem zbtx-a-lp{t} {*}$removed
+        r zrem zbtx-a-bt{t} {*}$removed
+        assert_encoding btree zbtx-a-bt{t}
+        zbt_check
+
+        r del zbtx-a-lp{t} zbtx-b-lp{t} zbtx-c-lp{t} zbtx-r-lp{t} \
+              zbtx-a-bt{t} zbtx-b-bt{t} zbtx-c-bt{t} zbtx-r-bt{t} \
+              zbtx-s{t} zbtx-u{t} zbtx-i{t}
+        r config set zset-max-listpack-entries $old_entries
+        r config set zset-max-listpack-value $old_value
+        unset zbt_args ::zbt_probe
+        rename zbt_member {}
+        rename zbt_check {}
+    }
+
     test {ZSET btree converted by ZADD is not sized by repeated pairs} {
         # A B+ tree created directly holds one member in the smallest index.
         set original_max [lindex [r config get zset-max-listpack-entries] 1]
@@ -1990,7 +2361,7 @@ start_server {tags {"zset"}} {
         assert_match {*ERR*wrong*number*arg*} $e
     }
 
-    test {ZMSCORE B+tree batches preserve order, duplicates and missing members} {
+    test {ZMSCORE B+tree batches with special and repeated members} {
         r del mscore-batches
         set batch_args {}
         for {set i 0} {$i < 300} {incr i} {
@@ -1998,6 +2369,13 @@ start_server {tags {"zset"}} {
         }
         r zadd mscore-batches {*}$batch_args
         assert_encoding btree mscore-batches
+        # Empty, binary, and long enough to be stored outside the leaf.
+        set special_members [list "" "a\x00b" "a\x00c" [string repeat x 400] \
+            [string repeat y 319] [string repeat y 320]]
+        for {set i 0} {$i < [llength $special_members]} {incr i} {
+            r zadd mscore-batches [expr {300 + $i}] [lindex $special_members $i]
+        }
+        set num_special [llength $special_members]
         foreach count {1 2 15 16 17 31 32 33 63 64 65 100} {
             set batch_members {}
             set batch_scores {}
@@ -2005,6 +2383,10 @@ start_server {tags {"zset"}} {
                 if {$i % 3 == 0} {
                     lappend batch_members missing:$i
                     lappend batch_scores {}
+                } elseif {$i % 5 == 0} {
+                    set special [expr {($i / 5 - 1) % $num_special}]
+                    lappend batch_members [lindex $special_members $special]
+                    lappend batch_scores [expr {300 + $special}]
                 } else {
                     set member [expr {($i * 37) % 23}]
                     lappend batch_members member:$member
@@ -2013,6 +2395,25 @@ start_server {tags {"zset"}} {
             }
             assert_equal $batch_scores [r zmscore mscore-batches {*}$batch_members]
         }
+        # A single member, and one alone after a full batch.
+        assert_equal {{}} [r zmscore mscore-batches missing]
+        for {set i 0} {$i < $num_special} {incr i} {
+            set member [lindex $special_members $i]
+            set score [expr {300 + $i}]
+            assert_equal $score [r zmscore mscore-batches $member]
+            set batch_members [lrepeat 16 missing]
+            lappend batch_members $member
+            assert_equal [list {*}[lrepeat 16 {}] $score] \
+                [r zmscore mscore-batches {*}$batch_members]
+        }
+        # The same member several times in one batch and across batches.
+        set batch_members {}
+        set batch_scores {}
+        for {set i 0} {$i < 6} {incr i} {
+            lappend batch_members member:0 member:0 missing "" missing ""
+            lappend batch_scores -150 -150 {} 300 {} 300
+        }
+        assert_equal $batch_scores [r zmscore mscore-batches {*}$batch_members]
         r del mscore-batches
     }
 
@@ -2930,9 +3331,8 @@ start_server {tags {"zset"}} {
         }
         assert_equal [lrange $full_sorted 100 399] $got_fwd
 
-        # REV rank slice -- must keep using the original (slower but always
-        # correct) zsetAdd() path; the fast path is guarded off for reverse
-        # emission. Rank indices for REV count from the highest score down.
+        # REV rank slice -- too large for a listpack, so ZRANGESTORE walks the
+        # mirrored forward range. REV ranks count from the highest score down.
         r zrangestore zdst_rev{t} zsrc{t} 100 399 REV
         assert_encoding btree zdst_rev{t}
         set full_desc [lreverse $full_sorted]
@@ -2988,6 +3388,68 @@ start_server {tags {"zset"}} {
 
         r config set zset-max-listpack-entries $original_max
     }
+
+    test {ZRANGESTORE REV rank ranges store the same set as ZRANGE REV} {
+        set lim 128
+        set lmax [expr {[s arch_bits] == 32 ? 2147483647 : 9223372036854775807}]
+        r config set zset-max-listpack-entries $lim
+        r config set zset-max-listpack-value 64
+        r del zsrc{t} zdst{t}
+        # 1000 members over 200 scores, so rank bounds cut through
+        # equal-score runs, where the order is by member. One member is
+        # longer than zset-max-listpack-value.
+        set cmd [list r zadd zsrc{t}]
+        for {set j 0} {$j < 1000} {incr j} {
+            lappend cmd [expr {($j * 7919) % 200}] [format "m:%04d" $j]
+        }
+        {*}$cmd
+        set long [string repeat x 100]
+        r zadd zsrc{t} 150 $long
+        assert_encoding btree zsrc{t}
+        set lr [r zrevrank zsrc{t} $long]
+        # 128 results fit in a listpack and keep the REV walk, 129 do not
+        # and are walked forward. A small range holding the long member
+        # converts its destination during the store.
+        foreach range [list {0 127} {0 128} {12 900} {-300 -1} {-1000000 500} \
+                           {0 1000000} {5 3} {5000 6000} \
+                           [list [expr {$lr-10}] [expr {$lr+10}]] \
+                           [list [expr {-$lmax-1}] $lmax]] {
+            set want [lsort -command zlistAlikeSort [lmap {e s} \
+                [r zrange zsrc{t} {*}$range REV withscores] {list $s $e}]]
+            set n [llength $want]
+            assert_equal $n [r zrangestore zdst{t} zsrc{t} {*}$range REV]
+            assert_equal $want [lmap {e s} [r zrange zdst{t} 0 -1 withscores] {list $s $e}]
+            if {$n == 0} {
+                assert_equal 0 [r exists zdst{t}]
+            } elseif {$n > $lim || [lsearch -exact -index 1 $want $long] >= 0} {
+                assert_encoding btree zdst{t}
+            } else {
+                assert_encoding listpack zdst{t}
+            }
+        }
+
+        # Destination is the source.
+        set want [lsort -command zlistAlikeSort [lmap {e s} \
+            [r zrange zsrc{t} 2 201 REV withscores] {list $s $e}]]
+        assert_equal 200 [r zrangestore zsrc{t} zsrc{t} 2 201 REV]
+        assert_equal $want [lmap {e s} [r zrange zsrc{t} 0 -1 withscores] {list $s $e}]
+
+        # A listpack source with integer members, into another key and
+        # into itself.
+        r del zsrc{t}
+        r zadd zsrc{t} 1 1 2 2 3 3 4 4 5 5
+        r config set zset-max-listpack-entries 2
+        assert_encoding listpack zsrc{t}
+        assert_equal 4 [r zrangestore zdst{t} zsrc{t} 0 3 REV]
+        assert_equal {2 2 3 3 4 4 5 5} [r zrange zdst{t} 0 -1 withscores]
+        assert_encoding btree zdst{t}
+        assert_equal 3 [r zrangestore zsrc{t} zsrc{t} 1 3 REV]
+        assert_equal {2 2 3 3 4 4} [r zrange zsrc{t} 0 -1 withscores]
+        assert_encoding btree zsrc{t}
+
+        r del zsrc{t} zdst{t}
+        set _ {}
+    } {} {config:restore}
 
     test {ZRANGE invalid syntax} {
         catch {r zrange z1{t} 0 -1 limit 1 2} err
@@ -3163,8 +3625,8 @@ start_server {tags {"zset"}} {
             }
 
             # PATH 3: Ask almost as elements as there are in the set.
-            # In this case the implementation will duplicate the original
-            # set and will remove random elements up to the requested size.
+            # For btree the implementation walks the set once and selects
+            # each element with probability needed/remaining.
             #
             # PATH 4: Ask a number of elements definitely smaller than
             # the set size.
@@ -3215,6 +3677,65 @@ start_server {tags {"zset"}} {
             }
         }
         r config set zset-max-ziplist-value $original_max_value
+    }
+
+    test "ZRANDMEMBER count > size/3 - btree" {
+        # PATH 2 and PATH 3 on a btree large enough for PATH 3 to sample
+        # (67 is the smallest PATH 3 count for 200 members), in both
+        # protocols. Every fourth member is long enough to be stored outside
+        # the tree node, and scores repeat.
+        set original_max [lindex [r config get zset-max-listpack-entries] 1]
+        r config set zset-max-listpack-entries 0
+        set code [catch {
+            r del myzset
+            for {set i 0} {$i < 200} {incr i} {
+                set m "member:$i"
+                if {$i % 4 == 0} {append m [string repeat x 330]}
+                r zadd myzset [expr {$i % 7}] $m
+            }
+            assert_encoding btree myzset
+
+            foreach proto {2 3} {
+                r hello $proto
+                set mydict [dict create {*}[concat {*}[r zrange myzset 0 -1 withscores]]]
+                foreach count {67 120 200 300} {
+                    set want [expr {min($count, 200)}]
+                    set res [r zrandmember myzset $count withscores]
+                    if {$proto == 3} {
+                        assert_equal 2 [llength [lindex $res 0]]
+                        set res [concat {*}$res]
+                    }
+                    assert_equal [expr {$want * 2}] [llength $res]
+                    assert_equal $want [dict size [dict create {*}$res]]
+                    check_member_and_score $mydict $res
+                    if {$count < 200} {
+                        # Only the PATH 3 walk returns a sample in descending
+                        # score order; PATH 4 returns it in random order.
+                        set prev [lindex $res 1]
+                        foreach {m score} $res {
+                            assert {$score <= $prev}
+                            set prev $score
+                        }
+                    }
+                }
+            }
+            r hello 2
+
+            # Each of 200 members is in a reply with probability 120/200, so
+            # after 1000 calls the chi-square value of a uniform sampler is
+            # about 80 (sd about 8).
+            set allkey {}
+            for {set i 0} {$i < 1000} {incr i} {
+                set res [r zrandmember myzset 120]
+                assert_equal 120 [llength [lsort -unique $res]]
+                lappend allkey {*}$res
+            }
+            assert_lessthan [chi_square_value $allkey] 200
+        } err opts]
+        # Restore the config even when an assertion fails (catch rather than
+        # try/finally, since the suite still supports Tcl 8.5).
+        r config set zset-max-listpack-entries $original_max
+        if {$code} {error $err [dict get $opts -errorinfo]}
     }
 
     test {zset score double range} {

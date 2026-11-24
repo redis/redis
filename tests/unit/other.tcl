@@ -385,7 +385,9 @@ start_server {tags {"other external:skip"}} {
         r config set save ""
         r config set rdb-key-save-delay 1000000
 
-        populate 4095 "" 1
+        # A fill above 100% of the slots of a 1024-bucket table triggers an
+        # expand to 2048 buckets.
+        populate [expr {1024 * [dict_bucket_slots] - 1}] "" 1
         r bgsave
         wait_for_condition 10 100 {
             [s rdb_bgsave_in_progress] eq 1
@@ -395,14 +397,14 @@ start_server {tags {"other external:skip"}} {
 
         r mset k1 v1 k2 v2
         # Hash table should not rehash
-        assert_no_match "*table size: 8192*" [r debug HTSTATS 9]
+        assert_no_match "*table size: 2048*" [r debug HTSTATS 9]
         exec kill -9 [get_child_pid 0]
         waitForBgsave r
 
         # Hash table should rehash since there is no child process,
-        # size is power of two and over 4096, so it is 8192
+        # size is power of two and over 1024 buckets, so it is 2048
         wait_for_condition 50 100 {
-            [string match "*table size: 8192*" [r debug HTSTATS 9]]
+            [string match "*table size: 2048*" [r debug HTSTATS 9]]
         } else {
             fail "hash table did not rehash after child process killed"
         }
@@ -461,24 +463,25 @@ start_cluster 1 0 {tags {"other external:skip cluster slow"}} {
         for {set j 1} {$j <= 128} {incr j} {
             r set "{foo}$j" a
         }
-        assert_match "*table size: 128*" [r debug HTSTATS 0]
+        set buckets [expr {[s arch_bits] == 32 ? 16 : 32}]
+        assert_match "*table size: $buckets\n*" [r debug HTSTATS 0]
 
         # disable resizing, the reason for not using slow bgsave is because
         # it will hit the dict_force_resize_ratio.
         r debug dict-resizing 0
 
-        # delete data to have lot's (96%) of empty buckets
+        # delete data to have lot's (over 97%) of empty slots
         for {set j 1} {$j <= 123} {incr j} {
             r del "{foo}$j"
         }
-        assert_match "*table size: 128*" [r debug HTSTATS 0]
+        assert_match "*table size: $buckets\n*" [r debug HTSTATS 0]
 
         # enable resizing
         r debug dict-resizing 1
 
         # waiting for serverCron to resize the tables
         wait_for_condition 1000 10 {
-            [string match {*table size: 8*} [r debug HTSTATS 0]]
+            [string match "*table size: 1\n*" [r debug HTSTATS 0]]
         } else {
             puts [r debug HTSTATS 0]
             fail "hash tables weren't resize."
@@ -506,7 +509,7 @@ start_cluster 1 0 {tags {"other external:skip cluster slow"}} {
 
         # waiting for serverCron to resize the tables
         wait_for_condition 1000 10 {
-            [string match {*table size: 16*} [r debug HTSTATS 0]]
+            [string match "*table size: 2\n*" [r debug HTSTATS 0]]
         } else {
             puts [r debug HTSTATS 0]
             fail "hash tables weren't resize."

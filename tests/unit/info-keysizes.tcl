@@ -1068,6 +1068,23 @@ start_server {tags {external:skip needs:debug} overrides {key-memory-histograms 
             assert_equal {a} [r ZRANGE z 0 -1]
             r DEL z
         }
+        # Large REV rank stores, into another key and into the source.
+        r CONFIG SET zset-max-listpack-entries 128
+        set args {}
+        for {set i 0} {$i < 300} {incr i} {lappend args [expr {$i/5}] [format m%03d $i]}
+        r ZADD z {*}$args
+        r ZADD z2 {*}$args
+        set want [r ZRANGE z 100 299 WITHSCORES]
+        assert_equal 200 [r ZRANGESTORE z2 z 0 199 REV]
+        assert_encoding btree z2
+        assert_equal $want [r ZRANGE z2 0 -1 WITHSCORES]
+        assert_equal 200 [r ZRANGESTORE z z 0 199 REV]
+        assert_encoding btree z
+        assert_equal $want [r ZRANGE z 0 -1 WITHSCORES]
+        assert_equal 0 [r ZRANGESTORE z z 5 3 REV]
+        assert_equal 0 [r EXISTS z]
+
+        r DEL z z2
         r CONFIG SET zset-max-listpack-entries $orig
         r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
         verify_keymem_empty r
@@ -1376,9 +1393,10 @@ start_cluster 1 0 {tags {external:skip cluster needs:debug} overrides {cluster-s
             # We add one member per SADD on purpose: a single SADD with many
             # members would pre-size the dict and skip rehashing. A set's dict
             # is only rehashed by operations on it, so stopping shortly after an
-            # expand boundary (here 256) leaves the rehash unfinished.
+            # expand boundary (here 32 buckets) leaves the rehash unfinished.
             r DEL "src{t}"
-            for {set i 0} {$i < 265} {incr i} { r SADD "src{t}" "s-$i" }
+            set count [expr {32 * [dict_bucket_slots] + 4}]
+            for {set i 0} {$i < $count} {incr i} { r SADD "src{t}" "s-$i" }
             assert_encoding hashtable "src{t}"
 
             r {*}$cmd

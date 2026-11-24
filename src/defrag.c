@@ -428,7 +428,7 @@ luaScript *activeDefragLuaScript(luaScript *script) {
  * and should NOT be accessed. */
 dict *dictDefragTables(dict *d) {
     dict *ret = NULL;
-    dictEntry **newtable;
+    dictBucket *newtable;
     /* handle the dict struct */
     if ((ret = activeDefragAlloc(d)))
         d = ret;
@@ -508,7 +508,7 @@ void activeDefragSdsDict(dict* d, int val_type) {
 void activeDefragHfieldDict(dict *d) {
     unsigned long cursor = 0;
     dictDefragFunctions defragfns = {
-        .defragAlloc = activeDefragAlloc, /* Only defrag dictEntry */
+        .defragAlloc = activeDefragAlloc, /* Only defrag the dict child buckets */
         .defragKey = NULL, /* Will be defragmented in activeDefragHfieldDictCallback. */
         .defragVal = NULL  /* No separate value - value is part of the entry (hfield). */
     };
@@ -711,6 +711,37 @@ void defragQuicklist(defragKeysCtx *ctx, kvobj *kv) {
         defragLater(ctx, kv);
     else
         activeDefragQuickListNodes(ql);
+}
+
+void defragZsetSkiplist(defragKeysCtx *ctx, kvobj *ob) {
+    zset *zs = (zset*)ob->ptr;
+    zset *newzs;
+    zskiplist *newzsl;
+    dict *newdict;
+    struct zskiplistNode *newheader;
+    serverAssert(ob->type == OBJ_ZSET && ob->encoding == OBJ_ENCODING_SKIPLIST);
+    if ((newzs = activeDefragAlloc(zs)))
+        ob->ptr = zs = newzs;
+    if ((newzsl = activeDefragAlloc(zs->zsl)))
+        zs->zsl = newzsl;
+    if ((newheader = activeDefragAlloc(zs->zsl->header)))
+        zs->zsl->header = newheader;
+    if (dictSize(zs->dict) > server.active_defrag_max_scan_fields)
+        defragLater(ctx, ob);
+    else {
+        /* Use dictScanDefrag to iterate and defrag both the dict child buckets and skiplist nodes.
+         * dictScanDefrag handles defragging the child buckets via defragfns,
+         * and calls our callback with plink for each entry so we can defrag skiplist nodes. */
+        scanLaterZsetData data = {zs};
+        dictDefragFunctions defragfns = {.defragAlloc = activeDefragAlloc};
+        unsigned long cursor = 0;
+        do {
+            cursor = dictScanDefrag(zs->dict, cursor, scanZsetCallback, &defragfns, &data);
+        } while (cursor != 0);
+    }
+    /* defrag the dict struct and tables */
+    if ((newdict = dictDefragTables(zs->dict)))
+        zs->dict = newdict;
 }
 
 /* Defragment a B+ tree now, or schedule its pages for incremental work. */

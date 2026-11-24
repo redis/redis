@@ -204,6 +204,33 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
         }
     }
 
+    if {$::tcl_platform(os) eq "Linux"} {
+        test {Preload an AOF into a directory longer than 1024 bytes} {
+            set preload_dir [file normalize [tmpdir preload.long-path.source]]
+            set preload_aof [file join $preload_dir data.aof]
+            set fp [open $preload_aof w]
+            puts -nonewline $fp [formatCommand select 9]
+            puts -nonewline $fp [formatCommand set long-path-key value]
+            close $fp
+
+            # Exercise AOF preload with a working directory longer than 1024 bytes.
+            set local_dir [file normalize [tmpdir preload.long-path.local]]
+            while {[string length $local_dir] <= 1024} {
+                set local_dir [file join $local_dir [string repeat d 120]]
+            }
+            file mkdir $local_dir
+            start_server [list overrides [list dir $local_dir appendonly yes appendfsync always preload-file "aof:$preload_aof"] keep_persistence true] {
+                assert_equal value [r get long-path-key]
+                assert {[file exists $preload_aof]}
+                assert_equal OK [r set after-long-path-preload value]
+            }
+            start_server [list overrides [list dir $local_dir appendonly yes]] {
+                assert_equal value [r get long-path-key]
+                assert_equal value [r get after-long-path-preload]
+            }
+        }
+    }
+
     test {Preload a legacy AOF installs it without moving the source} {
         set local_dir [file normalize [tmpdir preload.legacy-aof]]
         set preload_aof [file join $local_dir appendonly.aof]

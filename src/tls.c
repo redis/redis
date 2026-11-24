@@ -20,6 +20,7 @@
 
 #include <openssl/conf.h>
 #include <openssl/ssl.h>
+#include <openssl/sha.h>
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
 #include <openssl/err.h>
@@ -67,6 +68,7 @@
 
 SSL_CTX *redis_tls_ctx = NULL;
 SSL_CTX *redis_tls_client_ctx = NULL;
+static SSL_CTX *redis_tls_cluster_ctx = NULL;
 
 static int parseProtocolsConfig(const char *str) {
     int i, count = 0;
@@ -178,6 +180,10 @@ static void tlsCleanup(void) {
     if (redis_tls_client_ctx) {
         SSL_CTX_free(redis_tls_client_ctx);
         redis_tls_client_ctx = NULL;
+    }
+    if (redis_tls_cluster_ctx) {
+        SSL_CTX_free(redis_tls_cluster_ctx);
+        redis_tls_cluster_ctx = NULL;
     }
 
     #if OPENSSL_VERSION_NUMBER >= 0x10100000L && !defined(LIBRESSL_VERSION_NUMBER)
@@ -293,6 +299,11 @@ error:
     return NULL;
 }
 
+static int configureServerSSLContext(SSL_CTX *ctx,
+                                     redisTLSContextConfig *ctx_config,
+                                     const char *session_id_context,
+                                     unsigned int session_id_context_len);
+
 /* Attempt to configure/reconfigure TLS. This operation is atomic and will
  * leave the SSL_CTX unchanged if fails.
  * @priv: config of redisTLSContextConfig.
@@ -301,9 +312,9 @@ error:
  */
 static int tlsConfigure(void *priv, int reconfigure) {
     redisTLSContextConfig *ctx_config = (redisTLSContextConfig *)priv;
-    char errbuf[256];
     SSL_CTX *ctx = NULL;
     SSL_CTX *client_ctx = NULL;
+    SSL_CTX *cluster_ctx = NULL;
 
     if (!reconfigure && redis_tls_ctx) {
         return C_OK;
@@ -328,15 +339,65 @@ static int tlsConfigure(void *priv, int reconfigure) {
     int protocols = parseProtocolsConfig(ctx_config->protocols);
     if (protocols == -1) goto error;
 
-    /* Create server side/general context */
+    /* Create server-side contexts with identical TLS settings but distinct
+     * session namespaces. */
     ctx = createSSLContext(ctx_config, protocols, 0);
     if (!ctx) goto error;
+    if (configureServerSSLContext(ctx, ctx_config, "redis",
+                                  sizeof("redis") - 1) == C_ERR)
+        goto error;
+
+    /* Use an independent TLS session namespace for inbound cluster-bus
+     * connections. The context is only needed when the cluster bus uses TLS. */
+    if (server.tls_cluster) {
+        cluster_ctx = createSSLContext(ctx_config, protocols, 0);
+        if (!cluster_ctx) goto error;
+        if (configureServerSSLContext(cluster_ctx, ctx_config, "redis-cluster",
+                                      sizeof("redis-cluster") - 1) == C_ERR)
+            goto error;
+    }
+
+    /* If a client-side certificate is configured, create an explicit client context */
+    if (ctx_config->client_cert_file && ctx_config->client_key_file) {
+        client_ctx = createSSLContext(ctx_config, protocols, 1);
+        if (!client_ctx) goto error;
+    }
+
+    SSL_CTX_free(redis_tls_ctx);
+    SSL_CTX_free(redis_tls_client_ctx);
+    SSL_CTX_free(redis_tls_cluster_ctx);
+    redis_tls_ctx = ctx;
+    redis_tls_client_ctx = client_ctx;
+    redis_tls_cluster_ctx = cluster_ctx;
+
+    return C_OK;
+
+error:
+    if (ctx) SSL_CTX_free(ctx);
+    if (client_ctx) SSL_CTX_free(client_ctx);
+    if (cluster_ctx) SSL_CTX_free(cluster_ctx);
+    return C_ERR;
+}
+
+/* Configure the TLS options shared by server-side listeners. Each listener
+ * receives a distinct session namespace, so TLS sessions cannot cross roles. */
+static int configureServerSSLContext(SSL_CTX *ctx,
+                                     redisTLSContextConfig *ctx_config,
+                                     const char *session_id_context,
+                                     unsigned int session_id_context_len) {
+    char errbuf[256];
 
     if (ctx_config->session_caching) {
         SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_SERVER);
         SSL_CTX_sess_set_cache_size(ctx, ctx_config->session_cache_size);
         SSL_CTX_set_timeout(ctx, ctx_config->session_cache_timeout);
-        SSL_CTX_set_session_id_context(ctx, (void *) "redis", 5);
+        if (!SSL_CTX_set_session_id_context(ctx,
+                (const unsigned char *)session_id_context,
+                session_id_context_len)) {
+            ERR_error_string_n(ERR_get_error(), errbuf, sizeof(errbuf));
+            serverLog(LL_WARNING, "Failed to set TLS session context: %s", errbuf);
+            return C_ERR;
+        }
     } else {
         SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_OFF);
     }
@@ -357,7 +418,7 @@ static int tlsConfigure(void *priv, int reconfigure) {
         FILE *dhfile = fopen(ctx_config->dh_params_file, "r");
         if (!dhfile) {
             serverLog(LL_WARNING, "Failed to load %s: %s", ctx_config->dh_params_file, strerror(errno));
-            goto error;
+            return C_ERR;
         }
 
 #if (OPENSSL_VERSION_NUMBER >= 0x30000000L)
@@ -367,13 +428,13 @@ static int tlsConfigure(void *priv, int reconfigure) {
         if (!dctx) {
             serverLog(LL_WARNING, "No decoder for DH params.");
             fclose(dhfile);
-            goto error;
+            return C_ERR;
         }
         if (!OSSL_DECODER_from_fp(dctx, dhfile)) {
             serverLog(LL_WARNING, "%s: failed to read DH params.", ctx_config->dh_params_file);
             OSSL_DECODER_CTX_free(dctx);
             fclose(dhfile);
-            goto error;
+            return C_ERR;
         }
 
         OSSL_DECODER_CTX_free(dctx);
@@ -383,7 +444,7 @@ static int tlsConfigure(void *priv, int reconfigure) {
             ERR_error_string_n(ERR_get_error(), errbuf, sizeof(errbuf));
             serverLog(LL_WARNING, "Failed to load DH params file: %s: %s", ctx_config->dh_params_file, errbuf);
             EVP_PKEY_free(pkey);
-            goto error;
+            return C_ERR;
         }
         /* Not freeing pkey, it is owned by OpenSSL now */
 #else
@@ -391,14 +452,14 @@ static int tlsConfigure(void *priv, int reconfigure) {
         fclose(dhfile);
         if (!dh) {
             serverLog(LL_WARNING, "%s: failed to read DH params.", ctx_config->dh_params_file);
-            goto error;
+            return C_ERR;
         }
 
         if (SSL_CTX_set_tmp_dh(ctx, dh) <= 0) {
             ERR_error_string_n(ERR_get_error(), errbuf, sizeof(errbuf));
             serverLog(LL_WARNING, "Failed to load DH params file: %s: %s", ctx_config->dh_params_file, errbuf);
             DH_free(dh);
-            goto error;
+            return C_ERR;
         }
 
         DH_free(dh);
@@ -409,23 +470,7 @@ static int tlsConfigure(void *priv, int reconfigure) {
 #endif
     }
 
-    /* If a client-side certificate is configured, create an explicit client context */
-    if (ctx_config->client_cert_file && ctx_config->client_key_file) {
-        client_ctx = createSSLContext(ctx_config, protocols, 1);
-        if (!client_ctx) goto error;
-    }
-
-    SSL_CTX_free(redis_tls_ctx);
-    SSL_CTX_free(redis_tls_client_ctx);
-    redis_tls_ctx = ctx;
-    redis_tls_client_ctx = client_ctx;
-
     return C_OK;
-
-error:
-    if (ctx) SSL_CTX_free(ctx);
-    if (client_ctx) SSL_CTX_free(client_ctx);
-    return C_ERR;
 }
 
 #ifdef TLS_DEBUGGING
@@ -469,9 +514,9 @@ typedef struct tls_connection {
     listNode *pending_list_node;
 } tls_connection;
 
-static connection *createTLSConnection(struct aeEventLoop *el, int client_side) {
-    SSL_CTX *ctx = redis_tls_ctx;
-    if (client_side && redis_tls_client_ctx)
+static connection *createTLSConnection(struct aeEventLoop *el, int client_side, SSL_CTX *accept_ctx) {
+    SSL_CTX *ctx = accept_ctx ? accept_ctx : redis_tls_ctx;
+    if (!accept_ctx && client_side && redis_tls_client_ctx)
         ctx = redis_tls_client_ctx;
     tls_connection *conn = zcalloc(sizeof(tls_connection));
     conn->c.type = &CT_TLS;
@@ -483,7 +528,7 @@ static connection *createTLSConnection(struct aeEventLoop *el, int client_side) 
 }
 
 static connection *connCreateTLS(struct aeEventLoop *el) {
-    return createTLSConnection(el, 1);
+    return createTLSConnection(el, 1, NULL);
 }
 
 /* Fetch the latest OpenSSL error and store it in the connection */
@@ -492,6 +537,53 @@ static void updateTLSError(tls_connection *conn) {
     if (conn->ssl_error) zfree(conn->ssl_error);
     conn->ssl_error = zmalloc(512);
     ERR_error_string_n(ERR_get_error(), conn->ssl_error, 512);
+}
+
+/* Bind an accepted connection's resumable sessions to the way it verifies.
+ *
+ * Certificate verification runs during a full handshake only: when a client
+ * resumes a TLS session, OpenSSL restores the verification result stored with
+ * that session and verifies nothing again. The cluster bus accepts with its
+ * own server context, so a client-port session is unknown there: not in its
+ * cache, and sealed with a ticket key it does not have. Within one context,
+ * though, the checks differ per connection and over time: the client port
+ * asks for a client certificate only as tls-auth-clients says, and the bus,
+ * with tls-expected-peer-name, requires that it carry an expected identity.
+ * Both settings change at runtime without a context rebuild. A session
+ * established under weaker checks could therefore be resumed where stronger
+ * ones apply and skip them: a certificate-less session issued while
+ * tls-auth-clients was no would keep resuming after it is set to yes, and a
+ * bus session would keep resuming after the expected names are narrowed.
+ *
+ * OpenSSL resumes a session only if its session-ID context matches the
+ * connection's, so derive the context from the settings the connection
+ * verifies with: the verify mode set by connCreateAcceptedTLS() and the
+ * expected names bound by connTLSSetVerifyName(). Sessions then resume only
+ * between connections that verify the same way; any other combination, which
+ * includes a tls-auth-clients or tls-expected-peer-name change at runtime,
+ * goes through a full, verified handshake. The context is a label, not a
+ * secret: hashing only brings an unbounded names list down to the 32 bytes
+ * SSL_MAX_SID_CTX_LENGTH allows, without the collisions truncation would
+ * cause between policies sharing a prefix. */
+static int tlsSetSessionIdContext(SSL *ssl, const char *names) {
+    _Static_assert(SHA256_DIGEST_LENGTH <= SSL_MAX_SID_CTX_LENGTH,
+                   "the session-ID context must fit SSL_MAX_SID_CTX_LENGTH");
+    unsigned char sid_ctx[SHA256_DIGEST_LENGTH];
+    sds tagged = sdscatprintf(sdsempty(), "redis:accept:%d:%s",
+                              SSL_get_verify_mode(ssl), names ? names : "");
+    /* SHA256() can fail from OpenSSL 3.0 on, when the digest comes from a
+     * provider, and then sid_ctx is unset. Fail closed and log here: the
+     * callers refuse the connection but log at verbose level only. */
+    int ok = SHA256((const unsigned char *) tagged, sdslen(tagged), sid_ctx) != NULL &&
+             SSL_set_session_id_context(ssl, sid_ctx, sizeof(sid_ctx)) == 1;
+    sdsfree(tagged);
+    if (!ok) {
+        char errbuf[256];
+        ERR_error_string_n(ERR_peek_last_error(), errbuf, sizeof(errbuf));
+        serverLog(LL_WARNING, "Failed to set the TLS session ID context: %s", errbuf);
+        return C_ERR;
+    }
+    return C_OK;
 }
 
 /* Create a new TLS connection that is already associated with
@@ -504,8 +596,10 @@ static void updateTLSError(tls_connection *conn) {
  * is not in an error state.
  */
 static connection *connCreateAcceptedTLS(struct aeEventLoop *el, int fd, void *priv) {
-    int require_auth = *(int *)priv;
-    tls_connection *conn = (tls_connection *) createTLSConnection(el, 0);
+    TLSAcceptConfig *accept_config = priv;
+    serverAssert(!accept_config->is_cluster_bus || redis_tls_cluster_ctx);
+    SSL_CTX *ctx = accept_config->is_cluster_bus ? redis_tls_cluster_ctx : redis_tls_ctx;
+    tls_connection *conn = (tls_connection *) createTLSConnection(el, 0, ctx);
     conn->c.fd = fd;
     conn->c.el = el;
     conn->c.state = CONN_STATE_ACCEPTING;
@@ -516,7 +610,7 @@ static connection *connCreateAcceptedTLS(struct aeEventLoop *el, int fd, void *p
         return (connection *) conn;
     }
 
-    switch (require_auth) {
+    switch (accept_config->require_auth) {
         case TLS_CLIENT_AUTH_NO:
             SSL_set_verify(conn->ssl, SSL_VERIFY_NONE, NULL);
             break;
@@ -526,6 +620,13 @@ static connection *connCreateAcceptedTLS(struct aeEventLoop *el, int fd, void *p
         default: /* TLS_CLIENT_AUTH_YES, also fall-secure */
             SSL_set_verify(conn->ssl, SSL_VERIFY_PEER|SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
             break;
+    }
+
+    /* Resumable only by connections that verify the same way. */
+    if (tlsSetSessionIdContext(conn->ssl, NULL) != C_OK) {
+        updateTLSError(conn);
+        conn->c.state = CONN_STATE_ERROR;
+        return (connection *) conn;
     }
 
     SSL_set_fd(conn->ssl, conn->c.fd);
@@ -886,6 +987,11 @@ static void tlsAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) 
     UNUSED(mask);
     UNUSED(privdata);
 
+    TLSAcceptConfig accept_config = {
+        .require_auth = server.tls_auth_clients,
+        .is_cluster_bus = 0
+    };
+
     while(max--) {
         cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
         if (cfd == ANET_ERR) {
@@ -897,7 +1003,7 @@ static void tlsAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) 
             return;
         }
         serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);
-        acceptCommonHandler(connCreateAcceptedTLS(el,cfd,&server.tls_auth_clients), 0, cip);
+        acceptCommonHandler(connCreateAcceptedTLS(el, cfd, &accept_config), 0, cip);
     }
 }
 
@@ -1058,7 +1164,13 @@ int tlsSetVerifyIdentity(SSL *ssl, const char *name) {
 
 /* Set the expected peer name(s) to verify on an already-created SSL connection.
  * Used on the accepting side (e.g. the cluster bus) to verify the connecting
- * peer's client certificate. No-op when name is empty. */
+ * peer's client certificate. No-op when name is empty.
+ *
+ * The names become part of the way this connection verifies, so its
+ * session-ID context is derived again to include them: a session established
+ * without this policy, or under a previous one, cannot be resumed here and
+ * must go through a full handshake that verifies the names (see
+ * tlsSetSessionIdContext()). */
 static int connTLSSetVerifyName(connection *conn_, const char *name) {
     tls_connection *conn = (tls_connection *) conn_;
     if (!conn->ssl || !name || !name[0]) return C_OK;
@@ -1066,6 +1178,7 @@ static int connTLSSetVerifyName(connection *conn_, const char *name) {
         serverLog(LL_WARNING, "Failed to set expected TLS peer name on accepted connection");
         return C_ERR;
     }
+    if (tlsSetSessionIdContext(conn->ssl, name) != C_OK) return C_ERR;
     return C_OK;
 }
 
