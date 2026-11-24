@@ -33,20 +33,10 @@
  * NULL check per move, on the callback, and none on the type. */
 static const iheapType iheapNoCallbacks = { NULL, NULL };
 
-/* The largest capacity whose allocation size fits in size_t and whose value
- * fits the 32-bit capacity field. On 64-bit targets the field is the limit;
- * on 32-bit ones the arithmetic is, at about 357 million entries, far more
- * than such a process could hold, so this is a guard against a caller's
- * mistake, not a working limit. */
-#define IHEAP_MAX_CAPACITY \
-    ((SIZE_MAX - sizeof(iheap)) / sizeof(iheapEntry) < UINT32_MAX ? \
-     (SIZE_MAX - sizeof(iheap)) / sizeof(iheapEntry) : (size_t)UINT32_MAX)
-
-/* In a function of its own so that a 64-bit build, where any uint32_t
- * capacity fits, does not warn that the comparison is always true. */
-static inline int iheapCapacityFits(size_t capacity) {
-    return capacity <= IHEAP_MAX_CAPACITY;
-}
+/* The largest capacity: 2^27 entries, about 2 GB. It is fixed so that the
+ * allocation size fits size_t on 32-bit targets as well, where an entry
+ * takes up to 16 bytes. Growing a heap beyond it is asserted. */
+#define IHEAP_MAX_CAPACITY (1u << 27)
 
 /* Tell the embedder where the entry at 'slot' now sits, if it asked. */
 static inline void iheapSetSlot(iheap *h, uint32_t slot) {
@@ -107,7 +97,7 @@ static uint32_t iheapSiftDown(iheap *h, uint32_t i, iheapEntry ent) {
 }
 
 iheap *iheapNew(const iheapType *type, uint32_t capacity) {
-    assert(iheapCapacityFits(capacity));
+    assert(capacity <= IHEAP_MAX_CAPACITY);
     iheap *h = iheapRealloc(NULL, capacity ? capacity : 1);
     h->type = type ? type : &iheapNoCallbacks;
     h->count = 0;

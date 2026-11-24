@@ -71,9 +71,8 @@ typedef struct iheap {
 } iheap;
 
 /* Create an empty heap with room for 'capacity' entries (at least 1). 'type'
- * may be NULL for a heap with no callbacks. The capacity must leave the
- * allocation size within size_t, which only a 32-bit target can violate;
- * that is asserted. */
+ * may be NULL for a heap with no callbacks. A heap holds at most 2^27
+ * entries: a larger 'capacity' is asserted, and so is growing beyond it. */
 iheap *iheapNew(const iheapType *type, uint32_t capacity);
 void iheapFree(iheap *h);
 
