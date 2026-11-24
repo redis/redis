@@ -14,6 +14,7 @@ MODULE_COMMAND_GROUPS = {
     'BF.': 'bf',
     'CF.': 'cf',
     'CMS.': 'cms',
+    'FT.SUG': 'suggestion',
     'FT.': 'search',
     '_FT.': 'search',
     'SEARCH.': 'search',
@@ -103,9 +104,14 @@ def convert_entry_to_objects_array(cmd, docs):
     value = OrderedDict()
     group = docs.pop('group')
     if group == 'module':
-        # Modules don't declare a group, so it is derived from the command's name
-        group = get_module_command_group(name)
-        set_if_not_none_or_empty(value, 'summary', docs.pop('summary', None))
+        # Modules don't declare a group. Public, documented module commands have
+        # a summary and are grouped by their name prefix. Internal and deprecated
+        # commands (no summary) keep the generic "module" group so they stay out
+        # of the per-group command listings and don't get generated command pages.
+        summary = docs.pop('summary', None)
+        if summary:
+            group = get_module_command_group(name)
+        set_if_not_none_or_empty(value, 'summary', summary)
         set_if_not_none_or_empty(value, 'since', docs.pop('since', None))
     else:
         # "summary" and "since" are required for all non-module commands
