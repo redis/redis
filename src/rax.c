@@ -154,13 +154,15 @@ static inline void raxStackFree(raxStack *ts) {
     (((n)->iskey && !(n)->isnull)*sizeof(void*)) \
 )
 
-/* Allocate a new non compressed node with the specified number of children.
- * If datafield is true, the allocation is made large enough to hold the
- * associated data pointer.
+/* Allocate a new non compressed node with the specified number of children,
+ * and room for 'capacity' children (capacity >= children), so that edges can
+ * be added up to 'capacity' without a realloc. If datafield is true, the
+ * allocation is made large enough to hold the associated data pointer.
  * Returns the new node pointer. On out of memory NULL is returned. */
-raxNode *raxNewNode(rax *rax, size_t children, int datafield) {
-    size_t nodesize = sizeof(raxNode)+children+raxPadding(children)+
-                      sizeof(raxNode*)*children;
+static raxNode *raxNewNodeWithCapacity(rax *rax, size_t children, size_t capacity, int datafield) {
+    debugAssert(capacity >= children);
+    size_t nodesize = sizeof(raxNode)+capacity+raxPadding(capacity)+
+                      sizeof(raxNode*)*capacity;
     if (datafield) nodesize += sizeof(void*);
     size_t usable;
     raxNode *node = rax_malloc_usable(nodesize,&usable);
@@ -171,6 +173,14 @@ raxNode *raxNewNode(rax *rax, size_t children, int datafield) {
     node->size = children;
     if (rax->alloc_size) *rax->alloc_size += usable;
     return node;
+}
+
+/* Allocate a new non compressed node with the specified number of children.
+ * If datafield is true, the allocation is made large enough to hold the
+ * associated data pointer.
+ * Returns the new node pointer. On out of memory NULL is returned. */
+raxNode *raxNewNode(rax *rax, size_t children, int datafield) {
+    return raxNewNodeWithCapacity(rax,children,children,datafield);
 }
 
 /* Deallocate node */
@@ -258,16 +268,17 @@ void *raxGetData(raxNode *n) {
     return data;
 }
 
-/* Add a new child to the node 'n' representing the character 'c' and return
- * its new pointer, as well as the child pointer by reference. Additionally
- * '***parentlink' is populated with the raxNode pointer-to-pointer of where
- * the new child was stored, which is useful for the caller to replace the
- * child pointer if it gets reallocated.
+/* Add the edge 'c' to the non-compressed node 'n', pointing to the already
+ * allocated node 'child', keeping the edges sorted. '***parentlink' is
+ * populated with the raxNode pointer-to-pointer of where the child was
+ * stored, which is useful for the caller to replace the child pointer if it
+ * gets reallocated.
  *
  * On success the new parent node pointer is returned (it may change because
  * of the realloc, so the caller should discard 'n' and use the new value).
- * On out of memory NULL is returned, and the old node is still valid. */
-raxNode *raxAddChild(rax *rax, raxNode *n, unsigned char c, raxNode **childptr, raxNode ***parentlink) {
+ * On out of memory NULL is returned, and both 'n' and 'child' are still
+ * valid and untouched. */
+static raxNode *raxLinkChild(rax *rax, raxNode *n, unsigned char c, raxNode *child, raxNode ***parentlink) {
     assert(n->iscompr == 0);
 
     size_t curlen = raxNodeCurrentLength(n);
@@ -276,19 +287,13 @@ raxNode *raxAddChild(rax *rax, raxNode *n, unsigned char c, raxNode **childptr, 
     n->size--; /* For now restore the original size. We'll update it only on
                   success at the end. */
 
-    /* Alloc the new child we will link to 'n'. */
-    raxNode *child = raxNewNode(rax,0,0);
-    if (child == NULL) return NULL;
-
     /* Make space in the original node. If the current allocation already
-     * has enough usable bytes (common with jemalloc size-class rounding),
-     * skip the realloc entirely. */
+     * has enough usable bytes (jemalloc size-class rounding, or a node that
+     * was allocated with room to spare, like the split node in
+     * raxInsertAt()), skip the realloc entirely. */
     if (rax_malloc_usable_size(n) < newlen) {
         raxNode *newn = raxNodeRealloc(rax,n,newlen);
-        if (newn == NULL) {
-            raxFreeNode(rax,child);
-            return NULL;
-        }
+        if (newn == NULL) return NULL;
         n = newn;
     }
 
@@ -403,9 +408,35 @@ raxNode *raxAddChild(rax *rax, raxNode *n, unsigned char c, raxNode **childptr, 
     src = (unsigned char*) raxNodeFirstChildPtr(n);
     raxNode **childfield = (raxNode**)(src+sizeof(raxNode*)*pos);
     memcpy(childfield,&child,sizeof(child));
-    *childptr = child;
     *parentlink = childfield;
     return n;
+}
+
+/* Add a new child to the node 'n' representing the character 'c' and return
+ * its new pointer, as well as the child pointer by reference. Additionally
+ * '***parentlink' is populated with the raxNode pointer-to-pointer of where
+ * the new child was stored, which is useful for the caller to replace the
+ * child pointer if it gets reallocated.
+ *
+ * The new child is an empty node. When the caller already knows what goes
+ * below the new edge, building that with raxNewBranch() and linking it with
+ * raxLinkChild() avoids allocating the child small and growing it later.
+ *
+ * On success the new parent node pointer is returned (it may change because
+ * of the realloc, so the caller should discard 'n' and use the new value).
+ * On out of memory NULL is returned, and the old node is still valid. */
+raxNode *raxAddChild(rax *rax, raxNode *n, unsigned char c, raxNode **childptr, raxNode ***parentlink) {
+    /* Alloc the new child we will link to 'n'. */
+    raxNode *child = raxNewNode(rax,0,0);
+    if (child == NULL) return NULL;
+
+    raxNode *newn = raxLinkChild(rax,n,c,child,parentlink);
+    if (newn == NULL) {
+        raxFreeNode(rax,child);
+        return NULL;
+    }
+    *childptr = child;
+    return newn;
 }
 
 /* ------------------------ FIXED-LENGTH helpers --------------------------- */
@@ -444,9 +475,9 @@ static inline void raxLeafParentWriteSlot(raxNode *paremt, int idx, void *value)
 /* Add a new edge byte `ch` to leaf parent `n` (iscompr=0) and store the
  * given value pointer in the new slot. Returns the (possibly realloc'd)
  * parent node, or NULL on OOM. This is the leaf-parent counterpart of
- * raxAddChild: no child raxNode is allocated.
+ * raxLinkChild: no child raxNode is linked.
  *
- * The byte/pointer shuffle is identical to raxAddChild; only the "what
+ * The byte/pointer shuffle is identical to raxLinkChild; only the "what
  * goes in the slot" step differs (we store `value` rather than a child
  * pointer). Inserting edge 'c' (pos=2) between 'b' and 'd':
  *
@@ -456,7 +487,7 @@ static inline void raxLeafParentWriteSlot(raxNode *paremt, int idx, void *value)
 static raxNode *raxAddSlot(rax *rax, raxNode *n, unsigned char ch, void *value)
 {
     unsigned char *src;
-    /* Unlike raxAddChild, there is no AUXP tail to relocate here: a leaf
+    /* Unlike raxLinkChild, there is no AUXP tail to relocate here: a leaf
      * parent sits at depth keyFixedLen-1, so it is never itself a key. */
     debugAssert(!n->iskey);
     debugAssert(n->iscompr == 0);
@@ -619,6 +650,67 @@ raxNode *raxCompressNode(rax *rax, raxNode *n, unsigned char *s, size_t len, rax
     raxNode **childfield = raxNodeLastChildPtr(n);
     memcpy(childfield,child,sizeof(*child));
     return n;
+}
+
+/* Build the nodes holding the last 'len' bytes of a new key, to be linked
+ * below a new edge with raxLinkChild(), and return the top one. Every node
+ * is allocated at its final size, in the same shape the generic insert loop
+ * of raxInsertAt() gets to with raxAddChild(), raxCompressNode() and
+ * raxReallocForData(), which allocate each node small and grow it right
+ * after:
+ *
+ *   len == 0:  leaf(value)
+ *   len == 1:  [x] -> leaf(value)          (plain node with one edge)
+ *   len >= 2:  "xyz..." -> leaf(value)     (compressed node)
+ *
+ * In a keyFixedLen tree the top node is the leaf parent, so there is no leaf
+ * node: the value goes in its slot (the raxAddSlot() and
+ * raxCompressNodeWithValue() layouts), and 'len' is at least 1.
+ *
+ * '*nodes' is set to the number of nodes allocated (1 or 2). On out of
+ * memory NULL is returned and nothing is allocated. */
+static raxNode *raxNewBranch(rax *rax, unsigned char *s, size_t len, void *data, int *nodes) {
+    debugAssert(len <= RAX_NODE_MAX_SIZE);
+    debugAssert(!rax->keyFixedLen || len > 0);
+    raxNode *leaf = NULL, *top;
+
+    if (!rax->keyFixedLen) {
+        leaf = raxNewNode(rax,0,data != NULL);
+        if (leaf == NULL) return NULL;
+        raxSetData(leaf,data);
+        if (len == 0) {
+            *nodes = 1;
+            return leaf;
+        }
+    }
+
+    if (len == 1) {
+        top = raxNewNode(rax,1,0);
+        if (top == NULL) goto oom;
+        top->data[0] = s[0];
+    } else {
+        size_t usable;
+        size_t nodesize = sizeof(raxNode)+len+raxPadding(len)+sizeof(raxNode*);
+        top = rax_malloc_usable(nodesize,&usable);
+        if (top == NULL) goto oom;
+        if (rax->alloc_size) *rax->alloc_size += usable;
+        top->iskey = 0;
+        top->isnull = 0;
+        top->iscompr = 1;
+        top->size = len;
+        memcpy(top->data,s,len);
+    }
+
+    /* The only slot of 'top' points to the leaf, or holds the value itself
+     * in a keyFixedLen tree. */
+    void *slot = leaf ? (void*)leaf : data;
+    memcpy(raxNodeLastChildPtr(top),&slot,sizeof(slot));
+    *nodes = leaf ? 2 : 1;
+    return top;
+
+oom:
+    if (leaf) raxFreeNode(rax,leaf);
+    return NULL;
 }
 
 /* Walk the tree following the key bytes `s[0..len-1]` and populate
@@ -966,8 +1058,10 @@ int raxInsertAt(rax *rax, unsigned char *s, size_t len, void *data, void **old, 
         size_t nodesize;
 
         /* 2: Create the split node. Also allocate the other nodes we'll need
-         *    ASAP, so that it will be simpler to handle OOM. */
-        raxNode *splitnode = raxNewNode(rax, 1, split_node_is_key);
+         *    ASAP, so that it will be simpler to handle OOM.
+         *    Step 6 adds a second edge to the split node right away, so give
+         *    it room for two children and that edge needs no realloc. */
+        raxNode *splitnode = raxNewNodeWithCapacity(rax, 1, 2, split_node_is_key);
         raxNode *trimmed = NULL;
         raxNode *postfix = NULL;
 
@@ -1160,6 +1254,32 @@ int raxInsertAt(rax *rax, unsigned char *s, size_t len, void *data, void **old, 
                 return 1;
             }
             debugf("Inserting normal node\n");
+
+            /* Build everything below the new edge s[i] at its final size and
+             * link it with a single raxLinkChild() call. Only a remainder
+             * too long for one compressed node takes the generic path. */
+            size_t rem = len-i-1;
+            if (rem <= RAX_NODE_MAX_SIZE) {
+                int nodes;
+                raxNode *branch = raxNewBranch(rax,s+i+1,rem,data,&nodes);
+                if (branch == NULL) goto oom;
+                raxNode **new_parentlink;
+                raxNode *newh = raxLinkChild(rax,h,s[i],branch,&new_parentlink);
+                if (newh == NULL) {
+                    if (nodes == 2) {
+                        raxNode *leaf;
+                        memcpy(&leaf,raxNodeLastChildPtr(branch),sizeof(leaf));
+                        raxFreeNode(rax,leaf);
+                    }
+                    raxFreeNode(rax,branch);
+                    goto oom;
+                }
+                memcpy(parentlink,&newh,sizeof(newh));
+                rax->numnodes += nodes;
+                rax->numele++;
+                return 1;
+            }
+
             raxNode **new_parentlink;
             raxNode *newh = raxAddChild(rax,h,s[i],&child,&new_parentlink);
             if (newh == NULL) goto oom;
@@ -2572,7 +2692,6 @@ static int _rax_test_cmpkey(const void *a, const void *b) {
 int raxTest(int argc, char **argv, int flags) {
     UNUSED(argc);
     UNUSED(argv);
-    UNUSED(flags);
 
     int err = 0;
 
@@ -3014,6 +3133,53 @@ int raxTest(int argc, char **argv, int flags) {
                 }
                 raxFree(r); /* values are integers, not heap pointers */
             }
+        }
+    }
+
+    if (flags & REDIS_TEST_LARGE_MEMORY) {
+        TEST("raxInsert: more than RAX_NODE_MAX_SIZE bytes below a new edge") {
+            /* A compressed node holds at most RAX_NODE_MAX_SIZE bytes. When
+             * the bytes below the new edge 'c' fit, raxInsertAt() builds the
+             * branch with raxNewBranch(). When they don't, it falls back to
+             * raxAddChild() and the generic loop, which splits them:
+             *
+             *   MAX bytes:      [c] -> "MAX bytes" -> leaf
+             *   MAX+1 bytes:    [c] -> "MAX bytes" -> [x] -> leaf
+             *   MAX+100 bytes:  [c] -> "MAX bytes" -> "100 bytes" -> leaf
+             *
+             * Peak memory is about 1GB: the key, plus its copy in the tree. */
+            static const size_t extra[] = {0, 1, 100};
+            static const int newnodes[] = {2, 3, 3}; /* nodes below [c] */
+            size_t maxlen = 1+RAX_NODE_MAX_SIZE+100;
+            unsigned char *key = rax_malloc(maxlen);
+            key[0] = 'c';
+            for (size_t j = 1; j < maxlen; j++) key[j] = (unsigned char)('a'+j%26);
+
+            size_t alloc_size = 0;
+            rax *r = raxNewEx(0, &alloc_size, 0);
+            assert(raxInsert(r, (unsigned char*)"a", 1, (void*)(uintptr_t)1, NULL) == 1);
+            assert(raxInsert(r, (unsigned char*)"b", 1, (void*)(uintptr_t)2, NULL) == 1);
+            uint64_t numnodes = r->numnodes;
+
+            for (size_t e = 0; e < sizeof(extra)/sizeof(extra[0]); e++) {
+                size_t len = 1+RAX_NODE_MAX_SIZE+extra[e];
+                assert(raxInsert(r, key, len, (void*)(uintptr_t)3, NULL) == 1);
+                assert(r->numnodes == numnodes+newnodes[e]);
+                err += _rax_verify_alloc_size(r, alloc_size);
+
+                void *val = NULL;
+                assert(raxFind(r, key, len, &val) == 1 && val == (void*)(uintptr_t)3);
+                assert(raxFind(r, key, len-1, NULL) == 0);
+
+                void *removed = NULL;
+                assert(raxRemove(r, key, len, &removed) == 1 &&
+                       removed == (void*)(uintptr_t)3);
+                assert(r->numnodes == numnodes);
+                err += _rax_verify_alloc_size(r, alloc_size);
+            }
+            assert(raxSize(r) == 2);
+            raxFree(r); /* values are integers, not heap pointers */
+            rax_free(key);
         }
     }
 

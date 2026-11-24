@@ -4397,4 +4397,50 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 0 cluster migration import 0 0
         wait_for_asm_done
     }
+
+    test "Import fails when the destination denies writes after a failed BGSAVE" {
+        ensure_node_owns_slots 0 0 0
+        populate_slot 10 -idx 0 -slot 0
+        set keys [R 0 cluster countkeysinslot 0]
+
+        # Kill a slow BGSAVE child on node 1, so that it denies writes with -MISCONF.
+        ensure_node_owns_slots 1 6000 6000
+        populate_slot 1 -idx 1 -slot 6000
+        waitForBgsave [Rn 1]
+        set save [lindex [R 1 config get save] 1]
+        R 1 config set save "100000 1"
+        R 1 config set rdb-key-save-delay 10000000
+        R 1 bgsave
+        catch {exec kill -9 [get_child_pid -1]}
+        waitForBgsave [Rn 1]
+        assert_equal err [s -1 rdb_last_bgsave_status]
+
+        # The import fails with -MISCONF, the source keeps the keys and no retry runs.
+        set loglines [count_log_lines -1]
+        set task_id [R 1 CLUSTER MIGRATION IMPORT 0 0]
+        wait_for_condition 2000 10 {
+            [string match {*MISCONF*} [migration_status 1 $task_id last_error]]
+        } else {
+            fail "import did not fail: [migration_status 1 $task_id state]"
+        }
+        assert_equal $keys [R 0 cluster countkeysinslot 0]
+        wait_for_log_messages -1 {"*is not retried, writes are denied by a disk error*"} $loglines 2000 10
+
+        # A successful BGSAVE lets the retry complete.
+        R 1 config set rdb-key-save-delay 0
+        R 1 bgsave
+        wait_for_condition 2000 10 {
+            [migration_status 1 $task_id state] eq "completed"
+        } else {
+            fail "import did not complete: [migration_status 1 $task_id last_error]"
+        }
+        wait_for_asm_done
+        assert_equal $keys [R 1 cluster countkeysinslot 0]
+
+        # cleanup
+        R 1 config set save $save
+        R 1 flushall
+        R 0 cluster migration import 0 0
+        wait_for_asm_done
+    }
 }
