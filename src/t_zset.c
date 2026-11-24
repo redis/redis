@@ -1152,9 +1152,6 @@ void zsetConvertAndExpand(robj *zobj, int encoding, unsigned long cap) {
     if (zobj->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *zl = zobj->ptr;
         unsigned char *eptr, *sptr = NULL;
-        unsigned char *vstr;
-        unsigned int vlen;
-        long long vlong;
 
         if (encoding == OBJ_ENCODING_BTREE) {
             zbtreeSet *bt = zbtreeCreate();
