@@ -57,8 +57,7 @@ static inline void iheapSetSlot(iheap *h, uint32_t slot) {
  * the allocator hands back becomes capacity too. */
 static iheap *iheapRealloc(iheap *h, size_t capacity) {
     size_t usable;
-    h = zrealloc_usable(h, sizeof(iheap) + capacity * sizeof(iheapEntry),
-                        &usable, NULL);
+    h = zrealloc_usable(h, sizeof(iheap) + capacity * sizeof(iheapEntry), &usable, NULL);
     capacity = (usable - sizeof(iheap)) / sizeof(iheapEntry);
     if (capacity > IHEAP_MAX_CAPACITY) capacity = IHEAP_MAX_CAPACITY;
     h->capacity = (uint32_t)capacity;
