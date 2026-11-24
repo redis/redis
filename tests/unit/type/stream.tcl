@@ -384,6 +384,28 @@ start_server {
         assert_equal "USD" [dict get $fields currency]
     }
 
+    test {XADD IDMP failure does not leave an empty producer} {
+        r DEL mystream
+
+        # A rejected XADD on a stream with no IDMP state allocates nothing.
+        r XADD mystream 18446744073709551615-18446744073709551615 f v
+        assert_error "*The stream has exhausted the last possible ID*" {r XADD mystream IDMP p1 i0 * f v}
+        assert_error "*The stream has exhausted the last possible ID*" {r XADD mystream IDMP p2 i0 * f v}
+        assert_equal 1 [r XLEN mystream]
+        assert_equal 0 [dict get [r XINFO STREAM mystream] pids-tracked]
+
+        # A later rejection does not add a producer next to an existing one,
+        # and the IID already stored still resolves.
+        r DEL mystream
+        set id [r XADD mystream IDMP p1 i0 * f v]
+        r XADD mystream 18446744073709551615-18446744073709551615 f v
+        assert_error "*The stream has exhausted the last possible ID*" {r XADD mystream IDMP p2 i1 * f v}
+        assert_equal $id [r XADD mystream IDMP p1 i0 * other v]
+        assert_equal 1 [dict get [r XINFO STREAM mystream] pids-tracked]
+        assert_equal 1 [dict get [r XINFO STREAM mystream] iids-tracked]
+        assert_equal 2 [r XLEN mystream]
+    }
+
     test {XADD IDMP multiple different IIDs create multiple entries} {
         r DEL mystream
         
@@ -3586,6 +3608,26 @@ start_server {
     }
 }
 
+start_server {tags {"stream needs:debug external:skip"} overrides {appendonly yes key-memory-histograms yes propagation-error-behavior ignore}} {
+    test {XADD IDMP rejected from the AOF keeps slot memory accounting} {
+        # IDMP takes an explicit ID only from a master or the AOF. Append two
+        # XADDs with an ID below the top item to the AOF and replay it.
+        r XADD mystream IDMP p1 i0 * f v
+        set fp [open [get_last_incr_aof_path r] a]
+        puts -nonewline $fp [formatCommand XADD mystream IDMP p1 i1 1-0 f v]
+        puts -nonewline $fp [formatCommand XADD mystream IDMP p2 i0 1-0 f v]
+        close $fp
+
+        # Panics if a rejected XADD left the tracked slot size wrong
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+        r DEBUG LOADAOF
+        assert_equal 1 [r XLEN mystream]
+        assert_equal 1 [dict get [r XINFO STREAM mystream] pids-tracked]
+        assert_equal 1 [dict get [r XINFO STREAM mystream] iids-tracked]
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
+    }
+}
+
 start_server {tags {"stream needs:debug"} overrides {appendonly yes}} {
     test {XADD with MAXLEN > xlen can propagate correctly} {
         for {set j 0} {$j < 100} {incr j} {
@@ -4077,6 +4119,32 @@ start_server {tags {"stream"}} {
         r XACK mystream group3 1-0 2-0
         r XDELEX mystream ACKED IDS 2 1-0 2-0
         assert_equal 0 [r XLEN mystream]
+    }
+
+    test "XDELEX with ACKED option returns -1 for IDs that are not in the stream" {
+        r DEL mystream
+        r XADD mystream 1-0 f v
+        r XADD mystream 2-0 f v
+        r XGROUP CREATE mystream group1 0
+
+        # 5-0 was never added. It is past the last ID delivered to group1,
+        # but there is no entry to keep: the reply is -1, as without ACKED.
+        assert_equal {-1} [r XDELEX mystream KEEPREF IDS 1 5-0]
+        assert_equal {-1} [r XDELEX mystream ACKED IDS 1 5-0]
+
+        # The same for an entry that was deleted before any group read it.
+        assert_equal 1 [r XDEL mystream 2-0]
+        assert_equal {2 -1 -1} [r XDELEX mystream ACKED IDS 3 1-0 2-0 5-0]
+        assert_equal 1 [r XLEN mystream]
+
+        # A pending reference does not bring a deleted stream entry back.
+        r DEL mystream
+        r XADD mystream 1-0 f v
+        r XGROUP CREATE mystream group1 0
+        r XGROUP CREATE mystream group2 0
+        r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
+        assert_equal 1 [r XDEL mystream 1-0]
+        assert_equal {-1} [r XDELEX mystream ACKED IDS 1 1-0]
     }
 
     test "XDELEX with ACKED option won't delete messages when new consumer groups are created" {

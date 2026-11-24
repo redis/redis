@@ -29,8 +29,8 @@ void prefetchCommands(void);
 
 /* Intra-command prefetch: prefetch dict lookup data for an array of keys.
  * Reuses the same state machine as the cross-command path. The dict's
- * dictType drives any key/value payload prefetching via the
- * prefetchEntryKey / prefetchEntryValue callbacks.
+ * dictType drives any value payload prefetching via the
+ * prefetchEntryValue callback.
  *
  * nkeys must be <= DICT_PREFETCH_MAX_SIZE (the function asserts this).
  * Callers should batch larger inputs into chunks of this size or smaller. */
