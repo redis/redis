@@ -546,6 +546,32 @@ start_server {tags {"tracking network logreqres:skip"}} {
         assert {$keys eq {key1{t}} || $keys eq {key2{t}}}
     }
 
+    test {Tracking table evictions count keys removed by the limit} {
+        clean_all
+        r config resetstat
+        r config set tracking-table-max-keys 0
+        r client tracking on redirect $redir_id
+        $rd client tracking on redirect $redir_id
+        $rd read
+        r mget a{t} b{t} c{t}
+        $rd mget a{t} b{t} c{t}
+        $rd read
+        assert_equal 6 [s 0 tracking_total_items]
+        assert_equal 0 [s 0 tracking_table_evicted_keys]
+
+        r config set tracking-table-max-keys 1
+        assert_equal 1 [s 0 tracking_total_keys]
+        assert_equal 2 [s 0 tracking_table_evicted_keys]
+
+        # Invalidate the remaining entry by writing, then flush a tracked entry.
+        r mset a{t} 1 b{t} 2 c{t} 3
+        r get a{t}
+        r flushdb
+        assert_equal 2 [s 0 tracking_table_evicted_keys]
+        r config resetstat
+        assert_equal 0 [s 0 tracking_table_evicted_keys]
+    }
+
     test {Invalidation message received for flushall} {
         clean_all
         r CLIENT TRACKING on REDIRECT $redir_id
