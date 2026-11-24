@@ -376,6 +376,47 @@ start_server {tags {"string"}} {
         assert_error {*syntax error*} {r msetex 2 key1{t} val1 key2{t} val2 keepttl px 5000}
     }
 
+    test {MSETEX - repeated EX/PX of the same unit, last wins} {
+        r del dup:key{t}
+        r msetex 1 dup:key{t} val ex 10 ex 100
+        assert_range [r ttl dup:key{t}] 90 100
+
+        r del dup:key{t}
+        r msetex 1 dup:key{t} val px 10000 px 100000
+        assert_range [r ttl dup:key{t}] 90 100
+
+        # Repeated expire options with NX in between
+        r del dup:key{t}
+        r msetex 1 dup:key{t} val ex 10 nx ex 100
+        assert_range [r ttl dup:key{t}] 90 100
+    }
+
+    test {MSETEX - EX/PX are propagated as a single PXAT} {
+        r del repl:nx{t}
+        set repl [attach_to_replication_stream]
+        r msetex 2 repl:key1{t} v1 repl:key2{t} v2 ex 100
+        r msetex 1 repl:key1{t} v3 px 100000 xx
+        r msetex 1 repl:key1{t} v4 ex 10 ex 100
+        r msetex 1 repl:key1{t} v5 px 10000 px 100000
+        r msetex 1 repl:nx{t} v6 ex 10 nx ex 100
+        r msetex 1 repl:key1{t} v7 px 10000 xx px 100000
+        foreach expected {
+            {select *}
+            {msetex 2 repl:key1{t} v1 repl:key2{t} v2 PXAT *}
+            {msetex 1 repl:key1{t} v3 XX PXAT *}
+            {msetex 1 repl:key1{t} v4 PXAT *}
+            {msetex 1 repl:key1{t} v5 PXAT *}
+            {msetex 1 repl:nx{t} v6 NX PXAT *}
+            {msetex 1 repl:key1{t} v7 XX PXAT *}
+        } {
+            set command [read_from_replication_stream $repl]
+            # The timestamp wildcard must not hide extra expiration options.
+            assert_equal [llength $expected] [llength $command]
+            assert_match $expected $command
+        }
+        close_replication_stream $repl
+    } {} {needs:repl}
+
     test "STRLEN against non-existing key" {
         assert_equal 0 [r strlen notakey]
     }
@@ -1213,6 +1254,36 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         assert_error "*Invalid condition*" {r delex mykey EQ "hello"}
     }
 
+    test {DELEX frees like DEL under lazyfree-lazy-user-del} {
+        set orig_user [lindex [r config get lazyfree-lazy-user-del] 1]
+        set orig_server [lindex [r config get lazyfree-lazy-server-del] 1]
+
+        # A hashtable-encoded hash is freed in many allocations, so it exceeds
+        # LAZYFREE_THRESHOLD and shows whether the free happened in background.
+        foreach {user_del server_del} {yes no no yes} {
+            r config set lazyfree-lazy-user-del $user_del
+            r config set lazyfree-lazy-server-del $server_del
+            set is_async_user_del [expr {[lindex [r config get lazyfree-lazy-user-del] 1] eq "yes"}]
+
+            foreach cmd {del delex} {
+                r del big
+                for {set i 0} {$i < 1024} {incr i} {
+                    r hset big $i value
+                }
+                assert_encoding hashtable big
+
+                wait_lazyfree_done r
+                set before [s lazyfreed_objects]
+                r $cmd big
+                wait_lazyfree_done r
+                assert_equal [expr {$before + $is_async_user_del}] [s lazyfreed_objects]
+            }
+        }
+
+        r config set lazyfree-lazy-user-del $orig_user
+        r config set lazyfree-lazy-server-del $orig_server
+    }
+
     test {DELEX with special characters and whitespace} {
         r set mykey "  spaces  \t\n\r"
         assert_equal 1 [r delex mykey IFEQ "  spaces  \t\n\r"]
@@ -1693,4 +1764,47 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         assert_equal 0 [r delex mykey IFDNE $upper_digest]
         assert_equal 1 [r exists mykey]
     }
+}
+
+start_server {tags {"string" "external:skip"} overrides {appendonly yes auto-aof-rewrite-percentage 0}} {
+    test {MSETEX - repeated EX/PX and NX/XX survive AOF reload} {
+        waitForBgrewriteaof r
+        # Each MSETEX repeats an expire option of the same unit (the last one
+        # wins), with NX or XX before, between or after the two options.
+        set commands {
+            {msetex 2 k1{t} v1 k2{t} v2 nx ex 10 ex 100}
+            {msetex 2 k3{t} v1 k4{t} v2 ex 10 nx ex 100}
+            {msetex 2 k5{t} v1 k6{t} v2 ex 10 ex 100 nx}
+            {msetex 2 k7{t} v1 k8{t} v2 xx ex 10 ex 100}
+            {msetex 2 k9{t} v1 k10{t} v2 ex 10 xx ex 100}
+            {msetex 2 k11{t} v1 k12{t} v2 ex 10 ex 100 xx}
+            {msetex 2 k13{t} v1 k14{t} v2 nx px 10000 px 100000}
+            {msetex 2 k15{t} v1 k16{t} v2 px 10000 nx px 100000}
+            {msetex 2 k17{t} v1 k18{t} v2 px 10000 px 100000 nx}
+            {msetex 2 k19{t} v1 k20{t} v2 xx px 10000 px 100000}
+            {msetex 2 k21{t} v1 k22{t} v2 px 10000 xx px 100000}
+            {msetex 2 k23{t} v1 k24{t} v2 px 10000 px 100000 xx}
+        }
+        set expected {}
+        foreach cmd $commands {
+            set pairs [lrange $cmd 2 5]
+            # XX only sets keys that already exist.
+            if {"xx" in $cmd} {
+                r mset [lindex $pairs 0] old [lindex $pairs 2] old
+            }
+            assert_equal 1 [r {*}$cmd]
+            foreach {key value} $pairs {
+                assert_equal $value [r get $key]
+                assert_range [r ttl $key] 98 100
+                lappend expected $key $value [r pexpiretime $key]
+            }
+        }
+
+        # Every value and absolute expire time must survive an AOF reload.
+        r debug loadaof
+        foreach {key value expire} $expected {
+            assert_equal $value [r get $key]
+            assert_equal $expire [r pexpiretime $key]
+        }
+    } {} {needs:debug}
 }

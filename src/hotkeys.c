@@ -500,7 +500,7 @@ void hotkeysCommand(client *c) {
         serverAssert(server.hotkeys->tracked_metrics);
 
         /* Calculate duration */
-        int duration = 0;
+        mstime_t duration = 0;
         if (!server.hotkeys->active) {
             duration = server.hotkeys->duration;
         } else {

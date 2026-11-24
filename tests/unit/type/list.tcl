@@ -64,6 +64,16 @@ start_server [list overrides [list save ""] ] {
     }
     } ;# foreach
 
+    test "DEBUG QUICKLIST recompresses the nodes it decompressed" {
+        r flushdb
+        for {set i 0} {$i < 6} {incr i} {
+            r rpush list4 [string repeat a 500]
+        }
+        set usage [r memory usage list4]
+        r debug quicklist list4 1
+        assert_equal $usage [r memory usage list4]
+    } {} {needs:debug}
+
     # revert config for external mode tests.
     r config set list-compress-depth 0
 }

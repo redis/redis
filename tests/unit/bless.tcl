@@ -255,13 +255,15 @@ start_server {tags {"bless"}} {
     test {BLESS index completes rehashing in the background} {
         r flushall
         r config set activerehashing no
+        set count [expr {256 * [dict_bucket_slots] + 8}]
         r eval {
-            for i = 1, 1025 do
+            -- Stop shortly after expanding a 256-bucket table.
+            for i = 1, tonumber(ARGV[1]) do
                 local key = 'blessed:' .. i
                 redis.call('SET', key, 'value')
                 redis.call('BLESS', 'SET', key, 'NO-EVICT')
             end
-        } 0
+        } 0 $count
         set rehashing [dict get [r memory stats] db.dict.rehashing.count]
         r config set activerehashing yes
         assert_morethan $rehashing 0
@@ -270,7 +272,7 @@ start_server {tags {"bless"}} {
         } else {
             fail "Blessed index rehashing did not complete in the background"
         }
-        assert_equal 1025 [s blessed_keys]
+        assert_equal $count [s blessed_keys]
         r flushall
     } {OK} {external:skip}
 
@@ -621,6 +623,24 @@ start_server {tags {"bless" "needs:debug" "external:skip"} overrides {appendonly
             assert_equal {NO-EVICT} [r bless get protected]
             assert_equal {} [r bless get plain]
             assert_equal {protected} [lindex [r bless scan 0 no-evict] 1]
+        }
+
+        test "BLESS SET and CLEAR are replayed from the incremental AOF (RDB preamble $preamble)" {
+            r flushall
+            r config set aof-use-rdb-preamble $preamble
+            r set old value
+            r bless set old no-evict
+            r set new value
+            r bgrewriteaof
+            waitForBgrewriteaof r
+            # Issued after the rewrite, so only the incremental AOF has them.
+            r bless clear old no-evict
+            r bless set new no-evict
+            r debug loadaof
+            assert_equal {} [r bless get old]
+            assert_equal {NO-EVICT} [r bless get new]
+            assert_equal {new} [lindex [r bless scan 0 no-evict] 1]
+            assert_equal 1 [s blessed_keys]
         }
     }
 }

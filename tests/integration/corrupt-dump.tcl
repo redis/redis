@@ -18,6 +18,172 @@ set run_oom_tests [expr {($arch_name == "x86_64" || $arch_name == "aarch64") && 
 
 set corrupt_payload_7445 "\x0E\x01\x1D\x1D\x00\x00\x00\x16\x00\x00\x00\x03\x00\x00\x04\x43\x43\x43\x43\x06\x04\x42\x42\x42\x42\x06\x3F\x41\x41\x41\x41\xFF\x09\x00\x88\xA5\xCA\xA8\xC5\x41\xF4\x35"
 
+test {corrupt payload: zset reservation rejects oversized counts} {
+    start_server {overrides {loglevel verbose}} {
+        r debug set-skip-checksum-validation 1
+        r set target preserved
+        # Both legacy ZSET and ZSET_2 use the same 64-bit count. These values
+        # exercise sizing overflow and allocator rejection without attempting
+        # a large allocation. The footer has RDB version 9 and a dummy CRC.
+        foreach type {03 05} {
+            foreach count {fffffffffffffffe 1fffffffffffffff 1000000000000000} {
+                set payload [binary format H* "${type}81${count}09000000000000000000"]
+                assert_error {*Bad data format*} {r restore target 0 $payload replace}
+                assert_equal preserved [r get target]
+                assert_equal PONG [r ping]
+            }
+        }
+        verify_log_message 0 "*Unable to reserve zset index*" 0
+    }
+}
+
+test {Zset listpack scores are validated before loading or conversion} {
+    start_server {} {
+        r zadd score-source 1.5 a 2.5 b
+        assert_encoding listpack score-source
+        set payload [r dump score-source]
+        # Mutate only the score text; bypass the now-stale DUMP checksum so
+        # the test exercises semantic validation of a well-formed listpack.
+        r debug set-skip-checksum-validation 1
+        # Without sanitization a listpack that stays one is trusted, as for
+        # other types. A conversion still checks every score first.
+        foreach {sanitize limit} {yes 128 yes 1 no 1} {
+            r config set sanitize-dump-payload $sanitize
+            r config set zset-max-listpack-entries $limit
+            foreach score {nan NaN abc 1.x} {
+                set invalid [string map [list 1.5 $score] $payload]
+                assert_error {*Bad data format*} {r restore invalid-score 0 $invalid}
+                assert_equal 0 [r exists invalid-score]
+                assert_equal PONG [r ping]
+            }
+            # Both infinities are legal and must remain reloadable.
+            foreach score {inf -inf} {
+                # -inf needs four bytes, so use ZADD's genuine payload.
+                r del score-valid
+                r zadd score-valid $score a 2.5 b
+                set valid [r dump score-valid]
+                r restore score-roundtrip 0 $valid replace
+                assert_equal $score [r zscore score-roundtrip a]
+            }
+        }
+        r debug set-skip-checksum-validation 0
+        r config set sanitize-dump-payload yes
+        r config set zset-max-listpack-entries 128
+        r debug reload
+        assert_equal PONG [r ping]
+        assert_equal 0 [r exists invalid-score]
+    }
+}
+
+test {ZRANGESTORE builds an ordered btree from an unordered listpack} {
+    start_server {} {
+        # Mix string and integer members to cover both emit callbacks.
+        r zadd order-source 1.5 a 2.5 2 3.5 c 4.5 4
+        assert_encoding listpack order-source
+        # Deep sanitization checks scores and duplicates, not their order,
+        # so a listpack holding 1.5 4.5 3.5 2.5 is accepted.
+        set payload [string map {2.5 4.5 4.5 2.5} [r dump order-source]]
+        r debug set-skip-checksum-validation 1
+        r config set sanitize-dump-payload yes
+        r restore unordered 0 $payload
+        assert_encoding listpack unordered
+        r config set zset-max-listpack-entries 1
+        foreach range {{0 -1} {-inf +inf byscore} {- + bylex}} {
+            r del dst
+            assert_equal 4 [r zrangestore dst unordered {*}$range]
+            assert_encoding btree dst
+            assert_equal {a 1.5 4 2.5 c 3.5 2 4.5} [r zrange dst 0 -1 withscores]
+            assert_equal 3 [r zcount dst 0 4]
+            assert_equal {a 4 c} [r zrangebyscore dst 0 4]
+        }
+        r debug set-skip-checksum-validation 0
+        r config set zset-max-listpack-entries 128
+    }
+}
+
+test {ZMOVE builds an ordered btree from an unordered listpack} {
+    start_server {} {
+        r zadd order-source 1.5 a 2.5 2 3.5 c 4.5 4
+        assert_encoding listpack order-source
+        # As above, a listpack holding 1.5 4.5 3.5 2.5 is accepted.
+        set payload [string map {2.5 4.5 4.5 2.5} [r dump order-source]]
+        r debug set-skip-checksum-validation 1
+        r config set sanitize-dump-payload yes
+        foreach selection {{MIN COUNT 4} {BYSCORE -inf +inf}} {
+            r del dst
+            r config set zset-max-listpack-entries 128
+            r restore unordered 0 $payload
+            assert_encoding listpack unordered
+            r config set zset-max-listpack-entries 1
+            # Members are moved in listpack order, yet must be placed by score.
+            assert_equal {{a 1.5} {2 4.5} {c 3.5} {4 2.5}} [r zmove unordered dst {*}$selection]
+            assert_equal 0 [r exists unordered]
+            assert_encoding btree dst
+            assert_equal {a 1.5 4 2.5 c 3.5 2 4.5} [r zrange dst 0 -1 withscores]
+            assert_equal 3 [r zcount dst 0 4]
+            assert_equal {a 4 c} [r zrangebyscore dst 0 4]
+        }
+        r debug set-skip-checksum-validation 0
+        r config set zset-max-listpack-entries 128
+    }
+}
+
+test {ZRANGESTORE asserts on a listpack that repeats a member} {
+    foreach {members old new} [list \
+        {a b c d}  "\x81\x63"      "\x81\x61" \
+        {1 2 3 4}  "\x03\x01\x03"  "\x01\x01\x03" \
+    ] {
+        lassign $members m1 m2 m3 m4
+        start_server [list overrides [list use-exit-on-panic yes crash-memcheck-enabled no] ] {
+            r debug set-skip-checksum-validation 1
+            r config set sanitize-dump-payload no
+
+            # Restore a listpack whose third member repeats the first.
+            r zadd dup-source 1 $m1 2 $m2 3 $m3 4 $m4
+            assert_encoding listpack dup-source
+            set payload [string map [list $old $new] [r dump dup-source]]
+            r restore dup 0 $payload
+            assert_equal "$m1 1 $m2 2 $m1 3 $m4 4" [r zrange dup 0 -1 withscores]
+
+            # zsetAdd() would silently merge the repeat and the reply would
+            # count 4 while dst holds 3, so ZRANGESTORE must assert instead.
+            catch {r zrangestore dst dup 0 -1}
+            wait_for_log_messages 0 {"*ASSERTION FAILED*"} 0 100 50
+            assert_equal 0 [count_log_message 0 "crashed by signal"]
+        }
+    }
+}
+
+test {Zset listpack duplicate members are rejected by sanitization and assert on conversion} {
+    start_server [list overrides [list use-exit-on-panic yes crash-memcheck-enabled no]] {
+        r zadd dup-source 1 alpha 2 bravo
+        assert_encoding listpack dup-source
+        # Both pairs stay ordered by (score, member), so only a uniqueness
+        # check can catch the duplicate.
+        set payload [string map {bravo alpha} [r dump dup-source]]
+        r debug set-skip-checksum-validation 1
+        r config set sanitize-dump-payload yes
+        foreach {limit} {128 1} {
+            r config set zset-max-listpack-entries $limit
+            assert_error {*Bad data format*} {r restore dup 0 $payload}
+            assert_equal 0 [r exists dup]
+            assert_equal PONG [r ping]
+        }
+
+        # Without sanitization loading does not look for duplicates, whether
+        # the listpack stays one or is converted. A conversion must still not
+        # publish both copies, so it asserts, as the skiplist one did.
+        r config set sanitize-dump-payload no
+        r config set zset-max-listpack-entries 128
+        r restore dup 0 $payload
+        assert_encoding listpack dup
+        r config set zset-max-listpack-entries 2
+        catch {r zadd dup 3 charlie}
+        assert_equal [count_log_message 0 "crashed by signal"] 0
+        assert_equal [count_log_message 0 "ASSERTION FAILED"] 1
+    }
+}
+
 test {corrupt payload: #7445 - with sanitize} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload yes
@@ -1214,4 +1380,3 @@ test {corrupt payload: stream XTRIM with non-minimally encoded flags} {
 }
 
 } ;# tags
-

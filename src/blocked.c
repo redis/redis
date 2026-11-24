@@ -102,9 +102,10 @@ void updateStatsOnUnblock(client *c, long blocked_us, long reply_us, int had_err
         c->lastcmd->failed_calls++;
     if (server.latency_tracking_enabled)
         updateCommandLatencyHistogram(&(c->lastcmd->latency_histogram), total_cmd_duration*1000);
-    /* Log the command into the Slow log if needed. */
-    slowlogPushCurrentCommand(c, c->lastcmd, total_cmd_duration);
-    c->duration = 0;
+    /* Log the command into the Slow log if needed. No CPU sample: c->duration
+     * ran in an earlier event-loop iteration. */
+    slowlogPushCurrentCommand(c, c->lastcmd, total_cmd_duration, NULL);
+    resetClientCommandDuration(c);
     /* Log the reply duration event. */
     latencyAddSampleIfNeeded("command-unblocking",reply_us/1000);
 }
@@ -273,7 +274,7 @@ void replyToClientsBlockedOnShutdown(void) {
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
         if (c->flags & CLIENT_BLOCKED && c->bstate.btype == BLOCKED_SHUTDOWN) {
-            c->duration = 0;
+            resetClientCommandDuration(c);
             addReplyError(c, "Errors trying to SHUTDOWN. Check logs.");
             unblockClient(c, 1);
         }

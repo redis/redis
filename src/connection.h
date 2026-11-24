@@ -435,6 +435,12 @@ static inline connection *connCreate(struct aeEventLoop *el, ConnectionType *ct)
     return ct->conn_create(el);
 }
 
+/* Accepted TLS connection options. */
+typedef struct {
+    int require_auth;
+    int is_cluster_bus;
+} TLSAcceptConfig;
+
 /* Create an accepted connection of specified type.
  * priv is connection type specified argument */
 static inline connection *connCreateAccepted(struct aeEventLoop *el, ConnectionType *ct, int fd, void *priv) {

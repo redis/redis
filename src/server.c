@@ -131,6 +131,12 @@ static inline int shouldShutdownAsap(void) {
     return shutdown_asap;
 }
 
+/* Keep server.masterhost read noinline as race_top so tsan.sup suppresses only
+ * this access and not other reads in serverLogRaw(). */
+__attribute__((noinline)) static int getLogReplicationRole(void) {
+    return server.masterhost ? 'S' : 'M';
+}
+
 /* Low level logging. To use only for very big messages, otherwise
  * serverLog() is to prefer. */
 void serverLogRaw(int level, const char *msg) {
@@ -167,7 +173,7 @@ void serverLogRaw(int level, const char *msg) {
         } else if (pid != server.pid) {
             role_char = 'C'; /* RDB / AOF writing child. */
         } else {
-            role_char = (server.masterhost ? 'S':'M'); /* Slave or Master. */
+            role_char = getLogReplicationRole();
         }
         fprintf(fp,"%d:%c %s %c %s\n",
             (int)getpid(),role_char, buf,c[level],msg);
@@ -403,16 +409,6 @@ void dictSdsDestructor(dict *d, void *val)
     sdsfree(val);
 }
 
-void setSdsDestructor(dict *d, void *val) {
-    *htGetMetadataSize(d) -= sdsAllocSize(val);
-    sdsfree(val);
-}
-
-size_t setDictMetadataBytes(dict *d) {
-    UNUSED(d);
-    return sizeof(size_t);
-}
-
 void *dictSdsDup(dict *d, const void *key) {
     UNUSED(d);
     return sdsdup((const sds) key);
@@ -452,9 +448,11 @@ uint64_t dictCStrCaseHash(const void *key) {
     return dictGenCaseHashFunction((unsigned char*)key, strlen((char*)key));
 }
 
-/* Dict hash function for client */
+/* Dict hash function for client. The id is mixed, as client ids are small
+ * sequential integers and the dict takes the hash tag of an entry from the
+ * top byte of the hash. */
 uint64_t dictClientHash(const void *key) {
-    return ((client *)key)->id;
+    return dictIdHash(((client *)key)->id);
 }
 
 /* Dict compare function for client */
@@ -584,21 +582,16 @@ int dictResizeAllowed(size_t moreMem, double usedRatio) {
     }
 }
 
-/* dbDictType prefetch callbacks.
- * The main keyspace stores a kvobj as the entry's "stored key" (no_value=1).
- * The state machine in memory_prefetch.c calls these hooks to:
- *  - Bring the kvobj head into L1 before keyCompare runs (only useful when
- *    the entry holds an out-of-line pointer; embedded kvobjs are already
- *    in cache from the entry prefetch).
- *  - Bring kv->ptr into L1 for RAW strings, since addReplyBulk reads it
- *    immediately after the lookup. */
-static void *dbDictPrefetchEntryKey(const dictEntry *de) {
-    return dictEntryIsKey(de) ? NULL : dictGetKey(de);
-}
-
+/* dbDictType prefetch callback.
+ * The main keyspace stores a kvobj as the entry's "stored key" (no_value=1),
+ * so the bucket slots hold the kvobj pointers, and the entry prefetch of the
+ * prefetch state machine (dictPrefetchNext() in dict.c) already brings the
+ * kvobj head in. This hook brings kv->ptr into L1 when the value lives in its
+ * own allocation (RAW strings, listpacks, ...), since the caller reads it next. */
 static void *dbDictPrefetchEntryValue(const dictEntry *de) {
     kvobj *kv = dictGetKey(de);
-    return (kv->type == OBJ_STRING && kv->encoding == OBJ_ENCODING_RAW) ? kv->ptr : NULL;
+    if (inlineEncodedObject(kv)) return NULL;
+    return kv->ptr;
 }
 
 /* Generic hash table type where keys are Redis Objects, Values
@@ -638,20 +631,6 @@ dictType objectKeyHeapPointerValueDictType = {
     NULL                       /* allow to expand */
 };
 
-/* Set dictionary type. Keys are SDS strings, values are not used. */
-dictType setDictType = {
-    dictSdsHash,               /* hash function */
-    NULL,                      /* key dup */
-    NULL,                      /* val dup */
-    dictSdsKeyCompare,         /* key compare */
-    setSdsDestructor,          /* key destructor */
-    NULL,                      /* val destructor */
-    NULL,                      /* allow to expand */
-    .no_value = 1,             /* no values in this dict */
-    .keys_are_odd = 1,         /* an SDS string is always an odd pointer */
-    .dictMetadataBytes = setDictMetadataBytes,
-};
-
 /* Db->dict, keys are of type kvobj, unification of key and value */
 dictType dbDictType = {
     dictSdsHash,            /* hash function */
@@ -664,7 +643,6 @@ dictType dbDictType = {
     .no_value = 1,          /* keys and values are unified (kvobj) */
     .keys_are_odd = 0,      /* simple kvobj (robj) struct */
     .keyFromStoredKey = kvGetKey,    /* get key from stored-key */
-    .prefetchEntryKey = dbDictPrefetchEntryKey,
     .prefetchEntryValue = dbDictPrefetchEntryValue,
 };
 
@@ -1108,6 +1086,29 @@ void updateClientMemoryUsage(client *c) {
     c->last_memory_usage = mem;
     c->last_memory_shared = c->reply_bytes_shared;
     c->last_memory_unshared = c->reply_bytes_unshared;
+    c->last_watch_pubsub_mem = c->watched_keys_mem + c->pubsub_names_mem;
+}
+
+void updateClientWatchPubsubMemoryUsage(client *c) {
+    if (!c->conn) return;
+    size_t watch_pubsub_mem = c->watched_keys_mem + c->pubsub_names_mem;
+    if (watch_pubsub_mem == c->last_watch_pubsub_mem) return;
+    size_t mem = c->last_memory_usage - c->last_watch_pubsub_mem + watch_pubsub_mem;
+    server.stat_clients_type_memory[c->last_memory_type] =
+        server.stat_clients_type_memory[c->last_memory_type] - c->last_memory_usage + mem;
+    if (c->mem_usage_bucket) {
+        clientMemUsageBucket *bucket = getMemUsageBucket(mem);
+        c->mem_usage_bucket->mem_usage_sum -= c->last_memory_usage;
+        bucket->mem_usage_sum += mem;
+        if (bucket != c->mem_usage_bucket) {
+            listDelNode(c->mem_usage_bucket->clients, c->mem_usage_bucket_node);
+            c->mem_usage_bucket = bucket;
+            listAddNodeTail(bucket->clients, c);
+            c->mem_usage_bucket_node = listLast(bucket->clients);
+        }
+    }
+    c->last_memory_usage = mem;
+    c->last_watch_pubsub_mem = watch_pubsub_mem;
 }
 
 int clientEvictionAllowed(client *c) {
@@ -1164,6 +1165,7 @@ static int updateClientMemUsageAndBucketInternal(client *c, int unshared_refresh
     removeClientFromMemUsageBucket(c, allow_eviction);
 
     if (!allow_eviction) {
+        updateClientWatchPubsubMemoryUsage(c);
         return 0;
     }
 
@@ -2099,7 +2101,8 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
         flushAppendOnlyFile(0);
 
     /* Record time consumption of AOF writing. */
-    durationAddSample(EL_DURATION_TYPE_AOF, getMonotonicUs() - aof_start_time);
+    monotime aof_duration = getMonotonicUs() - aof_start_time;
+    durationAddSample(EL_DURATION_TYPE_AOF, aof_duration);
 
     /* Update the fsynced replica offset.
      * If an initial rewrite is in progress then not all data is guaranteed to have actually been
@@ -2173,6 +2176,11 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     if (server.el_start > 0) {
         monotime el_duration = getMonotonicUs() - server.el_start;
         durationAddSample(EL_DURATION_TYPE_EL, el_duration);
+        /* Off-CPU check of the whole cycle, including commands handed over by
+         * IO threads above. The AOF write/fsync time is excluded so disk waits
+         * aren't counted. Not reached while nested: ProcessingEventsWhileBlocked
+         * returns early above. */
+        offCpuCheckEventLoopCycle((ustime_t)aof_duration);
     }
     server.el_cron_duration += duration_before_aof + duration_after_write;
     durationAddSample(EL_DURATION_TYPE_CRON, server.el_cron_duration);
@@ -2207,6 +2215,7 @@ void afterSleep(struct aeEventLoop *eventLoop) {
      * Do NOT add anything above moduleAcquireGIL !!! *
      ***************************** ********************/
     if (!ProcessingEventsWhileBlocked) {
+        int cpu_sampled = 0;
         /* Acquire the modules GIL so that their threads won't touch anything. */
         if (moduleCount()) {
             mstime_t latency;
@@ -2215,11 +2224,22 @@ void afterSleep(struct aeEventLoop *eventLoop) {
             atomicSet(server.module_gil_acquiring, 1);
             moduleAcquireGIL();
             atomicSet(server.module_gil_acquiring, 0);
+            /* Start the CPU window after the GIL (waiting for it isn't counted)
+             * and before module events, which may run commands. */
+            if (server.off_cpu_tracking) {
+                cpuSampleTake(&server.cpu_checkpoint);
+                server.el_cpu_start = server.cpu_checkpoint;
+            }
+            cpu_sampled = 1;
             moduleFireServerEvent(REDISMODULE_EVENT_EVENTLOOP,
                                   REDISMODULE_SUBEVENT_EVENTLOOP_AFTER_SLEEP,
                                   NULL);
             latencyEndMonitor(latency);
             latencyAddSampleIfNeeded("module-acquire-GIL",latency);
+        }
+        if (!cpu_sampled && server.off_cpu_tracking) {
+            cpuSampleTake(&server.cpu_checkpoint);
+            server.el_cpu_start = server.cpu_checkpoint;
         }
         /* Set the eventloop start time. */
         server.el_start = getMonotonicUs();
@@ -2353,6 +2373,7 @@ void createSharedObjects(void) {
     shared.bulk = createStringObject("BULK",4);
     shared.zpopmin = createStringObject("ZPOPMIN",7);
     shared.zpopmax = createStringObject("ZPOPMAX",7);
+    shared.zmove = createStringObject("ZMOVE",5);
     shared.multi = createStringObject("MULTI",5);
     shared.exec = createStringObject("EXEC",4);
     shared.hset = createStringObject("HSET",4);
@@ -2371,6 +2392,9 @@ void createSharedObjects(void) {
     shared.hpersist = createStringObject("HPERSIST",8);
     shared.hdel = createStringObject("HDEL",4);
     shared.hsetex = createStringObject("HSETEX",6);
+    shared.spexpireat = createStringObject("SPEXPIREAT",10);
+    shared.spersist = createStringObject("SPERSIST",8);
+    shared.saddex = createStringObject("SADDEX",6);
     shared.restore = createStringObject("RESTORE",7);
     shared.replace = createStringObject("REPLACE",7);
 
@@ -2489,6 +2513,8 @@ void initServerConfig(void) {
     server.aof_rewrite_base_size = 0;
     server.aof_rewrite_scheduled = 0;
     server.aof_flush_sleep = 0;
+    server.aof_flush_force_stall = 0;
+    server.aof_flush_force_error = 0;
     server.aof_last_fsync = time(NULL) * 1000;
     server.aof_cur_timestamp = 0;
     atomicSet(server.aof_bio_fsync_status,C_OK);
@@ -2520,18 +2546,19 @@ void initServerConfig(void) {
     server.pause_cron = 0;
     server.dict_resizing = 1;
 
-    server.latency_tracking_info_percentiles_len = 3;
+    server.latency_tracking_info_percentiles_len = configDefaultLatencyTrackingInfoPercentilesLen;
     server.latency_tracking_info_percentiles = zmalloc(sizeof(double)*(server.latency_tracking_info_percentiles_len));
-    server.latency_tracking_info_percentiles[0] = 50.0;  /* p50 */
-    server.latency_tracking_info_percentiles[1] = 99.0;  /* p99 */
-    server.latency_tracking_info_percentiles[2] = 99.9;  /* p999 */
+    memcpy(server.latency_tracking_info_percentiles,
+           configDefaultLatencyTrackingInfoPercentiles,
+           sizeof(double) * server.latency_tracking_info_percentiles_len);
 
     server.lruclock = getLRUClock();
     resetServerSaveParams();
 
-    appendServerSaveParams(60*60,1);  /* save after 1 hour and 1 change */
-    appendServerSaveParams(300,100);  /* save after 5 minutes and 100 changes */
-    appendServerSaveParams(60,10000); /* save after 1 minute and 10000 changes */
+    for (size_t i = 0; i < configDefaultSaveParamsLen; i++) {
+        appendServerSaveParams(configDefaultSaveParams[i].seconds,
+                               configDefaultSaveParams[i].changes);
+    }
 
     /* Replication related */
     server.masterhost = NULL;
@@ -3028,6 +3055,8 @@ void resetServerStats(void) {
     server.stat_slowlog_count = 0;
     server.stat_slowlog_time_us_sum = 0;
     server.stat_slowlog_time_us_max = 0;
+    server.stat_slow_command_off_cpu_events = 0;
+    server.stat_eventloop_off_cpu_events = 0;
     lazyfreeResetStats();
 }
 
@@ -3135,6 +3164,8 @@ void initServer(void) {
     adjustOpenFilesLimit();
     const char *clk_msg = monotonicInit(monotonicLogCallback);
     serverLog(LL_NOTICE, "monotonic clock: %s", clk_msg);
+    /* Initial CPU window, until the first afterSleep(). */
+    cpuSampleTake(&server.cpu_checkpoint);
     server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);
     if (server.el == NULL) {
         serverLog(LL_WARNING,
@@ -3222,6 +3253,7 @@ void initServer(void) {
         server.stat_clients_type_memory[j] = 0;
     server.stat_clients_shared_memory = 0;
     server.stat_clients_unshared_memory = 0;
+    server.stat_clients_watch_pubsub_shared_overcount = 0;
     server.stat_cluster_links_memory = 0;
     server.cron_malloc_stats.zmalloc_used = 0;
     server.cron_malloc_stats.process_rss = 0;
@@ -3283,6 +3315,7 @@ void initServer(void) {
         server.maxmemory = 3072LL*(1024*1024); /* 3 GB */
         server.maxmemory_policy = MAXMEMORY_NO_EVICTION;
     }
+    moduleUpdateMaxmemorySnapshot();
 
     luaEnvInit();
     scriptingInit(1);
@@ -3946,17 +3979,24 @@ int getPropagateTargetsForCall(client *c, int flags) {
     return targets;
 }
 
-/* Log the last command a client executed into the slowlog. */
-void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t duration) {
+/* Log the last command a client executed into the slowlog, with its CPU time
+ * (see slowlogMeasureCpu()), and warn if it was mostly off-CPU. */
+void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t duration, const cpuSample *cpu_start) {
     /* Some commands may contain sensitive data that should not be available in the slowlog. */
     if (cmd->flags & CMD_SKIP_SLOWLOG)
         return;
+    /* Don't sample for commands that won't be logged. */
+    if (!slowlogWouldLog(duration))
+        return;
+
+    slowlogCpu cpu;
+    slowlogMeasureCpu(c, cpu_start, &cpu);
 
     /* If command argument vector was rewritten, use the original
      * arguments. */
     robj **argv = c->original_argv ? c->original_argv : c->argv;
     int argc = c->original_argv ? c->original_argc : c->argc;
-    if (slowlogPushEntryIfNeeded(c,argv,argc,duration)) {
+    if (slowlogPushEntryIfNeeded(c,argv,argc,duration,cpu.cpu)) {
         server.stat_slowlog_count++;
         server.stat_slowlog_time_us_sum += duration;
         if (duration > server.stat_slowlog_time_us_max)
@@ -3965,6 +4005,7 @@ void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t dur
         cmd->slowlog_time_us_sum += duration;
         if (duration > cmd->slowlog_time_us_max)
             cmd->slowlog_time_us_max = duration;
+        slowlogReportOffCpu(&cpu);
     }
 }
 
@@ -4237,7 +4278,22 @@ void call(client *c, int flags) {
     /* Pass current server.ustime to avoid ustime() call if monotonic clock is used
      * and time will be updated before command execution based on monotonic clock. */
     const long long call_timer = use_hw_clock ? server.ustime : ustime();
+    /* This command's CPU window starts at the current checkpoint. Slow commands
+     * it calls move the checkpoint, not this copy (see slowlogMeasureCpu()). */
+    const cpuSample window_start = server.cpu_checkpoint;
+    /* Measured only if tracking was on when it started, so its start is fresh. */
+    const int cpu_tracked = server.off_cpu_tracking;
     enterExecutionUnit(1, call_timer);
+
+    /* Per-command CPU sample only on a module thread; main-thread commands
+     * are estimated from server.cpu_checkpoint (no syscall per command). */
+    const int on_main_thread = pthread_equal(pthread_self(), server.main_thread_id);
+    const int sample_cpu = update_command_stats && cpu_tracked &&
+                           server.slowlog_log_slower_than >= 0 &&
+                           server.slowlog_max_len > 0 &&
+                           !on_main_thread;
+    cpuSample cpu_start;
+    if (sample_cpu) cpuSampleTake(&cpu_start);
 
     /* setting the CLIENT_EXECUTING_COMMAND flag so we will avoid
      * sending client side caching message in the middle of a command reply.
@@ -4285,6 +4341,14 @@ void call(client *c, int flags) {
     /* Store for afterCommandEx before we reset c->duration. */
     ustime_t total_duration = c->duration;
 
+    if (sample_cpu) {
+        cpuSample cpu_end;
+        cpuSampleTake(&cpu_end);
+        c->cpu_duration += cpu_end.cpu_us - cpu_start.cpu_us;
+        c->cpu_nvcsw += cpu_end.nvcsw - cpu_start.nvcsw;
+        c->cpu_nivcsw += cpu_end.nivcsw - cpu_start.nivcsw;
+    }
+
     dirty = server.dirty-dirty;
     if (dirty < 0) dirty = 0;
 
@@ -4320,10 +4384,16 @@ void call(client *c, int flags) {
             durationAddSample(EL_DURATION_TYPE_CMD, duration);
     }
 
-    /* Log the command into the Slow log if needed.
+    /* Log the command into the Slow log if needed (also flags off-CPU time).
      * If the client is blocked we will handle slowlog when it is unblocked. */
     if (update_command_stats && !(c->flags & CLIENT_BLOCKED))
-        slowlogPushCurrentCommand(c, real_cmd, c->duration);
+        /* Measure only if c->duration is this run alone (a command re-executed
+         * after blocking also carries the time of its earlier run, which the
+         * window doesn't cover), and on a module thread only if it was sampled. */
+        slowlogPushCurrentCommand(c, real_cmd, c->duration,
+                                  c->duration == duration && server.off_cpu_tracking &&
+                                  ((on_main_thread && cpu_tracked) || sample_cpu) ?
+                                  &window_start : NULL);
 
     /* Send the command to clients in MONITOR mode if applicable,
      * since some administrative commands are considered too dangerous to be shown.
@@ -4368,7 +4438,7 @@ void call(client *c, int flags) {
     /* The duration needs to be reset after each call except for a blocked command,
      * which is expected to record and reset the duration after unblocking. */
     if (!(c->flags & CLIENT_BLOCKED)) {
-        c->duration = 0;
+        resetClientCommandDuration(c);
     }
 
     /* Propagate the command into the AOF and replication link.
@@ -4486,7 +4556,7 @@ void call(client *c, int flags) {
  * Note: 'reply' is expected to end with \r\n */
 void rejectCommand(client *c, robj *reply) {
     flagTransaction(c);
-    c->duration = 0;
+    resetClientCommandDuration(c);
     if (c->cmd) c->cmd->rejected_calls++;
     if (c->cmd && c->cmd->proc == execCommand) {
         execCommandAbort(c, reply->ptr);
@@ -4498,7 +4568,7 @@ void rejectCommand(client *c, robj *reply) {
 
 void rejectCommandSds(client *c, sds s) {
     flagTransaction(c);
-    c->duration = 0;
+    resetClientCommandDuration(c);
     if (c->cmd) c->cmd->rejected_calls++;
     if (c->cmd && c->cmd->proc == execCommand) {
         execCommandAbort(c, s);
@@ -4840,7 +4910,7 @@ int processCommand(client *c) {
                 flagTransaction(c);
             }
             clusterRedirectClient(c,n,c->slot,error_code);
-            c->duration = 0;
+            resetClientCommandDuration(c);
             c->cmd->rejected_calls++;
             return C_OK;
         }
@@ -4913,7 +4983,9 @@ int processCommand(client *c) {
     if (deny_write_type != DISK_ERROR_TYPE_NONE &&
         (is_write_command || c->cmd->proc == pingCommand))
     {
-        if (obey_client) {
+        /* The ASM import client is a master client, but this node is not a
+         * replica. Reject the command, the import task fails instead. */
+        if (obey_client && !(c->flags & CLIENT_ASM_IMPORTING)) {
             if (!server.repl_ignore_disk_write_error && c->cmd->proc != pingCommand) {
                 serverPanic("Replica was unable to write command to disk.");
             } else {
@@ -5859,7 +5931,7 @@ void addReplyCommandKeySpecs(client *c, struct redisCommand *cmd) {
                 addReplyLongLong(c, cmd->key_specs[i].fk.keynum.keystep);
                 break;
             default:
-                serverPanic("Invalid find_keys key spec type %d", cmd->key_specs[i].begin_search_type);
+                serverPanic("Invalid find_keys key spec type %d", cmd->key_specs[i].find_keys_type);
         }
     }
 }
@@ -7143,6 +7215,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "slowlog_commands_count:%lld\r\n", server.stat_slowlog_count,
             "slowlog_commands_time_ms_max:%.2f\r\n", (double)server.stat_slowlog_time_us_max / 1000,
             "slowlog_commands_time_ms_sum:%.2f\r\n", (double)server.stat_slowlog_time_us_sum / 1000,
+            "slow_command_off_cpu_events:%lld\r\n", server.stat_slow_command_off_cpu_events,
+            "eventloop_off_cpu_events:%lld\r\n", server.stat_eventloop_off_cpu_events,
             "hash_templates:%zu\r\n", hashTemplateRegistrySize(),
             "hash_template_keys:%zu\r\n", hashTemplateKeyCount()));
         info = genRedisInfoStringACLStats(info);
@@ -7964,8 +8038,8 @@ void dismissClientMemory(client *c) {
 /* Dismiss the hash table bucket arrays of a dict. */
 void dismissDictBucketsMemory(dict *d) {
     if (!d) return;
-    dismissMemory(d->ht_table[0], DICTHT_SIZE(d->ht_size_exp[0]) * sizeof(dictEntry*));
-    dismissMemory(d->ht_table[1], DICTHT_SIZE(d->ht_size_exp[1]) * sizeof(dictEntry*));
+    dismissMemory(d->ht_table[0], DICTHT_SIZE(d->ht_size_exp[0]) * DICT_BUCKET_BYTES);
+    dismissMemory(d->ht_table[1], DICTHT_SIZE(d->ht_size_exp[1]) * DICT_BUCKET_BYTES);
 }
 
 /* Dismiss the hash table bucket arrays for all dicts in the given kvstore. */
@@ -8338,6 +8412,7 @@ int __test_num = 0;
 typedef int redisTestProc(int argc, char **argv, int flags);
 int bitopsTest(int argc, char **argv, int flags);
 int zsetTest(int argc, char **argv, int flags);
+int zsetBtreeTest(int argc, char **argv, int flags);
 int vectorTest(int argc, char **argv, int flags);
 int lzfTest(int argc, char **argv, int flags);
 struct redisTest {
@@ -8367,9 +8442,11 @@ struct redisTest {
     {"bitmap", bitopsTest},
     {"rax", raxTest},
     {"zset", zsetTest},
+    {"zsetbtree", zsetBtreeTest},
     {"topk", chkTopKTest},
     {"fastfloat", fastFloatTest},
     {"lzf", lzfTest},
+    {"setentry", sEntryTest},
 };
 redisTestProc *getTestProcByName(const char *name) {
     int numtests = sizeof(redisTests)/sizeof(struct redisTest);
@@ -8612,7 +8689,7 @@ int main(int argc, char **argv) {
             j++;
         }
 
-        loadServerConfig(server.configfile, config_from_stdin, options);
+        loadServerConfig(server.configfile, config_from_stdin, options, CONFIG_SOURCE_MAIN);
         if (server.sentinel_mode) loadSentinelConfigFromQueue();
         sdsfree(options);
     }

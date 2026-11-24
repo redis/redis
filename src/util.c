@@ -1036,7 +1036,7 @@ void getRandomHexChars(char *p, size_t len) {
  * case of one or more "../" appearing at the start of "filename"
  * relative path. */
 sds getAbsolutePath(char *filename) {
-    char cwd[1024];
+    char cwd[PATH_MAX + 1];
     sds abspath;
     sds relpath = sdsnew(filename);
 
@@ -1826,7 +1826,9 @@ static int cache_exist(int fd) {
 }
 
 static void test_reclaimFilePageCache(void) {
-    char *tmpfile = "/tmp/redis-reclaim-cache-test";
+    /* Use /var/tmp: /tmp may be tmpfs, where
+     * POSIX_FADV_DONTNEED does not evict file pages. */
+    char *tmpfile = "/var/tmp/redis-reclaim-cache-test";
     int fd = open(tmpfile, O_RDWR|O_CREAT, 0644);
     assert(fd >= 0);
 

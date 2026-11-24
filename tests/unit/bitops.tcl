@@ -204,6 +204,28 @@ start_server {tags {"bitops"}} {
         }
     } {1}
 
+    test {BITCOUNT over a large dense bitmap is not truncated} {
+        # The count must equal len*bits-per-byte regardless of size, pattern
+        # and start offset (16-bit SIMD accumulators must not overflow).
+        r del bigdense
+        # Each pair is a one-byte fill value (Tcl expands the \x escapes) and
+        # the number of set bits in it.
+        foreach {byte bits} {"\xff" 8 "\xaa" 4 "\x0f" 4} {
+            foreach len {131071 131072 131073 262144 262160 524288 1048576 3000000} {
+                r set bigdense [string repeat $byte $len]
+                assert_equal [expr {$len * $bits}] [r bitcount bigdense]
+                assert_equal [expr {$len * $bits}] [r bitcount bigdense 0 -1]
+                assert_equal [expr {($len - 1) * $bits}] [r bitcount bigdense 1 -1]
+                assert_equal [expr {($len - 3) * $bits}] [r bitcount bigdense 3 -1]
+                assert_equal [expr {($len - 3) * $bits}] [r bitcount bigdense 0 -4]
+            }
+        }
+        r set bigdense [string repeat "\xff" 1048576]
+        assert_equal 8388608 [r bitcount bigdense 0 -1 bit]
+        assert_equal 8388600 [r bitcount bigdense 4 -5 bit]
+        r del bigdense
+    }
+
     test {BITCOUNT misaligned prefix} {
         r del str
         r set str ab

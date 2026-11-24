@@ -46,6 +46,9 @@
 #define BITOPS_USE_AVX512_POPCOUNT  0
 #endif
 
+static void normalizeBitRange(long long *start, long long *end, uint64_t *bit_start,
+                              uint64_t *bit_end, unsigned char *first_byte_neg_mask,
+                              unsigned char *last_byte_neg_mask, long long strlen, int isbit);
 
 /* -----------------------------------------------------------------------------
  * Helpers and low level bit functions.
@@ -154,11 +157,18 @@ remain:
 }
 
 #ifdef HAVE_AARCH64_NEON
+/* Max number of 128-byte iterations between reductions of the u16 NEON
+ * accumulators. Each lane gains at most 32 per iteration (2 x vpadalq of at
+ * most 16), so it would wrap at 65536/32 = 2048 iterations on all-ones data.
+ * 1024 leaves a 2x margin. */
+#define POPCOUNT_NEON_MAX_ITERS 1024
+
 /* AArch64 optimized popcount implementation.
  * Processes the input bitmap using four NEON vector accumulators in parallel
  * to improve instruction-level parallelism and reduce the frequency of
  * scalar reductions. Each accumulator holds 16-bit partial sums that are
- * combined only once per large block (128 bytes), minimizing data movement.
+ * reduced to a scalar every POPCOUNT_NEON_MAX_ITERS iterations of 128 bytes,
+ * minimizing data movement without letting the 16-bit lanes overflow.
  *
  * Benchmark results show this approach outperforms 2-lane implementations
  * and matches or exceeds 8-lane versions in throughput, while avoiding
@@ -177,58 +187,64 @@ long long redisPopCountAarch64(void *s, long count) {
         count--;
     }
 
-    /* Four vector accumulators of u16 (pairwise-accumulated byte counts). */
-    uint16x8_t acc0 = vdupq_n_u16(0);
-    uint16x8_t acc1 = vdupq_n_u16(0);
-    uint16x8_t acc2 = vdupq_n_u16(0);
-    uint16x8_t acc3 = vdupq_n_u16(0);
-
-    /* Process 128B per loop to amortize reductions. */
+    /* Process 128B per iteration, reducing the accumulators every
+     * POPCOUNT_NEON_MAX_ITERS iterations so the u16 lanes can't overflow. */
     while (count >= 128) {
-        uint8x16_t d0 = vld1q_u8(p +  0);
-        uint8x16_t d1 = vld1q_u8(p + 16);
-        uint8x16_t d2 = vld1q_u8(p + 32);
-        uint8x16_t d3 = vld1q_u8(p + 48);
-        uint8x16_t d4 = vld1q_u8(p + 64);
-        uint8x16_t d5 = vld1q_u8(p + 80);
-        uint8x16_t d6 = vld1q_u8(p + 96);
-        uint8x16_t d7 = vld1q_u8(p +112);
+        /* Four vector accumulators of u16 (pairwise-accumulated byte counts). */
+        uint16x8_t acc0 = vdupq_n_u16(0);
+        uint16x8_t acc1 = vdupq_n_u16(0);
+        uint16x8_t acc2 = vdupq_n_u16(0);
+        uint16x8_t acc3 = vdupq_n_u16(0);
 
-        /* Per-byte popcount */
-        uint8x16_t c0 = vcntq_u8(d0);
-        uint8x16_t c1 = vcntq_u8(d1);
-        uint8x16_t c2 = vcntq_u8(d2);
-        uint8x16_t c3 = vcntq_u8(d3);
-        uint8x16_t c4 = vcntq_u8(d4);
-        uint8x16_t c5 = vcntq_u8(d5);
-        uint8x16_t c6 = vcntq_u8(d6);
-        uint8x16_t c7 = vcntq_u8(d7);
+        long iters = count / 128;
+        if (iters > POPCOUNT_NEON_MAX_ITERS) iters = POPCOUNT_NEON_MAX_ITERS;
+        count -= iters * 128;
 
-        /* Pairwise widen-add with accumulation: u8 -> u16, stay in vectors */
-        acc0 = vpadalq_u8(acc0, c0);
-        acc1 = vpadalq_u8(acc1, c1);
-        acc2 = vpadalq_u8(acc2, c2);
-        acc3 = vpadalq_u8(acc3, c3);
+        while (iters--) {
+            uint8x16_t d0 = vld1q_u8(p +  0);
+            uint8x16_t d1 = vld1q_u8(p + 16);
+            uint8x16_t d2 = vld1q_u8(p + 32);
+            uint8x16_t d3 = vld1q_u8(p + 48);
+            uint8x16_t d4 = vld1q_u8(p + 64);
+            uint8x16_t d5 = vld1q_u8(p + 80);
+            uint8x16_t d6 = vld1q_u8(p + 96);
+            uint8x16_t d7 = vld1q_u8(p +112);
 
-        acc0 = vpadalq_u8(acc0, c4);
-        acc1 = vpadalq_u8(acc1, c5);
-        acc2 = vpadalq_u8(acc2, c6);
-        acc3 = vpadalq_u8(acc3, c7);
+            /* Per-byte popcount */
+            uint8x16_t c0 = vcntq_u8(d0);
+            uint8x16_t c1 = vcntq_u8(d1);
+            uint8x16_t c2 = vcntq_u8(d2);
+            uint8x16_t c3 = vcntq_u8(d3);
+            uint8x16_t c4 = vcntq_u8(d4);
+            uint8x16_t c5 = vcntq_u8(d5);
+            uint8x16_t c6 = vcntq_u8(d6);
+            uint8x16_t c7 = vcntq_u8(d7);
 
-        p += 128;
-        count -= 128;
+            /* Pairwise widen-add with accumulation: u8 -> u16, stay in vectors */
+            acc0 = vpadalq_u8(acc0, c0);
+            acc1 = vpadalq_u8(acc1, c1);
+            acc2 = vpadalq_u8(acc2, c2);
+            acc3 = vpadalq_u8(acc3, c3);
+
+            acc0 = vpadalq_u8(acc0, c4);
+            acc1 = vpadalq_u8(acc1, c5);
+            acc2 = vpadalq_u8(acc2, c6);
+            acc3 = vpadalq_u8(acc3, c7);
+
+            p += 128;
+        }
+
+        /* Reduce vector accumulators to scalar. */
+        uint32x4_t s0 = vpaddlq_u16(acc0);
+        uint32x4_t s1 = vpaddlq_u16(acc1);
+        uint32x4_t s2 = vpaddlq_u16(acc2);
+        uint32x4_t s3 = vpaddlq_u16(acc3);
+        uint32x4_t s01 = vaddq_u32(s0, s1);
+        uint32x4_t s23 = vaddq_u32(s2, s3);
+        uint32x4_t st = vaddq_u32(s01, s23);
+        uint64x2_t s64 = vpaddlq_u32(st);
+        bits += (long long)(vgetq_lane_u64(s64, 0) + vgetq_lane_u64(s64, 1));
     }
-
-    /* Reduce vector accumulators to scalar once. */
-    uint32x4_t s0 = vpaddlq_u16(acc0);
-    uint32x4_t s1 = vpaddlq_u16(acc1);
-    uint32x4_t s2 = vpaddlq_u16(acc2);
-    uint32x4_t s3 = vpaddlq_u16(acc3);
-    uint32x4_t s01 = vaddq_u32(s0, s1);
-    uint32x4_t s23 = vaddq_u32(s2, s3);
-    uint32x4_t st = vaddq_u32(s01, s23);
-    uint64x2_t s64 = vpaddlq_u32(st);
-    bits += (long long)(vgetq_lane_u64(s64, 0) + vgetq_lane_u64(s64, 1));
 
     /* Remaining 64B blocks (keep vector domain) */
     while (count >= 64) {
@@ -2034,11 +2050,184 @@ void bitroaropCommand(client *c) {
     bitopCommandGeneric(c, 1);
 }
 
+typedef struct bitroarIntArrayReply {
+    client *c;
+    long long emitted;
+    long long limit; /* LIMIT count, or LLONG_MAX without LIMIT. */
+    int isbit;       /* The range is in BIT units. */
+    uint64_t end;    /* Offsets at or beyond this are not returned. */
+} bitroarIntArrayReply;
+
+/* Add 'offset' to the reply, and return 0 if no more offsets should follow. */
+static int bitrangeintarrayAddOffset(bitroarIntArrayReply *reply, uint64_t offset) {
+    addReplyLongLong(reply->c, (long long)offset);
+    /* Once LIMIT is reached, a BIT range stops at once. A BYTE range goes on
+     * to the end of the byte holding 'offset', returning up to 7 offsets more
+     * than LIMIT, so the next page can start at the following byte without
+     * repeating or skipping offsets. BYTE ranges end on a byte boundary, so
+     * this never extends past the range. */
+    if (++reply->emitted == reply->limit) {
+        if (reply->isbit) return 0;
+        reply->end = (offset | 7) + 1;
+    }
+    return !(reply->c->flags & CLIENT_CLOSE_ASAP);
+}
+
+/* Stream bit offsets into the reply without allocating a second array
+ * proportional to the result. */
+static int bitroarReplyBits(const uint64_t *values, size_t count, void *privdata) {
+    bitroarIntArrayReply *reply = privdata;
+    for (size_t i = 0; i < count; i++) {
+        if (values[i] >= reply->end) return 0;
+        if (!bitrangeintarrayAddOffset(reply, values[i])) return 0;
+    }
+    return 1;
+}
+
+/* Stream the offsets of the bits set to 'bit' in a string, in the half-open
+ * bit interval [start, end). Offsets follow GETBIT: bit 0 is the most
+ * significant bit of the first byte. */
+static void bitrangeintarrayString(const unsigned char *p, int bit, uint64_t start,
+                                   uint64_t end, bitroarIntArrayReply *reply)
+{
+    uint64_t last = (end + 7) >> 3; /* One past the last byte in the range. */
+    uint64_t i = start >> 3;
+    /* XOR with this sets the wanted bits: it inverts the words when looking
+     * for clear bits, so only set bits need to be visited. */
+    uint64_t flip = bit ? 0 : ~0ULL;
+
+    while (i < last) {
+        uint64_t word = 0;
+        /* Skip 64-bit words without wanted bits in a tight loop, kept apart
+         * from the reply calls below so the compiler can keep it in
+         * registers. */
+        while (last - i >= 8) {
+            memcpy(&word, p + i, sizeof(word));
+            word ^= flip;
+            if (word != 0) break;
+            i += 8;
+        }
+        if (word != 0) {
+            /* Big-endian, so the most significant bit is the lowest offset. */
+            word = htonu64(word);
+        } else {
+            /* Fewer than 8 bytes remain: zero-pad them on the right. */
+            for (uint64_t j = 0; i + j < last; j++)
+                word |= (uint64_t)(p[i + j] ^ (unsigned char)flip) << (56 - 8 * j);
+            if (word == 0) break;
+        }
+
+        /* Clear the bits before 'start' and from 'end' within this word. */
+        uint64_t base = i * 8;
+        if (start > base) word &= ~0ULL >> (start - base);
+        if (end < base + 64) word &= ~(~0ULL >> (end - base));
+
+        /* Visit only the set bits, lowest offset first. */
+        while (word) {
+            int pos = __builtin_clzll(word);
+            if (base + pos >= reply->end) return;
+            if (!bitrangeintarrayAddOffset(reply, base + pos)) return;
+            word &= ~((1ULL << 63) >> pos);
+        }
+        /* Reaching LIMIT ends the range within this word. */
+        if (reply->emitted >= reply->limit) return;
+        i += 8;
+    }
+}
+
+/* BITRANGEINTARRAY key start end [BIT|BYTE] [LIMIT count] [ZEROS]
+ * Returns the offsets of the set bits in the range, in ascending order.
+ * Strings are read in place and native bitmaps are iterated directly.
+ *
+ * start end: the inclusive range, interpreted as in BITCOUNT, so both
+ *            commands cover the same bits. It is clamped to the bitmap:
+ *            unlike BITPOS, no clear bits are assumed past its end.
+ * BIT|BYTE:  the unit of 'start' and 'end', BYTE by default.
+ * LIMIT:     return only the lowest 'count' offsets in the range. In BYTE
+ *            units the reply also completes the byte holding the last of
+ *            them, so a page ends on a byte boundary.
+ * ZEROS:     return the offsets of the clear bits instead. */
+void bitrangeintarrayCommand(client *c) {
+    kvobj *o;
+    long long start, end, strlen;
+    long slen;
+    unsigned char *p = NULL;
+    char llbuf[LONG_STR_SIZE];
+    uint64_t bit_start, bit_end;
+    int isbit = 0;
+    int value = 1; /* The value of the bits to return. */
+    long long limit = LLONG_MAX;
+
+    if (getLongLongFromObjectOrReply(c,c->argv[2],&start,NULL) != C_OK)
+        return;
+    if (getLongLongFromObjectOrReply(c,c->argv[3],&end,NULL) != C_OK)
+        return;
+
+    /* Parse the options, in any order. */
+    for (int j = 4; j < c->argc; j++) {
+        int moreargs = (c->argc - 1) - j;
+        if (!strcasecmp(c->argv[j]->ptr,"bit")) {
+            isbit = 1;
+        } else if (!strcasecmp(c->argv[j]->ptr,"byte")) {
+            isbit = 0;
+        } else if (!strcasecmp(c->argv[j]->ptr,"limit") && moreargs) {
+            if (getLongLongFromObjectOrReply(c,c->argv[++j],&limit,NULL) != C_OK)
+                return;
+            if (limit < 0) {
+                addReplyError(c,"LIMIT can't be negative");
+                return;
+            }
+        } else if (!strcasecmp(c->argv[j]->ptr,"zeros")) {
+            value = 0;
+        } else {
+            addReplyErrorObject(c,shared.syntaxerr);
+            return;
+        }
+    }
+
+    /* Lookup, check for type. */
+    o = lookupKeyRead(c->db, c->argv[1]);
+    if (checkStringOrBitmapType(c, o)) return;
+    if (o == NULL) {
+        addReply(c, shared.emptyarray);
+        return;
+    }
+    if (o->type == OBJ_BITMAP) {
+        strlen = (long long)bitroarLen(o);
+    } else {
+        p = getObjectReadOnlyString(o,&slen,llbuf);
+        strlen = slen;
+    }
+
+    /* An empty value has no bits. Like BITCOUNT, a range with both ends
+     * negative and reversed is empty even when both ends would clamp to the
+     * first byte or bit. */
+    if (strlen == 0 || (start < 0 && end < 0 && start > end)) {
+        addReply(c, shared.emptyarray);
+        return;
+    }
+    normalizeBitRange(&start, &end, &bit_start, &bit_end, NULL, NULL, strlen, isbit);
+    if (start > end || limit == 0) {
+        addReply(c, shared.emptyarray);
+        return;
+    }
+
+    void *arraylen = addReplyDeferredLen(c);
+    bitroarIntArrayReply reply = {c, 0, limit, isbit, bit_end};
+    if (o->type == OBJ_BITMAP)
+        bitroarVisitBits(o, value, bit_start, bit_end, bitroarReplyBits, &reply);
+    else
+        bitrangeintarrayString(p, value, bit_start, bit_end, &reply);
+    /* Resolve the placeholder even if an output limit scheduled async close. */
+    setDeferredArrayLen(c, arraylen, reply.emitted);
+}
+
 /* Normalize the raw START/END arguments against a value of 'strlen' bytes,
  * clamping 'start'/'end' to byte coordinates, and derive the half-open bit
  * interval used by Roaring bitmap range operations ('bit_start'/'bit_end')
  * along with the bits to ignore in the first/last byte of byte-backed values
- * for bit-addressed ranges. */
+ * for bit-addressed ranges. Callers that only need the bit interval may pass
+ * NULL for 'first_byte_neg_mask' and 'last_byte_neg_mask'. */
 static void normalizeBitRange(long long *start, long long *end, uint64_t *bit_start,
                               uint64_t *bit_end, unsigned char *first_byte_neg_mask,
                               unsigned char *last_byte_neg_mask, long long strlen, int isbit)
@@ -2054,8 +2243,8 @@ static void normalizeBitRange(long long *start, long long *end, uint64_t *bit_st
     if (*end < 0) *end = 0;
     if (*end >= totlen) *end = totlen-1;
 
-    *first_byte_neg_mask = 0;
-    *last_byte_neg_mask = 0;
+    if (first_byte_neg_mask) *first_byte_neg_mask = 0;
+    if (last_byte_neg_mask) *last_byte_neg_mask = 0;
     *bit_start = 0;
     *bit_end = 0;
     if (*start > *end) return;
@@ -2063,8 +2252,10 @@ static void normalizeBitRange(long long *start, long long *end, uint64_t *bit_st
     if (isbit) {
         *bit_start = (uint64_t)*start;
         *bit_end = (uint64_t)*end + 1;
-        *first_byte_neg_mask = ~((1<<(8-(*start&7)))-1) & 0xFF;
-        *last_byte_neg_mask = (1<<(7-(*end&7)))-1;
+        if (first_byte_neg_mask)
+            *first_byte_neg_mask = ~((1<<(8-(*start&7)))-1) & 0xFF;
+        if (last_byte_neg_mask)
+            *last_byte_neg_mask = (1<<(7-(*end&7)))-1;
         *start >>= 3;
         *end >>= 3;
     } else {
@@ -2798,71 +2989,90 @@ void bitfieldroCommand(client *c) {
 }
 
 #ifdef REDIS_TEST
+#include "testhelp.h"
+
+typedef long long (*popcountFn)(void *s, long count);
+#define POPCOUNT_TEST_MAX_IMPLS 4
+
+/* Fill names/fns with every popcount implementation usable on this CPU and
+ * return how many there are. */
+static int popcountTestImpls(const char *names[], popcountFn fns[]) {
+    int n = 0;
+
+    names[n] = "generic"; fns[n++] = redisPopcount;
+#ifdef HAVE_AVX2
+    if (BITOP_USE_AVX2) {
+        names[n] = "AVX2"; fns[n++] = redisPopCountAvx2;
+    }
+#endif
+#ifdef HAVE_AVX512
+    if (BITOPS_USE_AVX512_POPCOUNT) {
+        names[n] = "AVX512"; fns[n++] = redisPopCountAvx512;
+    }
+#endif
+#ifdef HAVE_AARCH64_NEON
+    names[n] = "NEON"; fns[n++] = redisPopCountAarch64;
+#endif
+    serverAssert(n <= POPCOUNT_TEST_MAX_IMPLS);
+    return n;
+}
+
 /* Test function to verify popcount implementations */
 int bitopsTest(int argc, char **argv, int flags) {
     UNUSED(argc);
     UNUSED(argv);
-    UNUSED(flags);
+
+    const char *names[POPCOUNT_TEST_MAX_IMPLS];
+    popcountFn fns[POPCOUNT_TEST_MAX_IMPLS];
+    int nimpls = popcountTestImpls(names, fns);
 
     /* Test data with known popcount values */
     unsigned char test_data[] = {0xFF, 0x00, 0xAA, 0x55, 0xF0, 0x0F, 0x33, 0xCC};
-    int expected_bits = 8 + 0 + 4 + 4 + 4 + 4 + 4 + 4; /* = 32 bits */
+    long long expected_bits = 8 + 0 + 4 + 4 + 4 + 4 + 4 + 4; /* = 32 bits */
 
-    long long result_regular = redisPopcount(test_data, sizeof(test_data));
-
-    printf("Regular popcount: %lld (expected: %d)\n", result_regular, expected_bits);
-
-    if (result_regular != expected_bits) {
-        printf("FAIL: Regular popcount mismatch\n");
-        return 1;
+    for (int i = 0; i < nimpls; i++) {
+        char descr[64];
+        snprintf(descr, sizeof(descr), "%s popcount of a small buffer", names[i]);
+        test_cond(descr, fns[i](test_data, sizeof(test_data)) == expected_bits);
     }
 
-#ifdef HAVE_AVX2
-    if (BITOP_USE_AVX2) {
-        long long result_avx2 = redisPopCountAvx2(test_data, sizeof(test_data));
-        printf("AVX2 popcount: %lld (expected: %d)\n", result_avx2, expected_bits);
+    /* Large dense buffers. The AArch64 NEON path used to wrap its 16-bit
+     * accumulators (after 2048 iterations of 128 bytes on all-ones data) and
+     * return a truncated count. Check every usable implementation at sizes
+     * around the reduction interval and at several misalignments. The lengths
+     * are sorted, and the valgrind run skips the largest ones. */
+    const size_t lens[] = {1, 127, 128, 129, 131071, 131072, 131073,
+                           262144, 262144 + 16, 1048576, 3000000};
+    const int offsets[] = {0, 1, 15};
+    const unsigned char fills[] = {0xFF, 0xAA};
+    size_t nlens = sizeof(lens) / sizeof(lens[0]);
+    if (flags & REDIS_TEST_VALGRIND) nlens -= 2;
+    size_t maxlen = lens[nlens-1];
+    unsigned char *buf = zmalloc(maxlen + 16);
 
-        if (result_avx2 != expected_bits) {
-            printf("FAIL: AVX2 popcount mismatch\n");
-            return 1;
+    for (int i = 0; i < nimpls; i++) {
+        int ok = 1;
+        for (size_t f = 0; f < sizeof(fills) && ok; f++) {
+            memset(buf, fills[f], maxlen + 16);
+            for (size_t l = 0; l < nlens && ok; l++) {
+                for (size_t o = 0; o < sizeof(offsets)/sizeof(offsets[0]); o++) {
+                    long long want = (long long)lens[l] * __builtin_popcount(fills[f]);
+                    long long got = fns[i](buf + offsets[o], lens[l]);
+                    if (got != want) {
+                        printf("%s popcount of %zu bytes of 0x%02X at offset %d: "
+                               "got %lld, expected %lld\n",
+                               names[i], lens[l], fills[f], offsets[o], got, want);
+                        ok = 0;
+                        break;
+                    }
+                }
+            }
         }
-    } else {
-        printf("AVX2 not supported on this CPU\n");
+        char descr[64];
+        snprintf(descr, sizeof(descr), "%s popcount of large dense buffers", names[i]);
+        test_cond(descr, ok);
     }
-#else
-    printf("AVX2 not compiled in\n");
-#endif
-
-#ifdef HAVE_AVX512
-    if (BITOP_USE_AVX512) {
-        long long result_avx512 = redisPopCountAvx512(test_data, sizeof(test_data));
-        printf("AVX512 popcount: %lld (expected: %d)\n", result_avx512, expected_bits);
-
-        if (result_avx512 != expected_bits) {
-            printf("FAIL: AVX512 popcount mismatch\n");
-            return 1;
-        }
-    } else {
-        printf("AVX512 not supported on this CPU\n");
-    }
-#else
-    printf("AVX512 not compiled in\n");
-#endif
-
-#ifdef HAVE_AARCH64_NEON
-    {
-        long long result_aarch64 = redisPopCountAarch64(test_data, sizeof(test_data));
-        printf("AArch64 NEON popcount: %lld (expected: %d)\n", result_aarch64, expected_bits);
-
-        if (result_aarch64 != expected_bits) {
-            printf("FAIL: AArch64 NEON popcount mismatch\n");
-            return 1;
-        }
-    }
-#else
-    printf("AArch64 NEON not available\n");
-#endif
-    printf("All popcount tests passed!\n");
+    zfree(buf);
     return 0;
 }
 #endif

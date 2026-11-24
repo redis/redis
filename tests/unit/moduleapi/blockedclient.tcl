@@ -328,7 +328,9 @@ foreach call_type {nested normal} {
 # clients living in IO threads, so it must be able to pause them like the main
 # thread does, instead of hitting the main thread assertion in
 # pauseIOThreadsRange() (or in protectClientReplyObjects()).
-start_server [list overrides [list loadmodule "$testmodule" io-threads 4] tags {"modules external:skip"}] {
+# Tagged 'iothreads' so the valgrind jobs skip it: valgrind's overhead doesn't
+# pair well with io-threads.
+start_server [list overrides [list loadmodule "$testmodule" io-threads 4] tags {"modules iothreads external:skip"}] {
     test {CLIENT LIST from a module thread with clients in IO threads} {
         set c [redis_client]
         set cid [$c client id]

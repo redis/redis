@@ -176,6 +176,7 @@ typedef struct MatchState {
   const char *src_init;  /* init of source string */
   const char *src_end;  /* end (`\0') of source string */
   lua_State *L;
+  int matchdepth;
   int level;  /* total number of captures (finished or unfinished) */
   int matchcount;  /* Redis: countdown to the next Lua hook invocation */
   struct {
@@ -184,6 +185,10 @@ typedef struct MatchState {
   } capture[LUA_MAXCAPTURES];
 } MatchState;
 
+/* maximum recursion depth for 'match' */
+#if !defined(MAXCCALLS)
+#define MAXCCALLS	200
+#endif
 
 #define L_ESC		'%'
 #define SPECIALS	"^$*+?.([%-"
@@ -395,22 +400,28 @@ static const char *match (MatchState *ms, const char *s, const char *p) {
     ms->matchcount = LUA_MATCH_HOOK_INTERVAL;
     match_run_hook(ms);
   }
-  init: /* using goto's to optimize tail recursion */
+
+  if (ms->matchdepth-- == 0)
+    luaL_error(ms->L, "pattern too complex");
+
+init: /* using goto's to optimize tail recursion */
   switch (*p) {
     case '(': {  /* start capture */
       if (*(p+1) == ')')  /* position capture? */
-        return start_capture(ms, s, p+2, CAP_POSITION);
+        s = start_capture(ms, s, p+2, CAP_POSITION);
       else
-        return start_capture(ms, s, p+1, CAP_UNFINISHED);
+        s = start_capture(ms, s, p+1, CAP_UNFINISHED);
+      break;
     }
     case ')': {  /* end capture */
-      return end_capture(ms, s, p+1);
+      s = end_capture(ms, s, p+1);
+      break;
     }
     case L_ESC: {
       switch (*(p+1)) {
         case 'b': {  /* balanced string? */
           s = matchbalance(ms, s, p+2);
-          if (s == NULL) return NULL;
+          if (s == NULL) break;
           p+=4; goto init;  /* else return match(ms, s, p+4); */
         }
         case 'f': {  /* frontier? */
@@ -422,53 +433,71 @@ static const char *match (MatchState *ms, const char *s, const char *p) {
           ep = classend(ms, p);  /* points to what is next */
           previous = (s == ms->src_init) ? '\0' : *(s-1);
           if (matchbracketclass(uchar(previous), p, ep-1) ||
-             !matchbracketclass(uchar(*s), p, ep-1)) return NULL;
+             !matchbracketclass(uchar(*s), p, ep-1)) {
+            s = NULL;
+            break;
+          }
           p=ep; goto init;  /* else return match(ms, s, ep); */
         }
         default: {
           if (isdigit(uchar(*(p+1)))) {  /* capture results (%0-%9)? */
             s = match_capture(ms, s, uchar(*(p+1)));
-            if (s == NULL) return NULL;
+            if (s == NULL) break;
             p+=2; goto init;  /* else return match(ms, s, p+2) */
           }
           goto dflt;  /* case default */
         }
       }
+      break;
     }
-    case '\0': {  /* end of pattern */
-      return s;  /* match succeeded */
+    case '\0': {  /* end of pattern, match succeeded */
+      break;
     }
     case '$': {
-      if (*(p+1) == '\0')  /* is the `$' the last char in pattern? */
-        return (s == ms->src_end) ? s : NULL;  /* check end of string */
-      else goto dflt;
+      if (*(p+1) != '\0')  /* is the `$' the last char in pattern? */
+        goto dflt;
+      s = (s == ms->src_end) ? s : NULL;  /* check end of string */
+      break;
     }
-    default: dflt: {  /* it is a pattern item */
-      const char *ep = classend(ms, p);  /* points to what is next */
-      int m = s<ms->src_end && singlematch(uchar(*s), p, ep);
-      switch (*ep) {
-        case '?': {  /* optional */
-          const char *res;
-          if (m && ((res=match(ms, s+1, ep+1)) != NULL))
-            return res;
-          p=ep+1; goto init;  /* else return match(ms, s, ep+1); */
+    default: dflt: {  /* pattern class plus optional suffix */
+      const char *ep = classend(ms, p);  /* points to optional suffix */
+      /* does not match at least once? */
+      if (s >= ms->src_end || !singlematch(uchar(*s), p, ep)) {
+        if (*ep == '*' || *ep == '?' || *ep == '-') {  /* accept empty? */
+          p = ep + 1; goto init;  /* return match(ms, s, ep + 1); */
         }
-        case '*': {  /* 0 or more repetitions */
-          return max_expand(ms, s, p, ep);
-        }
-        case '+': {  /* 1 or more repetitions */
-          return (m ? max_expand(ms, s+1, p, ep) : NULL);
-        }
-        case '-': {  /* 0 or more repetitions (minimum) */
-          return min_expand(ms, s, p, ep);
-        }
-        default: {
-          if (!m) return NULL;
-          s++; p=ep; goto init;  /* else return match(ms, s+1, ep); */
+        else  /* '+' or no suffix */
+          s = NULL;  /* fail */
+      }
+      else {  /* matched once */
+        switch (*ep) {  /* handle optional suffix */
+          case '?': {  /* optional */
+            const char *res;
+            if ((res = match(ms, s + 1, ep + 1)) != NULL)
+              s = res;
+            else {
+              p = ep + 1; goto init;  /* else return match(ms, s, ep + 1); */
+            }
+            break;
+          }
+          case '+':  /* 1 or more repetitions */
+            s = max_expand(ms, s+1, p, ep);  /* 1 match already done */
+            break;
+          case '*':  /* 0 or more repetitions */
+            s = max_expand(ms, s, p, ep);
+            break;
+          case '-':  /* 0 or more repetitions (minimum) */
+            s = min_expand(ms, s, p, ep);
+            break;
+          default:  /* no suffix */
+            s++; p = ep; goto init;  /* return match(ms, s + 1, ep); */
         }
       }
+      break;
     }
   }
+  ms->matchdepth++;
+  return s;
 }
 
 
@@ -549,9 +578,11 @@ static int str_find_aux (lua_State *L, int find) {
     ms.matchcount = LUA_MATCH_HOOK_INTERVAL;
     ms.src_init = s;
     ms.src_end = s+l1;
+    ms.matchdepth = MAXCCALLS;
     do {
       const char *res;
       ms.level = 0;
+      lua_assert(ms.matchdepth == MAXCCALLS);
       if ((res=match(&ms, s1, p)) != NULL) {
         if (find) {
           lua_pushinteger(L, s1-s+1);  /* start */
@@ -588,11 +619,13 @@ static int gmatch_aux (lua_State *L) {
   ms.matchcount = LUA_MATCH_HOOK_INTERVAL;
   ms.src_init = s;
   ms.src_end = s+ls;
+  ms.matchdepth = MAXCCALLS;
   for (src = s + (size_t)lua_tointeger(L, lua_upvalueindex(3));
        src <= ms.src_end;
        src++) {
     const char *e;
     ms.level = 0;
+    lua_assert(ms.matchdepth == MAXCCALLS);
     if ((e = match(&ms, src, p)) != NULL) {
       lua_Integer newstart = e-s;
       if (e == src) newstart++;  /* empty match? go at least one position */
@@ -693,9 +726,11 @@ static int str_gsub (lua_State *L) {
   ms.matchcount = LUA_MATCH_HOOK_INTERVAL;
   ms.src_init = src;
   ms.src_end = src+srcl;
+  ms.matchdepth = MAXCCALLS;
   while (n < max_s) {
     const char *e;
     ms.level = 0;
+    lua_assert(ms.matchdepth == MAXCCALLS);
     e = match(&ms, src, p);
     if (e) {
       n++;

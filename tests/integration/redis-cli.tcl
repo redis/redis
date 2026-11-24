@@ -696,8 +696,52 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
     proc cmddocs_bulk {s} {
         return "\$[string length $s]\n$s\n"
     }
+    proc cmddocs_multiline_bulk {s} {
+        # Tcl's auto-crlf translation adds one wire byte for every LF in the
+        # payload, so include those bytes in the RESP bulk length.
+        set len [expr {[string length $s] + [regexp -all {\n} $s]}]
+        return "\$$len\n$s\n"
+    }
     proc cmddocs_array {elements} {
         return "*[llength $elements]\n[join $elements {}]"
+    }
+
+    proc legacy_command_entry {name arity} {
+        return [cmddocs_array [list \
+            [cmddocs_bulk $name] ":$arity\n" [cmddocs_array {}] \
+            ":0\n" ":0\n" ":0\n"]]
+    }
+
+    proc run_legacy_help_test {target entries expect_present} {
+        set tclsh [info nameofexecutable]
+        set script "tests/helpers/fake_redis_node.tcl"
+        set port [find_available_port $::baseport $::portcount]
+        set info [cmddocs_multiline_bulk "# Server\nredis_version:6.0.0\n"]
+        set command_reply [cmddocs_array $entries]
+        set traffic [list "COMMAND DOCS" "-ERR unknown subcommand" \
+            "INFO SERVER" [string range $info 0 end-1] \
+            "COMMAND" [string range $command_reply 0 end-1]]
+        set traffic_file [write_tmpfile $traffic]
+        set nodepid ""
+        set test_err [catch {
+            set nodepid [exec $tclsh $script $port --traffic-file $traffic_file &]
+            wait_for_condition 50 50 {
+                [catch {close [socket "127.0.0.1" $port]}] == 0
+            } else {
+                fail "Failed to start fake Redis node"
+            }
+
+            set cmd [rediscli "127.0.0.1" $port [list -2 -n 0 help $target]]
+            set code [catch {exec {*}$cmd 2>@1} output]
+            assert_equal 0 $code
+            assert {[string length $output] < 4096}
+            assert_equal $expect_present [string match "*$target*" $output]
+        } test_msg test_opts]
+        if {$nodepid ne ""} { catch {exec kill $nodepid} }
+        if {[file exists $traffic_file]} { file delete $traffic_file }
+        if {$test_err} {
+            return -options $test_opts $test_msg
+        }
     }
 
     # A valid command spec whose argument hint ("synarg123") cannot come
@@ -936,6 +980,28 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         catch {exec {*}[rediscli "127.0.0.1" $port {-3 -n 0 PING}] 2>@1} output
         catch {exec kill $pid}
         assert_equal "PONG" $output
+    }
+
+    test "redis-cli bounds hostile legacy help entries and arities" {
+        # A small valid entry confirms the fake INFO and COMMAND replies are
+        # parsed and the legacy integration path is actually reached.
+        run_legacy_help_test SAFEENTRY [list [legacy_command_entry SAFEENTRY 2]] 1
+        run_legacy_help_test EVILCMD [list \
+            [legacy_command_entry EVILCMD 1000000] \
+            [legacy_command_entry SAFEENTRY 2]] 0
+        run_legacy_help_test EVILMIN [list \
+            [legacy_command_entry EVILMIN -9223372036854775808] \
+            [legacy_command_entry SAFEENTRY 2]] 0
+
+        # Arity-1 entries with no key argument generate no params text. They
+        # still exercise the dedupe and allocation work, so verify the scan
+        # limit itself and not only the per-command arity bound.
+        set many_entries [list [legacy_command_entry SAFEENTRY 2]]
+        for {set i 0} {$i < 4096} {incr i} {
+            lappend many_entries [legacy_command_entry "INJECTED$i" 1]
+        }
+        run_legacy_help_test INJECTED4094 $many_entries 1
+        run_legacy_help_test INJECTED4095 $many_entries 0
     }
 }
 
@@ -1227,16 +1293,158 @@ start_server {tags {"cli external:skip"}} {
 }
 
 start_server {tags {"cli external:skip"}} {
-    test "keystats on empty database should not produce garbage stats" {
-        # On an empty DB the keystats histogram has total_count = 0. Verify hdr_mean(), hdr_stddev(),
-        # and the percentile calculation handle this gracefully.
-        set cmd [rediscli [srv host] [srv port] [list --keystats]]
-        catch {exec {*}$cmd 2>@1} result
-        assert_match "*Scanning the entire keyspace*" $result
+    # Capture terminal output without a shell redrawing its prompt. For interrupted
+    # scans, wait for a live refresh (TTY) or an actual SCAN (non-TTY) before SIGINT.
+    proc keystats_output {options {tty 0} {interrupt 0}} {
+        set cmd [rediscli [srv host] [srv port] [list -n $::dbnum --keystats {*}$options]]
+        if {$tty} {
+            set cmd [linsert $cmd 0 env FAKETTY=1]
+        }
+        if {$interrupt} {
+            r config resetstat
+        }
+        set fd [open "|$cmd" r]
+        fconfigure $fd -blocking false -translation binary
+        set cli_pid [pid $fd]
+        set status [catch {
+            set result ""
+            if {$interrupt} {
+                if {$tty} {
+                    set result [read_cli_until $fd {\x1b\[[0-9]+A\r} 10000]
+                } else {
+                    wait_for_condition 1000 10 {
+                        [string match "*cmdstat_scan:*" [r info commandstats]]
+                    } else {
+                        fail "redis-cli did not start scanning"
+                    }
+                }
+                exec kill -SIGINT {*}$cli_pid
+            }
+            set deadline [expr {[clock milliseconds] + 10000}]
+            while {![eof $fd]} {
+                append result [read $fd]
+                if {[clock milliseconds] >= $deadline} {
+                    fail "redis-cli did not exit: $result"
+                }
+                after 10
+            }
+        } err opts]
+        if {$status} {
+            catch {exec kill -TERM {*}$cli_pid}
+        }
+        fconfigure $fd -blocking true
+        set close_status [catch {close $fd} close_err]
+        if {$status} {return -options $opts $err}
+        if {$close_status} {error $close_err}
+        return [string trimright $result "\n"]
+    }
 
-        # The "Note:" line with Mean/StdDeviation is only printed when displayKeyStatsSizeDist()
-        # compute stats. When keysize_histogram->total_count == 0, it should be skipped entirely.
-        assert_match "*No key size samples collected*" $result
+    test "keystats exits before scanning an empty database" {
+        assert_equal 0 [r dbsize]
+        foreach options {{} {--pattern missing:*} {--cursor 1 --pattern missing:*}} {
+            r config resetstat
+            assert_equal "The database is empty." [keystats_output $options]
+            assert_no_match "*cmdstat_scan:*" [r info commandstats]
+        }
+    }
+
+    test "keystats reports when no keys match the pattern" {
+        r set key value
+        r config resetstat
+        set cmd [rediscli [srv host] [srv port] [list -n $::dbnum --keystats --pattern missing:*]]
+        set result [exec {*}$cmd]
+        assert_match "*Scanning the entire keyspace*" $result
+        assert_match "*No keys matched the specified pattern.*" $result
+        assert_no_match "*Keys size:*" $result
+        assert_equal -1 [string first "\x1b" $result]
+        assert_match "*cmdstat_scan:*" [r info commandstats]
+        r del key
+    }
+
+    test "keystats reports when no keys match the pattern after a cursor" {
+        r debug populate 100
+        set cursor [lindex [r scan 0 count 1] 0]
+        assert {$cursor != 0}
+        set result [keystats_output [list --cursor $cursor --pattern missing:*]]
+        assert_match "*No keys matched the specified pattern in the scanned portion of the keyspace.*" $result
+        assert_no_match "*Keys size:*" $result
+        assert_equal -1 [string first "\x1b" $result]
+        r flushdb
+    }
+
+    test "keystats still reports statistics when a pattern matches" {
+        r set matching:key value
+        set result [keystats_output {--pattern matching:*}]
+        assert_match "*Keys sampled: 1*" $result
+        assert_match "*Keys size:*" $result
+        assert_match "*StdDeviation:*" $result
+        assert_no_match "*No keys matched*" $result
+        assert_equal -1 [string first "\x1b" $result]
+        r del matching:key
+    }
+
+    foreach interrupt {0 1} {
+        foreach resumed {0 1} {
+            test "keystats clears live no-match statistics (interrupted: $interrupt, resumed: $resumed)" {
+                # COUNT 1 and the interval ensure that a live refresh happens.
+                r debug populate 2000
+                set cursor 0
+                if {$resumed} {
+                    set cursor [lindex [r scan 0 count 1] 0]
+                    assert {$cursor != 0}
+                }
+                set result [keystats_output [list --cursor $cursor --pattern missing:* --count 1 -i 0.1] 1 $interrupt]
+
+                # The cursor must return above the live report, then the entire
+                # remaining report must be erased before the shorter final message.
+                assert {[regexp {Keys sampled: 0.*\x1b\[[0-9]+A\r.*\x1b\[0J\x1b\[2K\r(No keys matched|Scan interrupted: no keys matched)} $result]}
+                set final [string range $result [string last "\x1b\[0J" $result] end]
+                assert_no_match "*Keys sampled:*" $final
+                assert_no_match "*Keys size:*" $final
+                assert_no_match "*--- Top*" $final
+                if {$interrupt} {
+                    assert_match "*Scan interrupted: no keys matched the specified pattern in the scanned portion.*" $final
+                    assert_equal 1 [regexp -all {interrupted} $final]
+                    assert {[regexp {\x1b\[2K\rUse 'redis-cli --keystats --cursor ([0-9]+)' to restart from the last cursor\.$} $final -> restart_cursor]}
+                    assert {$restart_cursor != 0}
+                } elseif {$resumed} {
+                    assert_match "*No keys matched the specified pattern in the scanned portion of the keyspace.*" $final
+                    assert_no_match "*Scan interrupted*" $final
+                } else {
+                    assert_match "*No keys matched the specified pattern.*" $final
+                    assert_no_match "*Scan interrupted*" $final
+                }
+                r flushdb
+            }
+        }
+    }
+
+    test "keystats reports interrupted no-match scans without terminal escapes" {
+        r debug populate 2000
+        set result [keystats_output {--pattern missing:* --count 1 -i 0.1} 0 1]
+        assert_match "*Scan interrupted: no keys matched the specified pattern in the scanned portion.\nUse 'redis-cli --keystats --cursor *" $result
+        assert_equal 1 [regexp -all {interrupted} $result]
+        assert_no_match "*Keys size:*" $result
+        assert_equal -1 [string first "\x1b" $result]
+        assert {[regexp {Use 'redis-cli --keystats --cursor ([0-9]+)' to restart from the last cursor\.$} $result -> cursor]}
+        assert {$cursor != 0}
+        r flushdb
+    }
+
+    foreach options {{} {--pattern *}} {
+        test "keystats interruption with sampled keys still reports statistics (options: $options)" {
+            r debug populate 2000
+            set result [keystats_output [list {*}$options --count 1 -i 0.1] 0 1]
+            assert {[regexp {Keys sampled: [1-9][0-9]*} $result]}
+            assert_match "*Keys size:*" $result
+            assert_match "*Scan interrupted.\nUse 'redis-cli --keystats --cursor *" $result
+            assert_equal 1 [regexp -all {interrupted} $result]
+            assert {[regexp {Use 'redis-cli --keystats --cursor ([0-9]+)' to restart from the last cursor\.$} $result -> cursor]}
+            assert {$cursor != 0}
+            assert {![regexp -nocase {no keys matched} $result]}
+            assert_equal -1 [string first "\x1b" $result]
+            r flushdb
+        }
     }
 }
 
