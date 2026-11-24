@@ -1318,7 +1318,6 @@ char *strEncoding(int encoding) {
     case OBJ_ENCODING_LISTPACK: return "listpack";
     case OBJ_ENCODING_LISTPACK_EX: return "listpackex";
     case OBJ_ENCODING_INTSET: return "intset";
-    case OBJ_ENCODING_SKIPLIST: return "skiplist";
     case OBJ_ENCODING_EMBSTR: return "embstr";
     case OBJ_ENCODING_STREAM: return "stream";
     case OBJ_ENCODING_SLICED_ARRAY: return "sliced-array";
