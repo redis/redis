@@ -131,6 +131,12 @@ static inline int shouldShutdownAsap(void) {
     return shutdown_asap;
 }
 
+/* Keep server.masterhost read noinline as race_top so tsan.sup suppresses only
+ * this access and not other reads in serverLogRaw(). */
+__attribute__((noinline)) static int getLogReplicationRole(void) {
+    return server.masterhost ? 'S' : 'M';
+}
+
 /* Low level logging. To use only for very big messages, otherwise
  * serverLog() is to prefer. */
 void serverLogRaw(int level, const char *msg) {
@@ -167,7 +173,7 @@ void serverLogRaw(int level, const char *msg) {
         } else if (pid != server.pid) {
             role_char = 'C'; /* RDB / AOF writing child. */
         } else {
-            role_char = (server.masterhost ? 'S':'M'); /* Slave or Master. */
+            role_char = getLogReplicationRole();
         }
         fprintf(fp,"%d:%c %s %c %s\n",
             (int)getpid(),role_char, buf,c[level],msg);
