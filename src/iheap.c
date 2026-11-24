@@ -131,8 +131,7 @@ void iheapUpdate(iheap *h, uint32_t slot, uint64_t key) {
     iheapEntry ent = h->e[slot];
     uint64_t old = ent.key;
     ent.key = key;
-    uint32_t to = key < old ? iheapSiftUp(h, slot, ent)
-                            : iheapSiftDown(h, slot, ent);
+    uint32_t to = key < old ? iheapSiftUp(h, slot, ent) : iheapSiftDown(h, slot, ent);
     if (to != slot) iheapSetSlot(h, to);
 }
 
