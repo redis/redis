@@ -26,7 +26,8 @@
  * - Keys may move in both directions: iheapUpdate() sifts up or down as the
  *   new key requires.
  * - There is one allocation per heap. Operations that may grow the array
- *   take an iheap** and update the caller's pointer.
+ *   take an iheap** and update the caller's pointer. They do so before any
+ *   setSlot call, so that pointer is valid whenever a callback runs.
  * - The heap has no global state, so it may be freed from any thread.
  *
  * SLOT CONTRACT
