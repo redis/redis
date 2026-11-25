@@ -383,6 +383,17 @@ unsigned long bioPendingJobsOfType(int type) {
     return val;
 }
 
+/* Count both job types under the AOF worker's lock. A closing fsync
+ * belongs to an older descriptor but still publishes a replication offset. */
+int bioHasPendingAofFsyncJobs(void) {
+    unsigned int worker = bio_job_to_worker[BIO_AOF_FSYNC];
+
+    pthread_mutex_lock(&bio_mutex[worker]);
+    int pending = bio_jobs_counter[BIO_AOF_FSYNC] || bio_jobs_counter[BIO_CLOSE_AOF];
+    pthread_mutex_unlock(&bio_mutex[worker]);
+    return pending;
+}
+
 /* Wait for the job queue of the worker for jobs of specified type to become empty. */
 void bioDrainWorker(int job_type) {
     unsigned long worker = bio_job_to_worker[job_type];
@@ -447,3 +458,33 @@ void bioPipeReadJobCompList(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
     listRelease(tmp_list);
 }
+
+#ifdef REDIS_TEST
+#include "testhelp.h"
+
+int bioTest(int argc, char **argv, int flags) {
+    UNUSED(argc);
+    UNUSED(argv);
+    UNUSED(flags);
+
+    /* The unit-test runner has not started the BIO workers. Exercise the
+     * accounting directly, without queuing any jobs or touching a file. */
+    unsigned int worker = bio_job_to_worker[BIO_AOF_FSYNC];
+    serverAssert(pthread_mutex_init(&bio_mutex[worker], NULL) == 0);
+
+    test_cond("AOF fsync: no pending jobs", !bioHasPendingAofFsyncJobs());
+    bio_jobs_counter[BIO_AOF_FSYNC] = 1;
+    test_cond("AOF fsync: regular job is pending", bioHasPendingAofFsyncJobs());
+    bio_jobs_counter[BIO_CLOSE_AOF] = 1;
+    test_cond("AOF fsync: both kinds are pending", bioHasPendingAofFsyncJobs());
+    bio_jobs_counter[BIO_AOF_FSYNC] = 0;
+    test_cond("AOF fsync: closing job is pending", bioHasPendingAofFsyncJobs());
+    bio_jobs_counter[BIO_CLOSE_AOF] = 0;
+    bio_jobs_counter[BIO_COMP_RQ_AOF_FSYNC] = 1;
+    test_cond("AOF fsync: worker callback is not an fsync job", !bioHasPendingAofFsyncJobs());
+    bio_jobs_counter[BIO_COMP_RQ_AOF_FSYNC] = 0;
+
+    serverAssert(pthread_mutex_destroy(&bio_mutex[worker]) == 0);
+    return 0;
+}
+#endif
