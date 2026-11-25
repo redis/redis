@@ -4362,7 +4362,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbver, int *e
                     return NULL;
                 }
                 /* The server never sets a negative delivery time. */
-                if (deep_integrity_validation && nack->delivery_time < 0) {
+                if (nack->delivery_time < 0) {
                     rdbReportCorruptRDB("Stream PEL entry with a negative delivery time");
                     streamFreeNACK(s, nack);
                     decrRefCount(o);
@@ -4411,7 +4411,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbver, int *e
                     decrRefCount(o);
                     return NULL;
                 }
-                if (deep_integrity_validation && consumer->seen_time < 0) {
+                if (consumer->seen_time < 0) {
                     rdbReportCorruptRDB("Stream consumer with a negative seen time");
                     decrRefCount(o);
                     return NULL;
@@ -4425,7 +4425,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbver, int *e
                         return NULL;
                     }
                     /* -1 means the consumer was never active. */
-                    if (deep_integrity_validation && consumer->active_time < -1) {
+                    if (consumer->active_time < -1) {
                         rdbReportCorruptRDB("Stream consumer with an invalid active time");
                         decrRefCount(o);
                         return NULL;

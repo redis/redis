@@ -2234,10 +2234,9 @@ static inline int streamReplyMaxsizeReached(client *c, long long maxsize, size_t
 }
 
 /* Return the milliseconds elapsed from 't' to 'now', or 0 if 't' is not in
- * the past. 't' is later than 'now' after the wall clock goes back. Unless
- * sanitize-dump-payload is enabled, 't' loaded from an RDB file or a RESTORE
- * payload can be any value, so the difference is computed in unsigned
- * arithmetic to avoid signed overflow, and saturated at LLONG_MAX. */
+ * the past. 't' is later than 'now' after the wall clock goes back. The RDB
+ * loader rejects negative times, but the difference is still computed in
+ * unsigned arithmetic and saturated at LLONG_MAX, so it can never overflow. */
 static inline mstime_t streamElapsedTime(mstime_t now, mstime_t t) {
     if (t >= now) return 0;
     uint64_t elapsed = (uint64_t)now - (uint64_t)t;

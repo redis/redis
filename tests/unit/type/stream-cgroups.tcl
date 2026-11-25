@@ -1680,24 +1680,6 @@ start_server {
     # Seen-time and active-time of Alice: 4102444800000.
     set consumer_future_payload "\x1B\x01\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x1D\x1D\x00\x00\x00\x0A\x00\x01\x01\x00\x01\x01\x01\x81\x66\x02\x00\x01\x02\x01\x00\x01\x00\x01\x81\x76\x02\x04\x01\xFF\x01\x01\x00\x01\x00\x00\x00\x01\x01\x07\x6D\x79\x67\x72\x6F\x75\x70\x01\x00\x01\x01\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x64\x5A\x37\x08\xA2\x01\x00\x00\x01\x01\x05\x41\x6C\x69\x63\x65\x00\xD8\xC3\x2C\xBB\x03\x00\x00\x00\xD8\xC3\x2C\xBB\x03\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x40\x64\x40\x64\x00\x00\x00\x11\x00\xBD\x05\x85\x2D\xA3\x52\x3B\x92"
 
-    test {XPENDING, XCLAIM, XAUTOCLAIM and XREADGROUP CLAIM with a delivery time in the distant past} {
-        # The entry is idle for the longest time and every command can claim it.
-        r DEL mystream
-        r RESTORE mystream 0 $delivery_past_payload
-        assert_equal {{1-0 Alice 9223372036854775807 1}} [r XPENDING mystream mygroup - + 10]
-        assert_equal {{1-0 Alice 9223372036854775807 1}} [r XPENDING mystream mygroup IDLE 1 - + 10]
-        assert_equal {1-0} [r XCLAIM mystream mygroup Bob 1 1-0 JUSTID]
-
-        r DEL mystream
-        r RESTORE mystream 0 $delivery_past_payload
-        assert_equal {0-0 1-0 {}} [r XAUTOCLAIM mystream mygroup Bob 1 0-0 JUSTID]
-
-        r DEL mystream
-        r RESTORE mystream 0 $delivery_past_payload
-        assert_equal {{mystream {{1-0 {f v} 9223372036854775807 1}}}} \
-            [r XREADGROUP GROUP mygroup Bob CLAIM 1 STREAMS mystream >]
-    }
-
     test {XPENDING, XCLAIM, XAUTOCLAIM and XREADGROUP CLAIM with a delivery time in the future} {
         # The entry is not idle, so no command can claim it.
         r DEL mystream
@@ -1720,18 +1702,6 @@ start_server {
         assert_equal 2-0 [lindex $res 0 1 0 0]
     }
 
-    test {XINFO CONSUMERS with seen-time and active-time in the distant past} {
-        r DEL mystream
-        r RESTORE mystream 0 $seen_past_payload
-        set consumer [lindex [r XINFO CONSUMERS mystream mygroup] 0]
-        assert_equal 9223372036854775807 [dict get $consumer idle]
-
-        r DEL mystream
-        r RESTORE mystream 0 $active_past_payload
-        set consumer [lindex [r XINFO CONSUMERS mystream mygroup] 0]
-        assert_equal 9223372036854775807 [dict get $consumer inactive]
-    }
-
     test {XINFO CONSUMERS with seen-time and active-time in the future} {
         # inactive must not go negative, where -1 means the consumer was never active.
         r DEL mystream
@@ -1741,8 +1711,7 @@ start_server {
         assert_equal 0 [dict get $consumer inactive]
     }
 
-    test {RESTORE with sanitize-dump-payload rejects negative stream times} {
-        r config set sanitize-dump-payload yes
+    test {RESTORE rejects negative stream times} {
         r DEL mystream
         assert_error "*Bad data format*" {r RESTORE mystream 0 $delivery_past_payload}
         assert_error "*Bad data format*" {r RESTORE mystream 0 $seen_past_payload}
@@ -1753,7 +1722,6 @@ start_server {
         r RESTORE mystream 0 $delivery_future_payload
         r DEL mystream
         r RESTORE mystream 0 $consumer_future_payload
-        r config set sanitize-dump-payload no
     }
 
     test {XCLAIM with IDLE -9223372036854775808 sets the delivery time to now} {
