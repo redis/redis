@@ -590,6 +590,140 @@ start_server {tags {"expire"}} {
                 assert_equal {} [$replica get foo]
             }
         }
+
+        test {Negative expire timestamp on writable replica does not crash or corrupt expires} {
+            $primary flushall
+            assert {[$primary wait 1 0] == 1}
+            $replica config set replica-read-only no
+
+            # Short key without existing expire: -1 matches the no-expire sentinel
+            $replica set k v
+            assert_equal 1 [$replica pexpireat k -1]
+            assert_equal {} [$replica get k]
+            assert_equal -2 [$replica pttl k]
+            assert_equal 0 [$replica expire k 100]
+            assert_equal PONG [$replica ping]
+
+            # Key with an existing expire overwritten by -1
+            $replica set k_exp v ex 100
+            assert_equal 1 [$replica pexpireat k_exp -1]
+            assert_equal -2 [$replica ttl k_exp]
+            assert_equal 0 [$replica expire k_exp 100]
+
+            # Large key (>= 128 bytes) with pre-allocated expire metadata slot
+            set bigkey [string repeat "k" 150]
+            $replica set $bigkey v
+            assert_equal 1 [$replica pexpireat $bigkey -1]
+            assert_equal -2 [$replica pttl $bigkey]
+            assert_equal 0 [$replica expire $bigkey 100]
+
+            # EXPIREAT, EXPIRE, and PEXPIRE resolving to negative timestamps
+            $replica set k_ea v
+            assert_equal 1 [$replica expireat k_ea -1]
+            assert_equal {} [$replica get k_ea]
+            assert_equal -2 [$replica ttl k_ea]
+
+            $replica set k_ex v
+            assert_equal 1 [$replica expire k_ex -2000000000]
+            assert_equal {} [$replica get k_ex]
+            assert_equal -2 [$replica pttl k_ex]
+
+            $replica set k_pe v
+            set now [clock milliseconds]
+            assert_equal 1 [$replica pexpire k_pe [expr {-2 * $now}]]
+            assert_equal -2 [$replica pttl k_pe]
+            assert_equal 0 [$replica expire k_pe 100]
+
+            # Writable replica active expiry reclaims the clamped keys
+            wait_for_condition 50 100 {
+                [$replica dbsize] == 0
+            } else {
+                fail "Clamped expired keys were not reclaimed on writable replica"
+            }
+        }
+
+        test {Negative and LLONG_MIN PEXPIREAT on writable replica do not overflow PTTL or TTL} {
+            $primary flushall
+            assert {[$primary wait 1 0] == 1}
+            $replica config set replica-read-only no
+
+            $replica set kmin v
+            assert_equal 1 [$replica pexpireat kmin -9223372036854775808]
+            assert_equal -2 [$replica pttl kmin]
+            assert_equal -2 [$replica ttl kmin]
+            assert_equal -2 [$replica pexpiretime kmin]
+            assert_equal {} [$replica get kmin]
+            assert_equal 0 [$replica expire kmin 100]
+
+            $replica set kneg v
+            assert_equal 1 [$replica pexpireat kneg -2]
+            assert_equal -2 [$replica pttl kneg]
+            assert_equal -2 [$replica ttl kneg]
+            assert_equal {} [$replica get kneg]
+            assert_equal 0 [$replica expire kneg 100]
+        }
+
+        test {Replicated negative PEXPIREAT is clamped to 0 and survives subsequent EXPIRE} {
+            $primary flushall
+            assert {[$primary wait 1 0] == 1}
+            $replica config set replica-read-only yes
+
+            $primary debug replicate set rk v
+            $primary debug replicate pexpireat rk -1
+            $primary debug replicate expire rk 100
+            $primary debug replicate set rk_exp v ex 100
+            $primary debug replicate pexpireat rk_exp -1
+            $primary debug replicate expire rk_exp 100
+            $primary debug replicate set rkmin v
+            $primary debug replicate pexpireat rkmin -9223372036854775808
+            $primary debug replicate set rkpast v
+            $primary debug replicate pexpireat rkpast 1000
+            $primary set _sync 1
+            assert {[$primary wait 1 0] == 1}
+
+            assert_equal v [$replica get rk]
+            assert_range [$replica ttl rk] 50 100
+            assert_equal v [$replica get rk_exp]
+            assert_range [$replica ttl rk_exp] 50 100
+            assert_equal -2 [$replica pttl rkmin]
+            assert_equal -2 [$replica ttl rkmin]
+            assert_equal {} [$replica get rkmin]
+            assert_equal -2 [$replica pttl rkpast]
+            assert_equal {} [$replica get rkpast]
+            # Replica retains past-expired keys until primary sends DEL
+            assert_equal 5 [$replica dbsize]
+
+            $primary debug replicate del rk rk_exp rkmin rkpast
+            $primary del _sync
+            assert {[$primary wait 1 0] == 1}
+            assert_equal 0 [$replica dbsize]
+        } {} {needs:debug}
+
+        test {Writable replica propagates clamped PEXPIREAT 0 to AOF} {
+            $primary flushall
+            assert {[$primary wait 1 0] == 1}
+            $replica config set replica-read-only no
+            $replica config set appendfsync always
+            $replica config set appendonly yes
+            waitForBgrewriteaof $replica
+            set aof [get_last_incr_aof_path $replica]
+
+            $replica debug set-active-expire 0
+            $replica set kaof v
+            assert_equal 1 [$replica pexpireat kaof -1]
+            assert_aof_content $aof {
+                {select *}
+                {set kaof v}
+                {pexpireat kaof 0}
+            }
+            $replica debug loadaof
+            assert_equal -2 [$replica pttl kaof]
+            assert_equal 0 [$replica expire kaof 100]
+
+            $replica debug set-active-expire 1
+            $replica config set appendonly no
+            $replica config set appendfsync everysec
+        } {OK} {needs:debug}
     }
 
     test {SET command will remove expire} {

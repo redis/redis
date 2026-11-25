@@ -2927,6 +2927,11 @@ kvobj *setExpireByLink(client *c, redisDb *db, sds key, long long when, dictEntr
         keyLink = kvstoreDictFindLink(db->keys, slot, key, NULL);
         serverAssert(keyLink != NULL);
     }
+    /* Negative expire timestamps are already in the past and must not be
+     * stored: -1 is the sentinel for no expiry, and negative values break
+     * keyIsExpired() and TTL arithmetic. Clamp to 0 (already expired). */
+    if (when < 0) when = 0;
+
     kvobj *kv = dictGetKV(*keyLink);
     long long old_when = kvobjGetExpire(kv);
 
