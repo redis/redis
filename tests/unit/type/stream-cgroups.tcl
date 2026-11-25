@@ -874,6 +874,105 @@ start_server {
         assert_equal [r XPENDING x grp - + 10 Alice] {}
     }
 
+    # Create stream 'key' with entries 1-0, 2-0 and 3-0, and group 'grp' in
+    # which 1-0 is pending but owned by no consumer (consumer Alice exists
+    # with an empty PEL).
+    #
+    # No command leaves the PEL in this state, but it is what we end up with
+    # when loading an RDB payload in which the group PEL lists an ID that
+    # isn't listed in the PEL of any consumer. Such payload is rejected only
+    # when it is sanitized (sanitize-dump-payload), which is off by default.
+    proc create_stream_with_unowned_pel_entry {r key} {
+        $r DEL $key
+        $r XADD $key 1-0 f v
+        $r XADD $key 2-0 f v
+        $r XADD $key 3-0 f v
+        $r XGROUP CREATE $key grp 0
+        $r XREADGROUP GROUP grp Alice COUNT 1 STREAMS $key >
+
+        # The ID is serialized twice: in the group PEL, and then in the PEL of
+        # its consumer, right after the PEL size. Drop it from the consumer
+        # PEL, leaving it in the group PEL only. Find it by content, since
+        # what follows the consumers in the payload differs between versions.
+        set dump [$r DUMP $key]
+        set id "\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00"
+        set pos [string last $id $dump]
+        assert_equal "\x01" [string index $dump [expr {$pos-1}]]
+        set payload [string range $dump 0 [expr {$pos-2}]]
+        append payload "\x00" [string range $dump [expr {$pos+16}] end]
+
+        $r DEL $key
+        $r CONFIG SET sanitize-dump-payload no
+        $r DEBUG SET-SKIP-CHECKSUM-VALIDATION 1
+        $r RESTORE $key 0 $payload
+        $r DEBUG SET-SKIP-CHECKSUM-VALIDATION 0
+
+        assert_equal {1 1-0 1-0 {}} [$r XPENDING $key grp]
+        assert_equal {} [$r XPENDING $key grp - + 10 Alice]
+    }
+
+    test {XAUTOCLAIM deletes PEL entry without consumer when the stream entry was deleted} {
+        create_stream_with_unowned_pel_entry r x
+        r XDEL x 1-0
+        assert_equal {0-0 {} 1-0} [r XAUTOCLAIM x grp Bob 0 0-0]
+        assert_equal {0 {} {} {}} [r XPENDING x grp]
+    } {} {needs:debug}
+
+    test {XAUTOCLAIM claims PEL entry without consumer} {
+        create_stream_with_unowned_pel_entry r x
+        # min-idle-time doesn't apply to an entry without consumer.
+        assert_equal {0-0 {{1-0 {f v}}} {}} [r XAUTOCLAIM x grp Bob 3600000 0-0]
+        assert_equal {1 1-0 1-0 {{Bob 1}}} [r XPENDING x grp]
+    } {} {needs:debug}
+
+    test {XCLAIM deletes PEL entry without consumer when the stream entry was deleted} {
+        create_stream_with_unowned_pel_entry r x
+        r XDEL x 1-0
+        assert_equal {} [r XCLAIM x grp Bob 0 1-0]
+        assert_equal {0 {} {} {}} [r XPENDING x grp]
+    } {} {needs:debug}
+
+    test {XCLAIM claims PEL entry without consumer} {
+        create_stream_with_unowned_pel_entry r x
+        # min-idle-time doesn't apply to an entry without consumer.
+        assert_equal {{1-0 {f v}}} [r XCLAIM x grp Bob 3600000 1-0]
+        assert_equal {1 1-0 1-0 {{Bob 1}}} [r XPENDING x grp]
+    } {} {needs:debug}
+
+    test {XACK removes PEL entry without consumer} {
+        create_stream_with_unowned_pel_entry r x
+        assert_equal 1 [r XACK x grp 1-0]
+        assert_equal {0 {} {} {}} [r XPENDING x grp]
+    } {} {needs:debug}
+
+    test {XREADGROUP takes over PEL entry without consumer} {
+        create_stream_with_unowned_pel_entry r x
+        r XGROUP SETID x grp 0
+        assert_equal {{x {{1-0 {f v}}}}} [r XREADGROUP GROUP grp Bob COUNT 1 STREAMS x >]
+        assert_equal {1 1-0 1-0 {{Bob 1}}} [r XPENDING x grp]
+    } {} {needs:debug}
+
+    test {XPENDING and XINFO STREAM FULL report PEL entry without consumer} {
+        create_stream_with_unowned_pel_entry r x
+        # Empty consumer name and idle time of -1, not filtered by IDLE.
+        foreach pending [list [r XPENDING x grp - + 10] \
+                              [r XPENDING x grp IDLE 3600000 - + 10]] {
+            assert_equal 1 [llength $pending]
+            assert_equal 1-0 [lindex $pending 0 0]
+            assert_equal {} [lindex $pending 0 1]
+            assert_equal -1 [lindex $pending 0 2]
+            assert_equal 1 [lindex $pending 0 3]
+        }
+
+        set reply [r XINFO STREAM x FULL]
+        set group [lindex [dict get $reply groups] 0]
+        assert_equal 1 [dict get $group pel-count]
+        set pending [dict get $group pending]
+        assert_equal 1 [llength $pending]
+        assert_equal 1-0 [lindex $pending 0 0]
+        assert_equal {} [lindex $pending 0 1]
+    } {} {needs:debug}
+
     test {XINFO FULL output} {
         r del x
         r XADD x 100 a 1
@@ -1449,6 +1548,27 @@ start_server {
                     wait_for_ofs_sync $master $replica
                     assert_equal [llength [$replica XPENDING x grp - + 10 Alice]] 1
                 }
+            }
+
+            test "Replication of deleted PEL entry without consumer (autoclaim=$autoclaim)" {
+                # The payload is replicated as is, so the replica also ends up
+                # with a pending entry that isn't owned by any consumer.
+                $replica CONFIG SET sanitize-dump-payload no
+                $replica DEBUG SET-SKIP-CHECKSUM-VALIDATION 1
+                create_stream_with_unowned_pel_entry $master x
+                wait_for_ofs_sync $master $replica
+                $replica DEBUG SET-SKIP-CHECKSUM-VALIDATION 0
+                assert_equal {1 1-0 1-0 {}} [$replica XPENDING x grp]
+
+                $master XDEL x 1-0
+                if {$autoclaim} {
+                    assert_equal {0-0 {} 1-0} [$master XAUTOCLAIM x grp Bob 0 0-0]
+                } else {
+                    assert_equal {} [$master XCLAIM x grp Bob 0 1-0]
+                }
+                wait_for_ofs_sync $master $replica
+                assert_equal {0 {} {} {}} [$master XPENDING x grp]
+                assert_equal {0 {} {} {}} [$replica XPENDING x grp]
             }
         }
 
