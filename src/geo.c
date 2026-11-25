@@ -91,6 +91,9 @@ void geoArrayFree(geoArray *ga) {
  * Helpers
  * ==================================================================== */
 int decodeGeohash(double bits, double *xy) {
+    /* A zset score is not always a geohash: the cast is undefined for NaN, negative values and
+     * values of 2^64 and more. */
+    if (!(bits >= 0 && bits < 0x1p64)) return 0;
     GeoHashBits hash = { .bits = (uint64_t)bits, .step = GEO_STEP_MAX };
     return geohashDecodeToLongLatWGS84(hash, xy);
 }
