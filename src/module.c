@@ -13446,6 +13446,10 @@ int RM_SubscribeToServerEvent(RedisModuleCtx *ctx, RedisModuleEvent event, Redis
  * subevent is not supported and non-zero otherwise.
  */
 int RM_IsSubEventSupported(RedisModuleEvent event, int64_t subevent) {
+    /* The module API declares the subevent as uint64_t, so a value that does
+     * not fit in an int64_t arrives here as negative. Reject it instead of
+     * letting the comparisons below report it as supported. */
+    if (subevent < 0) return 0;
     switch (event.id) {
     case REDISMODULE_EVENT_REPLICATION_ROLE_CHANGED:
         return subevent < _REDISMODULE_EVENT_REPLROLECHANGED_NEXT;

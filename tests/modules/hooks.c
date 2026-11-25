@@ -380,6 +380,19 @@ static int cmdKeyExpiry(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return REDISMODULE_OK;
 }
 
+static int cmdIsSubEventSupported(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 2) {
+        return RedisModule_WrongArity(ctx);
+    }
+
+    long long subevent;
+    if (RedisModule_StringToLongLong(argv[1], &subevent) != REDISMODULE_OK) {
+        return RedisModule_ReplyWithError(ctx, "ERR invalid subevent");
+    }
+    return RedisModule_ReplyWithLongLong(ctx,
+        RedisModule_IsSubEventSupported(RedisModuleEvent_Persistence, (uint64_t)subevent));
+}
+
 /* This function must be present on each Redis module. It is used in order to
  * register the commands into the Redis server. */
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -447,6 +460,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx,"hooks.is_key_removed", cmdIsKeyRemoved,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"hooks.pexpireat", cmdKeyExpiry,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"hooks.sub_event_supported", cmdIsSubEventSupported,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (argc == 1) {

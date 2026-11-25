@@ -35,6 +35,12 @@ tags "modules external:skip" {
             assert_equal $hz 10
         }
 
+        test {Test IsSubEventSupported reports an out-of-range subevent as unsupported} {
+            assert_equal 1 [r hooks.sub_event_supported 0]
+            assert_equal 0 [r hooks.sub_event_supported 999]
+            assert_equal 0 [r hooks.sub_event_supported -1]
+        }
+
         test {Test module loaded / unloaded hooks} {
             set othermodule [file normalize tests/modules/infotest.so]
             r module load $othermodule
