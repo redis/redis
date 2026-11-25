@@ -373,7 +373,8 @@ static inline int isPositionFilled(const dictBucket *b, int pos) {
     return b->presence & (1u << pos);
 }
 
-/* True if the bucket holds at most one entry. */
+/* Returns 1 if the bucket's own positions hold at most one entry (child
+ * buckets are not counted), 0 otherwise. */
 static inline int bucketHasAtMostOneEntry(const dictBucket *b) {
     return (b->presence & (b->presence - 1)) == 0;
 }
