@@ -1436,11 +1436,12 @@ start_server {
             r XREADGROUP GROUP mygroup Alice STREAMS mystream 0
             r XREADGROUP GROUP mygroup Alice STREAMS mystream 0
             set pending [stream_group_pending r mystream]
-            assert_equal {3 3} [list [lindex $pending 0 3] [lindex $pending 1 3]]
-            assert_morethan [lindex $pending 0 2] $first_delivery
+            assert_equal [lindex $pending 0 3] 3 ;# delivery count of 1-0
+            assert_equal [lindex $pending 1 3] 3 ;# delivery count of 2-0
+            assert {[lindex $pending 0 2] > $first_delivery} ;# delivery time
 
             r debug loadaof
-            assert_equal $pending [stream_group_pending r mystream]
+            assert_equal [stream_group_pending r mystream] $pending
         }
     }
 
@@ -2107,6 +2108,8 @@ start_server {
     }
 
     start_server {tags {"repl external:skip" "stream"}} {
+        # Same as "XREADGROUP from PEL keeps the delivery count and time in
+        # AOF", as seen from a replica.
         test "XREADGROUP from PEL propagates the delivery count and time to replica" {
             set master [srv 0 client]
             set master_host [srv 0 host]
@@ -2122,7 +2125,7 @@ start_server {
                 $master XADD mystream 1-0 f v
                 $master XADD mystream 2-0 f v
                 $master XGROUP CREATE mystream mygroup 0
-                $master XREADGROUP GROUP mygroup Alice STREAMS mystream ">"
+                $master XREADGROUP GROUP mygroup Alice STREAMS mystream >
                 set first_delivery [lindex [stream_group_pending $master mystream] 0 2]
 
                 # Read the history twice, in a later millisecond than the
@@ -2131,11 +2134,12 @@ start_server {
                 $master XREADGROUP GROUP mygroup Alice STREAMS mystream 0
                 $master XREADGROUP GROUP mygroup Alice STREAMS mystream 0
                 set pending [stream_group_pending $master mystream]
-                assert_equal {3 3} [list [lindex $pending 0 3] [lindex $pending 1 3]]
-                assert_morethan [lindex $pending 0 2] $first_delivery
+                assert_equal [lindex $pending 0 3] 3 ;# delivery count of 1-0
+                assert_equal [lindex $pending 1 3] 3 ;# delivery count of 2-0
+                assert {[lindex $pending 0 2] > $first_delivery} ;# delivery time
 
                 wait_for_ofs_sync $master $replica
-                assert_equal $pending [stream_group_pending $replica mystream]
+                assert_equal [stream_group_pending $replica mystream] $pending
             }
         }
     }
