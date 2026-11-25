@@ -847,6 +847,132 @@ start_server {tags {"multi"}} {
         } {}
     }
 
+    foreach resp {2 3} {
+        foreach mode {SKIP OFF ON} {
+            test "MULTI with CLIENT REPLY $mode is rejected (RESP$resp)" {
+                r del foo
+                set rd [redis_deferring_client]
+                $rd hello $resp
+                $rd read
+
+                $rd multi
+                $rd set foo bar
+                $rd client reply $mode
+                $rd ping first
+                $rd ping second
+                $rd exec
+                $rd ping after1
+                $rd ping after2
+
+                assert_equal {OK} [$rd read]
+                assert_equal {QUEUED} [$rd read]
+                assert_error {*Command not allowed inside a transaction*} {$rd read}
+                assert_equal {QUEUED} [$rd read]
+                assert_equal {QUEUED} [$rd read]
+                assert_error {EXECABORT*} {$rd read}
+                assert_equal {after1} [$rd read]
+                assert_equal {after2} [$rd read]
+                $rd close
+                assert_equal {} [r get foo]
+            }
+        }
+    }
+
+    test "MULTI with CLIENT REPLY SKIP followed by DISCARD" {
+        r del foo
+        set r1 [redis_client]
+        assert_equal {OK} [$r1 multi]
+        assert_equal {QUEUED} [$r1 set foo bar]
+        assert_error {*Command not allowed inside a transaction*} {$r1 client reply skip}
+        assert_equal {OK} [$r1 discard]
+        assert_equal {after_discard} [$r1 ping after_discard]
+        $r1 close
+        assert_equal {} [r get foo]
+    }
+
+    test "WATCH with CLIENT REPLY SKIP inside MULTI" {
+        r set foo 1
+        set r1 [redis_client]
+        set r2 [redis_client]
+        assert_equal {OK} [$r1 watch foo]
+        $r2 set foo 2
+        assert_equal {OK} [$r1 multi]
+        assert_error {*Command not allowed inside a transaction*} {$r1 client reply skip}
+        assert_error {EXECABORT*} {$r1 exec}
+        assert_equal {after_watch} [$r1 ping after_watch]
+        assert_equal {OK} [$r1 multi]
+        assert_equal {QUEUED} [$r1 ping]
+        assert_equal {PONG} [$r1 exec]
+        $r1 close
+        $r2 close
+    }
+
+    foreach resp {2 3} {
+        foreach mode {ON OFF SKIP} {
+            test "CLIENT REPLY OFF before MULTI rejects CLIENT REPLY $mode inside MULTI (RESP$resp)" {
+                r del foo
+                set rd [redis_deferring_client]
+                $rd hello $resp
+                $rd read
+
+                $rd client reply off
+                $rd multi
+                $rd set foo bar
+                $rd client reply $mode
+                $rd ping inside
+                $rd exec
+                $rd client reply on
+                $rd ping after_off
+
+                # Only the outer CLIENT REPLY ON and subsequent PING produce replies.
+                assert_equal {OK} [$rd read]
+                assert_equal {after_off} [$rd read]
+                $rd close
+                assert_equal {} [r get foo]
+            }
+        }
+    }
+
+    test "CLIENT REPLY outside MULTI still works with transactions" {
+        r del foo
+        set rd [redis_deferring_client]
+
+        # CLIENT REPLY SKIP before MULTI skips only MULTI's +OK reply.
+        $rd client reply skip
+        $rd multi
+        $rd ping in_multi
+        $rd exec
+        $rd ping after_skip
+        assert_equal {QUEUED} [$rd read]
+        assert_equal {in_multi} [$rd read]
+        assert_equal {after_skip} [$rd read]
+
+        # CLIENT REPLY OFF before MULTI silences the entire transaction cleanly.
+        $rd client reply off
+        $rd multi
+        $rd set foo silent_ok
+        $rd exec
+        $rd client reply on
+        $rd get foo
+        assert_equal {OK} [$rd read]
+        assert_equal {silent_ok} [$rd read]
+
+        $rd close
+    }
+
+    test "CLIENT REPLY advertises no_multi without restricting other CLIENT subcommands" {
+        set reply_info [lindex [r command info client|reply] 0]
+        assert_match {*no_multi*} [lindex $reply_info 2]
+
+        set client_info [lindex [r command info client] 0]
+        assert_no_match {*no_multi*} [lindex $client_info 2]
+
+        r multi
+        r client id
+        set res [r exec]
+        assert_morethan [lindex $res 0] 0
+    }
+
     test "MULTI with BGREWRITEAOF" {
         set forks [s total_forks]
         r multi

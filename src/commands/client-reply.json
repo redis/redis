@@ -11,6 +11,7 @@
             "NOSCRIPT",
             "LOADING",
             "STALE",
+            "NO_MULTI",
             "SENTINEL"
         ],
         "acl_categories": [
