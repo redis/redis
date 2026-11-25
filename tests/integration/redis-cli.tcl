@@ -1386,14 +1386,15 @@ start_server {tags {"cli external:skip"}} {
     foreach interrupt {0 1} {
         foreach resumed {0 1} {
             test "keystats clears live no-match statistics (interrupted: $interrupt, resumed: $resumed)" {
-                # COUNT 1 and the interval ensure that a live refresh happens.
+                # Sleep longer than the 300 ms live refresh interval after the
+                # first 100 SCAN calls, even when 32-bit scans use fewer calls.
                 r debug populate 2000
                 set cursor 0
                 if {$resumed} {
                     set cursor [lindex [r scan 0 count 1] 0]
                     assert {$cursor != 0}
                 }
-                set result [keystats_output [list --cursor $cursor --pattern missing:* --count 1 -i 0.1] 1 $interrupt]
+                set result [keystats_output [list --cursor $cursor --pattern missing:* --count 1 -i 0.5] 1 $interrupt]
 
                 # The cursor must return above the live report, then the entire
                 # remaining report must be erased before the shorter final message.
