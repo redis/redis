@@ -97,6 +97,15 @@ void setGenericCommand(client *c, int flags, robj *key, robj **valref, robj *exp
     }
 
     if (flags & OBJ_SET_GET) {
+        /* GET replies before the conditions are evaluated. A malformed digest
+         * on an existing string would add a second (error) reply below, so
+         * reject it first. A missing key still replies nil. */
+        if (flags & (OBJ_SET_IFDEQ | OBJ_SET_IFDNE)) {
+            kvobj *peek = lookupKeyReadWithFlags(c->db, key, LOOKUP_NOEFFECTS);
+            if (peek && peek->type == OBJ_STRING &&
+                validateHexDigest(c, match_value->ptr) != C_OK)
+                return;
+        }
         if (getGenericCommand(c) == C_ERR) return;
     }
 

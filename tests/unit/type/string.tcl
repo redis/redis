@@ -1737,6 +1737,17 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         assert_error "*must be exactly 16 hexadecimal characters*" {r delex mykey IFDNE ""}
     }
 
+    test {SET IFDEQ/IFDNE with GET and malformed digest sends a single reply} {
+        r set mykey "test"
+        foreach cond {IFDEQ IFDNE} {
+            foreach bad {"" 123 0123456789abcdef0} {
+                assert_error "*must be exactly 16 hexadecimal characters*" {r set mykey "new" $cond $bad GET}
+                assert_equal PONG [r ping]
+            }
+        }
+        assert_equal "test" [r get mykey]
+    }
+
     test {IFDEQ/IFDNE accepts uppercase hex digits (case-insensitive)} {
         # Test SET IFDEQ with uppercase
         r set mykey "hello"
