@@ -659,11 +659,7 @@ static inline void streamLagNoteChangeWhileOff(stream *s) {
 /* Before a trim, a delete, XSETID, or the creation or destruction of a
  * group: the sample to hand to streamLagChanged() afterwards. */
 int64_t streamLagCaptureSample(stream *s) {
-    if (!server.stream_stats) {
-        streamLagNoteChangeWhileOff(s);
-        return STREAM_LAG_OFF;
-    }
-    if (!s->cgroups) return STREAM_LAG_OFF;
+    if (!server.stream_stats || !s->cgroups) return STREAM_LAG_OFF;
     return streamLagSample(s);
 }
 
@@ -681,11 +677,9 @@ int64_t streamLagCaptureSample(stream *s) {
  * generation is the price of discarding stale state lazily; nothing stale
  * reaches the row. */
 int64_t streamLagBeforeAppend(stream *s) {
-    if (!server.stream_stats) {
-        streamLagNoteChangeWhileOff(s);
-        return STREAM_LAG_OFF;
-    }
-    if (!s->cgroups || s->entries_added + 1 < streamLagStateOf(s)->xadd_threshold) return STREAM_LAG_OFF;
+    if (!server.stream_stats ||
+        !s->cgroups ||
+        s->entries_added + 1 < streamLagStateOf(s)->xadd_threshold) return STREAM_LAG_OFF;
     return streamLagSample(s);
 }
 
@@ -695,11 +689,19 @@ int64_t streamLagBeforeAppend(stream *s) {
  * means the earlier capture found nothing to track (stats off, no groups,
  * or an XADD short of the threshold).
  *
+ * While stats are off this is where the change is noted. The capture cannot
+ * do it: it runs before the change is known to happen, and a write that
+ * fails must not make the next enable start over.
+ *
  * Callers skip the call when the change did not happen, e.g. a trim that
- * deleted nothing, but only to save work: a call with an unmoved sample is
- * harmless. */
+ * deleted nothing. With stats on that only saves work: a call with an
+ * unmoved sample is harmless. With stats off it is what keeps such a
+ * command from marking the rows stale. */
 void streamLagChanged(redisDb *db, stream *s, int64_t old) {
-    if (old == STREAM_LAG_OFF) return;
+    if (old == STREAM_LAG_OFF) {
+        if (!server.stream_stats) streamLagNoteChangeWhileOff(s);
+        return;
+    }
     streamLagSampleChanged(db, s, old);
 }
 
@@ -4544,10 +4546,8 @@ NULL
             old_alloc = kvobjAllocSize(o);
         int64_t old_cgroups = streamStreamSample(s, STREAM_DISTRIB_STREAMS_CGROUPS);
         /* Max-lag row: the number of groups is an input of the sample, so
-         * the sample is captured before the group is added. Not while stats
-         * are off: that capture would note a change even if the creation
-         * fails. */
-        int64_t old_lag = server.stream_stats ? streamLagCaptureSample(s) : STREAM_LAG_OFF;
+         * the sample is captured before the group is added. */
+        int64_t old_lag = streamLagCaptureSample(s);
         streamCG *cg = streamCreateCG(s,grpname,sdslen(grpname),&id,entries_read);
         if (cg) {
             streamUpdateStreamStat(c->db, s, STREAM_DISTRIB_STREAMS_CGROUPS, old_cgroups); /* the stream gained a group */
@@ -4729,9 +4729,9 @@ void xsetidCommand(client *c) {
      * free the heap, so bracket the slot accounting too. */
     size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
     int64_t old_lag = streamLagCaptureSample(s);
+    uint64_t prev_entries_added = s->entries_added;
     s->last_id = id;
     if (entries_added != -1) {
-        uint64_t prev_entries_added = s->entries_added;
         s->entries_added = entries_added;
         /* Lowering entries_added may leave a consumer group's entries_read
          * greater than the stream's entries_added. That breaks the lag
@@ -4763,7 +4763,9 @@ void xsetidCommand(client *c) {
     }
     if (!streamIDEqZero(&max_xdel_id))
         s->max_deleted_entry_id = max_xdel_id;
-    streamLagChanged(c->db, s, old_lag);
+    /* Of what XSETID sets, only entries_added is an input of the sample. */
+    if (s->entries_added != prev_entries_added)
+        streamLagChanged(c->db, s, old_lag);
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
     addReply(c,shared.ok);

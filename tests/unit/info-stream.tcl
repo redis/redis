@@ -1226,6 +1226,15 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         r set unrelated 1
         # Nor does a group creation that is rejected.
         assert_error "*BUSYGROUP*" {r xgroup create st g 0}
+        # Nor does a write that fails or changes nothing the rows depend on:
+        # an XADD with an ID that is too small, an XDEL or XDELEX of a missing
+        # entry, an XTRIM that removes nothing, an XSETID that moves only the
+        # last ID.
+        assert_error "*equal or smaller*" {r xadd st 1-1 f v}
+        assert_equal 0 [r xdel st 99-1]
+        assert_equal 0 [r xtrim st maxlen 100]
+        assert_equal {-1} [r xdelex st keepref ids 1 99-1]
+        r xsetid st 50-1
         r config set stream-stats yes
         assert_equal "db0_stream_distrib_cgroups_pel:4=1" [get_info_stream_field r stream_distrib_cgroups_pel]
         assert_equal [eval_stream_histogram r 0 stream_distrib_cgroups_pel pending] [get_info_stream_field r stream_distrib_cgroups_pel]
@@ -1241,6 +1250,32 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         r xack st g 2-1
         assert_equal "db0_stream_distrib_cgroups_pel:2=1" [get_info_stream_field r stream_distrib_cgroups_pel]
         assert_equal "db0_stream_distrib_streams_max_lag:0=1" [get_info_stream_field r stream_distrib_streams_max_lag]
+    }
+
+    test "STREAM-STATS - a write that changes the stream while off starts a new generation" {
+        # The max-lag row is computed from the stream's length and
+        # entries_added. Each command here changes one of them, and the
+        # change is noted once it has happened, so the next enable starts
+        # over.
+        foreach cmd {
+            {xadd st 5-1 f v}
+            {xdel st 2-1}
+            {xdelex st keepref ids 1 2-1}
+            {xtrim st maxlen 2}
+            {xsetid st 4-1 entriesadded 9}
+        } {
+            r config set stream-stats yes
+            r FLUSHALL
+            seed_stream r st 4
+            r xgroup create st g 0
+            r xreadgroup group g c count 4 streams st >
+            set epoch [r debug stream-stats-epoch]
+            r config set stream-stats no
+            r {*}$cmd
+            r config set stream-stats yes
+            assert {[r debug stream-stats-epoch] != $epoch}
+            assert_equal "" [get_info_stream_stripped r]
+        }
     }
 
     test "STREAM-STATS - runtime enable is lazy, reload makes it exact" {

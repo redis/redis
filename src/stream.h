@@ -267,8 +267,8 @@ void dbgAssertStreamStats(redisDb *db);
 
 /* Max-lag row hooks for paths that change entries_added, length or the number
  * of groups. Capture before the change, pass the result to streamLagChanged()
- * after it. While stats are off the capture only notes that the rows fell
- * behind. See "WHICH HOOK TO CALL" in t_stream.c. */
+ * after it. While stats are off streamLagChanged() only notes that the rows
+ * fell behind. See "WHICH HOOK TO CALL" in t_stream.c. */
 #define STREAM_LAG_OFF INT64_MIN
 int64_t streamLagBeforeAppend(stream *s);
 int64_t streamLagCaptureSample(stream *s);
