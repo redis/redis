@@ -1393,7 +1393,11 @@ start_server {tags {"cli external:skip"}} {
                     set cursor [lindex [r scan 0 count 1] 0]
                     assert {$cursor != 0}
                 }
-                set result [keystats_output [list --cursor $cursor --pattern missing:* --count 1 -i 0.5] 1 $interrupt]
+                # On 32-bit builds, more slots per bucket mean fewer SCAN calls here.
+                # The CLI sleeps every 100 calls. Use 0.5 seconds on 32-bit builds
+                # so the first sleep already exceeds the 300 ms refresh threshold.
+                set keystats_interval [expr {[s arch_bits] == 32 ? 0.5 : 0.1}]
+                set result [keystats_output [list --cursor $cursor --pattern missing:* --count 1 -i $keystats_interval] 1 $interrupt]
 
                 # The cursor must return above the live report, then the entire
                 # remaining report must be erased before the shorter final message.
