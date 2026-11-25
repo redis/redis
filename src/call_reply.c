@@ -145,9 +145,9 @@ static void callReplyAttribute(ReplyParser *parser, void *ctx, size_t len, const
     /* Continue parsing the attribute reply */
     rep->attribute->len = len;
     rep->attribute->type = REDISMODULE_REPLY_ATTRIBUTE;
+    rep->attribute->private_data = rep->private_data;
     callReplyParseCollection(parser, rep->attribute, len, proto, 2);
     rep->attribute->flags |= REPLY_FLAG_PARSED | REPLY_FLAG_RESP3;
-    rep->attribute->private_data = rep->private_data;
 
     /* Continue parsing the reply */
     parseReply(parser, rep);
