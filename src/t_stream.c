@@ -2563,7 +2563,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamReplyRangeArgs *args) {
                 /* New NACK - insert into consumer's PEL and time list */
                 raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
                 nack->cgroup_ref_node = streamLinkCGroupToEntry(s, group, buf);
-                pelListInsertSorted(group, nack);
+                pelListInsertAtTail(group, nack);
             }
 
             consumer->active_time = cmd_time_snapshot;
