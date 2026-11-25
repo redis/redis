@@ -62,9 +62,14 @@ static void pelListInsertAfter(streamCG *cg, streamNACK *after, streamNACK *nack
 static void pelListInsertAtTail(streamCG *cg, streamNACK *nack);
 static void pelListUpdate(streamCG *cg, streamNACK *nack, mstime_t new_delivery_time);
 
-/* Forward declarations for the INFO Streams samplers */
+/* Forward declarations for the INFO Streams samplers and the max-lag row */
 static int64_t streamCGroupSample(streamCG *cg, streamDistribMetric metric);
 static int64_t streamStreamSample(stream *s, streamDistribMetric metric);
+static int64_t streamLagSample(stream *s);
+static void streamLagFreeHeap(stream *s);
+static inline void streamLagNewGeneration(redisDb *db, stream *s);
+static inline void streamLagFreeHeapWhileOff(stream *s);
+static void streamLagGroupTouched(redisDb *db, stream *s, streamCG *cg);
 
 /* -----------------------------------------------------------------------
  * Low level stream encoding: a radix tree of listpacks.
@@ -113,8 +118,10 @@ void streamFreeIdmpProducerGeneric(void *producer, void *strm) {
 /* Free a stream, including the listpacks stored inside the radix tree. */
 void freeStream(stream *s) {
     raxFreeWithCbAndContext(s->rax, streamLpFreeGeneric, s);
-    if (s->cgroups)
+    if (s->cgroups) {
+        streamLagFreeHeap(s); /* kept behind the groups rax header */
         raxFreeWithCbAndContext(s->cgroups, streamFreeCGGeneric, s);
+    }
     if (s->cgroups_ref)
         raxFreeWithCallback(s->cgroups_ref, listReleaseGeneric);
     /* Free IDMP producers rax tree */
@@ -152,25 +159,32 @@ const char *const streamDistribMetricNames[STREAM_DISTRIB_MAX] = {
     [STREAM_DISTRIB_STREAMS_CGROUPS] = "stream_distrib_streams_cgroups",
     [STREAM_DISTRIB_CGROUPS_PEL] = "stream_distrib_cgroups_pel",
     [STREAM_DISTRIB_CGROUPS_CONSUMERS] = "stream_distrib_cgroups_consumers",
+    [STREAM_DISTRIB_STREAMS_MAX_LAG] = "stream_distrib_streams_max_lag",
 };
 static_assert(STREAM_DISTRIB_MAX <= 8, "distrib_counted holds one bit per metric");
+/* The bit of 'metric' in a stamp's 'counted' byte. */
+#define STREAM_DISTRIB_BIT(metric) (1u << (metric))
 
-/* A consumer group's INFO Streams stamp, kept in the metadata of its PEL rax
- * so that streamCG stays one cache line. */
-typedef struct {
-    uint32_t epoch;   /* Generation the bits refer to. */
-    uint8_t counted;  /* Bit per metric with a sample in its row. */
-} streamDistribStamp;
+/* The group stamp (streamDistribStamp) and the per-stream state of the
+ * max-lag row (streamLagState) are declared in stream.h, since defrag.c
+ * follows them. */
+
+/* Set for the life of the process once the generation counter has wrapped,
+ * see "the max-lag row" below. Only assertions read it, so it is kept out
+ * of struct redisServer. */
+static int stream_stats_wrapped = 0;
 
 /* Zero the stream histograms in 'meta' and start a new generation: every
  * stream and group stamped with the old one is uncounted again, and a slot-trim
  * delta captured against it is discarded on completion. Generations come from
  * one server-wide counter, so a stamp carried into another db by MOVE while
  * stats were off cannot match there; the counter skips 0, the value of fresh
- * metadata, and the never-counted sentinel. */
+ * metadata, and the never-counted sentinel. A wrap is recorded. */
 void streamStatsResetMeta(kvstoreMetadata *meta) {
-    if (++server.stream_stats_generation == STREAM_DISTRIB_NEVER_COUNTED)
+    if (++server.stream_stats_generation == STREAM_DISTRIB_NEVER_COUNTED) {
         server.stream_stats_generation = 1;
+        stream_stats_wrapped = 1;
+    }
     meta->stream_stats_epoch = server.stream_stats_generation;
     memset(meta->stream_hist, 0, sizeof(meta->stream_hist));
 }
@@ -209,14 +223,16 @@ static void streamUpdateStat(redisDb *db, uint32_t *epoch, uint8_t *counted,
         *counted = 0;
     }
 
-    uint8_t bit = 1u << metric;
+    uint8_t bit = STREAM_DISTRIB_BIT(metric);
     int old_bin = streamDistribBin(old_val);
     int new_bin = streamDistribBin(new_val);
     if ((*counted & bit) && old_bin == new_bin) return; /* sample didn't move */
 
     int64_t *hist = meta->stream_hist[metric];
     if (*counted & bit) {                      /* this row holds the sample: exact move */
-        debugServerAssert(old_bin >= 0 && hist[old_bin] > 0);
+        /* After a wrap a stamp can claim a sample this row never held. */
+        debugServerAssert((old_bin >= 0 && hist[old_bin] > 0) ||
+                          stream_stats_wrapped);
         if (old_bin >= 0 && hist[old_bin] > 0) hist[old_bin]--;
         if (new_bin < 0) {                     /* the sample leaves this row */
             *counted &= ~bit;
@@ -247,26 +263,493 @@ void streamRemoveCGStat(redisDb *db, streamCG *cg, streamDistribMetric metric) {
     streamUpdateStat(db, &st->epoch, &st->counted, metric, streamCGroupSample(cg, metric), -1);
 }
 
+/* The two stream wrappers are the only places that move a stream's stamp to
+ * a new generation, so they also retire the stream's lag heap first (it
+ * belongs to the generation the stream was stamped with). The sample is
+ * taken after that, so a retired heap is never read for a new value. */
 static inline __attribute__((always_inline))
 void streamUpdateStreamStat(redisDb *db, stream *s, streamDistribMetric metric, int64_t old) {
+    streamLagNewGeneration(db, s);
     streamUpdateStat(db, &s->distrib_epoch, &s->distrib_counted, metric, old, streamStreamSample(s, metric));
 }
 
 static inline __attribute__((always_inline))
 void streamRemoveStreamStat(redisDb *db, stream *s, streamDistribMetric metric) {
+    streamLagNewGeneration(db, s);
     streamUpdateStat(db, &s->distrib_epoch, &s->distrib_counted, metric, streamStreamSample(s, metric), -1);
 }
 
-/* After a lazy enable, re-enter the two samples whose own hooks fire rarely:
- * the stream's group count and the group's consumer count. An equal-value
- * update is a no-op when the row holds the sample and enters it otherwise.
- * Called by every group command, after its own updates for that group. */
+/* After a lazy enable, re-enter the samples whose own hooks fire rarely:
+ * the stream's group count, the group's consumer count, and the stream's
+ * max lag, which also enrols the group in the lag heap or moves it to its
+ * current position. An equal-value update is a no-op when the row holds the
+ * sample and enters it otherwise. Called by every group command, after its
+ * own updates for that group. While stats are off it only frees the
+ * stream's lag heap, which would miss what the command did to the group. */
 static void streamStatsReenterStructural(redisDb *db, stream *s, streamCG *cg) {
-    if (!server.stream_stats) return;
+    if (!server.stream_stats) {
+        streamLagFreeHeapWhileOff(s);
+        return;
+    }
     streamUpdateStreamStat(db, s, STREAM_DISTRIB_STREAMS_CGROUPS,
                            streamStreamSample(s, STREAM_DISTRIB_STREAMS_CGROUPS));
     streamUpdateCGStat(db, cg, STREAM_DISTRIB_CGROUPS_CONSUMERS,
                        streamCGroupSample(cg, STREAM_DISTRIB_CGROUPS_CONSUMERS));
+    streamLagGroupTouched(db, s, cg);
+}
+
+/* ----------------------------------------------------------------------------
+ * INFO Streams: the max-lag row
+ *
+ * stream_distrib_streams_max_lag bins, per stream, the lag of the group that
+ * has read the least: min(entries_added - entries_read, length) for the group
+ * with the smallest entries_read. The groups are kept in a per-stream iheap
+ * keyed by entries_read (UINT64_MAX while unknown, so it sorts last), whose
+ * state lives in the metadata of the groups rax; a group's member index in the
+ * iheap, which the heap's API calls its slot, lives in the three spare bytes
+ * of its stamp. XADD never touches a group: it compares entries_added with a
+ * cached threshold, the value at which the worst lag next changes bin, and
+ * recomputes only when it is reached.
+ *
+ * Membership is lazy like the other rows: a group joins on its first group
+ * command after an enable. The heap belongs to the generation stamped on the
+ * stream. It stays when a newer generation starts, and the two stream-stamp
+ * wrappers free it when they move the stream to that generation.
+ *
+ * The generation counter has 32 bits. Once it has wrapped, a stream's old
+ * stamp can pass as current, and its old heap is then taken for a current
+ * one. A heap must therefore never be left holding a destroyed group, a
+ * group whose stamp has moved on, or a group at an outdated position. With
+ * stats on, the hooks below see to that: they update the heap or refresh
+ * the stream's stamp, which frees an old heap. Two more rules cover the
+ * rest. streamCleanupEntryCGroupRefs() refreshes group stamps without the
+ * stream's, so it frees an old heap first. And while stats are off, a group
+ * command or the XSETID clamp frees the heap, which would miss the change:
+ * see streamLagFreeHeapWhileOff(). XGROUP DESTROY frees it too. A group's
+ * old stamp can pass as current as well, with an in-heap bit and a slot
+ * from a heap that is gone, so streamLagIsMember() believes the bit only if
+ * the slot holds the group.
+ *
+ * The lag here does not account for tombstones between the group's position
+ * and the end of the stream, so it is an upper bound of the undelivered
+ * count, capped at the stream length. XINFO GROUPS' estimate is not used:
+ * a sample taken on change would drift with the stream.
+ *
+ * WHICH HOOK TO CALL
+ *
+ * The sample is computed from four inputs: the heap's root, entries_added,
+ * length and the number of groups. Above stream_lag_max_members groups there
+ * is no sample. The max-lag row is updated by moving the stream's sample
+ * from its old bin to its new one, so a path that changes an input must know
+ * the sample from before the change.
+ *
+ * - A command that creates or modifies the group it names calls
+ *   streamLagGroupTouched() when it is done with the group, normally through
+ *   streamStatsReenterStructural(). This keeps the sample's first input, the
+ *   heap, in step with the group: the call enrols the group if it is not a
+ *   member, else re-sorts it in the heap by its entries_read. When the
+ *   command changes none of the other three inputs, this call is all the
+ *   max-lag row needs. It takes no captured sample: it computes the old one
+ *   itself, before it changes the heap.
+ * - A path that changes the stream's entries_added, length or number of
+ *   groups calls streamLagCaptureSample() before the change and
+ *   streamLagChanged() after it. These inputs are read from the stream, so
+ *   the old sample cannot be computed once they have changed. An append of
+ *   one entry captures with streamLagBeforeAppend() instead, the XADD fast
+ *   path, and passes the result to streamLagChanged() in the same way.
+ * - A command that does both keeps the two apart. XACKDEL acknowledges
+ *   entries in a group and deletes them from the stream. XGROUP CREATE raises
+ *   the number of groups and has a new group to enrol. In both the order is:
+ *   1. streamLagCaptureSample(), before the stream changes.
+ *   2. streamLagChanged(), after it. This moves the stream's sample for the
+ *      change in the stream's own data.
+ *   3. streamLagGroupTouched(). This enrols or re-sorts the group in the
+ *      heap. If that changes the heap's root, the stream's sample can move
+ *      again.
+ *   Step 3 never runs between steps 1 and 2. After the change and before
+ *   streamLagChanged(), the row still has the stream's sample in its old
+ *   bin. Only the captured sample says which bin that is.
+ *   streamLagGroupTouched() does not use the captured sample. It computes an
+ *   old sample of its own from the stream as it is. Called between the change
+ *   and streamLagChanged(), it can pick a bin that does not hold the stream's
+ *   sample.
+ * - streamLagMemberMoved() and streamLagGroupLeaving() change the heap and
+ *   do not update the max-lag row. XSETID calls the first when it lowers
+ *   entries_added. XGROUP DESTROY calls the second and lowers the number of
+ *   groups. Both commands change a stream input too, so the helpers run
+ *   between a capture and its streamLagChanged(). That call updates the row
+ *   once, for the heap and the input together.
+ * - A path that updates a group's own rows with streamUpdateCGStat(), and
+ *   may end without streamLagGroupTouched() or streamLagChanged(), calls
+ *   streamLagNewGeneration() first. The update moves a group's stamp from an
+ *   older generation to the current one and clears its in-heap bit. A heap
+ *   left from that older generation would still hold the group, and it can
+ *   pass as current again once the generation counter has wrapped. So it is
+ *   freed before the update. streamCleanupEntryCGroupRefs() is such a path.
+ * - While stats are off, a path that changes a group's position calls
+ *   streamLagFreeHeapWhileOff(). Group commands do it through
+ *   streamStatsReenterStructural(), and XSETID does it for the groups it
+ *   clamps.
+ * - A stream that appears or vanishes as a whole needs none of these:
+ *   streamUpdateStreamSamples() enters or drops its sample.
+ * -------------------------------------------------------------------------- */
+
+/* A group has no sample of its own in the per-stream rows, so in a group's
+ * stamp the bits of those metrics are free. The max-lag metric's bit is
+ * given a meaning there: the group is in its stream's max-lag heap, and so
+ * counts toward the stream's sample. In the stream's own stamp the same bit
+ * keeps the usual meaning, "the row holds this stream's sample"; see
+ * streamLagAssert(). The other bits have no names: streamUpdateStat() and
+ * streamTallySample() address them as STREAM_DISTRIB_BIT(metric). */
+#define STREAM_CG_IN_LAG_HEAP STREAM_DISTRIB_BIT(STREAM_DISTRIB_STREAMS_MAX_LAG)
+#define STREAM_LAG_MAX_MEMBERS (1u << 24) /* the stamp's slot has 24 bits */
+
+/* The number of groups above which a stream has no sample. It is the range
+ * of the slot, unless DEBUG STREAM-STATS-LAG-GROUPS-LIMIT lowered it for a
+ * test. Atomic because the background slot trim reads it on the BIO thread,
+ * through streamLagSample().
+ *
+ * The limit counts the stream's groups, and going over it removes nothing
+ * from the heap. A stream that XGROUP CREATE takes over the limit keeps its
+ * heap and the members in it. While it is over the limit it has no sample
+ * and no further group joins, but group commands still re-sort the members.
+ * When XGROUP DESTROY brings the stream back to the limit, the sample
+ * returns at once, computed from the members as they are then. A group
+ * created meanwhile joins on its first group command after that.
+ *
+ * A stream that enters the keyspace already over the limit, as on a load or
+ * RESTORE, gets no heap. Once it is back at the limit, its groups join one
+ * by one, each on its next group command. */
+static redisAtomic uint32_t stream_lag_max_members = STREAM_LAG_MAX_MEMBERS;
+
+static inline uint32_t streamLagMaxMembers(void) {
+    uint32_t limit;
+    atomicGet(stream_lag_max_members, limit);
+    return limit;
+}
+
+/* The current generation of 'db's INFO Streams rows. */
+static inline uint32_t streamStatsEpochOf(redisDb *db) {
+    kvstoreMetadata *meta = kvstoreGetMetadata(db->keys);
+    return meta->stream_stats_epoch;
+}
+
+static inline streamDistribStamp *streamCGStamp(streamCG *cg) {
+    return (streamDistribStamp *) cg->pel->metadata;
+}
+
+/* The max-lag state of a stream that has a groups rax. A caller either
+ * checked s->cgroups itself, holds one of the stream's groups, which can
+ * only exist inside that rax, or acts on a sample captured while the rax
+ * existed; the rax is only ever freed together with the stream. */
+static inline streamLagState *streamLagStateOf(stream *s) {
+    debugServerAssert(s->cgroups != NULL);
+    return (streamLagState *) s->cgroups->metadata;
+}
+
+/* The heap key of a group: its position, or the sentinel while unknown. */
+static inline uint64_t streamLagKey(streamCG *cg) {
+    return cg->entries_read == SCG_INVALID_ENTRIES_READ ? UINT64_MAX : (uint64_t) cg->entries_read;
+}
+
+static void streamLagSetSlot(void *item, uint32_t slot) {
+    streamCGStamp((streamCG *) item)->slot = slot;
+}
+
+static uint32_t streamLagGetSlot(void *item) {
+    return streamCGStamp((streamCG *) item)->slot;
+}
+
+static const iheapType streamLagHeapType = { streamLagSetSlot, streamLagGetSlot };
+
+/* Whether 'cg' is held by 'h' at 'slot': what a member's stamp claims, and
+ * what iheapUpdate() and iheapRemove() act on. */
+static inline int streamLagHeldAt(const iheap *h, uint32_t slot, const streamCG *cg) {
+    return h && slot < iheapCount(h) && h->e[slot].item == cg;
+}
+
+/* Whether 'cg', whose stamp is of the current generation, is a member of its
+ * stream's heap. The stamp's bit is believed only if the heap agrees, that
+ * is, if the group's slot holds it. They can disagree once the generation
+ * counter has wrapped, see "the max-lag row" above: the bit is then cleared
+ * and the group is not a member. */
+static inline int streamLagIsMember(streamLagState *ls, streamDistribStamp *st, streamCG *cg) {
+    if (!(st->counted & STREAM_CG_IN_LAG_HEAP)) return 0;
+    if (streamLagHeldAt(ls->heap, st->slot, cg)) return 1;
+    /* Without a wrap this is a bookkeeping bug. */
+    serverAssert(stream_stats_wrapped);
+    st->counted &= ~STREAM_CG_IN_LAG_HEAP;
+    return 0;
+}
+
+/* The stream's sample: the worst lag among its members, or -1 when there is
+ * none (no groups, no member, every member's position unknown, or more
+ * groups than stream_lag_max_members). Reads only the stream and that limit,
+ * so the BIO thread may call it through streamTallyStreamSamples(). */
+static int64_t streamLagSample(stream *s) {
+    if (!s->cgroups || raxSize(s->cgroups) > streamLagMaxMembers()) return -1;
+    iheap *h = streamLagStateOf(s)->heap;
+    uint64_t pos;
+    if (!h || !iheapMin(h, &pos, NULL) || pos == UINT64_MAX) return -1;
+    uint64_t lag = s->entries_added > pos ? s->entries_added - pos : 0;
+    if (lag > s->length) lag = s->length;
+    return (int64_t) lag;
+}
+
+/* The entries_added value at which the worst lag next changes bin, assuming
+ * only XADDs happen: each raises both terms of the min by one, so the lag
+ * rises by one per entry and reaches the next power of two, 1 << bin, after
+ * that many entries. UINT64_MAX while there is no sample.
+ *
+ * The assumption fails in one place. streamAppendItem() stops incrementing
+ * entries_added at LLONG_MAX, a value XSETID can set. An XADD there still
+ * grows the length, and with it a lag that is capped at the length, so no
+ * entries_added value marks the next bin. The threshold is therefore capped
+ * at LLONG_MAX: entries_added + 1 is then never below it once the counter is
+ * one short of the stop, and every such XADD takes the slow path. */
+static uint64_t streamLagThreshold(stream *s) {
+    int64_t lag = streamLagSample(s);
+    if (lag < 0) return UINT64_MAX;
+    uint64_t boundary = 1ull << streamDistribBin(lag);
+    /* No wrap: entries_added is at most LLONG_MAX and the step at most 2^63. */
+    uint64_t threshold = s->entries_added + (boundary - (uint64_t) lag);
+    return threshold > (uint64_t) LLONG_MAX ? (uint64_t) LLONG_MAX : threshold;
+}
+
+static void streamLagFreeHeap(stream *s) {
+    streamLagState *ls = streamLagStateOf(s);
+    if (ls->heap) {
+        s->alloc_size -= zmalloc_usable_size(ls->heap);
+        iheapFree(ls->heap);
+        ls->heap = NULL;
+    }
+    ls->xadd_threshold = UINT64_MAX;
+}
+
+/* While stats are off nothing keeps a heap up to date. A group command or
+ * the XSETID clamp can change a group's position, which the heap would miss,
+ * so they free it. A heap must never hold an outdated position: see "the
+ * max-lag row" above. The members keep their in-heap bits, so the
+ * generation is condemned as well, as in streamLagGroupLeaving(): the next
+ * enable must not trust those bits. */
+static inline void streamLagFreeHeapWhileOff(stream *s) {
+    if (!s->cgroups || !streamLagStateOf(s)->heap) return;
+    if (!server.stream_stats_needs_reset) server.stream_stats_needs_reset = 1;
+    streamLagFreeHeap(s);
+}
+
+/* Called by the stream-stamp wrappers before they move the stamp: a heap
+ * belongs to the generation its stream is stamped with, and is freed when
+ * that generation ends. Groups then re-join one by one as they are touched.
+ * Also called by streamCleanupEntryCGroupRefs(), which moves group stamps
+ * and leaves the stream's alone. */
+static inline void streamLagNewGeneration(redisDb *db, stream *s) {
+    if (!server.stream_stats || !s->cgroups) return;
+    if (s->distrib_epoch == streamStatsEpochOf(db)) return;
+    streamLagFreeHeap(s);
+}
+
+/* Move the stream's sample from 'old' to its current value and refresh the
+ * XADD threshold. Every change to the heap, to entries_added or to length
+ * ends here, and only while stats are on: the off path never gets this far. */
+static void streamLagSampleChanged(redisDb *db, stream *s, int64_t old) {
+    debugServerAssert(server.stream_stats);
+    streamUpdateStreamStat(db, s, STREAM_DISTRIB_STREAMS_MAX_LAG, old);
+    streamLagStateOf(s)->xadd_threshold = streamLagThreshold(s);
+}
+
+/* A group command touched 'cg': enrol it if it is not a member, else move
+ * it to its current position, then re-enter the stream's sample. Stats are
+ * on and both stamps are current (the caller just updated them). */
+static void streamLagGroupTouched(redisDb *db, stream *s, streamCG *cg) {
+    streamLagState *ls = streamLagStateOf(s);
+    streamDistribStamp *st = streamCGStamp(cg);
+    debugServerAssert(server.stream_stats);
+    debugServerAssert(s->distrib_epoch == streamStatsEpochOf(db));
+    debugServerAssert(st->epoch == streamStatsEpochOf(db));
+    int64_t old = streamLagSample(s);
+    if (streamLagIsMember(ls, st, cg)) {
+        iheapUpdate(ls->heap, st->slot, streamLagKey(cg));
+    } else if (raxSize(s->cgroups) <= streamLagMaxMembers() &&
+               (!ls->heap || iheapCount(ls->heap) < STREAM_LAG_MAX_MEMBERS))
+    {
+        size_t before = ls->heap ? zmalloc_usable_size(ls->heap) : 0;
+        if (!ls->heap) ls->heap = iheapNew(&streamLagHeapType, 1);
+        iheapInsert(&ls->heap, streamLagKey(cg), cg);
+        s->alloc_size += zmalloc_usable_size(ls->heap) - before;
+        st->counted |= STREAM_CG_IN_LAG_HEAP;
+    }
+    streamLagSampleChanged(db, s, old);
+}
+
+/* Re-sort one group in its stream's heap after its entries_read changed.
+ * Group commands do this through streamLagGroupTouched(). This is for the one
+ * other place that changes a position, the XSETID clamp, which lowers many
+ * groups in one loop and then posts the stream's sample once, through
+ * streamLagChanged(); so no sample update happens here. That loop visits
+ * every group of the stream, but it does not enrol the ones that are not
+ * members: a group enters the row only on its own command, through
+ * streamLagGroupTouched(), or with the whole stream, through
+ * streamUpdateStreamSamples(). Keeping XSETID out of that keeps the entry
+ * policy uniform across the rows.
+ *
+ * Nothing to do for a group that is not a member, or whose stamp is from an
+ * old generation: its in-heap bit and slot mean nothing then. While stats
+ * are on, a member of the current generation always has a heap to be in,
+ * because the heap is freed in three cases: in streamLagNewGeneration(),
+ * when the stream's stamp is from an older generation, which makes every
+ * in-heap bit stale; in streamUpdateStreamSamples(), which clears the bits
+ * before it rebuilds; and with stats off, in streamLagGroupLeaving() and
+ * streamLagFreeHeapWhileOff(), which leave the bits set but in a generation
+ * that ends before stats are on again. Hence the checks below, the same
+ * ones streamLagGroupTouched() makes: stats are on (here, the caller's
+ * STREAM_LAG_OFF gate), the member's slot holds it (streamLagIsMember()),
+ * and a current member's stream is in this generation too. */
+static void streamLagMemberMoved(redisDb *db, stream *s, streamCG *cg) {
+    streamLagState *ls = streamLagStateOf(s);
+    streamDistribStamp *st = streamCGStamp(cg);
+    debugServerAssert(server.stream_stats);
+    if (st->epoch != streamStatsEpochOf(db) || !streamLagIsMember(ls, st, cg)) return;
+    debugServerAssert(s->distrib_epoch == streamStatsEpochOf(db));
+    iheapUpdate(ls->heap, st->slot, streamLagKey(cg));
+}
+
+/* XGROUP DESTROY: a freed group must not stay in the heap.
+ *
+ * With stats off the heap is already dead. streamRemoveCGStat(), a few lines
+ * earlier in DESTROY, set stream_stats_needs_reset (asserted below), and the
+ * one thing that clears that flag is applyStreamStats(), after it has
+ * started a new generation in every db. So nothing of this generation,
+ * heap or in-heap bit, is ever read again, and keeping the heap exact one
+ * member at a time would be wasted work: free it, which also returns its
+ * memory now rather than at the stream's first touch after the enable. The
+ * surviving members keep an in-heap bit with no heap behind it; every
+ * reader of that bit runs with stats on, and the enable that turns them on
+ * makes the bit stale first. streamLagFreeHeapWhileOff() frees a heap the
+ * same way, without first invalidating its members' bits; see
+ * streamLagMemberMoved().
+ *
+ * With stats on the group's stamp is current, since streamRemoveCGStat() has
+ * just refreshed it, clearing the bits if it was stale. A set bit that the
+ * heap confirms (streamLagIsMember()) is a live member: take it out, and
+ * streamLagChanged() re-enters the stream's sample after the destroy. */
+static void streamLagGroupLeaving(redisDb *db, stream *s, streamCG *cg) {
+    streamLagState *ls = streamLagStateOf(s);
+    if (!server.stream_stats) {
+        /* The free is safe only because this generation is condemned. */
+        serverAssert(server.stream_stats_needs_reset);
+        streamLagFreeHeap(s);
+        return;
+    }
+    streamDistribStamp *st = streamCGStamp(cg);
+    serverAssert(st->epoch == streamStatsEpochOf(db));
+    if (!streamLagIsMember(ls, st, cg)) return;
+    iheapRemove(ls->heap, st->slot);
+    st->counted &= ~STREAM_CG_IN_LAG_HEAP;
+}
+
+/* While stats are off a change to a stream with groups leaves the rows
+ * behind; note it so that enabling starts over (streamUpdateStat() does the
+ * same for the other rows). Check before storing: the steady state is a
+ * read of an already-set flag. */
+static inline void streamLagNoteChangeWhileOff(stream *s) {
+    if (s->cgroups && !server.stream_stats_needs_reset)
+        server.stream_stats_needs_reset = 1;
+}
+
+/* Before a trim, a delete, XSETID, or the creation or destruction of a
+ * group: the sample to hand to streamLagChanged() afterwards. */
+int64_t streamLagCaptureSample(stream *s) {
+    if (!server.stream_stats || !s->cgroups) return STREAM_LAG_OFF;
+    return streamLagSample(s);
+}
+
+/* Before appending one entry: the XADD fast path. Three compares and one
+ * load when stats are on; the sample is read only when this entry reaches
+ * the threshold, the entries_added at which the worst lag changes bin.
+ *
+ * The threshold is kept with the heap and ages with it: when a new
+ * generation starts, neither is touched until the stream is next touched,
+ * and XADD may be that touch. An old threshold then sends this one XADD
+ * down the slow path, where streamLagChanged() refreshes the stream's
+ * stamp: the old heap is freed, the old sample is ignored since the stamp
+ * was stale (streamUpdateStat()'s rule), and the threshold is parked at
+ * UINT64_MAX until a group command enrols a member again. One slow XADD per
+ * generation is the price of discarding stale state lazily; nothing stale
+ * reaches the row. */
+int64_t streamLagBeforeAppend(stream *s) {
+    if (!server.stream_stats ||
+        !s->cgroups ||
+        s->entries_added + 1 < streamLagStateOf(s)->xadd_threshold) return STREAM_LAG_OFF;
+    return streamLagSample(s);
+}
+
+/* The second half of a capture: after the change for which
+ * streamLagCaptureSample() or streamLagBeforeAppend() returned 'old',
+ * re-enter the stream's sample and recompute the threshold. STREAM_LAG_OFF
+ * means the earlier capture found nothing to track (stats off, no groups,
+ * or an XADD short of the threshold).
+ *
+ * While stats are off this is where the change is noted. The capture cannot
+ * do it: it runs before the change is known to happen, and a write that
+ * fails must not make the next enable start over.
+ *
+ * Callers skip the call when the change did not happen, e.g. a trim that
+ * deleted nothing. With stats on that only saves work: a call with an
+ * unmoved sample is harmless. With stats off it is what keeps such a
+ * command from marking the rows stale. */
+void streamLagChanged(redisDb *db, stream *s, int64_t old) {
+    if (old == STREAM_LAG_OFF) {
+        if (!server.stream_stats) streamLagNoteChangeWhileOff(s);
+        return;
+    }
+    streamLagSampleChanged(db, s, old);
+}
+
+/* Active defrag moved group 'from' to 'to': repoint its heap entry. The slot
+ * is read from the stamp, which the two share, and the entry is only touched
+ * if it still holds 'from', so a stale slot cannot misdirect this. */
+void streamLagGroupMoved(stream *s, streamCG *from, streamCG *to) {
+    if (!s->cgroups) return;
+    iheap *h = streamLagStateOf(s)->heap;
+    if (!h) return;
+    uint32_t slot = streamCGStamp(to)->slot;
+    if (slot < iheapCount(h) && h->e[slot].item == from) h->e[slot].item = to;
+}
+
+/* DEBUG STREAM-STATS-ASSERT: the heap, the members and the stream's sample
+ * must agree with each other and with the row. */
+static void streamLagAssert(redisDb *db, stream *s) {
+    if (!s->cgroups) return;
+    uint32_t epoch = streamStatsEpochOf(db);
+    streamLagState *ls = streamLagStateOf(s);
+    iheap *h = ls->heap;
+    if (h && !iheapValidate(h)) serverPanic("streamLagAssert: the lag heap is invalid");
+    uint32_t members = 0;
+    raxIterator ri;
+    raxStart(&ri, s->cgroups);
+    raxSeek(&ri, "^", NULL, 0);
+    while (raxNext(&ri)) {
+        streamCG *cg = ri.data;
+        streamDistribStamp *st = streamCGStamp(cg);
+        if (st->epoch != epoch || !(st->counted & STREAM_CG_IN_LAG_HEAP)) continue;
+        members++;
+        uint32_t slot = st->slot;
+        if (!streamLagHeldAt(h, slot, cg) || h->e[slot].key != streamLagKey(cg))
+            serverPanic("streamLagAssert: a member group is not where its slot says");
+    }
+    raxStop(&ri);
+    uint32_t count = h ? iheapCount(h) : 0;
+    if (count != members)
+        serverPanic("streamLagAssert: heap holds %u entries, %u groups are members", count, members);
+    int64_t sample = streamLagSample(s);
+    int in_row = s->distrib_epoch == epoch &&
+                 (s->distrib_counted & STREAM_DISTRIB_BIT(STREAM_DISTRIB_STREAMS_MAX_LAG));
+    if (in_row != (sample >= 0))
+        serverPanic("streamLagAssert: sample %lld but the row %s it", (long long) sample, in_row ? "holds" : "lacks");
+    if (ls->xadd_threshold != streamLagThreshold(s))
+        serverPanic("streamLagAssert: XADD threshold %llu, expected %llu",
+                    (unsigned long long) ls->xadd_threshold, (unsigned long long) streamLagThreshold(s));
 }
 
 /* Add (adding=1) or remove (adding=0) every histogram sample stream 's'
@@ -287,6 +770,19 @@ static void streamUpdateStreamSamples(redisDb *db, stream *s, int adding) {
     else
         streamRemoveStreamStat(db, s, STREAM_DISTRIB_STREAMS_CGROUPS);
     if (!s->cgroups || !raxSize(s->cgroups)) return;
+    /* Max-lag row: a stream that appears enrols every group in its heap at
+     * once (an O(n) build), then enters its sample. One that leaves drops the
+     * sample and keeps the heap, which freeStream() or a later appearance
+     * disposes of. A heap of an older generation is gone by now: the wrapper
+     * above freed it, which is why streamKeyRemoved() posts a size change.
+     * A stream that appears over the group limit gets no heap: see
+     * stream_lag_max_members. */
+    streamLagState *ls = streamLagStateOf(s);
+    int build = adding && raxSize(s->cgroups) <= streamLagMaxMembers();
+    if (adding) {
+        streamLagFreeHeap(s);
+        if (build) ls->heap = iheapNew(&streamLagHeapType, (uint32_t) raxSize(s->cgroups));
+    }
     raxIterator ri;
     raxStart(&ri, s->cgroups);
     raxSeek(&ri, "^", NULL, 0);
@@ -295,12 +791,27 @@ static void streamUpdateStreamSamples(redisDb *db, stream *s, int adding) {
         if (adding) {
             streamUpdateCGStat(db, cg, STREAM_DISTRIB_CGROUPS_PEL, -1);
             streamUpdateCGStat(db, cg, STREAM_DISTRIB_CGROUPS_CONSUMERS, -1);
+            streamDistribStamp *st = streamCGStamp(cg);
+            st->counted &= ~STREAM_CG_IN_LAG_HEAP;
+            if (build) {
+                iheapAppend(&ls->heap, streamLagKey(cg), cg);
+                st->counted |= STREAM_CG_IN_LAG_HEAP;
+            }
         } else {
             streamRemoveCGStat(db, cg, STREAM_DISTRIB_CGROUPS_PEL);
             streamRemoveCGStat(db, cg, STREAM_DISTRIB_CGROUPS_CONSUMERS);
         }
     }
     raxStop(&ri);
+    if (adding) {
+        if (build) {
+            iheapBuild(ls->heap);
+            s->alloc_size += zmalloc_usable_size(ls->heap);
+        }
+        streamLagSampleChanged(db, s, -1);
+    } else {
+        streamRemoveStreamStat(db, s, STREAM_DISTRIB_STREAMS_MAX_LAG);
+    }
 }
 
 /* Set 'id' to be its successor stream ID.
@@ -2000,6 +2511,7 @@ static int64_t streamCGroupSample(streamCG *cg, streamDistribMetric metric) {
     case STREAM_DISTRIB_CGROUPS_PEL: return (int64_t) raxSize(cg->pel);
     case STREAM_DISTRIB_CGROUPS_CONSUMERS: return (int64_t) raxSize(cg->consumers);
     case STREAM_DISTRIB_STREAMS_CGROUPS: /* per-stream: streamStreamSample() */
+    case STREAM_DISTRIB_STREAMS_MAX_LAG:
     case STREAM_DISTRIB_MAX: break;
     }
     serverAssert(0 && "not a per-group metric");
@@ -2010,6 +2522,7 @@ static int64_t streamCGroupSample(streamCG *cg, streamDistribMetric metric) {
 static int64_t streamStreamSample(stream *s, streamDistribMetric metric) {
     switch (metric) {
     case STREAM_DISTRIB_STREAMS_CGROUPS: return s->cgroups ? (int64_t) raxSize(s->cgroups) : 0;
+    case STREAM_DISTRIB_STREAMS_MAX_LAG: return streamLagSample(s);
     case STREAM_DISTRIB_CGROUPS_PEL:
     case STREAM_DISTRIB_CGROUPS_CONSUMERS: /* per-group: streamCGroupSample() */
     case STREAM_DISTRIB_MAX: break;
@@ -2021,7 +2534,7 @@ static int64_t streamStreamSample(stream *s, streamDistribMetric metric) {
  * unconditionally when 'all'. */
 static inline void streamTallySample(streamStatsHist tally, int all, uint8_t counted,
                                      streamDistribMetric metric, int64_t sample) {
-    if (!all && !(counted & (1u << metric))) return;
+    if (!all && !(counted & STREAM_DISTRIB_BIT(metric))) return;
     int bin = streamDistribBin(sample);
     if (bin >= 0) tally[metric][bin]++;
 }
@@ -2035,9 +2548,12 @@ static inline void streamTallySample(streamStatsHist tally, int all, uint8_t cou
  * row bit is set; STREAM_DISTRIB_NEVER_COUNTED means every sample. */
 void streamTallyStreamSamples(stream *s, streamStatsHist tally, uint32_t only_epoch) {
     int all = (only_epoch == STREAM_DISTRIB_NEVER_COUNTED);
-    if (all || s->distrib_epoch == only_epoch)
+    if (all || s->distrib_epoch == only_epoch) {
         streamTallySample(tally, all, s->distrib_counted, STREAM_DISTRIB_STREAMS_CGROUPS,
                           streamStreamSample(s, STREAM_DISTRIB_STREAMS_CGROUPS));
+        streamTallySample(tally, all, s->distrib_counted, STREAM_DISTRIB_STREAMS_MAX_LAG,
+                          streamStreamSample(s, STREAM_DISTRIB_STREAMS_MAX_LAG));
+    }
     if (!s->cgroups || !raxSize(s->cgroups)) return;
     raxIterator ri;
     raxStart(&ri, s->cgroups);
@@ -2052,6 +2568,21 @@ void streamTallyStreamSamples(stream *s, streamStatsHist tally, uint32_t only_ep
                           streamCGroupSample(cg, STREAM_DISTRIB_CGROUPS_CONSUMERS));
     }
     raxStop(&ri);
+}
+
+/* Take the tally of a background slot trim out of the rows of 'meta'. The
+ * tally holds only samples whose stamp says the row holds them, so every bin
+ * has at least what it loses. After a wrap a stamp can claim a sample its row
+ * never held. Such a bin is emptied and not driven below zero, which is what
+ * streamUpdateStat() does for one sample. */
+void streamStatsSubtractTally(kvstoreMetadata *meta, streamStatsHist tally) {
+    for (int m = 0; m < STREAM_DISTRIB_MAX; m++) {
+        for (int bin = 0; bin < MAX_KEYSIZES_BINS; bin++) {
+            int64_t *live = &meta->stream_hist[m][bin];
+            debugServerAssert(*live >= tally[m][bin] || stream_stats_wrapped);
+            *live = (*live >= tally[m][bin]) ? *live - tally[m][bin] : 0;
+        }
+    }
 }
 
 /* This function returns a value that is the ID's logical read counter, or its
@@ -2903,6 +3434,8 @@ void xaddCommand(client *c) {
     /* Append using the low level function and return the ID. */
     errno = 0;
     streamID id;
+    /* Max-lag row: does this entry take the worst lag into the next bin? */
+    int64_t old_lag = streamLagBeforeAppend(s);
     if (streamAppendItem(s,c->argv+field_pos,(c->argc-field_pos)/2,
         &id,parsed_args.id_given ? &parsed_args.id : NULL,parsed_args.seq_given) == C_ERR)
     {
@@ -2918,6 +3451,7 @@ void xaddCommand(client *c) {
             updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
         return;
     }
+    streamLagChanged(c->db, s, old_lag);
     sds replyid = createStreamIDString(&id);
     addReplyBulkCBuffer(c, replyid, sdslen(replyid));
 
@@ -2936,9 +3470,12 @@ void xaddCommand(client *c) {
     if (parsed_args.trim_strategy != TRIM_STRATEGY_NONE) {
         streamID max_deleted_id;
         streamID *max_deleted_id_ptr = parsed_args.trim_strategy == TRIM_STRATEGY_MINID ? &max_deleted_id : NULL;
+        int64_t old_lag_trim = streamLagCaptureSample(s); /* the trim caps the lag by length */
         int64_t deleted = streamTrim(c->db, s, &parsed_args, max_deleted_id_ptr);
-        if (deleted)
+        if (deleted) {
+            streamLagChanged(c->db, s, old_lag_trim);
             notifyKeyspaceEvent(NOTIFY_STREAM,"xtrim",c->argv[1],c->db->id);
+        }
         if (parsed_args.approx_trim) {
             /* In case our trimming was limited (by LIMIT or by ~) we must
              * re-write the relevant trim argument to make sure there will be
@@ -3367,11 +3904,16 @@ void xreadCommand(client *c) {
             /* Register the group and its stream here, which every read
              * reaches; a read that blocks or returns empty never gets to the
              * serving loop. The PEL is entered here only when nothing will be
-             * served; otherwise the serving loop moves it. */
+             * served; otherwise the serving loop moves it. Enrolling the
+             * group in the lag heap may allocate, hence the bracket. */
+            if (server.memory_tracking_enabled)
+                old_alloc = kvobjAllocSize(o);
             streamStatsReenterStructural(c->db, s, groups[i]);
             if (!serve_synchronously)
                 streamUpdateCGStat(c->db, groups[i], STREAM_DISTRIB_CGROUPS_PEL,
                                    streamCGroupSample(groups[i], STREAM_DISTRIB_CGROUPS_PEL));
+            if (server.memory_tracking_enabled)
+                updateSlotAllocSize(c->db,getKeySlot(c->argv[streams_arg+i]->ptr),o,old_alloc,kvobjAllocSize(o));
         } else if (s->length) {
             /* For consumers without a group, we serve synchronously if we can
              * actually provide at least one item from the stream. */
@@ -3435,8 +3977,15 @@ void xreadCommand(client *c) {
              * group's PEL; snapshot it around the read for INFO Streams. */
             int64_t old_pel = groups ? streamCGroupSample(groups[i], STREAM_DISTRIB_CGROUPS_PEL) : -1;
             total_entries += streamReplyWithRange(c,s,&args);
-            if (groups)
+            if (groups) {
                 streamUpdateCGStat(c->db, groups[i], STREAM_DISTRIB_CGROUPS_PEL, old_pel);
+                /* Deliveries advance the group's entries_read: move it in
+                 * the lag heap and re-enter the stream's sample. Both stamps
+                 * are current: streamStatsReenterStructural() above refreshed
+                 * the stream's, the PEL update just refreshed the group's,
+                 * and the epoch cannot move within a command. */
+                if (server.stream_stats) streamLagGroupTouched(c->db, s, groups[i]);
+            }
             if (server.memory_tracking_enabled)
                 updateSlotAllocSize(c->db,getKeySlot(c->argv[streams_arg+i]->ptr),o,old_alloc,kvobjAllocSize(o));
             if (propCount) {
@@ -3587,6 +4136,12 @@ int streamCleanupEntryCGroupRefs(redisDb *db, stream *s, streamID *id) {
     if (!raxFind(s->cgroups_ref, buf, sizeof(streamID), (void **)&cglist))
         return 0;
 
+    /* The PEL updates below refresh group stamps, and nothing here refreshes
+     * the stream's. A lag heap of an older generation is freed first, as the
+     * stream-stamp wrappers do: it must not hold a group whose stamp has
+     * moved on. */
+    streamLagNewGeneration(db, s);
+
     listRewind(cglist, &li);
     while ((ln = listNext(&li))) {
         streamNACK *nack;
@@ -3727,8 +4282,14 @@ void streamFreeConsumerGeneric(void *sc, void *s) {
  * the same name already exists NULL is returned, otherwise the pointer to the
  * consumer group is returned. */
 streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, long long entries_read) {
-    if (s->cgroups == NULL)
-        s->cgroups = raxNewEx(0, &s->alloc_size, 0);
+    if (s->cgroups == NULL) {
+        /* The groups rax carries the stream's max-lag state in its metadata
+         * (see streamLagState); the header's allocation class has room. */
+        s->cgroups = raxNewEx(sizeof(streamLagState), &s->alloc_size, 0);
+        streamLagState *ls = streamLagStateOf(s);
+        ls->heap = NULL;
+        ls->xadd_threshold = UINT64_MAX;
+    }
     raxNodeLink link;
     if (raxFindLink(s->cgroups,(unsigned char*)name,namelen,NULL,&link))
         return NULL;
@@ -3747,9 +4308,10 @@ streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, lo
     cg->last_id.seq = 0;
     streamUpdateCGroupLastId(s, cg, id);
     cg->entries_read = entries_read;
-    streamDistribStamp *st = (streamDistribStamp *) cg->pel->metadata;
+    streamDistribStamp *st = streamCGStamp(cg);
     st->epoch = STREAM_DISTRIB_NEVER_COUNTED;
     st->counted = 0;
+    st->slot = 0;
     raxInsertAt(s->cgroups,(unsigned char*)name,namelen,cg,NULL,&link);
     return cg;
 }
@@ -3991,13 +4553,18 @@ NULL
         if (server.memory_tracking_enabled)
             old_alloc = kvobjAllocSize(o);
         int64_t old_cgroups = streamStreamSample(s, STREAM_DISTRIB_STREAMS_CGROUPS);
+        /* Max-lag row: the number of groups is an input of the sample, so
+         * the sample is captured before the group is added. */
+        int64_t old_lag = streamLagCaptureSample(s);
         streamCG *cg = streamCreateCG(s,grpname,sdslen(grpname),&id,entries_read);
         if (cg) {
-            if (server.memory_tracking_enabled)
-                updateSlotAllocSize(c->db,getKeySlot(c->argv[2]->ptr),o,old_alloc,kvobjAllocSize(o));
             streamUpdateStreamStat(c->db, s, STREAM_DISTRIB_STREAMS_CGROUPS, old_cgroups); /* the stream gained a group */
             streamUpdateCGStat(c->db, cg, STREAM_DISTRIB_CGROUPS_PEL, -1);
             streamUpdateCGStat(c->db, cg, STREAM_DISTRIB_CGROUPS_CONSUMERS, -1);
+            streamLagChanged(c->db, s, old_lag); /* one group more may be one over the limit */
+            if (server.stream_stats) streamLagGroupTouched(c->db, s, cg); /* enrols it in the lag heap */
+            if (server.memory_tracking_enabled) /* after the hooks: the enrolment may allocate */
+                updateSlotAllocSize(c->db,getKeySlot(c->argv[2]->ptr),o,old_alloc,kvobjAllocSize(o));
             addReply(c,shared.ok);
             server.dirty++;
             notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-create",
@@ -4018,12 +4585,16 @@ NULL
             entries_read = s->entries_added;
         }
 
+        if (server.memory_tracking_enabled)
+            old_alloc = kvobjAllocSize(o);
         streamUpdateCGroupLastId(s, cg, &id);
         cg->entries_read = entries_read;
-        streamStatsReenterStructural(c->db, s, cg);
+        streamStatsReenterStructural(c->db, s, cg); /* also moves the group in the lag heap */
         /* No PEL hook in this command: enter the group's PEL sample too. */
         streamUpdateCGStat(c->db, cg, STREAM_DISTRIB_CGROUPS_PEL,
                            streamCGroupSample(cg, STREAM_DISTRIB_CGROUPS_PEL));
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db,getKeySlot(c->argv[2]->ptr),o,old_alloc,kvobjAllocSize(o));
         addReply(c,shared.ok);
         server.dirty++;
         notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-setid",c->argv[2],c->db->id);
@@ -4035,9 +4606,12 @@ NULL
             streamRemoveCGStat(c->db, cg, STREAM_DISTRIB_CGROUPS_PEL);
             streamRemoveCGStat(c->db, cg, STREAM_DISTRIB_CGROUPS_CONSUMERS);
             int64_t old_cgroups = streamStreamSample(s, STREAM_DISTRIB_STREAMS_CGROUPS);
+            int64_t old_lag = streamLagCaptureSample(s);
+            streamLagGroupLeaving(c->db, s, cg); /* a freed group must not stay in the heap */
             raxRemove(s->cgroups,(unsigned char*)grpname,sdslen(grpname),NULL);
             streamDestroyCG(s, cg);
             streamUpdateStreamStat(c->db, s, STREAM_DISTRIB_STREAMS_CGROUPS, old_cgroups); /* the stream lost a group */
+            streamLagChanged(c->db, s, old_lag); /* the worst lag may have left with it */
             if (server.memory_tracking_enabled)
                 updateSlotAllocSize(c->db,getKeySlot(c->argv[2]->ptr),o,old_alloc,kvobjAllocSize(o));
             addReply(c,shared.cone);
@@ -4158,9 +4732,14 @@ void xsetidCommand(client *c) {
         }
     }
 
+    /* Max-lag row: entries_added moves the lag of every group, and lowering
+     * it may move member positions; a generation change in the update may
+     * free the heap, so bracket the slot accounting too. */
+    size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
+    int64_t old_lag = streamLagCaptureSample(s);
+    uint64_t prev_entries_added = s->entries_added;
     s->last_id = id;
     if (entries_added != -1) {
-        uint64_t prev_entries_added = s->entries_added;
         s->entries_added = entries_added;
         /* Lowering entries_added may leave a consumer group's entries_read
          * greater than the stream's entries_added. That breaks the lag
@@ -4181,6 +4760,10 @@ void xsetidCommand(client *c) {
                     (uint64_t)cg->entries_read > s->entries_added)
                 {
                     cg->entries_read = s->entries_added;
+                    if (old_lag != STREAM_LAG_OFF)
+                        streamLagMemberMoved(c->db, s, cg);
+                    else /* stats are off: the heap would miss this move */
+                        streamLagFreeHeapWhileOff(s);
                 }
             }
             raxStop(&ri);
@@ -4188,6 +4771,11 @@ void xsetidCommand(client *c) {
     }
     if (!streamIDEqZero(&max_xdel_id))
         s->max_deleted_entry_id = max_xdel_id;
+    /* Of what XSETID sets, only entries_added is an input of the sample. */
+    if (s->entries_added != prev_entries_added)
+        streamLagChanged(c->db, s, old_lag);
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
     addReply(c,shared.ok);
     server.dirty++;
     notifyKeyspaceEvent(NOTIFY_STREAM,"xsetid",c->argv[1],c->db->id);
@@ -4314,10 +4902,10 @@ void xackCommand(client *c) {
             keyModified(c,c->db,c->argv[1],kv,0);
         }
     }
-    if (server.memory_tracking_enabled)
-        updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
     streamUpdateCGStat(c->db, group, STREAM_DISTRIB_CGROUPS_PEL, old_pel); /* acked entries left the PEL */
     streamStatsReenterStructural(c->db, kv->ptr, group);
+    if (server.memory_tracking_enabled) /* after the hooks: enrolling in the lag heap may allocate */
+        updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
     addReplyLongLong(c,acknowledged);
 cleanup:
     if (ids != static_ids) zfree(ids);
@@ -4471,10 +5059,10 @@ void xnackCommand(client *c) {
         /* XNACK can make entries immediately claimable. */
         signalKeyAsReady(c->db, c->argv[1], OBJ_STREAM);
     }
-    if (server.memory_tracking_enabled)
-        updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
     streamUpdateCGStat(c->db, group, STREAM_DISTRIB_CGROUPS_PEL, old_pel); /* FORCE may add PEL entries */
     streamStatsReenterStructural(c->db, s, group);
+    if (server.memory_tracking_enabled) /* after the hooks: enrolling in the lag heap may allocate */
+        updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
 
     addReplyLongLong(c,nacked);
 
@@ -4530,6 +5118,7 @@ void xackdelCommand(client *c) {
     int64_t old_pel = streamCGroupSample(group, STREAM_DISTRIB_CGROUPS_PEL);
     int first_entry = 0;
     int deleted = 0, dirty = server.dirty;
+    int64_t old_lag = streamLagCaptureSample(s); /* deleting entries caps the lag by length */
     addReplyArrayLen(c, args.numids);
     for (int j = 0; j < args.numids; j++) {
         int res = XACKDEL_NO_ID;
@@ -4580,10 +5169,11 @@ void xackdelCommand(client *c) {
         addReplyLongLong(c, res);
     }
 
-    if (server.memory_tracking_enabled)
-        updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
+    if (deleted) streamLagChanged(c->db, s, old_lag);
     streamUpdateCGStat(c->db, group, STREAM_DISTRIB_CGROUPS_PEL, old_pel); /* acked entries left the PEL */
     streamStatsReenterStructural(c->db, kv->ptr, group);
+    if (server.memory_tracking_enabled) /* after the hooks: enrolling in the lag heap may allocate */
+        updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
 
     /* Update the stream's first ID. */
     if (deleted) {
@@ -5085,11 +5675,11 @@ void xclaimCommand(client *c) {
             server.dirty++;
         }
     }
-    if (server.memory_tracking_enabled)
-        updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),o,old_alloc,kvobjAllocSize(o));
     streamUpdateCGStat(c->db, group, STREAM_DISTRIB_CGROUPS_PEL, old_pel); /* FORCE adds / deleted entries removed */
     streamUpdateCGStat(c->db, group, STREAM_DISTRIB_CGROUPS_CONSUMERS, old_consumers); /* claimer created above */
     streamStatsReenterStructural(c->db, o->ptr, group);
+    if (server.memory_tracking_enabled) /* after the hooks: enrolling in the lag heap may allocate */
+        updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),o,old_alloc,kvobjAllocSize(o));
     if (propagate_last_id) {
         streamPropagateGroupID(c,c->argv[1],group,c->argv[2]);
         server.dirty++;
@@ -5382,11 +5972,11 @@ void xautoclaimCommand(client *c) {
     /* We need to return the next entry as a cursor for the next XAUTOCLAIM call */
     raxNext(&ri);
 
-    if (server.memory_tracking_enabled)
-        updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),o,old_alloc,kvobjAllocSize(o));
     streamUpdateCGStat(c->db, group, STREAM_DISTRIB_CGROUPS_PEL, old_pel); /* deleted entries removed from PEL */
     streamUpdateCGStat(c->db, group, STREAM_DISTRIB_CGROUPS_CONSUMERS, old_consumers); /* claimer created above */
     streamStatsReenterStructural(c->db, o->ptr, group);
+    if (server.memory_tracking_enabled) /* after the hooks: enrolling in the lag heap may allocate */
+        updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),o,old_alloc,kvobjAllocSize(o));
 
     streamID endid;
     if (raxEOF(&ri)) {
@@ -5440,6 +6030,7 @@ void xdelCommand(client *c) {
     /* Actually apply the command. */
     int deleted = 0;
     int first_entry = 0;
+    int64_t old_lag = streamLagCaptureSample(s); /* deleting entries caps the lag by length */
     for (int j = 2; j < c->argc; j++) {
         streamID *id = &ids[j-2];
         if (streamDeleteItem(s,id)) {
@@ -5456,6 +6047,7 @@ void xdelCommand(client *c) {
         };
     }
 
+    if (deleted) streamLagChanged(c->db, s, old_lag);
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
 
@@ -5525,6 +6117,7 @@ void xdelexCommand(client *c) {
     size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
     int first_entry = 0;
     int deleted = 0, dirty = server.dirty;
+    int64_t old_lag = streamLagCaptureSample(s); /* deleting entries caps the lag by length */
     addReplyArrayLen(c, args.numids);
     for (int j = 0; j < args.numids; j++) {
         int res = XDELEX_NO_ID;
@@ -5567,6 +6160,7 @@ void xdelexCommand(client *c) {
         addReplyLongLong(c, res);
     }
 
+    if (deleted) streamLagChanged(c->db, s, old_lag);
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
 
@@ -5637,7 +6231,9 @@ void xtrimCommand(client *c) {
     size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
     streamID max_deleted_id;
     streamID *max_deleted_id_ptr = parsed_args.trim_strategy == TRIM_STRATEGY_MINID ? &max_deleted_id : NULL;
+    int64_t old_lag = streamLagCaptureSample(s); /* the trim caps the lag by length */
     int64_t deleted = streamTrim(c->db, s, &parsed_args, max_deleted_id_ptr);
+    if (deleted) streamLagChanged(c->db, s, old_lag);
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
     if (deleted) {
@@ -6675,8 +7271,12 @@ static void trackStreamIdmpEntries(client *c, robj *key) {
 void streamKeyLoaded(redisDb *db, robj *key, robj *val) {
     stream *s = val->ptr;
     /* A whole stream just appeared: enter every histogram sample it holds
-     * (mirror of streamKeyRemoved). */
+     * (mirror of streamKeyRemoved). Building the max-lag heap allocates
+     * after the key's size was posted to its slot, so post the difference. */
+    size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(val) : 0;
     streamUpdateStreamSamples(db, s, 1);
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(db, getKeySlot(key->ptr), val, old_alloc, kvobjAllocSize(val));
     if (s->idmp_producers != NULL) {
         robj *tracked_key = key;
         if (key->refcount == OBJ_STATIC_REFCOUNT)
@@ -6692,8 +7292,13 @@ void streamKeyLoaded(redisDb *db, robj *key, robj *val) {
 /* To be used when a stream key was removed from ram, un-register from stream_idmp_keys if needed */
 void streamKeyRemoved(redisDb *db, robj *key, robj *val) {
     /* Drop every histogram sample this stream holds, its own and its groups'
-     * (mirror of streamKeyLoaded). */
+     * (mirror of streamKeyLoaded). That frees a lag heap left from an older
+     * generation. The callers read the key's size only after this hook, to
+     * take it out of its slot, so the difference is posted here. */
+    size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(val) : 0;
     streamUpdateStreamSamples(db, val->ptr, 0);
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(db, getKeySlot(key->ptr), val, old_alloc, kvobjAllocSize(val));
     dictDelete(db->stream_idmp_keys, key);
 }
 
@@ -6719,10 +7324,33 @@ void streamStatsRebuild(void) {
         while ((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
             kvobj *kv = dictGetKV(de);
             if (!kv || kv->type != OBJ_STREAM) continue;
+            size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
             streamUpdateStreamSamples(db, kv->ptr, 1);
+            if (server.memory_tracking_enabled)
+                updateSlotAllocSize(db, getKeySlot(kvobjGetKey(kv)), kv, old_alloc, kvobjAllocSize(kv));
         }
         kvstoreIteratorReset(&kvs_it);
     }
+}
+
+/* DEBUG STREAM-STATS-LAG-GROUPS-LIMIT: the number of groups above which a
+ * stream has no sample in the max-lag row. */
+uint32_t dbgStreamLagGroupsLimit(void) {
+    return streamLagMaxMembers();
+}
+
+/* Set the limit, which a test lowers to reach it. Returns 0 if 'limit' is
+ * out of range. The rows and the heaps in place were made under the old
+ * limit and are discarded: by a rebuild while stats are on, else by the new
+ * generation that the next enable starts. */
+int dbgStreamLagSetGroupsLimit(long long limit) {
+    if (limit < 1 || limit > STREAM_LAG_MAX_MEMBERS) return 0;
+    atomicSet(stream_lag_max_members, (uint32_t) limit);
+    if (server.stream_stats)
+        streamStatsRebuild();
+    else
+        server.stream_stats_needs_reset = 1;
+    return 1;
 }
 
 /* Panic if 'live' and 'scan' disagree, printing the non-empty bins of both. */
@@ -6769,6 +7397,7 @@ void dbgAssertStreamStats(redisDb *db) {
         /* Every stream contributes, groups or not: a group-less stream still
          * holds its per-stream samples. */
         streamTallyStreamSamples(kv->ptr, scan, STREAM_DISTRIB_NEVER_COUNTED);
+        streamLagAssert(db, kv->ptr);
     }
     kvstoreIteratorReset(&kvs_it);
 
