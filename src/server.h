@@ -3810,6 +3810,7 @@ int bg_unlink(const char *filename);
 
 /* AOF persistence */
 void flushAppendOnlyFile(int force);
+int aofFlushAndFsync(void);
 void feedAppendOnlyFile(int dictid, robj **argv, int argc, long long duration);
 void aofRemoveTempFile(pid_t childpid);
 int rewriteAppendOnlyFileBackground(void);

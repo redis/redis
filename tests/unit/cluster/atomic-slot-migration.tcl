@@ -4444,3 +4444,135 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         wait_for_asm_done
     }
 }
+
+start_cluster 2 0 {tags {external:skip cluster} overrides {cluster-node-timeout 60000 cluster-allow-replica-migration no appendonly yes appendfsync everysec save ""}} {
+    test "ASM destination flushes and fsyncs AOF before slot takeover under appendfsync everysec" {
+        ensure_node_owns_slots 0 0 0
+        ensure_node_owns_slots 1 6000 6000
+
+        # Trigger a recent fsync on the destination so aof_last_fsync is well
+        # within the 1s everysec interval when the migration finishes.
+        R 1 set [slot_key 6000 warm] 1
+        assert_equal {1 0} [R 1 waitaof 1 0 5000]
+
+        populate_slot 500 -idx 0 -slot 0
+        set task_id [R 1 CLUSTER MIGRATION IMPORT 0 0]
+        wait_for_condition 2000 10 {
+            [migration_status 1 $task_id state] eq "completed"
+        } else {
+            fail "import did not complete: [migration_status 1 $task_id state] [migration_status 1 $task_id last_error]"
+        }
+
+        # Verify AOF buffer is flushed and no bio fsync is pending right at takeover.
+        assert_equal 0 [s -1 aof_buffer_length]
+        assert_equal 0 [s -1 aof_pending_bio_fsync]
+        wait_for_asm_done
+
+        # Simulate an abrupt crash (SIGKILL) on the destination immediately after
+        # migration completes, then restart from AOF only (save is disabled).
+        catch {exec kill -9 [srv -1 pid]}
+        restart_server -1 true false true
+        wait_for_cluster_state "ok"
+
+        assert_equal 1 [node_owns_slots 1 0 0]
+        assert_equal 500 [R 1 cluster countkeysinslot 0]
+        assert_equal 0 [R 0 cluster countkeysinslot 0]
+
+        # cleanup
+        R 1 flushall
+        R 0 cluster migration import 0 0
+        wait_for_asm_done
+    }
+
+    test "ASM destination flushes and fsyncs AOF under appendfsync no and no-appendfsync-on-rewrite" {
+        ensure_node_owns_slots 0 0 0
+        ensure_node_owns_slots 1 6000 6000
+
+        R 1 config set appendfsync no
+        R 1 config set no-appendfsync-on-rewrite yes
+        R 1 set [slot_key 6000 childkey] 1
+
+        # Start a slow BGSAVE on the destination so an active child process exists
+        # during takeover, exercising the no-appendfsync-on-rewrite bypass.
+        R 1 config set rdb-key-save-delay 3000000
+        R 1 bgsave
+        wait_for_condition 1000 10 {
+            [s -1 rdb_bgsave_in_progress] == 1
+        } else {
+            fail "bgsave did not start on destination"
+        }
+
+        populate_slot 200 -idx 0 -slot 0
+        set task_id [R 1 CLUSTER MIGRATION IMPORT 0 0]
+        wait_for_condition 2000 10 {
+            [migration_status 1 $task_id state] eq "completed"
+        } else {
+            fail "import did not complete: [migration_status 1 $task_id state] [migration_status 1 $task_id last_error]"
+        }
+
+        assert_equal 0 [s -1 aof_buffer_length]
+        assert_equal 0 [s -1 aof_pending_bio_fsync]
+        wait_for_asm_done
+
+        R 1 config set rdb-key-save-delay 0
+        waitForBgsave [Rn 1]
+
+        catch {exec kill -9 [srv -1 pid]}
+        restart_server -1 true false true
+        wait_for_cluster_state "ok"
+
+        assert_equal 1 [node_owns_slots 1 0 0]
+        assert_equal 200 [R 1 cluster countkeysinslot 0]
+
+        # cleanup
+        R 1 config set appendfsync everysec
+        R 1 config set no-appendfsync-on-rewrite no
+        R 1 flushall
+        R 0 cluster migration import 0 0
+        wait_for_asm_done
+    }
+
+    test "ASM import fails before slot takeover if AOF flush fails" {
+        ensure_node_owns_slots 0 0 0
+        populate_slot 50 -idx 0 -slot 0
+
+        # Stall AOF flushing on the destination so commands apply into aof_buf
+        # but aofFlushAndFsync() fails right at slot takeover.
+        R 1 debug aof-flush-force stall 1
+
+        set task_id [R 1 CLUSTER MIGRATION IMPORT 0 0]
+        wait_for_condition 2000 10 {
+            [migration_status 1 $task_id state] eq "failed" &&
+            [string match {*Failed to flush and fsync AOF before slot takeover*} [migration_status 1 $task_id last_error]]
+        } else {
+            fail "import did not fail on AOF error: [migration_status 1 $task_id state] [migration_status 1 $task_id last_error]"
+        }
+
+        # Destination must not claim ownership of slot 0, and source keeps its keys.
+        assert_equal 1 [node_owns_slots 0 0 0]
+        assert_equal 0 [node_owns_slots 1 0 0]
+        assert_equal 50 [R 0 cluster countkeysinslot 0]
+
+        # Clear the AOF stall and verify retry completes with all keys durable.
+        R 1 debug aof-flush-force stall 0
+        wait_for_condition 5000 10 {
+            [migration_status 1 $task_id state] eq "completed"
+        } else {
+            fail "import retry did not complete: [migration_status 1 $task_id state] [migration_status 1 $task_id last_error]"
+        }
+        wait_for_asm_done
+
+        catch {exec kill -9 [srv -1 pid]}
+        restart_server -1 true false true
+        wait_for_cluster_state "ok"
+
+        assert_equal 1 [node_owns_slots 1 0 0]
+        assert_equal 50 [R 1 cluster countkeysinslot 0]
+        assert_equal 0 [R 0 cluster countkeysinslot 0]
+
+        # cleanup
+        R 1 flushall
+        R 0 cluster migration import 0 0
+        wait_for_asm_done
+    }
+}

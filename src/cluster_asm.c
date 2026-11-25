@@ -1411,6 +1411,14 @@ void asmImportTakeover(asmTask *task) {
         return;
     }
 
+    /* Flush and fsync the AOF before persisting slot ownership in nodes.conf
+     * and notifying the cluster, so a power loss right after takeover cannot
+     * leave the destination owning slots without their migrated keys. */
+    if (aofFlushAndFsync() != C_OK) {
+        asmTaskSetFailed(task, "Failed to flush and fsync AOF before slot takeover");
+        return;
+    }
+
     /* Free the main channel connection since it is no longer needed. */
     serverAssert(task->main_channel_conn != NULL);
     client *c = connGetPrivateData(task->main_channel_conn);
