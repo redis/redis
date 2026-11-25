@@ -1447,13 +1447,11 @@ void flushAppendOnlyFile(int force) {
 
     if (sdslen(server.aof_buf) == 0) {
         if (server.aof_last_incr_fsync_offset == server.aof_last_incr_size) {
-            /* All data is fsync'd already: Update fsynced_reploff_pending just in case.
-             * This is needed to avoid a WAITAOF hang in case a module used RM_Call
-             * with the NO_AOF flag, in which case master_repl_offset will increase but
-             * fsynced_reploff_pending won't be updated (because there's no reason, from
-             * the AOF POV, to call fsync) and then WAITAOF may wait on the higher offset
-             * (which contains data that was only propagated to replicas, and not to AOF) */
-            if (!aofFsyncInProgress())
+            /* Replication-only changes (e.g. a module's RM_Call with NO_AOF)
+             * can advance master_repl_offset without scheduling another fsync.
+             * Catch up here, but wait for any pending fsync of a rotated INCR
+             * file: the new file's size alone cannot account for it. */
+            if (!bioHasPendingAofFsyncJobs())
                 atomicSet(server.fsynced_reploff_pending, server.master_repl_offset);
         } else {
             /* Check if we need to do fsync even the aof buffer is empty,
