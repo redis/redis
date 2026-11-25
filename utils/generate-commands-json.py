@@ -23,7 +23,6 @@ MODULE_COMMAND_GROUPS = {
     'TOPK.': 'topk',
     'TS.': 'timeseries',
     'TIMESERIES.': 'timeseries',
-    'V': 'vector_set',
 }
 
 MODULE_COMMAND_PREFIXES = sorted(MODULE_COMMAND_GROUPS, key=len, reverse=True)
