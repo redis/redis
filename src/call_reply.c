@@ -404,6 +404,8 @@ int callReplyGetMapElement(CallReply *rep, size_t idx, CallReply **key, CallRepl
  * explicitly or used after CallReply itself is freed.
  */
 CallReply *callReplyGetAttribute(CallReply *rep) {
+    if (!rep) return NULL;
+    callReplyParse(rep);
     return rep->attribute;
 }
 
@@ -420,7 +422,7 @@ CallReply *callReplyGetAttribute(CallReply *rep) {
  * explicitly or used after CallReply itself is freed.
  */
 int callReplyGetAttributeElement(CallReply *rep, size_t idx, CallReply **key, CallReply **val) {
-    return callReplyGetMapElementInternal(rep, idx, key, val, REDISMODULE_REPLY_MAP);
+    return callReplyGetMapElementInternal(rep, idx, key, val, REDISMODULE_REPLY_ATTRIBUTE);
 }
 
 /* Return a big number reply value. Applicable to:
@@ -482,6 +484,8 @@ void *callReplyGetPrivateData(CallReply *rep) {
 
 /* Return true if the reply or one of it sub-replies is RESP3 formatted. */
 int callReplyIsResp3(CallReply *rep) {
+    if (!rep) return 0;
+    callReplyParse(rep);
     return rep->flags & REPLY_FLAG_RESP3;
 }
 
