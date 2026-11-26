@@ -4460,7 +4460,7 @@ typedef enum {
     SPECIAL_CONFIG,
 } configType;
 
-int loadServerConfig(char *filename, char config_from_stdin, char *options, configSource source);
+void loadServerConfig(char *filename, char config_from_stdin, char *options, configSource source);
 void appendServerSaveParams(time_t seconds, int changes);
 void resetServerSaveParams(void);
 struct rewriteConfigState; /* Forward declaration to export API. */

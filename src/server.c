@@ -8689,10 +8689,7 @@ int main(int argc, char **argv) {
             j++;
         }
 
-        if (loadServerConfig(server.configfile, config_from_stdin, options, CONFIG_SOURCE_MAIN) == C_ERR) {
-            sdsfree(options);
-            exit(1);
-        }
+        loadServerConfig(server.configfile, config_from_stdin, options, CONFIG_SOURCE_MAIN);
         if (server.sentinel_mode) loadSentinelConfigFromQueue();
         sdsfree(options);
     }

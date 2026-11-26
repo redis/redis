@@ -543,7 +543,7 @@ static void clusterBusWarnIfUnprotected(void) {
         "is reachable by trusted hosts only.");
 }
 
-static int loadServerConfigFromString(char *config, int cli_start_line, configSource inherited_source) {
+static void loadServerConfigFromString(char *config, int cli_start_line, configSource inherited_source) {
     deprecatedConfig deprecated_configs[] = {
         {"list-max-ziplist-entries", 2, 2},
         {"list-max-ziplist-value", 2, 2},
@@ -644,7 +644,7 @@ static int loadServerConfigFromString(char *config, int cli_start_line, configSo
         if (!strcasecmp(argv[0],"include") && argc == 2) {
             configSource include_source = source == CONFIG_SOURCE_CLI ?
                 CONFIG_SOURCE_CLI : CONFIG_SOURCE_INCLUDE;
-            if (loadServerConfig(argv[1], 0, NULL, include_source) == C_ERR) goto includeerr;
+            loadServerConfig(argv[1], 0, NULL, include_source);
         } else if (!strcasecmp(argv[0],"rename-command") && argc == 3) {
             struct redisCommand *cmd = lookupCommandBySds(argv[1]);
             int retval;
@@ -789,9 +789,10 @@ static int loadServerConfigFromString(char *config, int cli_start_line, configSo
 
     sdsfreesplitres(lines,totlines);
     reading_config_file = 0;
-    return C_OK;
+    return;
 
 loaderr:
+    if (argv) sdsfreesplitres(argv,argc);
     fprintf(stderr, "\n*** FATAL CONFIG FILE ERROR (Redis %s) ***\n",
         REDIS_VERSION);
     if (i < totlines) {
@@ -799,11 +800,7 @@ loaderr:
         fprintf(stderr, ">>> '%s'\n", lines[i]);
     }
     fprintf(stderr, "%s\n", err);
-includeerr:
-    /* The caller exits. An include error is already printed by the included file's load. */
-    if (argv) sdsfreesplitres(argv,argc);
-    sdsfreesplitres(lines,totlines);
-    return C_ERR;
+    exit(1);
 }
 
 /* Load the server configuration from the specified filename.
@@ -816,7 +813,7 @@ includeerr:
  * the top-level caller passes MAIN, while include directives pass INCLUDE or
  * CLI depending on where the directive appeared. */
 #define CONFIG_READ_LEN 1024
-int loadServerConfig(char *filename, char config_from_stdin, char *options, configSource source) {
+void loadServerConfig(char *filename, char config_from_stdin, char *options, configSource source) {
     sds config = sdsempty();
     char buf[CONFIG_READ_LEN+1];
     FILE *fp;
@@ -826,8 +823,7 @@ int loadServerConfig(char *filename, char config_from_stdin, char *options, conf
         !getcwd(config_startup_cwd, sizeof(config_startup_cwd)))
     {
         serverLog(LL_WARNING, "Unable to get current working directory: %s", strerror(errno));
-        sdsfree(config);
-        return C_ERR;
+        exit(1);
     }
 
     /* Load the file content */
@@ -856,9 +852,7 @@ int loadServerConfig(char *filename, char config_from_stdin, char *options, conf
                         serverLog(LL_WARNING,
                                   "Fatal error, can't open config file '%s': %s",
                                   globbuf.gl_pathv[i], strerror(errno));
-                        globfree(&globbuf);
-                        sdsfree(config);
-                        return C_ERR;
+                        exit(1);
                     }
                     while(fgets(buf,CONFIG_READ_LEN+1,fp) != NULL)
                         config = sdscat(config,buf);
@@ -874,8 +868,7 @@ int loadServerConfig(char *filename, char config_from_stdin, char *options, conf
                 serverLog(LL_WARNING,
                           "Fatal error, can't open config file '%s': %s",
                           filename, strerror(errno));
-                sdsfree(config);
-                return C_ERR;
+                exit(1);
             }
             while(fgets(buf,CONFIG_READ_LEN+1,fp) != NULL)
                 config = sdscat(config,buf);
@@ -909,9 +902,8 @@ int loadServerConfig(char *filename, char config_from_stdin, char *options, conf
         config = sdscat(config,"\n");
         config = sdscat(config,options);
     }
-    int res = loadServerConfigFromString(config, cli_start_line, source);
+    loadServerConfigFromString(config, cli_start_line, source);
     sdsfree(config);
-    return res;
 }
 
 static int performInterfaceSet(standardConfig *config, sds value, const char **errstr) {
