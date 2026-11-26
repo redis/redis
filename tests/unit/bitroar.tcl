@@ -5438,6 +5438,55 @@ start_server {tags {"bitmap" "bitmap-roaring"}} {
         }
     }
 
+    test {BITRANGEINTARRAY caps the offsets returned from a native bitmap} {
+        set cap 16777216
+        set err {ERR BITRANGEINTARRAY would return more than 16777216 offsets*}
+
+        # A few hundred bytes describing 2^32 + 8 set bits, and the same
+        # number of clear bits but one.
+        create_full_bitmap bitmap:ones 4294967304
+        set old_limit [config_get_set proto-max-bulk-len 536870913]
+        seed_roaring_bitmap bitmap:zeros {4294967303}
+        r config set proto-max-bulk-len $old_limit
+
+        foreach {key option} {bitmap:ones {} bitmap:zeros zeros} {
+            # The whole value, without LIMIT or with a LIMIT above the cap.
+            assert_error $err {r bitrangeintarray $key 0 -1 {*}$option}
+            assert_error $err {r bitrangeintarray $key 0 -1 bit {*}$option}
+            assert_error $err {r bitrangeintarray $key 0 -1 limit [expr {$cap + 1}] {*}$option}
+            assert_error $err {r bitrangeintarray $key 0 -1 limit 9223372036854775807 {*}$option}
+            # One past the cap in a bit range, without LIMIT.
+            assert_error $err {r bitrangeintarray $key 0 $cap bit {*}$option}
+            # Pages within the cap, and small ranges, are still served.
+            assert_equal {0 1 2} [r bitrangeintarray $key 0 -1 bit limit 3 {*}$option]
+            assert_equal {8 9 10 11 12 13 14 15} [r bitrangeintarray $key 1 1 {*}$option]
+            assert_equal {16 17} [r bitrangeintarray $key 16 17 bit limit 9223372036854775807 {*}$option]
+        }
+
+        # The cap counts matches, not the range: the only clear bit of a full
+        # value is returned without LIMIT.
+        assert_equal {4294967303} [r bitrangeintarray bitmap:zeros 0 -1]
+        r setbit bitmap:ones 7 0
+        assert_equal {7} [r bitrangeintarray bitmap:ones 0 -1 zeros]
+        r del bitmap:ones bitmap:zeros
+
+        # Strings are not capped: their replies are bounded by their size.
+        # 2 MiB of zero bytes holds 2^24 + 8 clear bits, so the reply starts
+        # streaming instead of failing, until a 100 KB output limit closes
+        # the client.
+        r set bitmap:string [binary format x2097153]
+        assert_equal string [r type bitmap:string]
+        assert_equal {0 1 2} [r bitrangeintarray bitmap:string 0 -1 bit limit 3 zeros]
+        set old_limit [config_get_set client-output-buffer-limit {normal 100000 0 0}]
+        set client [redis_deferring_client]
+        $client bitrangeintarray bitmap:string 0 -1 zeros
+        $client flush
+        assert_equal {} [$client rawread]
+        $client close
+        r config set client-output-buffer-limit $old_limit
+        assert_equal 1 [r del bitmap:string]
+    } {} {"external:skip"}
+
     test {BITRANGEINTARRAY stops streaming when the output limit closes the client} {
         # Both values hold 2^32 + 8 bits: one with every bit set, and one with
         # only its last bit set, so all the others are clear.
@@ -5446,9 +5495,9 @@ start_server {tags {"bitmap" "bitmap-roaring"}} {
         seed_roaring_bitmap bitmap:zeros {4294967303}
         r config set proto-max-bulk-len $old_limit
 
-        # The reply for 2^32 offsets is tens of GB. A 100 KB output limit
-        # closes the client after about 12,000 offsets, and the command must
-        # stop there.
+        # A reply of the largest page allowed, 2^24 offsets, is hundreds of
+        # MB. A 100 KB output limit closes the client after about 12,000
+        # offsets, and the command must stop there.
         foreach {key option} {bitmap:ones {} bitmap:zeros zeros} {
             set old_limit [config_get_set client-output-buffer-limit {normal 100000 0 0}]
             r config resetstat
@@ -5456,7 +5505,7 @@ start_server {tags {"bitmap" "bitmap-roaring"}} {
             # The server closes the connection without sending anything, so
             # the blocking read returns empty at EOF.
             set client [redis_deferring_client]
-            $client bitrangeintarray $key 0 -1 {*}$option
+            $client bitrangeintarray $key 0 -1 limit 16777216 {*}$option
             $client flush
             assert_equal {} [$client rawread]
             $client close
