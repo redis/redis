@@ -37,23 +37,7 @@ static void exitScriptTimedoutMode(scriptRunCtx *run_ctx) {
     serverAssert(scriptIsTimedout());
     run_ctx->flags &= ~SCRIPT_TIMEDOUT;
     blockingOperationEnds();
-    /* if we are a replica and we have an active master, set it for continue processing */
-    if (server.masterhost && server.master) {
-        /* Master running in IO thread needs to be sent to main thread so that
-         * it can process any pending commands ASAP without waiting for the next
-         * read.
-         * We don't queue the client for reprocessing in this case as it will
-         * create contention with main thread when it deals with unblocked
-         * clients - see comment above queueClientForReprocessing. */
-        if (server.master->running_tid != IOTHREAD_MAIN_THREAD_ID) {
-            pauseIOThread(server.master->tid);
-            enqueuePendingClientsToMainThread(server.master, 0);
-            resumeIOThread(server.master->tid);
-            return;
-        }
-
-        queueClientForReprocessing(server.master);
-    }
+    replicationResumeMasterClient();
 }
 
 static void enterScriptTimedoutMode(scriptRunCtx *run_ctx) {

@@ -2960,10 +2960,11 @@ static inline int _writeToClientSlave(client *c, ssize_t *nwritten) {
     return C_OK;
 }
 
-/* Write data in output buffers to client. Return C_OK if the client
- * is still valid after the call, C_ERR if it was freed because of some
- * error.  If handler_installed is set, it will attempt to clear the
- * write event.
+/* Write data in output buffers to client. Return C_OK on success, or C_ERR
+ * when the caller must stop handling writes. C_ERR does not mean the client
+ * has already been freed: cleanup may be queued, or may wait for the replica
+ * to finish applying buffered commands. If handler_installed is set, clear
+ * the write event when no output remains.
  *
  * This function is called by threads, but always with handler_installed
  * set to 0. So when handler_installed is set to 0 the function must be
@@ -3021,7 +3022,27 @@ int writeToClient(client *c, int handler_installed) {
         if (connGetState(c->conn) != CONN_STATE_CONNECTED) {
             serverLog(LL_VERBOSE,
                 "Error writing to client: %s", connGetLastError(c->conn));
-            freeClientAsync(c);
+            /* An ACK write can fail while the replica is applying buffered
+             * commands during full sync. Keep its upstream client alive so the
+             * application loop can finish. Closing it now would discard received
+             * commands and make PSYNC request them again from an older offset.
+             * If that history has left the primary's backlog, another full sync
+             * would be required. */
+            if (c->running_tid == IOTHREAD_MAIN_THREAD_ID &&
+                c == server.master &&
+                (server.repl_main_ch_state & REPL_MAIN_CH_STREAMING_BUF))
+            {
+                /* Disable read and write callbacks while buffered commands are applied. */
+                connSetWriteHandler(c->conn, NULL);
+                connSetReadHandler(c->conn, NULL);
+                /* Unlike CLIENT_CLOSE_ASAP, this flag lets buffer application
+                 * continue. Once it finishes, rdbChannelStreamReplDataToDb()
+                 * calls freeClient() to close the connection, cache the applied
+                 * offset and reconnect for PSYNC. */
+                server.repl_main_ch_state |= REPL_MAIN_CH_CLOSE_ASAP;
+            } else {
+                freeClientAsync(c);
+            }
             return C_ERR;
         }
     }
@@ -3875,6 +3896,11 @@ int processPendingCommandAndInputBuffer(client *c) {
      * So whenever we change the code here we need to consider if we need this change on module
      * blocked client as well */
     if (c->flags & CLIENT_PENDING_COMMAND) {
+        /* A master command may have been parsed before another client entered
+         * a yielding script or module. Preserve it until that operation ends,
+         * instead of letting processCommand reject it with BUSY. */
+        if (c->flags & CLIENT_MASTER && isInsideYieldingLongCommand())
+            return C_OK;
         c->flags &= ~CLIENT_PENDING_COMMAND;
         if (processCommandAndResetClient(c) == C_ERR) {
             return C_ERR;
@@ -4001,11 +4027,13 @@ int processInputBuffer(client *c) {
          * commands to execute in c->argv. */
         if (c->flags & CLIENT_PENDING_COMMAND) break;
 
-        /* Don't process input from the master while there is a busy script
-         * condition on the slave. We want just to accumulate the replication
-         * stream (instead of replying -BUSY like we do with other clients) and
-         * later resume the processing. */
-        if (c->flags & CLIENT_MASTER && isInsideYieldingLongCommand()) break;
+        /* Accumulate master input during a yielding script or module instead
+         * of replying -BUSY as for other clients, then resume processing later.
+         * Only the main thread can read BUSY state. IO threads may parse ahead;
+         * processPendingCommandAndInputBuffer defers execution on the main thread. */
+        if (c->flags & CLIENT_MASTER &&
+            c->running_tid == IOTHREAD_MAIN_THREAD_ID &&
+            isInsideYieldingLongCommand()) break;
 
         /* CLIENT_CLOSE_AFTER_REPLY closes the connection once the reply is
          * written to the client. Make sure to not let the reply grow after
@@ -5531,6 +5559,36 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval) {
         serverAssertWithInfo(c,NULL,c->cmd != NULL);
         if (update_pcmd)
             pcmd->cmd = c->cmd;
+    }
+}
+
+/* Remove the arguments at the given ascending indexes from the command vector
+ * in a single pass. Same as rewriteClientCommandArgument() with a NULL value
+ * for each of the indexes, but O(argc) rather than O(argc * n). */
+void rewriteClientCommandRemoveArguments(client *c, const int *idx, int n) {
+    if (n == 0) return;
+    retainOriginalCommandVector(c);
+
+    pendingCommand *pcmd = c->pending_cmds.head ? c->pending_cmds.head: NULL;
+    int update_pcmd = pcmd && pcmd->argv == c->argv;
+
+    /* Compact the retained arguments to the left, over the removed ones */
+    size_t removed_len = 0;
+    int r = 0, w = 0; /* read and write positions in argv */
+    for (int i = 0; i < n; i++) {
+        serverAssert(idx[i] >= r && idx[i] > 0 && idx[i] < c->argc);
+        while (r < idx[i]) c->argv[w++] = c->argv[r++];
+        removed_len += getStringObjectLen(c->argv[r]);
+        decrRefCount(c->argv[r++]);
+    }
+    while (r < c->argc) c->argv[w++] = c->argv[r++];
+    for (r = w; r < c->argc; r++) c->argv[r] = NULL;
+    c->argc = w;
+    c->all_argv_len_sum -= removed_len;
+
+    if (update_pcmd) {
+        pcmd->argc = c->argc;
+        pcmd->argv_len_sum -= removed_len;
     }
 }
 
