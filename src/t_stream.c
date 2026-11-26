@@ -59,6 +59,7 @@ static void idmpEvictOldestEntry(stream *s, idmpProducer *producer);
 /* Forward declarations for PEL time list functions */
 static void pelListInsertAfter(streamCG *cg, streamNACK *after, streamNACK *nack);
 static void pelListInsertAtTail(streamCG *cg, streamNACK *nack);
+static void pelListInsertChainSorted(streamCG *cg, streamNACK *first, streamNACK *last);
 static void pelListUpdate(streamCG *cg, streamNACK *nack, mstime_t new_delivery_time);
 
 /* Forward declarations for the INFO Streams samplers */
@@ -2235,12 +2236,14 @@ static inline int streamReplyMaxsizeReached(client *c, long long maxsize, size_t
 
 /* Return the milliseconds elapsed from 't' to 'now', or 0 if 't' is not in
  * the past. 't' is later than 'now' after the wall clock goes back. The RDB
- * loader rejects negative times, but the difference is still computed in
- * unsigned arithmetic and saturated at LLONG_MAX, so it can never overflow. */
+ * loader rejects negative times, but the difference is still saturated at
+ * LLONG_MAX, so it can never overflow. */
 static inline mstime_t streamElapsedTime(mstime_t now, mstime_t t) {
+    mstime_t elapsed;
     if (t >= now) return 0;
-    uint64_t elapsed = (uint64_t)now - (uint64_t)t;
-    return elapsed > LLONG_MAX ? LLONG_MAX : (mstime_t)elapsed;
+    /* t < now, so the subtraction can only overflow upwards. */
+    if (sub_overflow_ll(now, t, &elapsed)) return LLONG_MAX;
+    return elapsed;
 }
 
 /* Send the stream items in the specified range to the client 'c'. The range
@@ -2350,23 +2353,23 @@ size_t streamReplyWithRange(client *c, stream *s, streamReplyRangeArgs *args) {
     if (group && min_idle_time != -1) {
         arraylen_ptr = addReplyDeferredLen(c);
         /* Scan and process the group's pending entries list (PEL) in a single loop.
-         * To prevent a dead loop caused by pelListUpdate() moving elements from the
-         * beginning to the end of the list, we store the current tail pointer before
-         * processing. We iterate only up to this pre-determined boundary, ensuring we
-         * never process entries that are added or moved during iteration.
+         * Each claimed entry is unlinked from the time list and appended to a
+         * local chain, so the walk never visits it again. A claimed entry can't
+         * be reinserted right away: if the list ends with entries whose delivery
+         * time is in the future, it would be sorted in front of them, and the
+         * walk would reach it again. After the walk the chain is spliced back
+         * in time order.
          *
          * The iteration can terminate early when:
          * 1. We find an entry that hasn't been idle long enough
          * 2. We've processed enough entries to satisfy the count limit
-         * 3. We reach the pre-stored tail boundary */
-        
-        /* Store the current tail to prevent infinite loops */
-        streamNACK *tail = group->pel_time_tail;
+         * 3. We reach the end of the list */
+        streamNACK *claimed_head = NULL, *claimed_tail = NULL;
         size_t processed = 0;
         
         streamNACK *nack = group->pel_time_head;
         while (nack) {
-            /* Capture next pointer BEFORE modifications (pelListUpdate may reorder) */
+            /* Capture next pointer BEFORE unlinking the entry */
             streamNACK *next = nack->pel_next;
             
             uint64_t idle = streamElapsedTime(cmd_time_snapshot, nack->delivery_time);
@@ -2408,7 +2411,16 @@ size_t streamReplyWithRange(client *c, stream *s, streamReplyRangeArgs *args) {
                     raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
                 }
                 nack->delivery_count += nack->delivery_count == LLONG_MAX ? 0 : 1;
-                pelListUpdate(group, nack, cmd_time_snapshot); /* Moves element from beginning to end of list */
+
+                /* Move the entry to the chain of claimed entries. */
+                pelListUnlink(group, nack);
+                nack->delivery_time = cmd_time_snapshot;
+                nack->pel_prev = claimed_tail;
+                if (claimed_tail)
+                    claimed_tail->pel_next = nack;
+                else
+                    claimed_head = nack;
+                claimed_tail = nack;
 
                 consumer->active_time = cmd_time_snapshot;
 
@@ -2429,10 +2441,9 @@ size_t streamReplyWithRange(client *c, stream *s, streamReplyRangeArgs *args) {
                 }
             }
             streamIteratorStop(&si);
-            
-            /* Advance to next, stopping if we reached the tail */
-            nack = (nack == tail) ? NULL : next;
+            nack = next;
         }
+        pelListInsertChainSorted(group, claimed_head, claimed_tail);
     }
     /* If the client is asking for some history, we serve it using a
      * different function, so that we return entries *solely* from its
@@ -6286,6 +6297,34 @@ void pelListInsertSorted(streamCG *cg, streamNACK *nack) {
     }
 
     pelListInsertAfter(cg, curr, nack);
+}
+
+/* Insert the chain first..last, linked through pel_prev/pel_next, in sorted
+ * order by delivery_time. All entries in the chain must have the same
+ * delivery_time, so a single scan from the tail finds the insertion point
+ * for the whole chain. Like pelListInsertSorted(), the NACK zone is skipped.
+ * Does nothing if 'first' is NULL. */
+static void pelListInsertChainSorted(streamCG *cg, streamNACK *first, streamNACK *last) {
+    if (!first) return;
+
+    streamNACK *boundary = cg->pel_nack_tail;
+    streamNACK *curr = cg->pel_time_tail;
+    while (curr != boundary && curr->delivery_time > first->delivery_time) {
+        curr = curr->pel_prev;
+    }
+
+    /* Splice the chain after 'curr', or at the head if 'curr' is NULL. */
+    streamNACK *next = curr ? curr->pel_next : cg->pel_time_head;
+    first->pel_prev = curr;
+    last->pel_next = next;
+    if (next)
+        next->pel_prev = last;
+    else
+        cg->pel_time_tail = last;
+    if (curr)
+        curr->pel_next = first;
+    else
+        cg->pel_time_head = first;
 }
 
 /* Insert a NACKed entry at the end of the NACK zone (head region of the PEL

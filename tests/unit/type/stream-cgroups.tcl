@@ -1692,6 +1692,33 @@ start_server {
         assert_equal {{1-0 Alice 0 1}} [r XPENDING mystream mygroup - + 10]
     }
 
+    test {XREADGROUP CLAIM 0 claims each entry once when a future-dated entry is last} {
+        # XCLAIM ... TIME sorts 2-0 and 3-0 in front of the future-dated 1-0.
+        # A claimed entry gets the current time, which also sorts in front of
+        # 1-0. With COUNT, a walk that revisits entries fails instead of hanging.
+        r DEL mystream
+        r RESTORE mystream 0 $delivery_future_payload
+        r XADD mystream 2-0 f v
+        r XADD mystream 3-0 f v
+        r XREADGROUP GROUP mygroup Alice STREAMS mystream >
+        set past [expr {[clock milliseconds] - 10000}]
+        assert_equal {2-0 3-0} [r XCLAIM mystream mygroup Alice 0 2-0 3-0 TIME $past JUSTID]
+
+        set ids {}
+        foreach entry [lindex [r XREADGROUP GROUP mygroup Bob COUNT 10 CLAIM 0 STREAMS mystream >] 0 1] {
+            lappend ids [lindex $entry 0]
+        }
+        assert_equal {2-0 3-0 1-0} $ids
+
+        # The claimed entries are back in the time list, in the order claimed.
+        after 2
+        set ids {}
+        foreach entry [lindex [r XREADGROUP GROUP mygroup Carol COUNT 10 CLAIM 1 STREAMS mystream >] 0 1] {
+            lappend ids [lindex $entry 0]
+        }
+        assert_equal {2-0 3-0 1-0} $ids
+    }
+
     test {XINFO CONSUMERS with seen-time and active-time in the future} {
         # inactive must not go negative, where -1 means the consumer was never active.
         r DEL mystream
