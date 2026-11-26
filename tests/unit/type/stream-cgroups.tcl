@@ -1662,6 +1662,41 @@ start_server {
         assert_equal [dict get $consumer seen-time] [dict get $consumer active-time]
     }
 
+    # The payload below was DUMPed after:
+    # XADD mystream 1-0 f v
+    # XGROUP CREATE mystream mygroup 0
+    # XREADGROUP GROUP mygroup Alice STREAMS mystream >
+    # Then the delivery time of 1-0 was changed to 4102444800000 (2100-01-01,
+    # as after the clock went back) and the checksum recomputed.
+    set delivery_future_payload "\x1B\x01\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x1D\x1D\x00\x00\x00\x0A\x00\x01\x01\x00\x01\x01\x01\x81\x66\x02\x00\x01\x02\x01\x00\x01\x00\x01\x81\x76\x02\x04\x01\xFF\x01\x01\x00\x01\x00\x00\x00\x01\x01\x07\x6D\x79\x67\x72\x6F\x75\x70\x01\x00\x01\x01\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xD8\xC3\x2C\xBB\x03\x00\x00\x01\x01\x05\x41\x6C\x69\x63\x65\x64\x5A\x37\x08\xA2\x01\x00\x00\x64\x5A\x37\x08\xA2\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x40\x64\x40\x64\x00\x00\x00\x11\x00\xE5\x5A\x95\x2B\xB2\xF1\x12\x65"
+
+    test {XREADGROUP CLAIM 0 claims each entry once when a future-dated entry is last} {
+        # XCLAIM ... TIME sorts 2-0 and 3-0 in front of the future-dated 1-0.
+        # A claimed entry gets the current time, which also sorts in front of
+        # 1-0. With COUNT, a walk that revisits entries fails instead of hanging.
+        r DEL mystream
+        r RESTORE mystream 0 $delivery_future_payload
+        r XADD mystream 2-0 f v
+        r XADD mystream 3-0 f v
+        r XREADGROUP GROUP mygroup Alice STREAMS mystream >
+        set past [expr {[clock milliseconds] - 10000}]
+        assert_equal {2-0 3-0} [r XCLAIM mystream mygroup Alice 0 2-0 3-0 TIME $past JUSTID]
+
+        set ids {}
+        foreach entry [lindex [r XREADGROUP GROUP mygroup Bob COUNT 10 CLAIM 0 STREAMS mystream >] 0 1] {
+            lappend ids [lindex $entry 0]
+        }
+        assert_equal {2-0 3-0 1-0} $ids
+
+        # The claimed entries are back in the time list, in the order claimed.
+        after 2
+        set ids {}
+        foreach entry [lindex [r XREADGROUP GROUP mygroup Carol COUNT 10 CLAIM 1 STREAMS mystream >] 0 1] {
+            lappend ids [lindex $entry 0]
+        }
+        assert_equal {2-0 3-0 1-0} $ids
+    }
+
     start_server {tags {"external:skip"}} {
         set master [srv -1 client]
         set master_host [srv -1 host]
