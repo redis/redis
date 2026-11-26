@@ -1062,3 +1062,33 @@ start_server {tags {repl external:skip} overrides {
         }
     }
 }
+
+if {$::compression} {
+start_server {tags {"repl external:skip tsan:skip tls:skip"} overrides {io-threads 4 repl-compression 1}} {
+    set replica [srv 0 client]
+
+    # A real master cannot easily stream a corrupt compressed frame, so use a
+    # fake rdb-channel master that sends one which does not fit in the
+    # decompression input buffer.
+    set tclsh [info nameofexecutable]
+    set fake_port [find_available_port $::baseport $::portcount]
+    set fake_pid [exec $tclsh tests/helpers/fake_rdbchannel_master.tcl $fake_port tests/assets/encodings.rdb &]
+
+    test "Replica aborts sync on master stream decompression failure" {
+        wait_for_condition 50 50 {
+            [catch {close [socket "127.0.0.1" $fake_port]}] == 0
+        } else {
+            fail "fake master did not start"
+        }
+
+        $replica config set repl-rdb-channel yes
+        $replica replicaof 127.0.0.1 $fake_port
+
+        wait_for_log_messages 0 {"*Failed to decompress master stream*"} 0 500 10
+        assert_equal PONG [$replica ping]
+    }
+
+    $replica replicaof no one
+    catch {exec /bin/kill -9 $fake_pid}
+}
+}
