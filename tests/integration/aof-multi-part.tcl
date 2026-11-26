@@ -356,6 +356,68 @@ tags {"external:skip"} {
         clean_aof_persistence $aof_dirpath
     }
 
+    test {Multi Part AOF doesn't reuse the BASE name for a new INCR} {
+        create_aof $aof_dirpath $aof_incr1_file {
+            append_to_aof [formatCommand rpush list a]
+        }
+
+        create_aof_manifest $aof_dirpath $aof_manifest_file {
+            append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type b\n"
+        }
+
+        start_server_aof [list dir $server_path] {
+            set client [redis [srv host] [srv port] 0 $::tls]
+            assert_equal {a} [$client lrange list 0 -1]
+            assert_equal 2 [$client rpush list b]
+            assert_aof_manifest_content $aof_manifest_file {
+                {file appendonly.aof.1.incr.aof seq 1 type b}
+                {file appendonly.aof.2.incr.aof seq 2 type i}
+            }
+        }
+
+        start_server_aof [list dir $server_path] {
+            set client [redis [srv host] [srv port] 0 $::tls]
+            assert_equal {a b} [$client lrange list 0 -1]
+        }
+
+        clean_aof_persistence $aof_dirpath
+    }
+
+    test {Multi Part AOF doesn't reuse a HISTORY name for a new INCR} {
+        create_aof $aof_dirpath $aof_base2_file {
+            append_to_aof [formatCommand rpush list a]
+        }
+
+        create_aof $aof_dirpath $aof_incr1_file {
+            append_to_aof [formatCommand rpush list a]
+        }
+        set incr1_size [file size $aof_incr1_file]
+
+        create_aof_manifest $aof_dirpath $aof_manifest_file {
+            append_to_manifest "file appendonly.aof.2.base.aof seq 2 type b\n"
+            append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type h\n"
+        }
+
+        start_server_aof [list dir $server_path aof-disable-auto-gc yes] {
+            set client [redis [srv host] [srv port] 0 $::tls]
+            assert_equal {a} [$client lrange list 0 -1]
+            assert_equal 2 [$client rpush list b]
+            assert_aof_manifest_content $aof_manifest_file {
+                {file appendonly.aof.2.base.aof seq 2 type b}
+                {file appendonly.aof.1.incr.aof seq 1 type h}
+                {file appendonly.aof.2.incr.aof seq 2 type i}
+            }
+        }
+        assert_equal $incr1_size [file size $aof_incr1_file]
+
+        start_server_aof [list dir $server_path aof-disable-auto-gc yes] {
+            set client [redis [srv host] [srv port] 0 $::tls]
+            assert_equal {a b} [$client lrange list 0 -1]
+        }
+
+        clean_aof_persistence $aof_dirpath
+    }
+
     test {Multi Part AOF can start when we have en empty AOF dir} {
         create_aof_dir $aof_dirpath
 
