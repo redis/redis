@@ -26,11 +26,44 @@ proc start_server_error {config_file error} {
     send_data_packet $::test_server_fd err $err
 }
 
-proc check_valgrind_errors stderr {
-    set res [find_valgrind_errors $stderr true]
+proc check_valgrind_errors {stderr {sigusr1_pids ""}} {
+    set input $stderr
+    if {[llength $sigusr1_pids] > 0} {
+        set fd [open $stderr rb]
+        set log [read $fd]
+        close $fd
+
+        set filtered 0
+        foreach pid $sigusr1_pids {
+            # Omit one SIGUSR1 stack from the copy, not all errors from the child.
+            set header [format {^==%d== Process terminating with default action of signal [0-9]+ \(SIGUSR1\)} $pid]
+            set frames [format {==%1$d== +at 0x[[:xdigit:]]+:[^\n]*\n(?:==%1$d== +by 0x[[:xdigit:]]+:[^\n]*\n)*} $pid]
+            if {[regsub -line -- "$header\n$frames" $log {} log]} {
+                set filtered 1
+            }
+        }
+        if {$filtered} {
+            set input [tmpfile valgrind-stderr]
+            set fd [open $input wb]
+            puts -nonewline $fd $log
+            close $fd
+        }
+    }
+    set res [find_valgrind_errors $input true]
+    if {$input ne $stderr} {file delete $input}
     if {$res != ""} {
         send_data_packet $::test_server_fd err "Valgrind error: $res\n"
     }
+}
+
+# Redis may kill a fork child with SIGUSR1 before the child installs its
+# handler. checkChildrenDone() accepts that exit, but valgrind reports the
+# default-action termination with a stack. Ignore that one stack for pid
+# on the server at stack offset level (0 = innermost, -1 = outer, etc.).
+proc valgrind_ignore_child_sigusr1 {pid {level 0}} {
+    set srv [get_srv $level]
+    dict lappend srv valgrind_sigusr1_pids $pid
+    lset ::servers end+$level $srv
 }
 
 proc check_sanitizer_errors stderr {
@@ -70,7 +103,7 @@ proc kill_server config {
     if {![is_alive $pid]} {
         # Check valgrind errors if needed
         if {$::valgrind} {
-            check_valgrind_errors [dict get $config stderr]
+            check_valgrind_errors [dict get $config stderr] [dict get $config valgrind_sigusr1_pids]
         }
 
         check_sanitizer_errors [dict get $config stderr]
@@ -135,7 +168,7 @@ proc kill_server config {
 
     # Check valgrind errors if needed
     if {$::valgrind} {
-        check_valgrind_errors [dict get $config stderr]
+        check_valgrind_errors [dict get $config stderr] [dict get $config valgrind_sigusr1_pids]
     }
 
     check_sanitizer_errors [dict get $config stderr]
@@ -790,6 +823,7 @@ proc start_server {options {code undefined}} {
     dict set srv "port" $port
     dict set srv "stdout" $stdout
     dict set srv "stderr" $stderr
+    dict set srv "valgrind_sigusr1_pids" {}
     dict set srv "unixsocket" $unixsocket
     if {$::tls} {
         dict set srv "pport" $pport
@@ -924,6 +958,9 @@ proc restart_server {level wait_ready rotate_logs {reconnect 1} {shutdown sigter
         set ts [clock format [clock seconds] -format %y%m%d%H%M%S]
         file rename $stdout $stdout.$ts.$pid
         file rename $stderr $stderr.$ts.$pid
+        # Clear ignored child PIDs only when rotating stderr; otherwise the
+        # restarted server appends to the same file and keeps the old stacks.
+        dict set srv "valgrind_sigusr1_pids" {}
     }
     set prev_ready_count [count_message_lines $stdout "Ready to accept"]
 

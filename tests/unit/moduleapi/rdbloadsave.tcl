@@ -103,6 +103,7 @@ start_server {tags {"modules external:skip debug_defrag:skip"}} {
 
         r set k v2
         r config set rdb-key-save-delay 500000
+        if {$::valgrind} {set loglines [count_log_lines 0]}
         r bgsave
 
         # RM_RdbLoad() should kill RDB fork
@@ -112,6 +113,15 @@ start_server {tags {"modules external:skip debug_defrag:skip"}} {
             [string match {*Background*saving*terminated*} [exec tail -20 < [srv 0 stdout]]]
         } else {
             fail "Can't find 'Background saving terminated' in recent log lines"
+        }
+        if {$::valgrind} {
+            # The load can send SIGUSR1 before the child installs its handler.
+            # Redis accepts that exit, so ignore valgrind's stack for the child.
+            # Read the PID from the log after the load (without polling, since
+            # BGSAVE already logged it) so we don't synchronize parent and child.
+            lassign [wait_for_log_messages 0 {"*Background saving started by pid *"} $loglines 1 0] started
+            assert {[regexp {Background saving started by pid ([0-9]+)$} $started -> pid]}
+            valgrind_ignore_child_sigusr1 $pid
         }
 
         assert_equal v1 [r get k]
