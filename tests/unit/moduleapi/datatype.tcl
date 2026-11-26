@@ -13,6 +13,13 @@ start_server {tags {"modules external:skip"}} {
         assert {[r datatype.get dtkey] eq {100 stringval}}
     }
 
+    test {DataType: MEMORY USAGE of a key with an expire} {
+        # The expire is key metadata, so the kvobj pointer is not the start of its allocation
+        r datatype.set dtkey_ttl 100 stringval
+        r expire dtkey_ttl 1000
+        assert_morethan [r memory usage dtkey_ttl] 0
+    }
+
     test {test blocking of datatype creation outside of OnLoad} {
         assert_equal [r block.create.datatype.outside.onload] OK
     }

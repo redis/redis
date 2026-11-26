@@ -1368,7 +1368,7 @@ size_t kvobjComputeSize(robj *key, kvobj *o, size_t sample_size, int dbid) {
     {
         return kvobjAllocSize(o);
     } else if (o->type == OBJ_MODULE) {
-        return zmalloc_size(o) + moduleGetMemUsage(key, o, sample_size, dbid);
+        return zmalloc_size(kvobjGetAllocPtr(o)) + moduleGetMemUsage(key, o, sample_size, dbid);
     }
     serverPanic("Unknown object type");
 }

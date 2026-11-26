@@ -975,6 +975,12 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         } {} {needs:debug}
     }
 
+    test {DEBUG SDSLEN of a key with an expire} {
+        r set sdslen_ttl_key abcdefghijklmnopqrstuvwxyz
+        r expire sdslen_ttl_key 1000
+        assert_match {key_sds_len:14, *} [r debug sdslen sdslen_ttl_key]
+    } {} {needs:debug}
+
     test {DIGEST basic usage with plain string} {
         r set mykey "hello world"
         set digest [r digest mykey]
