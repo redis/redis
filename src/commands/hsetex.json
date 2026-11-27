@@ -6,6 +6,12 @@
         "since": "8.0.0",
         "arity": -6,
         "function": "hsetexCommand",
+        "history": [
+            [
+                "8.14.0",
+                "Added the `NX` option to set fields only if the key does not exist."
+            ]
+        ],
         "command_flags": [
             "WRITE",
             "DENYOOM",
@@ -37,7 +43,7 @@
         "reply_schema": {
             "oneOf": [
                 {
-                    "description": "No field was set (due to FXX or FNX flags).",
+                    "description": "No field was set because the existence condition was not met.",
                     "const": 0
                 },
                 {
@@ -66,6 +72,12 @@
                         "name": "fxx",
                         "type": "pure-token",
                         "token": "FXX"
+                    },
+                    {
+                        "name": "nx",
+                        "type": "pure-token",
+                        "token": "NX",
+                        "since": "8.14.0"
                     }
                 ]
             },

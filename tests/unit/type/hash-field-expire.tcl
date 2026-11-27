@@ -1208,19 +1208,17 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_error {*unknown argument*} {r hsetex myhash fields 3 a b c d e f g}
             assert_error {*wrong number of arguments*} {r hsetex myhash fields 3 a b}
             assert_error {*unknown argument*} {r hsetex myhash fields 1 a b c}
-            assert_error {*unknown argument*} {r hsetex myhash nx fields 1 a b}
+            assert_error {*unknown argument*} {r hsetex myhash xx fields 1 a b}
             assert_error {*unknown argument*} {r hsetex myhash 1 fields 1 a b}
             assert_error {*wrong number of arguments*} {r hsetex myhash fields 1 a}
             assert_error {*unknown argument*} {r hsetex myhash persist fields 1 a b}
             assert_error {*unknown argument*} {r hsetex myhash ex 100 persist fields 1 a b}
 
-            # Only one of FNX or FXX
-            assert_error {*Only one of FXX or FNX arguments *} {r hsetex myhash fxx fxx EX 100 fields 1 a b}
-            assert_error {*Only one of FXX or FNX arguments *} {r hsetex myhash fxx fnx EX 100 fields 1 a b}
-            assert_error {*Only one of FXX or FNX arguments *} {r hsetex myhash fnx fxx EX 100 fields 1 a b}
-            assert_error {*Only one of FXX or FNX arguments *} {r hsetex myhash fnx fnx EX 100 fields 1 a b}
-            assert_error {*Only one of FXX or FNX arguments *} {r hsetex myhash fxx fnx fxx EX 100 fields 1 a b}
-            assert_error {*Only one of FXX or FNX arguments *} {r hsetex myhash fnx fxx fnx EX 100 fields 1 a b}
+            foreach first {NX FNX FXX} {
+                foreach second {NX FNX FXX} {
+                    assert_error {*Only one of*} {r hsetex myhash $first $second fields 1 a b}
+                }
+            }
 
             # Only one of EX, PX, EXAT, PXAT or KEEPTTL can be specified
             assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetex myhash EX 100 PX 1000 fields 1 a b}
@@ -1279,6 +1277,33 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_equal [lsort [r hgetall myhash]] [lsort "f1 v1 f2 v2"]
             assert_equal [r hsetex myhash FIELDS 3 f1 v111 f2 v222 f3 v333] 1
             assert_equal [lsort [r hgetall myhash]] [lsort "f1 v111 f2 v222 f3 v333"]
+        }
+
+        test "HSETEX NX creates all fields on a missing key ($type)" {
+            r del myhash
+            assert_equal 1 [r hsetex myhash NX FIELDS 2 f1 v1 f2 v2]
+            assert_equal {v1 v2} [r hmget myhash f1 f2]
+        }
+
+        test "HSETEX NX skips a hash even when none of the fields exist ($type)" {
+            r del myhash
+            r hsetex myhash EX 120 FIELDS 1 old value
+            r expire myhash 60
+            set key_expiry [r pexpiretime myhash]
+            set field_expiry [r hpexpiretime myhash FIELDS 1 old]
+
+            assert_equal 0 [r hsetex myhash NX FIELDS 2 f1 v1 f2 v2]
+            assert_equal {old value} [r hgetall myhash]
+            assert_equal $key_expiry [r pexpiretime myhash]
+            assert_equal $field_expiry [r hpexpiretime myhash FIELDS 1 old]
+        }
+
+        test "HSETEX NX skips an existing key of a different type ($type)" {
+            r set myhash original EX 60
+            set key_expiry [r pexpiretime myhash]
+            assert_equal 0 [r hsetex myhash NX FIELDS 2 f1 v1 f2 v2]
+            assert_equal original [r get myhash]
+            assert_equal $key_expiry [r pexpiretime myhash]
         }
 
         test "HSETEX - Test FXX flag ($type)" {
@@ -2289,10 +2314,12 @@ start_server {tags {"external:skip needs:debug"}} {
             # Following commands will fail and won't be propagated
             r hsetex h1 FNX FIELDS 1 f1 v11
             r hsetex h1 FXX FIELDS 1 f2 v2
+            r hsetex h1 NX FIELDS 1 f2 v2
 
-            # Propagate with FNX and FXX flags
+            # Successful conditional writes are propagated.
             r hsetex h1 FNX FIELDS 1 f2 v2
             r hsetex h1 FXX FIELDS 1 f2 v22
+            r hsetex h2 NX EX 100 FIELDS 2 NX v1 f2 NX
 
             assert_replication_stream $repl {
                 {select *}
@@ -2304,6 +2331,7 @@ start_server {tags {"external:skip needs:debug"}} {
                 {hsetex h1 KEEPTTL FIELDS 1 f1 v1}
                 {hsetex h1 FNX FIELDS 1 f2 v2}
                 {hsetex h1 FXX FIELDS 1 f2 v22}
+                {hsetex h2 PXAT * FIELDS 2 NX v1 f2 NX}
             }
             close_replication_stream $repl
         } {} {needs:repl}

@@ -4684,6 +4684,8 @@ void himportDiscardallCommand(client *c) {
 #define HFE_KEEPTTL  (1<<5) /* Do not discard field ttl on set op */
 #define HFE_FXX      (1<<6) /* Set fields if all the fields already exist */
 #define HFE_FNX      (1<<7) /* Set fields if none of the fields exist */
+#define HFE_KEY_NX   (1<<8) /* Set fields only if the key does not exist */
+#define HFE_EXISTENCE_FLAGS (HFE_FXX | HFE_FNX | HFE_KEY_NX)
 
 /* Command types for unified hash argument parser */
 #define HASH_CMD_HGETEX 0
@@ -4693,12 +4695,12 @@ void himportDiscardallCommand(client *c) {
  * HGETEX <key> [EX seconds|PX milliseconds|EXAT unix-time-seconds|PXAT unix-time-milliseconds|PERSIST]
  *              FIELDS <numfields> field [field ...]
  * HSETEX <key> [EX seconds|PX milliseconds|EXAT unix-time-seconds|PXAT unix-time-milliseconds|KEEPTTL]
- *              [FXX|FNX] FIELDS <numfields> field value [field value ...]
+ *              [FXX|FNX|NX] FIELDS <numfields> field value [field value ...]
  */
 static int parseHashFieldExpireArgs(client *c, int *flags,
                                     long long *expire_time, int *expire_time_pos,
                                     int *first_field_pos, int *field_count,
-                                    int command_type) {
+                                    int *key_nx_pos, int command_type) {
     *flags = 0;
     *first_field_pos = -1;
     *field_count = -1;
@@ -4802,13 +4804,18 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
                 goto err_expiration;
             *flags |= HFE_KEEPTTL;
         } else if (command_type == HASH_CMD_HSETEX && !strcasecmp(c->argv[i]->ptr, "FXX")) {
-            if (*flags & (HFE_FXX | HFE_FNX))
+            if (*flags & HFE_EXISTENCE_FLAGS)
                 goto err_condition;
             *flags |= HFE_FXX;
         } else if (command_type == HASH_CMD_HSETEX && !strcasecmp(c->argv[i]->ptr, "FNX")) {
-            if (*flags & (HFE_FXX | HFE_FNX))
+            if (*flags & HFE_EXISTENCE_FLAGS)
                 goto err_condition;
             *flags |= HFE_FNX;
+        } else if (command_type == HASH_CMD_HSETEX && !strcasecmp(c->argv[i]->ptr, "NX")) {
+            if (*flags & HFE_EXISTENCE_FLAGS)
+                goto err_condition;
+            *flags |= HFE_KEY_NX;
+            *key_nx_pos = i;
         } else {
             addReplyErrorFormat(c, "unknown argument: %s", (char*) c->argv[i]->ptr);
             return C_ERR;
@@ -4827,7 +4834,7 @@ err_missing_expire:
     addReplyError(c, "missing expire time");
     return C_ERR;
 err_condition:
-    addReplyError(c, "Only one of FXX or FNX arguments can be specified");
+    addReplyError(c, "Only one of FXX, FNX or NX arguments can be specified");
     return C_ERR;
 err_expiration:
     if (command_type == HASH_CMD_HSETEX) {
@@ -4842,16 +4849,17 @@ err_expiration:
  * their expiration.
  *
  * HSETEX key
- *  [FNX | FXX]
+ *  [FNX | FXX | NX]
  *  [EX seconds | PX milliseconds | EXAT unix-time-seconds | PXAT unix-time-milliseconds | KEEPTTL]
  *  FIELDS <numfields> field value [field value...]
  *
  * Reply:
- *   Integer reply: 0 if no fields were set (due to FXX/FNX args)
+ *   Integer reply: 0 if the specified existence condition was not met
  *   Integer reply: 1 if all the fields were set
  */
 void hsetexCommand(client *c) {
     int flags = 0, first_field_pos = 0, field_count = 0, expire_time_pos = -1;
+    int key_nx_pos = -1;
     int set_expiry;
     long long expire_time = EB_EXPIRE_TIME_INVALID;
     int64_t oldlen, newlen;
@@ -4860,10 +4868,14 @@ void hsetexCommand(client *c) {
     size_t oldsize = 0;
 
     if (parseHashFieldExpireArgs(c, &flags, &expire_time, &expire_time_pos,
-                                 &first_field_pos, &field_count, HASH_CMD_HSETEX) != C_OK)
+                                 &first_field_pos, &field_count, &key_nx_pos, HASH_CMD_HSETEX) != C_OK)
         return;
 
     kvobj *o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
+    if (o && (flags & HFE_KEY_NX)) {
+        addReplyLongLong(c, 0);
+        return;
+    }
     if (checkType(c, o, OBJ_HASH))
         return;
 
@@ -4981,6 +4993,10 @@ void hsetexCommand(client *c) {
         rewriteClientCommandArgument(c, expire_time_pos, expire);
         decrRefCount(expire);
     }
+
+    /* The primary already checked NX. Replicas and AOF only need the write. */
+    if (key_nx_pos != -1)
+        rewriteClientCommandArgument(c, key_nx_pos, NULL);
 
     addReplyLongLong(c, 1);
 
@@ -5375,7 +5391,8 @@ void hgetexCommand(client *c) {
         return;
 
     /* Parse arguments using flexible parser */
-    if (parseHashFieldExpireArgs(c, &parse_flags, &expire_time, &expire_time_pos, &first_field_pos, &num_fields, HASH_CMD_HGETEX) != C_OK)
+    if (parseHashFieldExpireArgs(c, &parse_flags, &expire_time, &expire_time_pos,
+                                &first_field_pos, &num_fields, NULL, HASH_CMD_HGETEX) != C_OK)
         return;
 
     /* Non-existing keys and empty hashes are the same thing. Reply null if the
