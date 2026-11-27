@@ -3070,6 +3070,35 @@ typedef struct setopsrc {
     size_t oldsize;
 } setopsrc;
 
+/* qsort comparator ordering setopsrc entries by their set object, used to
+ * visit each distinct input object exactly once when applying the per-slot
+ * allocation accounting (a repeated key resolves to the same object). */
+static int setopsrcSetCmp(const void *a, const void *b) {
+    uintptr_t pa = (uintptr_t)(*(setopsrc *const *)a)->set;
+    uintptr_t pb = (uintptr_t)(*(setopsrc *const *)b)->set;
+    return (pa > pb) - (pa < pb);
+}
+
+/* Apply the per-slot allocation delta of each distinct input object exactly
+ * once. A repeated key resolves to the same object, and probing it can shrink
+ * it (e.g. by finishing a rehash); applying the delta per occurrence would
+ * corrupt the per-slot total. */
+static void setopUpdateAllocSizes(client *c, setopsrc *sets, unsigned long setnum) {
+    setopsrc **order = zmalloc(sizeof(setopsrc *) * setnum);
+    unsigned long n = 0;
+    for (unsigned long j = 0; j < setnum; j++) {
+        if (sets[j].set) order[n++] = &sets[j];
+    }
+    qsort(order, n, sizeof(setopsrc *), setopsrcSetCmp);
+    for (unsigned long j = 0; j < n; j++) {
+        if (j > 0 && order[j]->set == order[j - 1]->set) continue;
+        robj *obj = order[j]->set;
+        updateSlotAllocSize(c->db, getKeySlot(kvobjGetKey(obj)), obj,
+                            order[j]->oldsize, kvobjAllocSize(obj));
+    }
+    zfree(order);
+}
+
 int qsortCompareSetsByCardinality(const void *s1, const void *s2) {
     robj *o1 = ((setopsrc*)s1)->set, *o2 = ((setopsrc*)s2)->set;
     if (setTypeSize(o1) > setTypeSize(o2)) return 1;
@@ -3262,12 +3291,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
     setTypeResetIterator(&si);
 
     if (server.memory_tracking_enabled) {
-        for (j = 0; j < setnum; j++) {
-            robj *obj = sets[j].set;
-            if (!obj) continue;
-            updateSlotAllocSize(c->db, getKeySlot(setkeys[j]->ptr), obj,
-                                sets[j].oldsize, kvobjAllocSize(obj));
-        }
+        setopUpdateAllocSizes(c, sets, setnum);
     }
 
     if (cardinality_only) {
@@ -3641,12 +3665,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         }
     }
     if (must_track_memory) {
-        for (j = 0; j < setnum; j++) {
-            robj *obj = sets[j].set;
-            if (!obj) continue;
-            updateSlotAllocSize(c->db, getKeySlot(setkeys[j]->ptr), obj,
-                                sets[j].oldsize, kvobjAllocSize(obj));
-        }
+        setopUpdateAllocSizes(c, sets, setnum);
     }
 
     /* Output the content of the resulting set, if not in STORE mode */

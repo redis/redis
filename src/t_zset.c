@@ -2607,6 +2607,15 @@ typedef struct {
     } iter;
 } zsetopsrc;
 
+/* qsort comparator ordering zsetopsrc entries by their subject object, used to
+ * visit each distinct input object exactly once when applying the per-slot
+ * allocation accounting (a repeated key resolves to the same object). */
+static int zsetopsrcSubjectCmp(const void *a, const void *b) {
+    uintptr_t pa = (uintptr_t)(*(zsetopsrc *const *)a)->subject;
+    uintptr_t pb = (uintptr_t)(*(zsetopsrc *const *)b)->subject;
+    return (pa > pb) - (pa < pb);
+}
+
 
 /* Use dirty flags for pointers that need to be cleaned up in the next
  * iteration over the zsetopval. The dirty flag for the long long value is
@@ -3677,12 +3686,23 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
         serverPanic("Unknown operator");
     }
     if (server.memory_tracking_enabled) {
+        /* The same input key may appear more than once and resolves to the
+         * same object; its allocation change must be applied once, not once
+         * per occurrence. Visit each distinct object a single time by sorting
+         * the sources by subject pointer. */
+        zsetopsrc **order = zmalloc(sizeof(zsetopsrc *) * setnum);
+        int n = 0;
         for (i = 0; i < setnum; i++) {
-            robj *obj = src[i].subject;
-            if (obj == NULL) continue;
-            updateSlotAllocSize(c->db, getKeySlot(kvobjGetKey(obj)), obj,
-                                src[i].oldsize, kvobjAllocSize(obj));
+            if (src[i].subject) order[n++] = &src[i];
         }
+        qsort(order, n, sizeof(zsetopsrc *), zsetopsrcSubjectCmp);
+        for (i = 0; i < n; i++) {
+            if (i > 0 && order[i]->subject == order[i - 1]->subject) continue;
+            robj *obj = order[i]->subject;
+            updateSlotAllocSize(c->db, getKeySlot(kvobjGetKey(obj)), obj,
+                                order[i]->oldsize, kvobjAllocSize(obj));
+        }
+        zfree(order);
     }
 
     if (dstkey) {
