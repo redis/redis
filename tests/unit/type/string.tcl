@@ -1745,7 +1745,7 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         foreach {value digest} {
             "hello world" d447b1ea40e6988b
             "" 2d06800538d394c2
-            12345 f34099ede96b5581
+            11111 95c413b3c927c6f6
             -999 9d5a3ec4ad3f47e8
             9223372036854775807 8e412f1dd5b046a3
             v:2976 000f75ad215994a7
