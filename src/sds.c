@@ -1082,8 +1082,8 @@ sds *sdssplitargs(const char *line, int *argc) {
             while(!done) {
                 if (inq) {
                     if (*p == '\\' && *(p+1) == 'x' &&
-                                             is_hex_digit(*(p+2)) &&
-                                             is_hex_digit(*(p+3)))
+                                             isxdigit(*(p+2)) &&
+                                             isxdigit(*(p+3)))
                     {
                         unsigned char byte;
 
