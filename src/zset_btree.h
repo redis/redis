@@ -30,7 +30,8 @@ typedef struct {
 } zbtreeInsertPosition;
 
 /* Iterators point inside score leaves. They and the member bytes returned by
- * zbtreeIteratorNext() remain valid only until the set is modified. */
+ * zbtreeIteratorNext() and zbtreeIteratorNextBatch() remain valid only until
+ * the set is modified. */
 typedef struct {
     void *leaf;
     unsigned int pos;
@@ -148,6 +149,9 @@ int zbtreeIteratorStart(const zbtreeSet *zs, int reverse,
                         zbtreeIterator *iter);
 int zbtreeIteratorNext(zbtreeIterator *iter, int reverse,
                        const unsigned char **ele, size_t *len, double *score);
+unsigned int zbtreeIteratorNextBatch(zbtreeIterator *iter, int reverse,
+                                     const unsigned char **ptrs, size_t *lens,
+                                     double *scores, unsigned int max);
 unsigned long zbtreeCountByScore(const zbtreeSet *zs, double min, int minex,
                                  double max, int maxex);
 
