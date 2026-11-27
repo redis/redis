@@ -252,12 +252,10 @@ static inline robj *createEmbeddedStringObject(const char *val_ptr, size_t val_l
     sh->len = val_len;
     sh->alloc = remaining_size - sizeof(struct sdshdr8) - 1;
     sh->flags = SDS_TYPE_8;
-    if (val_ptr == SDS_NOINIT)
-        ;
-    else if (!val_ptr)
-        memset(sh->buf, 0, val_len);
-    else if (val_len)
-        memcpy(sh->buf, val_ptr, val_len);
+    if (val_ptr != SDS_NOINIT && val_len) {
+        if (val_ptr) memcpy(sh->buf, val_ptr, val_len);
+        else memset(sh->buf, 0, val_len);
+    }
     sh->buf[val_len] = '\0';
     o->ptr = sh->buf;
     return o;

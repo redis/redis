@@ -230,13 +230,10 @@ struct hdr_histogram;
 #define REDIS_DEFAULT_LOOKAHEAD 16
 /* In the main thread, stop parsing ahead once the commands parsed in one
  * lookahead round hold lookahead * LOOKAHEAD_ARGS_PER_CMD arguments (512 with
- * the default lookahead):
- * many-argument commands get little from cross-command prefetching (the batch
- * holds 2*prefetch-batch-max-size keys) while the parsed argv objects of many
- * commands overflow the L1/L2 caches. */
-#ifndef LOOKAHEAD_ARGS_PER_CMD
+ * the default lookahead). Many-argument commands get little from cross-command
+ * prefetching (the batch holds 2*prefetch-batch-max-size keys), while the
+ * parsed argv objects of many commands overflow the L1/L2 caches. */
 #define LOOKAHEAD_ARGS_PER_CMD 32
-#endif
 
 /* OOM Score Adjustment classes. */
 #define CONFIG_OOM_MASTER 0
@@ -2964,8 +2961,9 @@ enum {
     PENDING_CMD_KEYS_PREFETCHED = 1 << 3,     /* Command's keys were prefetched by the cross-command batch */
 };
 
-/* Parser state and parse result of a command from a client's input buffer. */
-/* Note: reclaimPendingCommand() resets a pooled command field by field, so a
+/* Parser state and parse result of a command from a client's input buffer.
+ *
+ * Note: reclaimPendingCommand() resets a pooled command field by field, so a
  * new field must be reset there as well. */
 struct pendingCommand {
     int argc;                 /* Num of arguments of current command. */
