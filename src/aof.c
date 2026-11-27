@@ -2442,39 +2442,6 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
             if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
             items--;
         }
-    } else if (o->encoding == OBJ_ENCODING_SKIPLIST) {
-        zset *zs = o->ptr;
-        dictIterator di;
-        dictEntry *de;
-
-        dictInitIterator(&di, zs->dict);
-        while((de = dictNext(&di)) != NULL) {
-            zskiplistNode *znode = dictGetKey(de);
-            sds ele = zslGetNodeElement(znode);
-            double score = znode->score;
-
-            if (count == 0) {
-                int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
-                    AOF_REWRITE_ITEMS_PER_CMD : items;
-
-                if (!rioWriteBulkCount(r,'*',2+cmd_items*2) ||
-                    !rioWriteBulkString(r,"ZADD",4) ||
-                    !rioWriteBulkObject(r,key)) 
-                {
-                    dictResetIterator(&di);
-                    return 0;
-                }
-            }
-            if (!rioWriteBulkDouble(r,score) ||
-                !rioWriteBulkString(r,ele,sdslen(ele)))
-            {
-                dictResetIterator(&di);
-                return 0;
-            }
-            if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
-            items--;
-        }
-        dictResetIterator(&di);
     } else if (o->encoding == OBJ_ENCODING_BTREE) {
         zbtreeIterator iter;
         const unsigned char *ele;

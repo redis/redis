@@ -769,24 +769,8 @@ void dismissSetObject(robj *o, size_t size_hint) {
 
 /* See dismissObject() */
 void dismissZsetObject(robj *o, size_t size_hint) {
-    if (o->encoding == OBJ_ENCODING_SKIPLIST) {
-        zset *zs = o->ptr;
-        zskiplist *zsl = zs->zsl;
-        serverAssert(zsl->length != 0);
-        /* We iterate all nodes only when average member size is bigger than a
-         * page size, and there's a high chance we'll actually dismiss something. */
-        if (size_hint / zsl->length >= server.page_size) {
-            zskiplistNode *zn = zsl->header->level[0].forward;
-            while (zn != NULL) {
-                zskiplistNode *next = zn->level[0].forward;
-                dismissMemory(zn, 0);
-                zn = next;
-            }
-        }
-
-        /* Dismiss hash table memory. */
-        dismissDictBucketsMemory(zs->dict);
-    } else if (o->encoding == OBJ_ENCODING_BTREE) {
+    UNUSED(size_hint);
+    if (o->encoding == OBJ_ENCODING_BTREE) {
         zbtreeDismissMemory(o->ptr);
     } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
         dismissMemory(o->ptr, lpBytes((unsigned char*)o->ptr));
@@ -1334,7 +1318,6 @@ char *strEncoding(int encoding) {
     case OBJ_ENCODING_LISTPACK: return "listpack";
     case OBJ_ENCODING_LISTPACK_EX: return "listpackex";
     case OBJ_ENCODING_INTSET: return "intset";
-    case OBJ_ENCODING_SKIPLIST: return "skiplist";
     case OBJ_ENCODING_EMBSTR: return "embstr";
     case OBJ_ENCODING_STREAM: return "stream";
     case OBJ_ENCODING_SLICED_ARRAY: return "sliced-array";

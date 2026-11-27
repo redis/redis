@@ -649,7 +649,7 @@ start_server {tags {"zset"}} {
             assert_equal {d c b} [r zrevrangebyscore zset 10 0 LIMIT 2 10]
             assert_equal {}      [r zrevrangebyscore zset 10 0 LIMIT 20 10]
             assert_equal {}      [r zrevrangebyscore zset 10 0 LIMIT -1 2]
-            # zrangebyscore uses different logic when offset > ZSKIPLIST_MAX_SEARCH
+            # Check larger offsets and limits near the end of the score range.
             create_long_zset zset 30
             assert_equal {i12 i13 i14} [r zrangebyscore zset 0 20 LIMIT 12 3]
             assert_equal {i14 i15}     [r zrangebyscore zset 0 20 LIMIT 14 2]
@@ -749,7 +749,7 @@ start_server {tags {"zset"}} {
             assert_equal {omega hill great foo} [r zrevrangebylex zset + \[d LIMIT 0 4]
             assert_equal {great foo elephant} [r zrevrangebylex zset + \[d LIMIT 2 3]
             assert_equal {} [r zrevrangebylex zset + \[d LIMIT -1 5]
-            # zrangebylex uses different logic when offset > ZSKIPLIST_MAX_SEARCH
+            # Check larger offsets and limits near the end of the lex range.
             create_long_lex_zset
             assert_equal {max null} [r zrangebylex zset - \[tree LIMIT 12 2]
             assert_equal {point query} [r zrangebylex zset - \[tree LIMIT 15 2]
