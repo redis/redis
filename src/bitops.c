@@ -2460,6 +2460,13 @@ void bitposCommand(client *c) {
         return;
     }
 
+    /* Without an explicit end the string is zero padded on the right, so a
+     * start past the end of a non empty string still finds a clear bit. */
+    if (bit == 0 && !end_given && strlen && start >= strlen && start <= LLONG_MAX >> 3) {
+        addReplyLongLong(c, start << 3);
+        return;
+    }
+
     if (o->type == OBJ_BITMAP) {
         if (start > end)
             addReplyLongLong(c, -1);
