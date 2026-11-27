@@ -1650,6 +1650,50 @@ try_fsync:
     }
 }
 
+/* Force-flush the AOF buffer and synchronously fsync the active AOF file to
+ * disk regardless of appendfsync policy or no-appendfsync-on-rewrite. Returns
+ * C_OK if AOF is disabled, not yet opened, or flushed and fsynced; C_ERR if
+ * writing or fsyncing failed. */
+int aofFlushAndFsync(void) {
+    if (server.aof_state == AOF_OFF || server.aof_fd == -1) return C_OK;
+
+    flushAppendOnlyFile(1);
+    if (sdslen(server.aof_buf) != 0 || server.aof_last_write_status == C_ERR) {
+        return C_ERR;
+    }
+
+    /* Drain any in-flight background fsync so it cannot race on
+     * fsynced_reploff_pending or leave an older fsync in progress. */
+    bioDrainWorker(BIO_AOF_FSYNC);
+
+    /* flushAppendOnlyFile(1) only runs a synchronous redis_fsync() when
+     * appendfsync is 'always' and no-appendfsync-on-rewrite did not skip it. */
+    int aof_bio_fsync_status;
+    atomicGet(server.aof_bio_fsync_status, aof_bio_fsync_status);
+    if (server.aof_fsync == AOF_FSYNC_ALWAYS &&
+        server.aof_last_incr_fsync_offset == server.aof_last_incr_size &&
+        aof_bio_fsync_status == C_OK)
+    {
+        return C_OK;
+    }
+
+    mstime_t latency;
+    latencyStartMonitor(latency);
+    if (redis_fsync(server.aof_fd) == -1) {
+        latencyEndMonitor(latency);
+        serverLog(LL_WARNING, "Fail to fsync the AOF file: %s", strerror(errno));
+        return C_ERR;
+    }
+    latencyEndMonitor(latency);
+    latencyAddSampleIfNeeded("aof-fsync-always", latency);
+
+    server.aof_last_incr_fsync_offset = server.aof_last_incr_size;
+    server.aof_last_fsync = server.mstime;
+    atomicSet(server.aof_bio_fsync_status, C_OK);
+    atomicSet(server.fsynced_reploff_pending, server.master_repl_offset);
+    return C_OK;
+}
+
 sds catAppendOnlyGenericCommand(sds dst, int argc, robj **argv) {
     char buf[32];
     int len, j;
