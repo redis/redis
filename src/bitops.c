@@ -906,10 +906,10 @@ static int bitroarDefaultEnabled(client *c) {
  * the same logical bits. Returns NULL beyond the internal representability
  * bound. */
 static robj *bitroarFromStringObject(robj *o) {
-    robj *decoded = getDecodedObject(o);
-    robj *bitmap = bitroarCreateFromString((unsigned char *)decoded->ptr, sdslen(decoded->ptr));
-    decrRefCount(decoded);
-    return bitmap;
+    char buf[LONG_STR_SIZE];
+    size_t len;
+    const char *str = getDecodedString(o, buf, &len);
+    return bitroarCreateFromString((const unsigned char *)str, len);
 }
 
 /* A 32-bit size_t cannot exceed the signed Roaring length bound. Keep the

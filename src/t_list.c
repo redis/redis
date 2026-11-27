@@ -328,9 +328,9 @@ robj *listTypeGet(listTypeEntry *entry) {
 
 void listTypeInsert(listTypeEntry *entry, robj *value, int where) {
     robj *subject = entry->li->subject;
-    value = getDecodedObject(value);
-    sds str = value->ptr;
-    size_t len = sdslen(str);
+    char buf[LONG_STR_SIZE];
+    size_t len;
+    char *str = (char *)getDecodedString(value, buf, &len);
 
     if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
         if (where == LIST_TAIL) {
@@ -345,15 +345,14 @@ void listTypeInsert(listTypeEntry *entry, robj *value, int where) {
     } else {
         serverPanic("Unknown list encoding");
     }
-    decrRefCount(value);
 }
 
 /* Replaces entry at the current position of the iterator. */
 void listTypeReplace(listTypeEntry *entry, robj *value) {
     robj *subject = entry->li->subject;
-    value = getDecodedObject(value);
-    sds str = value->ptr;
-    size_t len = sdslen(str);
+    char buf[LONG_STR_SIZE];
+    size_t len;
+    char *str = (char *)getDecodedString(value, buf, &len);
 
     if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
         quicklistReplaceEntry(&entry->li->iter, &entry->entry, str, len);
@@ -362,8 +361,6 @@ void listTypeReplace(listTypeEntry *entry, robj *value) {
     } else {
         serverPanic("Unknown list encoding");
     }
-
-    decrRefCount(value);
 }
 
 /* Replace entry at offset 'index' by 'value'.
@@ -371,9 +368,9 @@ void listTypeReplace(listTypeEntry *entry, robj *value) {
  * Returns 1 if replace happened.
  * Returns 0 if replace failed and no changes happened. */
 int listTypeReplaceAtIndex(robj *o, long index, robj *value) {
-    value = getDecodedObject(value);
-    sds vstr = value->ptr;
-    size_t vlen = sdslen(vstr);
+    char buf[LONG_STR_SIZE];
+    size_t vlen;
+    char *vstr = (char *)getDecodedString(value, buf, &vlen);
     int replaced = 0;
 
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
@@ -389,7 +386,6 @@ int listTypeReplaceAtIndex(robj *o, long index, robj *value) {
         serverPanic("Unknown list encoding");
     }
 
-    decrRefCount(value);
     return replaced;
 }
 

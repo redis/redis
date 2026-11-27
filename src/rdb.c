@@ -3059,7 +3059,7 @@ static void rdbDiscardTemplateFields(rdbTmplFields *out) {
  */
 robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbver, int *error)
 {
-    robj *o = NULL, *ele, *dec;
+    robj *o = NULL, *ele;
     uint64_t len;
     unsigned int i;
 
@@ -3094,10 +3094,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbver, int *e
                 decrRefCount(o);
                 return NULL;
             }
-            dec = getDecodedObject(ele);
-            size_t len = sdslen(dec->ptr);
-            quicklistPushTail(o->ptr, dec->ptr, len);
-            decrRefCount(dec);
+            char buf[LONG_STR_SIZE];
+            size_t len;
+            const char *str = getDecodedString(ele, buf, &len);
+            quicklistPushTail(o->ptr, (void *)str, len);
             decrRefCount(ele);
         }
 

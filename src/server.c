@@ -480,23 +480,21 @@ int dictCStrKeyCaseCompare(dictCmpCache *cache, const void *key1, const void *ke
 
 int dictEncObjKeyCompare(dictCmpCache *cache, const void *key1, const void *key2)
 {
-    robj *o1 = (robj*) key1, *o2 = (robj*) key2;
-    int cmp;
+    const robj *o1 = key1, *o2 = key2;
+    char buf1[LONG_STR_SIZE], buf2[LONG_STR_SIZE];
+    const char *s1, *s2;
+    size_t l1, l2;
+    UNUSED(cache);
 
     if (o1->encoding == OBJ_ENCODING_INT &&
         o2->encoding == OBJ_ENCODING_INT)
             return o1->ptr == o2->ptr;
 
-    /* Due to OBJ_STATIC_REFCOUNT, we avoid calling getDecodedObject() without
-     * good reasons, because it would incrRefCount() the object, which
-     * is invalid. So we check to make sure dictFind() works with static
-     * objects as well. */
-    if (o1->refcount != OBJ_STATIC_REFCOUNT) o1 = getDecodedObject(o1);
-    if (o2->refcount != OBJ_STATIC_REFCOUNT) o2 = getDecodedObject(o2);
-    cmp = dictSdsKeyCompare(cache,o1->ptr,o2->ptr);
-    if (o1->refcount != OBJ_STATIC_REFCOUNT) decrRefCount(o1);
-    if (o2->refcount != OBJ_STATIC_REFCOUNT) decrRefCount(o2);
-    return cmp;
+    /* getDecodedString() does not touch the refcount, so this works with
+     * OBJ_STATIC_REFCOUNT objects too. */
+    s1 = getDecodedString(o1,buf1,&l1);
+    s2 = getDecodedString(o2,buf2,&l2);
+    return l1 == l2 && memcmp(s1,s2,l1) == 0;
 }
 
 uint64_t dictEncObjHash(const void *key) {

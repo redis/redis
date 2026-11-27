@@ -123,11 +123,12 @@ void setGenericCommand(client *c, int flags, robj *key, robj **valref, robj *exp
         }
 
         if (flags & OBJ_SET_IFEQ || flags & OBJ_SET_IFNE) {
-            robj *current_decoded = getDecodedObject(current);
-            int condition = (flags & OBJ_SET_IFEQ) ?
-                            sdscmp(current_decoded->ptr, match_value->ptr) == 0 :
-                            sdscmp(current_decoded->ptr, match_value->ptr) != 0;
-            decrRefCount(current_decoded);
+            char buf[LONG_STR_SIZE];
+            size_t len;
+            const char *current_str = getDecodedString(current, buf, &len);
+            int equal = len == sdslen(match_value->ptr) &&
+                        memcmp(current_str, match_value->ptr, len) == 0;
+            int condition = (flags & OBJ_SET_IFEQ) ? equal : !equal;
             if (!condition) {
                 if (!(flags & OBJ_SET_GET)) {
                     addReply(c, abort_reply ? abort_reply : shared.null[c->resp]);
@@ -1433,7 +1434,9 @@ void strlenCommand(client *c) {
 void lcsCommand(client *c) {
     uint32_t i, j;
     long long minmatchlen = 0;
-    sds a = NULL, b = NULL;
+    char bufa[LONG_STR_SIZE], bufb[LONG_STR_SIZE];
+    const char *a = "", *b = "";
+    size_t asize = 0, bsize = 0;
     int getlen = 0, getidx = 0, withmatchlen = 0;
 
     kvobj *obja = lookupKeyRead(c->db, c->argv[1]);
@@ -1443,16 +1446,11 @@ void lcsCommand(client *c) {
     {
         addReplyError(c,
             "The specified keys must contain string values");
-        /* Don't cleanup the objects, we need to do that
-         * only after calling getDecodedObject(). */
-        obja = NULL;
-        objb = NULL;
-        goto cleanup;
+        return;
     }
-    obja = obja ? getDecodedObject(obja) : createStringObject("",0);
-    objb = objb ? getDecodedObject(objb) : createStringObject("",0);
-    a = obja->ptr;
-    b = objb->ptr;
+    /* Non-existing keys are handled as empty strings. */
+    if (obja) a = getDecodedString(obja,bufa,&asize);
+    if (objb) b = getDecodedString(objb,bufb,&bsize);
 
     for (j = 3; j < (uint32_t)c->argc; j++) {
         char *opt = c->argv[j]->ptr;
@@ -1466,12 +1464,12 @@ void lcsCommand(client *c) {
             withmatchlen = 1;
         } else if (!strcasecmp(opt,"MINMATCHLEN") && moreargs) {
             if (getLongLongFromObjectOrReply(c,c->argv[j+1],&minmatchlen,NULL)
-                != C_OK) goto cleanup;
+                != C_OK) return;
             if (minmatchlen < 0) minmatchlen = 0;
             j++;
         } else {
             addReplyErrorObject(c,shared.syntaxerr);
-            goto cleanup;
+            return;
         }
     }
 
@@ -1479,19 +1477,19 @@ void lcsCommand(client *c) {
     if (getlen && getidx) {
         addReplyError(c,
             "If you want both the length and indexes, please just use IDX.");
-        goto cleanup;
+        return;
     }
 
     /* Detect string truncation or later overflows. */
-    if (sdslen(a) >= UINT32_MAX-1 || sdslen(b) >= UINT32_MAX-1) {
+    if (asize >= UINT32_MAX-1 || bsize >= UINT32_MAX-1) {
         addReplyError(c, "String too long for LCS");
-        goto cleanup;
+        return;
     }
 
     /* Compute the LCS using the vanilla dynamic programming technique of
      * building a table of LCS(x,y) substrings. */
-    uint32_t alen = sdslen(a);
-    uint32_t blen = sdslen(b);
+    uint32_t alen = asize;
+    uint32_t blen = bsize;
 
     /* Setup an uint32_t array to store at LCS[i,j] the length of the
      * LCS A0..i-1, B0..j-1. Note that we have a linear array here, so
@@ -1505,13 +1503,13 @@ void lcsCommand(client *c) {
     if (lcsalloc < SIZE_MAX && lcsalloc / lcssize == sizeof(uint32_t)) {
         if (lcsalloc > (size_t)server.proto_max_bulk_len) {
             addReplyError(c, "Insufficient memory, transient memory for LCS exceeds proto-max-bulk-len");
-            goto cleanup;
+            return;
         }
         lcs = ztrymalloc(lcsalloc);
     }
     if (!lcs) {
         addReplyError(c, "Insufficient memory, failed allocating transient memory for LCS");
-        goto cleanup;
+        return;
     }
 
     /* Start building the LCS table. */
@@ -1637,11 +1635,6 @@ void lcsCommand(client *c) {
     /* Cleanup. */
     sdsfree(result);
     zfree(lcs);
-
-cleanup:
-    if (obja) decrRefCount(obja);
-    if (objb) decrRefCount(objb);
-    return;
 }
 
 /* Validate that a digest string has the correct length (DIGEST_HEX_LENGTH characters).

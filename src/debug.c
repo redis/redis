@@ -185,9 +185,10 @@ void xorDigest(unsigned char *digest, const void *ptr, size_t len) {
 }
 
 void xorStringObjectDigest(unsigned char *digest, robj *o) {
-    o = getDecodedObject(o);
-    xorDigest(digest,o->ptr,sdslen(o->ptr));
-    decrRefCount(o);
+    char buf[LONG_STR_SIZE];
+    size_t len;
+    const char *str = getDecodedString(o,buf,&len);
+    xorDigest(digest,str,len);
 }
 
 /* This function instead of just computing the SHA1 and xoring it
@@ -214,9 +215,10 @@ void mixDigest(unsigned char *digest, const void *ptr, size_t len) {
 }
 
 void mixStringObjectDigest(unsigned char *digest, robj *o) {
-    o = getDecodedObject(o);
-    mixDigest(digest,o->ptr,sdslen(o->ptr));
-    decrRefCount(o);
+    char buf[LONG_STR_SIZE];
+    size_t len;
+    const char *str = getDecodedString(o,buf,&len);
+    mixDigest(digest,str,len);
 }
 
 /* Stream one [start, end) set-bit run into the bitmap SHA1 as two fixed-width
@@ -2577,17 +2579,13 @@ void logCurrentClient(client *cc, const char *title) {
                 continue;
             }
         }
-        robj *decoded;
-        decoded = getDecodedObject(cc->argv[j]);
-        sds repr = sdscatrepr(sdsempty(),decoded->ptr, min(sdslen(decoded->ptr), 1024));
+        char buf[LONG_STR_SIZE];
+        size_t len;
+        const char *arg = getDecodedString(cc->argv[j],buf,&len);
+        sds repr = sdscatrepr(sdsempty(),arg, min(len, 1024));
         serverLog(LL_WARNING|LL_RAW,"argv[%d]: '%s'\n", j, (char*)repr);
-        if (!strcasecmp(decoded->ptr, "auth") || !strcasecmp(decoded->ptr, "auth2")) {
-            sdsfree(repr);
-            decrRefCount(decoded);
-            break;
-        }
         sdsfree(repr);
-        decrRefCount(decoded);
+        if (!strcasecmp(arg, "auth") || !strcasecmp(arg, "auth2")) break;
     }
     /* Check if the first argument, usually a key, is found inside the
      * selected DB, and if so print info about the associated object. */
