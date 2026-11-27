@@ -336,13 +336,10 @@ HashEntry *hEntryUpdate(HashEntry *hEntry, sds value, uint32_t flags, ssize_t *u
     if (hEntryNeedsNewAlloc(hEntry, &info, isUpdateVal, expiryAddRemove)) {
         HashEntry *hOldEntry = hEntry;
         /* If not updating value */
-        if (value == NULL) {
+        if (!isUpdateVal) {
             /* Should not flag ownership of value if not updating value */
             debugServerAssert((info.flags & ENTRY_TAKE_VALUE) == 0);
-            
-            /* Try reuse the existing value */
-            value = hEntryGetValue(hOldEntry);
-            
+
             /* If value is a pointer, we can transfer it from old to new entry  */
             if (hEntryHasValuePtr(hOldEntry)) {
                 sds *oldValuePtr = hEntryGetValueRef(hOldEntry);
