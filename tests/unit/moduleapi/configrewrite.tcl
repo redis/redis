@@ -232,3 +232,39 @@ start_server [list tags {modules external:skip} overrides {config-rewrite-source
         assert_equal "include \"$rewrite_leaf\"\n" [read_file $cli_include]
     }
 }
+
+set spaced_module_dir [file normalize [tmpdir "config rewrite spaced"]]
+set spaced_module "$spaced_module_dir/module configs two.so"
+file copy -force $rewrite_module_two $spaced_module
+start_server [list tags {modules external:skip}] {
+    test {CONFIG REWRITE quotes module path and args containing spaces} {
+        r module load $spaced_module "arg with space" plain
+        r config rewrite
+        set contents [read_file [srv 0 config_file]]
+        # The path and the spaced argument must be quoted so that the config
+        # parser reads each of them back as a single argument.
+        assert {[string first "loadmodule \"$spaced_module\" \"arg with space\" plain\n" $contents] >= 0}
+
+        restart_server 0 true false
+        set mod [lsearch -inline -index 1 [r module list] configs]
+        assert_equal $spaced_module [dict get $mod path]
+        assert_equal [list "arg with space" plain] [dict get $mod args]
+    }
+}
+
+set quoted_module_dir [file normalize [tmpdir "config rewrite quoted"]]
+set quoted_module "$quoted_module_dir/module's configs.so"
+file copy -force $rewrite_module_two $quoted_module
+start_server [list tags {modules external:skip}] {
+    test {CONFIG REWRITE quotes module path and args containing a single quote} {
+        r module load $quoted_module "it's" plain
+        r config rewrite
+        set contents [read_file [srv 0 config_file]]
+        assert {[string first "loadmodule \"$quoted_module\" \"it's\" plain\n" $contents] >= 0}
+
+        restart_server 0 true false
+        set mod [lsearch -inline -index 1 [r module list] configs]
+        assert_equal $quoted_module [dict get $mod path]
+        assert_equal [list "it's" plain] [dict get $mod args]
+    }
+}

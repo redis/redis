@@ -1837,6 +1837,17 @@ void rewriteConfigBindOption(standardConfig *config, const char *name, struct re
     rewriteConfigRewriteLine(state,name,line,force);
 }
 
+/* Append a single loadmodule argument to 'line', quoting it only when it
+ * contains characters (such as spaces or quotes) that the config parser would
+ * split on or interpret, so that it is read back as one argument.
+ * sdsneedsrepr() does not flag a single quote, but sdssplitargs() treats an
+ * unquoted one as the start of a quoted token, so check for it as well. */
+static sds rewriteConfigCatArg(sds line, sds arg) {
+    if (sdsneedsrepr(arg) || memchr(arg, '\'', sdslen(arg)))
+        return sdscatrepr(line, arg, sdslen(arg));
+    return sdscatsds(line, arg);
+}
+
 /* Rewrite loadmodule, respecting its source in source-aware mode. */
 void rewriteConfigLoadmoduleOption(struct rewriteConfigState *state) {
     sds line;
@@ -1856,10 +1867,10 @@ void rewriteConfigLoadmoduleOption(struct rewriteConfigState *state) {
         }
 
         line = sdsnew("loadmodule ");
-        line = sdscatsds(line, module->loadmod->path);
+        line = rewriteConfigCatArg(line, module->loadmod->path);
         for (int i = 0; i < module->loadmod->argc; i++) {
             line = sdscatlen(line, " ", 1);
-            line = sdscatsds(line, module->loadmod->argv[i]->ptr);
+            line = rewriteConfigCatArg(line, module->loadmod->argv[i]->ptr);
         }
         rewriteConfigRewriteLine(state,"loadmodule",line,1);
     }
