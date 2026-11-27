@@ -3102,6 +3102,7 @@ void sentinelProcessHelloMessage(char *hello, int hello_len) {
 
         /* Update master info if received configuration is newer. */
         if (si && master->config_epoch < master_config_epoch) {
+            uint64_t old_config_epoch = master->config_epoch;
             master->config_epoch = master_config_epoch;
             if (master_port != master->addr->port ||
                 !sentinelAddrEqualsHostname(master->addr, token[5]))
@@ -3109,17 +3110,19 @@ void sentinelProcessHelloMessage(char *hello, int hello_len) {
                 sentinelAddr *old_addr;
 
                 sentinelEvent(LL_WARNING,"+config-update-from",si,"%@");
-                sentinelEvent(LL_WARNING,"+switch-master",
-                    master,"%s %s %d %s %d",
-                    master->name,
-                    announceSentinelAddr(master->addr), master->addr->port,
-                    token[5], master_port);
-
                 old_addr = dupSentinelAddr(master->addr);
-                sentinelResetMasterAndChangeAddress(master, token[5], master_port);
-                sentinelCallClientReconfScript(master,
-                    SENTINEL_OBSERVER,"start",
-                    old_addr,master->addr);
+                if (sentinelResetMasterAndChangeAddress(master, token[5], master_port) == C_OK) {
+                    sentinelEvent(LL_WARNING,"+switch-master",
+                        master,"%s %s %d %s %d",
+                        master->name,
+                        announceSentinelAddr(old_addr), old_addr->port,
+                        token[5], master_port);
+                    sentinelCallClientReconfScript(master,
+                        SENTINEL_OBSERVER,"start",
+                        old_addr,master->addr);
+                } else {
+                    master->config_epoch = old_config_epoch;
+                }
                 releaseSentinelAddr(old_addr);
             }
         }
