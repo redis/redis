@@ -80,7 +80,9 @@ void fwTreeUpdate(fenwickTree *ft, int idx, long long delta) {
 int fwTreeFindIndex(fenwickTree *ft, unsigned long long target) {
     debugAssert(ft);
 
-    if (target <= 0) return 0;
+    /* An empty tree (or a target above the total) has no matching index.
+     * Without this check the loop walks past the tree array. */
+    if (target <= 0 || target > ft->total) return 0;
 
     int result = 0, bit_mask = 1 << ft->size_bits;
     for (int i = bit_mask; i != 0; i >>= 1) {
@@ -212,6 +214,18 @@ int fwtreeTest(int argc, char *argv[], int flags) {
         /* Test fwTreeFindNextNonEmpty on empty tree */
         assert(fwTreeFindNextNonEmpty(ft, -1) == -1);  /* Empty tree */
         assert(fwTreeFindNextNonEmpty(ft, 0) == -1);   /* Empty tree */
+    }
+
+    TEST("estore - Empty tree lookups") {
+        fwTreeClear(ft);
+        assert(fwTreeFindFirstNonEmpty(ft) == 0);
+        assert(fwTreeFindIndex(ft, 1) == 0);
+    }
+
+    TEST("estore - Target above total") {
+        fwTreeClear(ft);
+        fwTreeUpdate(ft, 0, 5);
+        assert(fwTreeFindIndex(ft, 6) == 0);
     }
 
     fwTreeDestroy(ft);
