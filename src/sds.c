@@ -134,7 +134,10 @@ sds _sdsnewlen(const void *init, size_t initlen, int trymalloc) {
  * - `initlen`: Length of the initial string.
  * 
  * Returns:
- * - A pointer to the SDS inside `buf`. 
+ * - A pointer to the SDS inside `buf`.
+ *
+ * Note: createEmbeddedStringObject() in object.c has an inline TYPE_8 copy of
+ * this function, keep both in sync.
  */
 sds sdsnewplacement(char *buf, size_t bufsize, char type, const char *init, size_t initlen) {
     assert(bufsize >= sdsReqSize(initlen, type));

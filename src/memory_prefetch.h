@@ -25,7 +25,7 @@ void prefetchCommandsBatchInit(void);
 int determinePrefetchCount(int len);
 int addCommandToBatch(struct client *c);
 void resetCommandsBatch(void);
-void prefetchCommands(void);
+void prefetchCommands(int prefetch_argv);
 
 /* Intra-command prefetch: prefetch dict lookup data for an array of keys.
  * Reuses the same state machine as the cross-command path. The dict's

@@ -228,6 +228,12 @@ struct hdr_histogram;
 
 /* Default lookahead value */
 #define REDIS_DEFAULT_LOOKAHEAD 16
+/* In the main thread, stop parsing ahead once the commands parsed in one
+ * lookahead round hold lookahead * LOOKAHEAD_ARGS_PER_CMD arguments (512 with
+ * the default lookahead). Many-argument commands get little from cross-command
+ * prefetching (the batch holds 2*prefetch-batch-max-size keys), while the
+ * parsed argv objects of many commands overflow the L1/L2 caches. */
+#define LOOKAHEAD_ARGS_PER_CMD 32
 
 /* OOM Score Adjustment classes. */
 #define CONFIG_OOM_MASTER 0
@@ -1431,11 +1437,25 @@ typedef struct pendingCommandList {
 /* Pending command pool management structure */
 #define PENDING_COMMAND_POOL_SIZE 16
 #define PENDING_COMMAND_POOL_MAX_SIZE 1024
+/* Max recycled argv objects (EMBSTRs of at most 64 bytes, so 1MB at most) held
+ * by all pooled pending commands together. The pool is a stack, so once this is
+ * reached the commands cycling at its top stop keeping theirs: it must cover a
+ * busy pipelined workload (e.g. 50 clients sending 63-argument commands keep
+ * about 60 commands, 3800 objects, in circulation). */
+#define PENDING_COMMAND_POOL_MAX_KEPT (PENDING_COMMAND_POOL_MAX_SIZE * 16)
+/* A pooled command keeps its argv array. Commands with an array of more than
+ * PENDING_COMMAND_POOL_MAX_ARGV slots are not pooled, and the arrays of all
+ * pooled commands together hold PENDING_COMMAND_POOL_MAX_SLOTS slots (512KB)
+ * at most. */
+#define PENDING_COMMAND_POOL_MAX_ARGV 1024
+#define PENDING_COMMAND_POOL_MAX_SLOTS (PENDING_COMMAND_POOL_MAX_SIZE * 64)
 typedef struct pendingCommandPool {
     pendingCommand **pool;  /* Pool array for reusing pendingCommand objects */
     int size;               /* Current number of objects in pool */
     int capacity;           /* Current capacity of the pool array */
     int min_size;           /* Minimum size since last check (indicates peak usage) */
+    int kept;               /* Sum of 'kept' over the pooled commands */
+    int slots;              /* Sum of 'argv_len' over the pooled commands */
 } pendingCommandPool;
 
 typedef enum {
@@ -2941,7 +2961,10 @@ enum {
     PENDING_CMD_KEYS_PREFETCHED = 1 << 3,     /* Command's keys were prefetched by the cross-command batch */
 };
 
-/* Parser state and parse result of a command from a client's input buffer. */
+/* Parser state and parse result of a command from a client's input buffer.
+ *
+ * Note: reclaimPendingCommand() resets a pooled command field by field, so a
+ * new field must be reset there as well. */
 struct pendingCommand {
     int argc;                 /* Num of arguments of current command. */
     int argv_len;             /* Size of argv array (may be more than argc) */
@@ -2955,6 +2978,9 @@ struct pendingCommand {
     int slot;         /* The slot the command is executing against. Set to INVALID_CLUSTER_SLOT
                        * if no slot is being used or if the command has a cross slot error */
     uint8_t read_error;
+    int kept;         /* argv[0..kept) may hold recycled EMBSTR objects to be overwritten
+                       * in place by the next parse into this (pooled) pcmd. Always 0
+                       * once the command is fully parsed. */
 
     struct pendingCommand *next;
     struct pendingCommand *prev;

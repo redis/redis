@@ -361,3 +361,98 @@ start_server {tags {"regression"}} {
         r read
     } {OK}
 }
+
+start_server {tags {"protocol network"}} {
+    # Pooled pending commands keep their unshared EMBSTR arguments and the next
+    # command parsed into them overwrites those objects in place.
+    foreach lookahead {16 256 1} {
+        test "Pipelined arguments of changing sizes are parsed correctly (lookahead $lookahead)" {
+            r config set lookahead $lookahead
+            # Sizes cross the EMBSTR allocation classes and the EMBSTR limit.
+            set sizes {0 1 12 13 28 29 44 45 60 3 44 0 20}
+            set proto ""
+            set expected {}
+            for {set i 0} {$i < 300} {incr i} {
+                set len [lindex $sizes [expr {$i % [llength $sizes]}]]
+                set val [string repeat [format %c [expr {97 + $i % 26}]] $len]
+                set key "key:[expr {$i % 7}]:[string repeat x [expr {$i % 40}]]"
+                append proto [formatCommand set $key $val]
+                append proto [formatCommand get $key]
+                append proto [formatCommand echo $val]
+                lappend expected OK $val $val
+                if {$i % 10 == 0} {
+                    append proto "PING\r\n"
+                    lappend expected PONG
+                }
+            }
+            r write $proto
+            r flush
+            set got {}
+            foreach _ $expected {lappend got [r read]}
+            assert_equal $expected $got
+        }
+    }
+    r config set lookahead 16
+
+    test "Arguments retained by a command are not overwritten by later commands" {
+        set rd [redis_deferring_client]
+        $rd subscribe chan:aaaa chan:bbbb
+        $rd read
+        $rd read
+        r client setname name:cccc
+        # Arguments of the same length would be written over the retained ones
+        # if they had been recycled.
+        for {set i 0} {$i < 20} {incr i} {
+            r set name:dddd name:eeee
+            r echo zzzz:zzzz
+        }
+        assert_equal name:cccc [r client getname]
+        assert_equal {chan:aaaa chan:bbbb} [lsort [r pubsub channels chan:*]]
+        r publish chan:aaaa hello
+        assert_equal {message chan:aaaa hello} [$rd read]
+        $rd close
+    }
+
+    test "Wide pipelined commands are parsed correctly and keep what they retain" {
+        # Commands with 64 arguments or more are pooled too, with their
+        # arguments recycled. 600 keys is past the size of a pooled argv array.
+        foreach nkeys {40 70 200 600} {
+            set proto ""
+            set expected {}
+            for {set i 0} {$i < 12} {incr i} {
+                set kv {}
+                set keys {}
+                set vals {}
+                for {set j 0} {$j < $nkeys} {incr j} {
+                    # The same lengths in every round, with different bytes.
+                    set val [format "%04d:%04d" $i $j]
+                    lappend kv "wide:$j" $val
+                    lappend keys "wide:$j"
+                    lappend vals $val
+                }
+                append proto [formatCommand mset {*}$kv]
+                append proto [formatCommand exists {*}$keys]
+                append proto [formatCommand mget {*}$keys]
+                lappend expected OK $nkeys $vals
+            }
+            r write $proto
+            r flush
+            set got {}
+            foreach _ $expected {lappend got [r read]}
+            assert_equal $expected $got
+        }
+    }
+
+    test "Command split inside its multibulk and bulk length lines" {
+        r write "*"
+        r flush
+        after 100
+        r write "3\r\n\$3\r\nSET\r\n\$3\r\nkey\r\n\$"
+        r flush
+        after 100
+        r write "5\r\nvalue\r\n"
+        r flush
+        assert_equal OK [r read]
+        assert_equal value [r get key]
+    }
+}

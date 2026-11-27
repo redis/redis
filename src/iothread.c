@@ -580,8 +580,8 @@ int prefetchIOThreadCommands(IOThread *t) {
         if (c[i]->io_deferred_objects) redis_prefetch_read(c[i]->io_deferred_objects);
         clients++;
     }
-    /* Prefetch the commands in the batch. */
-    prefetchCommands();
+    /* Prefetch the commands in the batch, which I/O threads parsed. */
+    prefetchCommands(1);
     return clients;
 }
 
