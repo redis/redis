@@ -254,7 +254,7 @@ size_t zslAllocSize(const zskiplist *zsl) { return zsl->alloc_size; }
 static int zslRandomLevel(void) {
     static const int threshold = ZSKIPLIST_P*RAND_MAX;
     int level = 1;
-    while (random() < threshold)
+    while (random() < threshold && level < ZSKIPLIST_MAXLEVEL)
         level += 1;
     return (level<ZSKIPLIST_MAXLEVEL) ? level : ZSKIPLIST_MAXLEVEL;
 }
