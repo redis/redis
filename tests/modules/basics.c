@@ -65,26 +65,31 @@ int TestCallResp3Attribute(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     RedisModuleCallReply *reply;
 
     reply = RedisModule_Call(ctx,"DEBUG","3cc" ,"PROTOCOL", "attrib"); /* 3 stands for resp 3 reply */
+
+    /* Verify that accessing the attribute first (before any other accessor like
+     * RedisModule_CallReplyType parses the reply) works and returns the attribute. */
+    RedisModuleCallReply *attr = RedisModule_CallReplyAttribute(reply);
+    if (!attr || RedisModule_CallReplyType(attr) != REDISMODULE_REPLY_ATTRIBUTE) goto fail;
+    /* make sure we can not reply to resp2 client with resp3 attribute */
+    if (RedisModule_ReplyWithCallReply(ctx, attr) != REDISMODULE_ERR) goto fail;
+    if (RedisModule_CallReplyLength(attr) != 1) goto fail;
+
+    RedisModuleCallReply *key, *val;
+    if (RedisModule_CallReplyAttributeElement(attr,0,&key,&val) != REDISMODULE_OK) goto fail;
+    if (!TestMatchReply(key,"key-popularity")) goto fail;
+    RedisModuleString *keystr = RedisModule_CreateStringFromCallReply(key);
+    if (!keystr) goto fail;
+    if (RedisModule_CallReplyType(val) != REDISMODULE_REPLY_ARRAY) goto fail;
+    if (RedisModule_CallReplyLength(val) != 2) goto fail;
+    if (!TestMatchReply(RedisModule_CallReplyArrayElement(val, 0),"key:123")) goto fail;
+    if (!TestMatchReply(RedisModule_CallReplyArrayElement(val, 1),"90")) goto fail;
+
     if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_STRING) goto fail;
 
     /* make sure we can not reply to resp2 client with resp3 (it might be a string but it contains attribute) */
     if (RedisModule_ReplyWithCallReply(ctx, reply) != REDISMODULE_ERR) goto fail;
 
     if (!TestMatchReply(reply,"Some real reply following the attribute")) goto fail;
-
-    reply = RedisModule_CallReplyAttribute(reply);
-    if (!reply || RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_ATTRIBUTE) goto fail;
-    /* make sure we can not reply to resp2 client with resp3 attribute */
-    if (RedisModule_ReplyWithCallReply(ctx, reply) != REDISMODULE_ERR) goto fail;
-    if (RedisModule_CallReplyLength(reply) != 1) goto fail;
-
-    RedisModuleCallReply *key, *val;
-    if (RedisModule_CallReplyAttributeElement(reply,0,&key,&val) != REDISMODULE_OK) goto fail;
-    if (!TestMatchReply(key,"key-popularity")) goto fail;
-    if (RedisModule_CallReplyType(val) != REDISMODULE_REPLY_ARRAY) goto fail;
-    if (RedisModule_CallReplyLength(val) != 2) goto fail;
-    if (!TestMatchReply(RedisModule_CallReplyArrayElement(val, 0),"key:123")) goto fail;
-    if (!TestMatchReply(RedisModule_CallReplyArrayElement(val, 1),"90")) goto fail;
 
     RedisModule_ReplyWithSimpleString(ctx,"OK");
     return REDISMODULE_OK;
@@ -890,6 +895,9 @@ int TestBasics(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (!TestAssertStringReply(ctx,reply,"OK",2)) goto fail;
 
     T("test.callresp3map","");
+    if (!TestAssertStringReply(ctx,reply,"OK",2)) goto fail;
+
+    T("test.callresp3attribute","");
     if (!TestAssertStringReply(ctx,reply,"OK",2)) goto fail;
 
     T("test.callresp3set","");
