@@ -429,3 +429,35 @@ start_server {tags {"pause network"}} {
     # Make sure we unpause at the end
     r client unpause
 }
+
+start_server {tags {"pause external:skip"}} {
+    test "Writable replica does not expire its local keys during client pause" {
+        # Keys a writable replica gets a TTL for locally are expired by
+        # expireSlaveKeys(), which used to ignore the pause and crash
+        # the server when it propagated the deletion with AOF on.
+        r replicaof 127.0.0.1 1
+        r config set replica-read-only no
+        r config set appendonly yes
+        waitForBgrewriteaof r
+
+        set expired_keys [s expired_keys]
+        r set foo bar PX 100
+        r client PAUSE 100000 WRITE
+
+        # Give databasesCron() a few runs after the TTL has passed.
+        after 500
+        assert_equal PONG [r ping]
+        assert_equal $expired_keys [s expired_keys]
+
+        r client unpause
+        wait_for_condition 50 100 {
+            [s expired_keys] eq $expired_keys + 1
+        } else {
+            fail "key not expired after unpause"
+        }
+        assert_equal 0 [r exists foo]
+
+        r config set appendonly no
+        r replicaof no one
+    }
+}

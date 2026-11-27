@@ -565,6 +565,10 @@ void expireSlaveKeys(void) {
     if (slaveKeysWithExpire == NULL ||
         dictSize(slaveKeysWithExpire) == 0) return;
 
+    /* Like activeExpireCycle(), don't expire keys while clients are paused
+     * for writes: the deletion would be propagated, which is not allowed. */
+    if (isPausedActionsWithUpdate(PAUSE_ACTION_EXPIRE)) return;
+
     int cycles = 0, noexpire = 0;
     mstime_t start = mstime();
     while(1) {
