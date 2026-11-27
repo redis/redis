@@ -14,7 +14,8 @@
             "STRING"
         ],
         "command_tips": [
-            "REQUEST_POLICY:MULTI_SHARD"
+            "REQUEST_POLICY:MULTI_SHARD",
+            "CACHEABLE_REPLY"
         ],
         "key_specs": [
             {
