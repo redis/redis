@@ -66,6 +66,7 @@ $TCLSH tests/test_helper.tcl \
 --single unit/moduleapi/crash \
 --single unit/moduleapi/internalsecret \
 --single unit/moduleapi/configaccess \
+--single unit/moduleapi/rollbackrewrite \
 --single unit/moduleapi/keymeta \
 --single unit/moduleapi/ksn_notify_side_effect \
 --single unit/moduleapi/bless_datatype \

@@ -227,3 +227,49 @@ start_server {tags {"modules external:skip"}} {
         close $sockfd
     }
 }
+
+test {CONFIG REWRITE keeps replayed save rules after module validation errors} {
+    set include_file [file normalize [tmpfile module-save-include.conf]]
+    set fd [open $include_file w]
+    puts $fd {save 100 1}
+    close $fd
+    set config_file [file normalize [tmpfile module-save-main.conf]]
+    set fd [open $config_file w]
+    puts $fd "loadmodule \"$testmodule\""
+    puts $fd "include \"$include_file\""
+    close $fd
+    set port [find_available_port $::baseport $::portcount]
+    set dir [file normalize [tmpdir module-save]]
+    set log_file [file normalize [tmpfile module-save-server.log]]
+    set client ""
+    set test_failed [catch {
+        # Replay the CLI rule: restart_server does not retain launch arguments.
+        for {set cycle 0} {$cycle < 2} {incr cycle} {
+            exec src/redis-server $config_file --port $port --dir $dir --daemonize yes --logfile $log_file --save "200 2"
+            wait_for_condition 100 50 {
+                [count_message_lines $log_file "Ready to accept"] > $cycle
+            } else {
+                fail "Server did not start; log: $log_file"
+            }
+            set client [redis 127.0.0.1 $port 0 0]
+            assert_equal {100 1 200 2} [lindex [$client config get save] 1]
+            if {$cycle == 0} {
+                assert_error {*Invalid save parameters*} {$client configaccess.set save {0 1}}
+                assert_equal {100 1 200 2} [lindex [$client config get save] 1]
+                $client config rewrite
+                assert_equal {100 1 200 2} [lindex [$client config get save] 1]
+            }
+            catch {$client shutdown nosave}
+            $client close
+            set client ""
+            wait_for_condition 100 50 {
+                [count_message_lines $log_file "Redis is now ready to exit"] > $cycle
+            } else {
+                fail "Server did not stop; log: $log_file"
+            }
+        }
+    } test_error]
+    catch {$client shutdown nosave}
+    catch {$client close}
+    if {$test_failed} {error $test_error}
+} {} {modules external:skip}
