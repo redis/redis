@@ -86,6 +86,11 @@
                         "token": "replica"
                     },
                     {
+                        "name": "slave",
+                        "type": "pure-token",
+                        "token": "slave"
+                    },
+                    {
                         "name": "pubsub",
                         "type": "pure-token",
                         "token": "pubsub"

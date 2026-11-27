@@ -40,11 +40,22 @@
                 ]
             },
             {
-                "name": "args",
-                "token": "ARGS",
-                "type": "string",
-                "multiple": true,
-                "optional": true
+                "name": "args-block",
+                "type": "block",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "args",
+                        "token": "ARGS",
+                        "type": "pure-token"
+                    },
+                    {
+                        "name": "arg",
+                        "type": "string",
+                        "multiple": true,
+                        "optional": true
+                    }
+                ]
             }
         ]
     }

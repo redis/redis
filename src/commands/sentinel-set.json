@@ -22,16 +22,37 @@
             },
             {
                 "name": "data",
-                "type": "block",
+                "type": "oneof",
                 "multiple": true,
                 "arguments": [
                     {
-                        "name": "option",
-                        "type": "string"
+                        "name": "option-block",
+                        "type": "block",
+                        "arguments": [
+                            {
+                                "name": "option",
+                                "type": "string"
+                            },
+                            {
+                                "name": "value",
+                                "type": "string"
+                            }
+                        ]
                     },
                     {
-                        "name": "value",
-                        "type": "string"
+                        "name": "rename-command",
+                        "token": "rename-command",
+                        "type": "block",
+                        "arguments": [
+                            {
+                                "name": "command",
+                                "type": "string"
+                            },
+                            {
+                                "name": "renamed-command",
+                                "type": "string"
+                            }
+                        ]
                     }
                 ]
             }
