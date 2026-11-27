@@ -539,6 +539,7 @@ void trackingLimitUsedSlots(void) {
         if (raxEOF(&ri)) break;
         robj *keyobj = createStringObject((char*)ri.key,ri.key_len);
         trackingInvalidateKey(NULL,keyobj,0);
+        server.stat_tracking_table_evicted_keys++;
         decrRefCount(keyobj);
         if (raxSize(TrackingTable) <= max_keys) {
             timeout_counter = 0;

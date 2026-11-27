@@ -2995,6 +2995,7 @@ void resetServerStats(void) {
     server.stat_evictedkeys = 0;
     server.stat_evictedclients = 0;
     server.stat_evictedscripts = 0;
+    server.stat_tracking_table_evicted_keys = 0;
     server.stat_total_eviction_exceeded_time = 0;
     server.stat_last_eviction_exceeded_time = 0;
     server.stat_keyspace_misses = 0;
@@ -7189,6 +7190,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "tracking_total_keys:%lld\r\n", (unsigned long long) trackingGetTotalKeys(),
             "tracking_total_items:%lld\r\n", (unsigned long long) trackingGetTotalItems(),
             "tracking_total_prefixes:%lld\r\n", (unsigned long long) trackingGetTotalPrefixes(),
+            "tracking_table_evicted_keys:%lld\r\n", server.stat_tracking_table_evicted_keys,
             "unexpected_error_replies:%lld\r\n", server.stat_unexpected_error_replies,
             "total_error_replies:%lld\r\n", server.stat_total_error_replies,
             "dump_payload_sanitizations:%lld\r\n", server.stat_dump_payload_sanitizations,
