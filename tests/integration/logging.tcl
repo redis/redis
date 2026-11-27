@@ -166,4 +166,32 @@ if {$backtrace_supported} {
     }
 }
 
+proc log_dst_hours {msg} {
+    set now [clock seconds]
+    r debug log $msg
+    set line [lindex [wait_for_log_messages 0 [list "*DEBUG LOG: $msg"] 0 100 100] 0]
+    regexp {\d+ \w+ \d+ \d+:\d+:\d+} $line ts
+    expr {round(([clock scan $ts -format {%d %b %Y %H:%M:%S} -gmt 1] - $now) / 3600.0)}
+}
+
+set dst_start [expr {[clock seconds] + 5}]
+set dst_day [expr {[scan [clock format $dst_start -format %j -gmt 1] %d] - 1}]
+set dst_time [clock format $dst_start -format %T -gmt 1]
+if {[info exists ::env(TZ)]} {set old_tz $::env(TZ)}
+set ::env(TZ) "AAA0BBB,$dst_day/$dst_time,J365/24"
+start_server {} {
+    test "Log timestamps follow daylight saving time changes at runtime" {
+        if {[clock seconds] < $dst_start - 1} {
+            assert_equal 0 [log_dst_hours before-dst]
+        }
+        set seq 0
+        wait_for_condition 100 100 {
+            [clock seconds] > $dst_start && [log_dst_hours after-dst-[incr seq]] == 1
+        } else {
+            fail "log timestamps did not switch to daylight saving time"
+        }
+    }
+}
+if {[info exists old_tz]} {set ::env(TZ) $old_tz} else {unset ::env(TZ)}
+
 }
