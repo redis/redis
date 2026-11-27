@@ -4780,8 +4780,11 @@ uint64_t redisBuildId(void);
 const char *redisBuildIdRaw(void);
 char *redisBuildIdString(void);
 
-/* XXH3 hash of a string as hex string */
-sds stringDigest(robj *o);
+/* XXH3 hash of a string as hex string: 16 hex characters, and a buffer that
+ * holds them with the null term. */
+#define DIGEST_HEX_LENGTH 16
+#define DIGEST_BUF_SIZE (DIGEST_HEX_LENGTH+1)
+void stringDigest(robj *o, char *hexbuf);
 int validateHexDigest(client *c, const sds digest);
 
 /* Hotkey tracking */
