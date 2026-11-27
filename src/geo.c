@@ -558,16 +558,22 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
         shape.type = CIRCULAR_TYPE;
         if (extractLongLatOrReply(c, c->argv + 2, shape.xy) == C_ERR) return;
         if (extractDistanceOrReply(c, c->argv+base_args-2, &shape.conversion, &shape.t.radius) != C_OK) return;
-    } else if ((flags & RADIUS_MEMBER) && !zobj) {
-        /* We don't have a source key, but we need to proceed with argument
-         * parsing, so we know which reply to use depending on the STORE flag. */
+    } else if ((flags & RADIUS_MEMBER) && !zobj &&
+               (mustObeyClient(c) ||
+                (server.current_client && mustObeyClient(server.current_client))))
+    {
+        /* Older versions didn't validate the radius and unit when the source
+         * was missing, and a STORE still deleted the destination. Apply such
+         * a command from a master or an AOF the same way, including when it
+         * runs nested in a script or RM_Call() they replay. */
         base_args = 5;
     } else if (flags & RADIUS_MEMBER) {
         /* GEORADIUSBYMEMBER or GEORADIUSBYMEMBER_RO */
         base_args = 5;
         shape.type = CIRCULAR_TYPE;
         robj *member = c->argv[2];
-        if (longLatFromMember(zobj, member, shape.xy) == C_ERR) {
+        /* A missing source skips the member lookup, but still needs valid arguments. */
+        if (zobj && longLatFromMember(zobj, member, shape.xy) == C_ERR) {
             addReplyError(c, "could not decode requested zset member");
             return;
         }
