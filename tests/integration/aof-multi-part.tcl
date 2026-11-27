@@ -303,6 +303,134 @@ tags {"external:skip"} {
         clean_aof_persistence $aof_dirpath
     }
 
+    # A leftover INCR AOF is on disk but there is no manifest. The new INCR gets the same name, so
+    # before it was appended to without being loaded, and its stale commands came back on restart.
+    # Check that it is truncated at startup and only the new writes survive a restart.
+    test {Multi Part AOF discards an unreferenced INCR when there is no manifest} {
+        create_aof $aof_dirpath $aof_incr1_file {
+            append_to_aof [formatCommand set stale old]
+        }
+
+        start_server_aof [list dir $server_path] {
+            set client [redis [srv host] [srv port] 0 $::tls]
+            assert_equal 0 [$client dbsize]
+            assert_equal 0 [file size $aof_dirpath/${aof_basename}.1${::incr_aof_suffix}${::aof_format_suffix}]
+            assert_equal OK [$client set k1 v1]
+        }
+
+        start_server_aof [list dir $server_path] {
+            set client [redis [srv host] [srv port] 0 $::tls]
+            assert_equal v1 [$client get k1]
+            assert_equal {} [$client get stale]
+            assert_equal 1 [$client dbsize]
+        }
+
+        clean_aof_persistence $aof_dirpath
+    }
+
+    # As above, but the manifest lists only a BASE, so the leftover INCR is still unreferenced.
+    # Check that the BASE is loaded, the leftover INCR is truncated, and after a restart only the
+    # BASE and the new writes are there.
+    test {Multi Part AOF discards an unreferenced INCR with a BASE-only manifest} {
+        create_aof $aof_dirpath $aof_base1_file {
+            append_to_aof [formatCommand set k0 v0]
+        }
+
+        create_aof $aof_dirpath $aof_incr1_file {
+            append_to_aof [formatCommand set stale old]
+        }
+
+        create_aof_manifest $aof_dirpath $aof_manifest_file {
+            append_to_manifest "file appendonly.aof.1.base.aof seq 1 type b\n"
+        }
+
+        start_server_aof [list dir $server_path] {
+            set client [redis [srv host] [srv port] 0 $::tls]
+            assert_equal v0 [$client get k0]
+            assert_equal 0 [file size $aof_dirpath/${aof_basename}.1${::incr_aof_suffix}${::aof_format_suffix}]
+            assert_equal OK [$client set k1 v1]
+        }
+
+        start_server_aof [list dir $server_path] {
+            set client [redis [srv host] [srv port] 0 $::tls]
+            assert_equal v0 [$client get k0]
+            assert_equal v1 [$client get k1]
+            assert_equal {} [$client get stale]
+            assert_equal 2 [$client dbsize]
+        }
+
+        clean_aof_persistence $aof_dirpath
+    }
+
+    # The manifest's BASE is named appendonly.aof.1.incr.aof, the name the first new INCR would get.
+    # Before, the new INCR reused it, so new writes were appended to the BASE and replayed twice on
+    # restart. Check that the new INCR is seq 2 and the BASE data is loaded once.
+    test {Multi Part AOF doesn't reuse the BASE name for a new INCR} {
+        create_aof $aof_dirpath $aof_incr1_file {
+            append_to_aof [formatCommand rpush list a]
+        }
+
+        create_aof_manifest $aof_dirpath $aof_manifest_file {
+            append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type b\n"
+        }
+
+        start_server_aof [list dir $server_path] {
+            set client [redis [srv host] [srv port] 0 $::tls]
+            assert_equal {a} [$client lrange list 0 -1]
+            assert_equal 2 [$client rpush list b]
+            assert_aof_manifest_content $aof_manifest_file {
+                {file appendonly.aof.1.incr.aof seq 1 type b}
+                {file appendonly.aof.2.incr.aof seq 2 type i}
+            }
+        }
+
+        start_server_aof [list dir $server_path] {
+            set client [redis [srv host] [srv port] 0 $::tls]
+            assert_equal {a b} [$client lrange list 0 -1]
+        }
+
+        clean_aof_persistence $aof_dirpath
+    }
+
+    # The manifest lists appendonly.aof.1.incr.aof as HISTORY. Before, the new INCR reused that name,
+    # so its writes went after the old commands, and the history GC later deleted the live INCR.
+    # Check that the new INCR is seq 2 and the HISTORY file is untouched (auto GC is disabled so
+    # it stays on disk to check).
+    test {Multi Part AOF doesn't reuse a HISTORY name for a new INCR} {
+        create_aof $aof_dirpath $aof_base2_file {
+            append_to_aof [formatCommand rpush list a]
+        }
+
+        create_aof $aof_dirpath $aof_incr1_file {
+            append_to_aof [formatCommand rpush list a]
+        }
+        set incr1_size [file size $aof_incr1_file]
+
+        create_aof_manifest $aof_dirpath $aof_manifest_file {
+            append_to_manifest "file appendonly.aof.2.base.aof seq 2 type b\n"
+            append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type h\n"
+        }
+
+        start_server_aof [list dir $server_path aof-disable-auto-gc yes] {
+            set client [redis [srv host] [srv port] 0 $::tls]
+            assert_equal {a} [$client lrange list 0 -1]
+            assert_equal 2 [$client rpush list b]
+            assert_aof_manifest_content $aof_manifest_file {
+                {file appendonly.aof.2.base.aof seq 2 type b}
+                {file appendonly.aof.1.incr.aof seq 1 type h}
+                {file appendonly.aof.2.incr.aof seq 2 type i}
+            }
+        }
+        assert_equal $incr1_size [file size $aof_incr1_file]
+
+        start_server_aof [list dir $server_path aof-disable-auto-gc yes] {
+            set client [redis [srv host] [srv port] 0 $::tls]
+            assert_equal {a b} [$client lrange list 0 -1]
+        }
+
+        clean_aof_persistence $aof_dirpath
+    }
+
     test {Multi Part AOF can start when we have en empty AOF dir} {
         create_aof_dir $aof_dirpath
 

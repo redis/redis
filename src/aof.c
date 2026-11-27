@@ -33,6 +33,7 @@ int rewriteAppendOnlyFile(char *filename);
 aofManifest *aofLoadManifestFromFile(sds am_filepath);
 void aofManifestFreeAndUpdate(aofManifest *am);
 void aof_background_fsync_and_close(int fd);
+static int aofManifestReferencesFile(aofManifest *am, char *name);
 
 /* When we call 'startAppendOnly', we will create a temp INCR AOF, and rename
  * it to the real INCR AOF name when the AOFRW is done, so if want to know the
@@ -473,8 +474,11 @@ sds getNewBaseFileNameAndMarkPreAsHistory(aofManifest *am) {
 sds getNewIncrAofName(aofManifest *am, long long start_reploff) {
     aofInfo *ai = aofInfoCreate();
     ai->file_type = AOF_FILE_TYPE_INCR;
-    ai->file_name = sdscatprintf(sdsempty(), "%s.%lld%s%s", server.aof_filename,
-                        ++am->curr_incr_file_seq, INCR_FILE_SUFFIX, AOF_FORMAT_SUFFIX);
+    do {
+        sdsfree(ai->file_name);
+        ai->file_name = sdscatprintf(sdsempty(), "%s.%lld%s%s", server.aof_filename,
+                            ++am->curr_incr_file_seq, INCR_FILE_SUFFIX, AOF_FORMAT_SUFFIX);
+    } while (aofManifestReferencesFile(am, ai->file_name));
     ai->file_seq = am->curr_incr_file_seq;
     ai->start_offset = start_reploff;
     listAddNodeTail(am->incr_aof_list, ai);
@@ -766,12 +770,20 @@ void aofOpenIfNeededOnServerStart(void) {
      * we don't need atomic modification here. */
     sds aof_name = getLastIncrAofName(server.aof_manifest);
 
-    /* Here we should use 'O_APPEND' flag. */
+    /* Here we should use 'O_APPEND' flag. A new INCR's name may still hold a
+     * leftover file the manifest doesn't list: truncate it. */
     sds aof_filepath = makePath(server.aof_dirname, aof_name);
-    server.aof_fd = open(aof_filepath, O_WRONLY|O_APPEND|O_CREAT, 0644);
+    server.aof_fd = open(aof_filepath, O_WRONLY|O_APPEND|O_CREAT|(incr_aof_len ? 0 : O_TRUNC), 0644);
     sdsfree(aof_filepath);
     if (server.aof_fd == -1) {
         serverLog(LL_WARNING, "Can't open the append-only file %s: %s",
+            aof_name, strerror(errno));
+        exit(1);
+    }
+
+    /* Make the truncation durable before the manifest names the new INCR. */
+    if (!incr_aof_len && redis_fsync(server.aof_fd) == -1) {
+        serverLog(LL_WARNING, "Can't fsync the append-only file %s: %s",
             aof_name, strerror(errno));
         exit(1);
     }
@@ -887,18 +899,21 @@ cleanup:
     return ret;
 }
 
-/* Return whether name is referenced by the manifest's BASE or INCR entries. */
+/* Return whether name is referenced by the manifest's BASE, INCR or HISTORY entries. */
 static int aofManifestReferencesFile(aofManifest *am, char *name) {
     if (am->base_aof_info && !strcmp(am->base_aof_info->file_name, name))
         return 1;
 
-    listIter li;
-    listNode *ln;
-    listRewind(am->incr_aof_list, &li);
-    while ((ln = listNext(&li)) != NULL) {
-        aofInfo *ai = listNodeValue(ln);
-        if (!strcmp(ai->file_name, name))
-            return 1;
+    list *lists[] = {am->incr_aof_list, am->history_aof_list};
+    for (size_t i = 0; i < sizeof(lists)/sizeof(lists[0]); i++) {
+        listIter li;
+        listNode *ln;
+        listRewind(lists[i], &li);
+        while ((ln = listNext(&li)) != NULL) {
+            aofInfo *ai = listNodeValue(ln);
+            if (!strcmp(ai->file_name, name))
+                return 1;
+        }
     }
     return 0;
 }
