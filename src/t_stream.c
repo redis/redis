@@ -2159,6 +2159,24 @@ static inline void streamPropagateXACK(int dbid, robj *key, robj *groupname, rob
     alsoPropagate(dbid,argv,4,PROPAGATE_AOF|PROPAGATE_REPL);
 }
 
+/* Remove a pending reference to a deleted stream entry. Propagate as XACK
+ * when spi is provided. The caller handles iteration, budgets and accounting. */
+static void streamCleanupDeletedPEL(stream *s, streamCG *group, streamNACK *nack,
+                                   int dbid, streamPropInfo *spi) {
+    unsigned char buf[sizeof(streamID)];
+    streamEncodeID(buf, &nack->id);
+    if (spi) {
+        robj *idarg = createObjectFromStreamID(&nack->id);
+        streamPropagateXACK(dbid,spi->keyname,spi->groupname,idarg);
+        decrRefCount(idarg);
+    }
+    pelListUnlink(group, nack);
+    raxRemove(group->pel,buf,sizeof(buf),NULL);
+    if (nack->consumer)
+        raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
+    streamDestroyNACK(s, nack, buf);
+}
+
 /* As a result of an explicit XCLAIM or XREADGROUP command, new entries
  * are created in the pending list of the stream and consumers. We need
  * to propagate this changes in the form of XCLAIM commands. */
@@ -2420,18 +2438,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamReplyRangeArgs *args) {
                 /* Remove references to deleted entries and propagate as XACK.
                  * Do not increment propCount: XACK does not create a consumer,
                  * so it must not suppress explicit consumer creation. */
-                unsigned char buf[sizeof(streamID)];
-                streamEncodeID(buf, &nack->id);
-                if (spi) {
-                    robj *idarg = createObjectFromStreamID(&nack->id);
-                    streamPropagateXACK(db_id,spi->keyname,spi->groupname,idarg);
-                    decrRefCount(idarg);
-                }
-                pelListUnlink(group, nack);
-                raxRemove(group->pel,buf,sizeof(buf),NULL);
-                if (nack->consumer)
-                    raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
-                streamDestroyNACK(s, nack, buf);
+                streamCleanupDeletedPEL(s, group, nack, db_id, spi);
                 (*args->pel_cleanup_budget)--;
             }
             streamIteratorStop(&si);
@@ -3322,7 +3329,8 @@ void xreadCommand(client *c) {
              * later if block option is set. */
             if (min_idle_time != -1 && gt->ms == UINT64_MAX && gt->seq == UINT64_MAX) {
                 streamNACK *nack = groups[i]->pel_time_head;
-                size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(o) : 0;
+                if (server.memory_tracking_enabled)
+                    old_alloc = kvobjAllocSize(o);
                 int64_t old_pel = streamCGroupSample(groups[i], STREAM_DISTRIB_CGROUPS_PEL);
                 int cleaned = 0;
                 /* Clean deleted entries before deciding whether to serve or block,
@@ -3334,16 +3342,7 @@ void xreadCommand(client *c) {
                             nack = next;
                             continue;
                         }
-                        unsigned char buf[sizeof(streamID)];
-                        streamEncodeID(buf, &nack->id);
-                        robj *idarg = createObjectFromStreamID(&nack->id);
-                        streamPropagateXACK(c->db->id,spi.keyname,spi.groupname,idarg);
-                        decrRefCount(idarg);
-                        pelListUnlink(groups[i], nack);
-                        raxRemove(groups[i]->pel,buf,sizeof(buf),NULL);
-                        if (nack->consumer)
-                            raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
-                        streamDestroyNACK(s, nack, buf);
+                        streamCleanupDeletedPEL(s, groups[i], nack, c->db->id, &spi);
                         pel_cleanup_budget--;
                         cleaned = 1;
                         nack = next;
@@ -3362,7 +3361,6 @@ void xreadCommand(client *c) {
                 }
                 if (cleaned) {
                     server.dirty++;
-                    keyModified(c,c->db,spi.keyname,o,0);
                     streamUpdateCGStat(c->db, groups[i], STREAM_DISTRIB_CGROUPS_PEL, old_pel);
                     if (server.memory_tracking_enabled)
                         updateSlotAllocSize(c->db,getKeySlot(spi.keyname->ptr),o,old_alloc,kvobjAllocSize(o));
