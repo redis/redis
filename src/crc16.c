@@ -1,4 +1,93 @@
+#ifdef CRC16_TEST_MAIN
+#define _GNU_SOURCE
+#include <stdint.h>
+#include <string.h>
+#else
 #include "server.h"
+#endif
+
+#if defined(__linux__) && defined(__aarch64__) && \
+    defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#include <arm_neon.h>
+#include <sys/auxv.h>
+#include <asm/hwcap.h>
+#define HAVE_CRC16_PMULL
+#ifdef __clang__
+#define CRC16_TARGET __attribute__((target("aes")))
+#else
+#define CRC16_TARGET __attribute__((target("+crypto")))
+#endif
+
+static int crc16_pmull_supported;
+
+__attribute__((constructor)) static void crc16PmullInit(void) {
+    crc16_pmull_supported = !!(getauxval(AT_HWCAP) & HWCAP_PMULL);
+}
+
+/* Reverse the entire block: XMODEM processes the most significant bit first. */
+CRC16_TARGET
+static inline uint64x2_t crc16Load(const unsigned char *p) {
+    uint8x16_t v = vrev64q_u8(vld1q_u8(p));
+    return vreinterpretq_u64_u8(vextq_u8(v, v, 8));
+}
+
+CRC16_TARGET
+static uint16_t crc16Pmull(const unsigned char *p, int len) {
+    uint64x2_t a;
+    if (len < 16) {
+        uint64_t first, last;
+        memcpy(&first, p, 8);
+        memcpy(&last, p + len - 8, 8);
+        a = vcombine_u64(vcreate_u64(__builtin_bswap64(last)),
+                        vcreate_u64(len == 8 ? 0 : __builtin_bswap64(first) >> ((16 - len) * 8)));
+    } else {
+        const unsigned char *end = p + len;
+        a = crc16Load(p);
+        p += 16;
+        len -= 16;
+        while (len >= 16) {
+            poly128_t lo = vmull_p64(vgetq_lane_u64(a, 0), UINT64_C(0x45630000));
+            poly128_t hi = vmull_p64(vgetq_lane_u64(a, 1), UINT64_C(0xd5f60000));
+            a = veorq_u64(veorq_u64(vreinterpretq_u64_p128(lo),
+                                    vreinterpretq_u64_p128(hi)), crc16Load(p));
+            p += 16;
+            len -= 16;
+        }
+        if (len) {
+            /* x^(8r) and x^(8r+64) modulo x^16 * (x^16+x^12+x^5+1).
+             * Fold by the actual tail length, not by a zero-padded block. */
+            static const uint64_t k[16][2] = {
+                {0,0}, {0x100,0x45a00000}, {0x10000,0xb8610000},
+                {0x1000000,0x47d30000}, {0x10210000,0xeb230000},
+                {0x33310000,0x6f450000}, {0x37300000,0xd8490000},
+                {0x76b40000,0x03750000}, {0xaa510000,0x45630000},
+                {0x45a00000,0x7b610000}, {0xb8610000,0xaefc0000},
+                {0x47d30000,0xa8240000}, {0xeb230000,0x10e20000},
+                {0x6f450000,0xf0310000}, {0xd8490000,0xde1f0000},
+                {0x03750000,0x35b30000}
+            };
+            static const unsigned char indices[16] = {0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15};
+            uint8x16_t mask = vcltq_u8(vld1q_u8(indices), vdupq_n_u8(len));
+            uint64x2_t tail = vandq_u64(crc16Load(end - 16), vreinterpretq_u64_u8(mask));
+            poly128_t lo = vmull_p64(vgetq_lane_u64(a, 0), k[len][0]);
+            poly128_t hi = vmull_p64(vgetq_lane_u64(a, 1), k[len][1]);
+            a = veorq_u64(veorq_u64(vreinterpretq_u64_p128(lo),
+                                    vreinterpretq_u64_p128(hi)), tail);
+        }
+    }
+    /* For P=x^16+x^12+x^5+1, floor(x^144/P)=x^128+KH*x^64+KL.
+     * If A=H*x^64+L, the low 16 quotient bits of A*x^16/P are
+     * L + H*KH + high64(L*KH + H*KL), with carry-less products. */
+    const uint64_t kh = UINT64_C(0x11303471a041b343);
+    const uint64_t kl = UINT64_C(0xe569d503417ca4a2);
+    uint64_t l = vgetq_lane_u64(a, 0), h = vgetq_lane_u64(a, 1);
+    uint64x2_t t = veorq_u64(vreinterpretq_u64_p128(vmull_p64(l, kh)),
+                             vreinterpretq_u64_p128(vmull_p64(h, kl)));
+    uint64x2_t u = vreinterpretq_u64_p128(vmull_p64(h, kh));
+    uint16_t q = l ^ vgetq_lane_u64(u, 0) ^ vgetq_lane_u64(t, 1);
+    return (uint16_t)(q ^ (q << 5) ^ (q << 12));
+}
+#endif
 
 /*
  * Copyright 2001-2010 Georges Menie (www.menie.org)
@@ -80,9 +169,101 @@ static const uint16_t crc16tab[256]= {
 };
 
 uint16_t crc16(const char *buf, int len) {
+#ifdef HAVE_CRC16_PMULL
+    if (len >= 8 && crc16_pmull_supported)
+        return crc16Pmull((const unsigned char *)buf, len);
+#endif
     int counter;
     uint16_t crc = 0;
     for (counter = 0; counter < len; counter++)
             crc = (crc<<8) ^ crc16tab[((crc>>8) ^ *buf++)&0x00FF];
     return crc;
 }
+
+#ifdef CRC16_TEST_MAIN
+#include <stdio.h>
+#include <stdlib.h>
+#include <limits.h>
+#ifdef __linux__
+#include <sys/mman.h>
+#include <unistd.h>
+#endif
+
+static uint16_t crc16Reference(const unsigned char *p, int len) {
+    uint16_t crc = 0;
+    while (len-- > 0) {
+        crc ^= (uint16_t)*p++ << 8;
+        for (int bit = 0; bit < 8; bit++)
+            crc = (uint16_t)((crc << 1) ^ ((crc & 0x8000) ? 0x1021 : 0));
+    }
+    return crc;
+}
+
+static void crc16Check(const unsigned char *p, int len) {
+    uint16_t expected = crc16Reference(p, len);
+    if (crc16((const char *)p, len) != expected) {
+        fprintf(stderr, "CRC16 mismatch: len=%d\n", len);
+        exit(1);
+    }
+#ifdef HAVE_CRC16_PMULL
+    int supported = crc16_pmull_supported;
+    crc16_pmull_supported = 0;
+    if (crc16((const char *)p, len) != expected) abort();
+    crc16_pmull_supported = supported;
+#endif
+}
+
+int main(void) {
+    unsigned char buf[256 + 16];
+    uint32_t random = 0x12345678;
+    if (crc16("123456789", 9) != 0x31c3 || crc16(NULL, 0) ||
+        crc16(NULL, -1) || crc16(NULL, INT_MIN)) abort();
+    for (int pattern = 0; pattern < 64; pattern++) {
+        for (unsigned int i = 0; i < sizeof(buf); i++) {
+            random ^= random << 13;
+            random ^= random >> 17;
+            random ^= random << 5;
+            buf[i] = pattern == 0 ? 0 : pattern == 1 ? 255 : (unsigned char)random;
+        }
+        for (int off = 0; off < 16; off++)
+            for (int len = 0; len <= 256; len++)
+                crc16Check(buf + off, len);
+    }
+    static const int lengths[] = {257, 511, 512, 513, 1023, 1024, 1025,
+                                  4095, 4096, 4097, 65535, 65536, 65537};
+    unsigned char *large = malloc(65537 + 16);
+    if (!large) abort();
+    for (int pattern = 0; pattern < 4; pattern++) {
+        for (int i = 0; i < 65537 + 16; i++) {
+            random ^= random << 13;
+            random ^= random >> 17;
+            random ^= random << 5;
+            large[i] = pattern == 0 ? 0 : pattern == 1 ? 255 : (unsigned char)random;
+        }
+        for (int off = 0; off < 16; off++)
+            for (unsigned int i = 0; i < sizeof(lengths) / sizeof(lengths[0]); i++)
+                crc16Check(large + off, lengths[i]);
+    }
+    free(large);
+#ifdef __linux__
+    long page = sysconf(_SC_PAGESIZE);
+    if (page < 256) abort();
+    unsigned char *mem = mmap(NULL, page * 3, PROT_NONE,
+                             MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (mem == MAP_FAILED || mprotect(mem + page, page, PROT_READ | PROT_WRITE)) abort();
+    memset(mem + page, 0xa5, page);
+    for (int len = 0; len <= 128; len++) {
+        crc16Check(mem + page, len);
+        crc16Check(mem + page * 2 - len, len);
+    }
+    if (munmap(mem, page * 3)) abort();
+#endif
+#ifdef HAVE_CRC16_PMULL
+    printf("CRC16 tests passed (PMULL %s; forced scalar checked)\n",
+           crc16_pmull_supported ? "enabled" : "unavailable");
+#else
+    puts("CRC16 tests passed (scalar-only platform)");
+#endif
+    return 0;
+}
+#endif
