@@ -107,7 +107,7 @@ typedef struct {
     long long now;
     unsigned long sampled; /* num keys checked */
     unsigned long expired; /* num keys expired */
-    long long ttl_sum; /* sum of ttl for key with ttl not yet expired */
+    double avg_ttl; /* running average of ttl for keys not yet expired */
     int ttl_samples; /* num keys with ttl not yet expired */
 } expireScanData;
 
@@ -121,8 +121,8 @@ void expireScanCallback(void *privdata, const dictEntry *de, dictEntryLink plink
     }
     if (ttl > 0) {
         /* We want the average TTL of keys yet not expired. */
-        data->ttl_sum += ttl;
         data->ttl_samples++;
+        data->avg_ttl += ((double)ttl - data->avg_ttl) / data->ttl_samples;
     }
     data->sampled++;
 }
@@ -384,7 +384,7 @@ void activeExpireCycle(int type) {
     for (j = 0; dbs_performed < dbs_per_call && timelimit_exit == 0 && j < server.dbnum; j++) {
         /* Scan callback data including expired and checked count per iteration. */
         expireScanData data;
-        data.ttl_sum = 0;
+        data.avg_ttl = 0;
         data.ttl_samples = 0;
 
         redisDb *db = server.db+(current_db % server.dbnum);
@@ -469,7 +469,7 @@ void activeExpireCycle(int type) {
                 /* Update the average TTL stats for this database, 
                  * because this may reach the time limit. */
                 if (data.ttl_samples) {
-                    long long avg_ttl = data.ttl_sum / data.ttl_samples;
+                    long long avg_ttl = (long long)data.avg_ttl;
 
                     /* Do a simple running average with a few samples.
                      * We just use the current estimate with a weight of 2%
@@ -492,7 +492,7 @@ void activeExpireCycle(int type) {
                         db->avg_ttl = avg_ttl + (db->avg_ttl - avg_ttl) * avg_ttl_factor[update_avg_ttl_times - 1] ;
                     }
                     update_avg_ttl_times = 0;
-                    data.ttl_sum = 0;
+                    data.avg_ttl = 0;
                     data.ttl_samples = 0;
                 }
                 if ((iteration & 0xf) == 0) { /* check time limit every 16 iterations. */
