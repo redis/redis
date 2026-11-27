@@ -4759,6 +4759,9 @@ void preprocessCommand(client *c, pendingCommand *pcmd) {
  * other operations can be performed by the caller. Otherwise
  * if C_ERR is returned the client was destroyed (i.e. after QUIT). */
 int processCommand(client *c) {
+    /* evictClients() relies on this flag to skip clients still executing further
+     * up the stack. Commands must enter through processCommandAndResetClient(). */
+    debugServerAssert(c->flags & CLIENT_PROCESSING_COMMAND);
     if (!scriptIsTimedout()) {
         /* Both EXEC and scripts call call() directly so there should be
          * no way in_exec or scriptIsRunning() is 1.

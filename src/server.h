@@ -494,6 +494,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                              provenance stamp (see pubsubStampCurrentUser). Fast-path
                                              hint: while unset, every subscription is owned by
                                              c->user, so ACL scans can skip the client in O(1). */
+#define CLIENT_PROCESSING_COMMAND (1ULL<<56) /* The client is inside processCommandAndResetClient(). */
 
 /* Any flag that does not let optimize FLUSH SYNC to run it in bg as blocking client ASYNC */
 #define CLIENT_AVOID_BLOCKING_ASYNC_FLUSH (CLIENT_DENY_BLOCKING|CLIENT_MULTI|CLIENT_LUA_DEBUG|CLIENT_LUA_DEBUG_SYNC|CLIENT_MODULE)

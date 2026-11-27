@@ -3709,14 +3709,24 @@ int processCommandAndResetClient(client *c) {
     int deadclient = 0;
     client *old_client = server.current_client;
     server.current_client = c;
+    /* A command may serve blocked clients whose re-execution can evict clients.
+     * Protect this client while it is still in use further up the call stack. */
+    serverAssert(!(c->flags & CLIENT_PROCESSING_COMMAND));
+    c->flags |= CLIENT_PROCESSING_COMMAND;
     if (processCommand(c) == C_OK) {
         commandProcessed(c);
         /* Update the client's memory to include output buffer growth following the
          * processed command. */
         if (c->conn) updateClientMemUsageAndBucket(c);
+        c->flags &= ~CLIENT_PROCESSING_COMMAND;
     }
 
-    if (server.current_client == NULL) deadclient = 1;
+    if (server.current_client == NULL) {
+        deadclient = 1;
+    } else {
+        /* C_ERR can also mean the client was only scheduled for asynchronous close. */
+        c->flags &= ~CLIENT_PROCESSING_COMMAND;
+    }
     /*
      * Restore the old client, this is needed because when a script
      * times out, we will get into this code from processEventsWhileBlocked.
@@ -5957,11 +5967,21 @@ void evictClients(void) {
     size_t client_eviction_limit = getClientEvictionLimit();
     if (client_eviction_limit == 0)
         return;
-    while (subtractClientsWatchPubsubOvercount(server.stat_clients_type_memory[CLIENT_TYPE_NORMAL] +
-                                               server.stat_clients_type_memory[CLIENT_TYPE_PUBSUB]) >= client_eviction_limit) {
+    size_t pending_freed = 0;
+    while (1) {
+        size_t total_memory = subtractClientsWatchPubsubOvercount(server.stat_clients_type_memory[CLIENT_TYPE_NORMAL] +
+                                                                  server.stat_clients_type_memory[CLIENT_TYPE_PUBSUB]);
+        if (total_memory <= pending_freed || total_memory - pending_freed < client_eviction_limit)
+            break;
         listNode *ln = listNext(&bucket_iter);
         if (ln) {
             client *c = ln->value;
+            if ((c->flags & CLIENT_PROCESSING_COMMAND) && c != server.current_client) {
+                /* This client is still in use by an outer command. Account for its memory
+                 * as pending so another client is not evicted in its place. */
+                pending_freed += c->last_memory_usage;
+                continue;
+            }
             size_t last_memory = c->last_memory_usage;
             int tid = c->running_tid;
             if (tid != IOTHREAD_MAIN_THREAD_ID) {

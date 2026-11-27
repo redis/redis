@@ -875,6 +875,88 @@ start_server {} {
         $watcher close
         $big close
     }
+
+    test {eviction during ready-key re-execution does not free the executing client} {
+        r flushdb
+        r client no-evict on
+        r config set maxmemory-clients 100mb
+        r config set client-output-buffer-limit "normal 0 0 0"
+        # Disable copy avoidance so unread replies stay in client output buffers.
+        r debug reply-copy-avoidance 0
+
+        r setrange fat 300000 x
+        set count 20000
+        # Load from a short-lived client so its memory is not included in the limit.
+        set loader [redis_client]
+        $loader rpush src {*}[lrepeat [expr {$count * 2}] [string repeat e 100]]
+        $loader close
+        wait_for_condition 50 100 {
+            [s connected_clients] == 1
+        } else {
+            fail "loader client did not disconnect"
+        }
+
+        # Both clients block on the same key. The second re-execution runs eviction.
+        set rdA [redis_deferring_client]
+        set rdB [redis_deferring_client]
+        foreach {name rd} [list waiter_a $rdA waiter_b $rdB] {
+            $rd client setname $name
+            $rd flush
+            assert_equal OK [$rd read]
+            $rd blmpop 0 1 mylist left count $count
+            $rd flush
+        }
+        wait_for_blocked_clients_count 2
+
+        # Accumulate unread replies on the client whose RENAME will wake both waiters.
+        set rdX [redis_deferring_client]
+        $rdX client setname executing
+        $rdX flush
+        assert_equal OK [$rdX read]
+        set gets 0
+        while {[client_field executing tot-mem] < [mb 3]} {
+            $rdX get fat
+            $rdX flush
+            incr gets
+            wait_for_condition 100 10 {
+                [client_field executing tot-cmds] >= $gets + 1
+            } else {
+                fail "executing client did not run its GET"
+            }
+        }
+
+        # The RENAME itself passes the limit check, then the first waiter adds enough
+        # reply memory to make the second waiter's re-execution invoke eviction.
+        set total [s mem_clients_normal]
+        r config set maxmemory-clients [expr {$total + [mb 1]}]
+        set evicted [s evicted_clients]
+        $rdX rename src mylist
+        $rdX flush
+
+        wait_for_condition 100 10 {
+            [s evicted_clients] > $evicted
+        } else {
+            fail "no client was evicted"
+        }
+        assert_equal PONG [r ping]
+        assert_equal 0 [r exists src]
+        foreach rd [list $rdA $rdB] {
+            set reply [$rd read]
+            assert_equal mylist [lindex $reply 0]
+            assert_equal $count [llength [lindex $reply 1]]
+        }
+        wait_for_condition 100 10 {
+            ![client_exists executing]
+        } else {
+            fail "executing client was not evicted after its command"
+        }
+
+        catch {$rdA close}
+        catch {$rdB close}
+        catch {$rdX close}
+        r debug reply-copy-avoidance 1
+        r config set maxmemory-clients 0
+    } {} {needs:debug}
 }
 
 } ;# tags
