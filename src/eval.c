@@ -800,7 +800,6 @@ int ldbIsEnabled(void){
 void ldbEnable(client *c) {
     c->flags |= CLIENT_LUA_DEBUG;
     ldbFlushLog(ldb.logs);
-    ldb.conn = c->conn;
     ldb.step = 1;
     ldb.bpcount = 0;
     ldb.luabp = 0;
@@ -876,11 +875,14 @@ void ldbSendLogs(void) {
  * The caller should call ldbEndSession() only if ldbStartSession()
  * returned 1. */
 int ldbStartSession(client *c) {
+    /* Use the EVAL client's connection for debugger I/O. */
+    ldb.conn = c->conn;
     ldb.forked = (c->flags & CLIENT_LUA_DEBUG_SYNC) == 0;
     if (ldb.forked) {
         pid_t cp = redisFork(CHILD_TYPE_LDB);
         if (cp == -1) {
             addReplyErrorFormat(c,"Fork() failed: can't run EVAL in debugging mode: %s", strerror(errno));
+            ldb.conn = NULL;
             return 0;
         } else if (cp == 0) {
             /* Child. Let's ignore important signals handled by the parent. */
@@ -899,6 +901,7 @@ int ldbStartSession(client *c) {
             /* Parent */
             listAddNodeTail(ldb.children,(void*)(unsigned long)cp);
             freeClientAsync(c); /* Close the client in the parent side. */
+            ldb.conn = NULL;
             return 0;
         }
     } else {
@@ -936,6 +939,7 @@ void ldbEndSession(client *c) {
     /* If it's a fork()ed session, we just exit. */
     if (ldb.forked) {
         writeToClient(c,0);
+        ldb.conn = NULL;
         serverLog(LL_NOTICE,"Lua debugging session child exiting");
         exitFromChild(0, 0);
     } else {
@@ -946,6 +950,7 @@ void ldbEndSession(client *c) {
     /* Otherwise let's restore client's state. */
     connNonBlock(ldb.conn);
     connSendTimeout(ldb.conn,0);
+    ldb.conn = NULL;
 
     /* Close the client connection after sending the final EVAL reply
      * in order to signal the end of the debugging session. */
