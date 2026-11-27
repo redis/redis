@@ -4361,6 +4361,13 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbver, int *e
                     decrRefCount(o);
                     return NULL;
                 }
+                /* The server never sets a negative delivery time. */
+                if (nack->delivery_time < 0) {
+                    rdbReportCorruptRDB("Stream PEL entry with a negative delivery time");
+                    streamFreeNACK(s, nack);
+                    decrRefCount(o);
+                    return NULL;
+                }
                 if (!raxTryInsert(cgroup->pel,rawid,sizeof(rawid),nack,NULL)) {
                     rdbReportCorruptRDB("Duplicated global PEL entry "
                                             "loading stream consumer group");
@@ -4404,11 +4411,22 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbver, int *e
                     decrRefCount(o);
                     return NULL;
                 }
+                if (consumer->seen_time < 0) {
+                    rdbReportCorruptRDB("Stream consumer with a negative seen time");
+                    decrRefCount(o);
+                    return NULL;
+                }
 
                 if (rdbtype >= RDB_TYPE_STREAM_LISTPACKS_3) {
                     consumer->active_time = rdbLoadMillisecondTime(rdb,RDB_VERSION);
                     if (rioGetReadError(rdb)) {
                         rdbReportReadError("Stream short read reading active time.");
+                        decrRefCount(o);
+                        return NULL;
+                    }
+                    /* -1 means the consumer was never active. */
+                    if (consumer->active_time < -1) {
+                        rdbReportCorruptRDB("Stream consumer with an invalid active time");
                         decrRefCount(o);
                         return NULL;
                     }

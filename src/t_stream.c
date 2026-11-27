@@ -2234,6 +2234,18 @@ static inline int streamReplyMaxsizeReached(client *c, long long maxsize, size_t
     return maxsize && emitted > 0 && c->net_output_bytes_curr_cmd >= (size_t)maxsize;
 }
 
+/* Return the milliseconds elapsed from 't' to 'now', or 0 if 't' is not in
+ * the past. 't' is later than 'now' after the wall clock goes back. The RDB
+ * loader rejects negative times, but the difference is still saturated at
+ * LLONG_MAX, so it can never overflow. */
+static inline mstime_t streamElapsedTime(mstime_t now, mstime_t t) {
+    mstime_t elapsed;
+    if (t >= now) return 0;
+    /* t < now, so the subtraction can only overflow upwards. */
+    if (sub_overflow_ll(now, t, &elapsed)) return LLONG_MAX;
+    return elapsed;
+}
+
 /* Send the stream items in the specified range to the client 'c'. The range
  * the client will receive is between start and end inclusive, if 'count' is
  * non zero, no more than 'count' elements are sent.
@@ -2360,7 +2372,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamReplyRangeArgs *args) {
             /* Capture next pointer BEFORE modifications (pelListUpdate may reorder) */
             streamNACK *next = nack->pel_next;
             
-            uint64_t idle = cmd_time_snapshot - nack->delivery_time;
+            uint64_t idle = streamElapsedTime(cmd_time_snapshot, nack->delivery_time);
             if (idle < (uint64_t)min_idle_time) break;
 
             if (streamReplyMaxsizeReached(c, maxsize, emitted_before + arraylen))
@@ -3319,7 +3331,7 @@ void xreadCommand(client *c) {
                         min_pel_delivery_time = nack->delivery_time;
                     }
 
-                    uint64_t idle = commandTimeSnapshot() - nack->delivery_time;
+                    uint64_t idle = streamElapsedTime(commandTimeSnapshot(), nack->delivery_time);
                     if (idle >= (uint64_t)min_idle_time) {
                         serve_claimed = 1;
                     }
@@ -4762,7 +4774,7 @@ void xpendingCommand(client *c) {
             streamNACK *nack = ri.data;
 
             if (nack->consumer && minidle) {
-                mstime_t this_idle = now - nack->delivery_time;
+                mstime_t this_idle = streamElapsedTime(now, nack->delivery_time);
                 if (this_idle < minidle) continue;
             }
 
@@ -4786,8 +4798,7 @@ void xpendingCommand(client *c) {
             /* Milliseconds elapsed since last delivery (-1 if unowned / NACKed). */
             mstime_t elapsed;
             if (nack->consumer) {
-                elapsed = now - nack->delivery_time;
-                if (elapsed < 0) elapsed = 0;
+                elapsed = streamElapsedTime(now, nack->delivery_time);
             } else {
                 elapsed = -1;
             }
@@ -4927,7 +4938,7 @@ void xclaimCommand(client *c) {
             if (getLongLongFromObjectOrReply(c,c->argv[j],&deliverytime,
                 "Invalid IDLE option argument for XCLAIM")
                 != C_OK) goto cleanup;
-            deliverytime = now - deliverytime;
+            deliverytime = deliverytime < 0 ? now : now - deliverytime;
         } else if (!strcasecmp(opt,"TIME") && moreargs) {
             j++;
             if (getLongLongFromObjectOrReply(c,c->argv[j],&deliverytime,
@@ -5038,7 +5049,7 @@ void xclaimCommand(client *c) {
              * case there was no pre-existing entry and minidle should
              * be ignored, but in that case nack->consumer is NULL. */
             if (nack->consumer && minidle) {
-                mstime_t this_idle = now - nack->delivery_time;
+                mstime_t this_idle = streamElapsedTime(now, nack->delivery_time);
                 if (this_idle < minidle) continue;
             }
 
@@ -5321,7 +5332,7 @@ void xautoclaimCommand(client *c) {
         }
 
         if (nack->consumer && minidle) {
-            mstime_t this_idle = now - nack->delivery_time;
+            mstime_t this_idle = streamElapsedTime(now, nack->delivery_time);
             if (this_idle < minidle)
                 continue;
         }
@@ -5963,9 +5974,8 @@ NULL
         mstime_t now = commandTimeSnapshot();
         while(raxNext(&ri)) {
             streamConsumer *consumer = ri.data;
-            mstime_t inactive = consumer->active_time != -1 ? now - consumer->active_time : consumer->active_time;
-            mstime_t idle = now - consumer->seen_time;
-            if (idle < 0) idle = 0;
+            mstime_t inactive = consumer->active_time != -1 ? streamElapsedTime(now, consumer->active_time) : -1;
+            mstime_t idle = streamElapsedTime(now, consumer->seen_time);
 
             addReplyMapLen(c,4);
             addReplyBulkCString(c,"name");
