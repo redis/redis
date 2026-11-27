@@ -1306,6 +1306,10 @@ unsigned char *zzlInsert(unsigned char *zl, sds ele, double score) {
     unsigned char *eptr = lpSeek(zl,0), *sptr;
     double s;
 
+    /* Fast path: a score greater than the last one goes to the tail, no need
+     * to scan. Equal scores take the scan to keep lexicographical ordering. */
+    if (eptr != NULL && zzlGetScore(lpLast(zl)) < score) eptr = NULL;
+
     while (eptr != NULL) {
         sptr = lpNext(zl,eptr);
         serverAssert(sptr != NULL);
