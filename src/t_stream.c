@@ -1869,6 +1869,19 @@ static inline void streamPropagateXCLAIMCopyFree(int dbid, robj *key, robj *grou
     alsoPropagate(dbid,argv,14,PROPAGATE_AOF|PROPAGATE_REPL);
 }
 
+/* Propagate an XACK command to AOF and replicas. Used when XCLAIM or
+ * XAUTOCLAIM drop a PEL entry that has no consumer, since in that case there
+ * is no consumer name to build the XCLAIM of streamPropagateXCLAIM() with. */
+static void streamPropagateXACK(client *c, robj *key, robj *groupname, robj *id) {
+    robj *argv[4];
+    argv[0] = shared.xack;
+    argv[1] = key;
+    argv[2] = groupname;
+    argv[3] = id;
+
+    alsoPropagate(c->db->id,argv,4,PROPAGATE_AOF|PROPAGATE_REPL);
+}
+
 /* As a result of an explicit XCLAIM or XREADGROUP command, new entries
  * are created in the pending list of the stream and consumers. We need
  * to propagate this changes in the form of XCLAIM commands. */
@@ -2065,7 +2078,8 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                 if (nack->consumer != consumer) {
                     unsigned char buf[sizeof(streamID)];
                     streamEncodeID(buf, &nack->id);
-                    raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
+                    if (nack->consumer)
+                        raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
                     nack->consumer = consumer;
                     raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
                 }
@@ -2207,7 +2221,8 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                 nack = result;
                 /* Only transfer between consumers if they're different */
                 if (nack->consumer != consumer) {
-                    raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
+                    if (nack->consumer)
+                        raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
                     nack->consumer = consumer;
                     raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
                 }
@@ -3139,7 +3154,8 @@ void streamCleanupEntryCGroupRefs(stream *s, streamID *id) {
         /* Remove from group and consumer PELs */
         pelListUnlink(group, nack);
         raxRemove(group->pel, buf, sizeof(buf), NULL);
-        raxRemove(nack->consumer->pel, buf, sizeof(buf), NULL);
+        if (nack->consumer)
+            raxRemove(nack->consumer->pel, buf, sizeof(buf), NULL);
         /* Since we're removing all references from the cgroups_ref, we can directly
          * free the NACK without unlinking it from the cgroups_ref. */
         streamFreeNACK(s, nack);
@@ -3775,7 +3791,8 @@ void xackCommand(client *c) {
             streamNACK *nack = result;
             pelListUnlink(group, nack);
             raxRemove(group->pel,buf,sizeof(buf),NULL);
-            raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
+            if (nack->consumer)
+                raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
             streamDestroyNACK(kv->ptr, nack, buf);
             acknowledged++;
             server.dirty++;
@@ -3851,7 +3868,8 @@ void xackdelCommand(client *c) {
             streamNACK *nack = result;
             pelListUnlink(group, nack);
             raxRemove(group->pel,buf,sizeof(buf),NULL);
-            raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
+            if (nack->consumer)
+                raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
             streamDestroyNACK(s, nack, buf);
             server.dirty++;
 
@@ -4061,7 +4079,9 @@ void xpendingCommand(client *c) {
         while(count && raxNext(&ri) && memcmp(ri.key,endkey,ri.key_len) <= 0) {
             streamNACK *nack = ri.data;
 
-            if (minidle) {
+            /* An entry without a consumer has no meaningful idle time: it is
+             * not filtered by IDLE and its idle time is reported as -1. */
+            if (nack->consumer && minidle) {
                 mstime_t this_idle = now - nack->delivery_time;
                 if (this_idle < minidle) continue;
             }
@@ -4075,13 +4095,21 @@ void xpendingCommand(client *c) {
             streamDecodeID(ri.key,&id);
             addReplyStreamID(c,&id);
 
-            /* Consumer name. */
-            addReplyBulkCBuffer(c,nack->consumer->name,
-                                sdslen(nack->consumer->name));
+            /* Consumer name (empty string if the entry has no consumer). */
+            if (nack->consumer) {
+                addReplyBulkCBuffer(c,nack->consumer->name,
+                                    sdslen(nack->consumer->name));
+            } else {
+                addReplyBulkCBuffer(c,"",0);
+            }
 
-            /* Milliseconds elapsed since last delivery. */
-            mstime_t elapsed = now - nack->delivery_time;
-            if (elapsed < 0) elapsed = 0;
+            /* Milliseconds elapsed since last delivery (-1 if the entry has
+             * no consumer). */
+            mstime_t elapsed = -1;
+            if (nack->consumer) {
+                elapsed = now - nack->delivery_time;
+                if (elapsed < 0) elapsed = 0;
+            }
             addReplyLongLong(c,elapsed);
 
             /* Number of deliveries. */
@@ -4285,13 +4313,18 @@ void xclaimCommand(client *c) {
             /* Clear this entry from the PEL, it no longer exists */
             if (nack != NULL) {
                 /* Propagate this change (we are going to delete the NACK). */
-                streamPropagateXCLAIM(c,c->argv[1],group,c->argv[2],c->argv[j],nack);
-                propagate_last_id = 0; /* Will be propagated by XCLAIM itself. */
+                if (nack->consumer) {
+                    streamPropagateXCLAIM(c,c->argv[1],group,c->argv[2],c->argv[j],nack);
+                    propagate_last_id = 0; /* Will be propagated by XCLAIM itself. */
+                } else {
+                    streamPropagateXACK(c,c->argv[1],c->argv[2],c->argv[j]);
+                }
                 server.dirty++;
                 /* Release the NACK */
                 pelListUnlink(group, nack);
                 raxRemove(group->pel,buf,sizeof(buf),NULL);
-                raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
+                if (nack->consumer)
+                    raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
                 streamDestroyNACK(s, nack, buf);
             }
             continue;
@@ -4314,18 +4347,16 @@ void xclaimCommand(client *c) {
             /* We need to check if the minimum idle time requested
              * by the caller is satisfied by this entry.
              *
-             * Note that the nack could be created by FORCE, in this
-             * case there was no pre-existing entry and minidle should
-             * be ignored, but in that case nack->consumer is NULL. */
+             * minidle doesn't apply to an entry without a consumer:
+             * either we just created it because of FORCE, or it was
+             * pending with no consumer. */
             if (nack->consumer && minidle) {
                 mstime_t this_idle = now - nack->delivery_time;
                 if (this_idle < minidle) continue;
             }
 
             if (nack->consumer != consumer) {
-                /* Remove the entry from the old consumer.
-                 * Note that nack->consumer is NULL if we created the
-                 * NACK above because of the FORCE option. */
+                /* Remove the entry from the old consumer, if it has one. */
                 if (nack->consumer) {
                     raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
                 }
@@ -4485,13 +4516,17 @@ void xautoclaimCommand(client *c) {
         if (!streamEntryExists(s,&id)) {
             /* Propagate this change (we are going to delete the NACK). */
             robj *idstr = createObjectFromStreamID(&id);
-            streamPropagateXCLAIM(c,c->argv[1],group,c->argv[2],idstr,nack);
+            if (nack->consumer)
+                streamPropagateXCLAIM(c,c->argv[1],group,c->argv[2],idstr,nack);
+            else
+                streamPropagateXACK(c,c->argv[1],c->argv[2],idstr);
             decrRefCount(idstr);
             server.dirty++;
             /* Clear this entry from the PEL, it no longer exists */
             pelListUnlink(group, nack);
             raxRemove(group->pel,ri.key,ri.key_len,NULL);
-            raxRemove(nack->consumer->pel,ri.key,ri.key_len,NULL);
+            if (nack->consumer)
+                raxRemove(nack->consumer->pel,ri.key,ri.key_len,NULL);
             streamDestroyNACK(s, nack, ri.key);
             /* Remember the ID for later */
             deleted_ids[deleted_id_num++] = id;
@@ -4500,16 +4535,16 @@ void xautoclaimCommand(client *c) {
             continue;
         }
 
-        if (minidle) {
+        /* An entry without a consumer has no meaningful idle time, so it is
+         * claimed regardless of minidle. */
+        if (nack->consumer && minidle) {
             mstime_t this_idle = now - nack->delivery_time;
             if (this_idle < minidle)
                 continue;
         }
 
         if (nack->consumer != consumer) {
-            /* Remove the entry from the old consumer.
-             * Note that nack->consumer is NULL if we created the
-             * NACK above because of the FORCE option. */
+            /* Remove the entry from the old consumer, if it has one. */
             if (nack->consumer) {
                 raxRemove(nack->consumer->pel,ri.key,ri.key_len,NULL);
             }
@@ -4966,10 +5001,13 @@ void xinfoReplyWithStreamInfo(client *c, robj *key, kvobj *kv) {
                     streamDecodeID(ri_cg_pel.key,&id);
                     addReplyStreamID(c,&id);
 
-                    /* Consumer name. */
-                    serverAssert(nack->consumer); /* assertion for valgrind (avoid NPD) */
-                    addReplyBulkCBuffer(c,nack->consumer->name,
-                                        sdslen(nack->consumer->name));
+                    /* Consumer name (empty string if the entry has no consumer). */
+                    if (nack->consumer) {
+                        addReplyBulkCBuffer(c,nack->consumer->name,
+                                            sdslen(nack->consumer->name));
+                    } else {
+                        addReplyBulkCBuffer(c,"",0);
+                    }
 
                     /* Last delivery. */
                     addReplyLongLong(c,nack->delivery_time);
