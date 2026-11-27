@@ -77,7 +77,7 @@ static inline uint64_t interleave64(uint32_t xlo, uint32_t ylo) {
 }
 
 /* reverse the interleave process
- * derived from http://stackoverflow.com/questions/4909263
+ * derived from https://stackoverflow.com/questions/4909263
  */
 static inline uint64_t deinterleave64(uint64_t interleaved) {
     static const uint64_t B[] = {0x5555555555555555ULL, 0x3333333333333333ULL,
