@@ -37,7 +37,7 @@
 
 void streamFreeCGGeneric(void *cg, void *s);
 void streamFreeNACK(stream *s, streamNACK *na);
-size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start, streamID *end, size_t count, streamCG *group, streamConsumer *consumer, long long maxsize, size_t emitted_before);
+size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start, streamID *end, size_t count, streamCG *group, streamConsumer *consumer, long long maxsize, size_t emitted_before, streamPropInfo *spi, unsigned long *propCount);
 int streamParseStrictIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq, int *seq_given);
 int streamParseIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq);
 
@@ -2438,7 +2438,8 @@ size_t streamReplyWithRange(client *c, stream *s, streamReplyRangeArgs *args) {
         }
         return streamReplyWithRangeFromConsumerPEL(c,s,start,end,count,
                                                    group, consumer,
-                                                   maxsize, emitted_before);
+                                                   maxsize, emitted_before,
+                                                   spi, propCount);
     }
 
     /* Stop here if client only wants claimed entries or count is satisfied. */
@@ -2600,13 +2601,26 @@ size_t streamReplyWithRange(client *c, stream *s, streamReplyRangeArgs *args) {
  * This function is more expensive because it needs to inspect the PEL and then
  * seek into the radix tree of the messages in order to emit the full message
  * to the client. However clients only reach this code path when they are
- * fetching the history of already retrieved messages, which is rare. */
-size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start, streamID *end, size_t count, streamCG *group, streamConsumer *consumer, long long maxsize, size_t emitted_before) {
+ * fetching the history of already retrieved messages, which is rare.
+ *
+ * Every entry served whose message still exists gets a new delivery count and
+ * time, which are propagated as XCLAIM when 'spi' is set, counting them in
+ * 'propCount'. */
+size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start, streamID *end, size_t count, streamCG *group, streamConsumer *consumer, long long maxsize, size_t emitted_before, streamPropInfo *spi, unsigned long *propCount) {
     raxIterator ri;
     unsigned char startkey[sizeof(streamID)];
     unsigned char endkey[sizeof(streamID)];
     streamEncodeID(startkey,start);
     if (end) streamEncodeID(endkey,end);
+
+    /* All the entries served get the same consumer, delivery time and
+     * group last ID, so create them once for the XCLAIMs. */
+    robj *consumername = NULL, *delivery_time = NULL, *group_last_id = NULL;
+    if (spi) {
+        consumername = createStringObject(consumer->name,sdslen(consumer->name));
+        delivery_time = createStringObjectFromLongLong(commandTimeSnapshot());
+        group_last_id = createObjectFromStreamID(&group->last_id);
+    }
 
     size_t arraylen = 0;
     void *arraylen_ptr = addReplyDeferredLen(c);
@@ -2635,8 +2649,23 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
             streamNACK *nack = ri.data;
             nack->delivery_count += nack->delivery_count == LLONG_MAX ? 0 : 1;
             pelListUpdate(group, nack, commandTimeSnapshot());
+
+            /* Propagate as XCLAIM. */
+            if (spi) {
+                robj *idarg = createObjectFromStreamID(&thisid);
+                robj *delivery_count = createStringObjectFromLongLong(nack->delivery_count);
+                streamPropagateXCLAIMCopyFree(c->db->id,spi->keyname,group_last_id,spi->groupname,idarg,consumername,delivery_time,delivery_count);
+                decrRefCount(delivery_count);
+                decrRefCount(idarg);
+                if (propCount) (*propCount)++;
+            }
         }
         arraylen++;
+    }
+    if (spi) {
+        decrRefCount(consumername);
+        decrRefCount(delivery_time);
+        decrRefCount(group_last_id);
     }
     raxStop(&ri);
     setDeferredArrayLen(c,arraylen_ptr,arraylen);

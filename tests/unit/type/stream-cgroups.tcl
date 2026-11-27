@@ -1308,12 +1308,9 @@ start_server {
         assert {$dirty2 == $dirty + 1}
     }
 
-    test {XREADGROUP from PEL does not change dirty} {
-        # Techinally speaking, XREADGROUP from PEL should cause propagation
-        # because it change the delivery count/time
-        # It was decided that this metadata changes are too insiginificant
-        # to justify propagation
-        # This test covers that.
+    test {XREADGROUP from PEL changes dirty only when it serves entries} {
+        # XREADGROUP from PEL changes the delivery count/time and propagates
+        # them as XCLAIM, so it changes dirty like a read of new entries.
         r DEL x
         r XADD x 1-0 data a
         r XADD x 2-0 data b
@@ -1329,8 +1326,9 @@ start_server {
         set res [r XREADGROUP GROUP g1 Alice COUNT 2 STREAMS x 0]
         assert_equal $res {{x {{1-0 {data a}} {2-0 {data b}}}}}
         set dirty2 [s rdb_changes_since_last_save]
-        assert {$dirty2 == $dirty}
+        assert {$dirty2 == $dirty + 1}
 
+        # Nothing is served, so nothing changes.
         set dirty [s rdb_changes_since_last_save]
         set res [r XREADGROUP GROUP g1 Alice COUNT 2 STREAMS x 9000]
         assert_equal $res {{x {}}}
@@ -1346,6 +1344,12 @@ start_server {
         assert_equal $res {{x {}}}
         set dirty2 [s rdb_changes_since_last_save]
         assert {$dirty2 == $dirty + 1}
+    }
+
+    # The PEL of the first group of 'key', as XINFO STREAM FULL reports it:
+    # one {id consumer delivery-time delivery-count} list per entry.
+    proc stream_group_pending {client key} {
+        dict get [lindex [dict get [$client XINFO STREAM $key FULL] groups] 0] pending
     }
 
     start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-preamble no appendfsync always}} {
@@ -1416,6 +1420,28 @@ start_server {
             assert_equal $grpinfo [r xinfo groups mystream]
             set names [lmap c [r xinfo consumers mystream mygroup] {dict get $c name}]
             assert_equal {Alice Bob Charlie Dave Eve} [lsort $names]
+        }
+
+        test {XREADGROUP from PEL keeps the delivery count and time in AOF} {
+            r del mystream
+            r XADD mystream 1-0 f v
+            r XADD mystream 2-0 f v
+            r XGROUP CREATE mystream mygroup 0
+            r XREADGROUP GROUP mygroup Alice STREAMS mystream ">"
+            set first_delivery [lindex [stream_group_pending r mystream] 0 2]
+
+            # Read the history twice, in a later millisecond than the first
+            # delivery, so that both the count and the time change.
+            after 2
+            r XREADGROUP GROUP mygroup Alice STREAMS mystream 0
+            r XREADGROUP GROUP mygroup Alice STREAMS mystream 0
+            set pending [stream_group_pending r mystream]
+            assert_equal [lindex $pending 0 3] 3 ;# delivery count of 1-0
+            assert_equal [lindex $pending 1 3] 3 ;# delivery count of 2-0
+            assert {[lindex $pending 0 2] > $first_delivery} ;# delivery time
+
+            r debug loadaof
+            assert_equal [stream_group_pending r mystream] $pending
         }
     }
 
@@ -2098,6 +2124,43 @@ start_server {
                 if {[lsearch $replica_names "c3"] < 0} {
                     fail "Consumer 'c3' not found on replica (have: $replica_names)"
                 }
+            }
+        }
+    }
+
+    start_server {tags {"repl external:skip" "stream"}} {
+        # Same as "XREADGROUP from PEL keeps the delivery count and time in
+        # AOF", as seen from a replica.
+        test "XREADGROUP from PEL propagates the delivery count and time to replica" {
+            set master [srv 0 client]
+            set master_host [srv 0 host]
+            set master_port [srv 0 port]
+
+            start_server {tags {"stream"}} {
+                set replica [srv 0 client]
+
+                $replica replicaof $master_host $master_port
+                wait_for_sync $replica
+
+                $master DEL mystream
+                $master XADD mystream 1-0 f v
+                $master XADD mystream 2-0 f v
+                $master XGROUP CREATE mystream mygroup 0
+                $master XREADGROUP GROUP mygroup Alice STREAMS mystream >
+                set first_delivery [lindex [stream_group_pending $master mystream] 0 2]
+
+                # Read the history twice, in a later millisecond than the
+                # first delivery, so that both the count and the time change.
+                after 2
+                $master XREADGROUP GROUP mygroup Alice STREAMS mystream 0
+                $master XREADGROUP GROUP mygroup Alice STREAMS mystream 0
+                set pending [stream_group_pending $master mystream]
+                assert_equal [lindex $pending 0 3] 3 ;# delivery count of 1-0
+                assert_equal [lindex $pending 1 3] 3 ;# delivery count of 2-0
+                assert {[lindex $pending 0 2] > $first_delivery} ;# delivery time
+
+                wait_for_ofs_sync $master $replica
+                assert_equal [stream_group_pending $replica mystream] $pending
             }
         }
     }
