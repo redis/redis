@@ -33,6 +33,95 @@ proc get_replica_client_id {master rdbchannel} {
     error "Replica not found"
 }
 
+# Use resource limits to fail pipe creation or fork without replacing either syscall.
+if {[get_system_name] eq "linux" && [auto_execok prlimit] ne "" && !$::valgrind} {
+    foreach failure {pipe fork} {
+        # RLIMIT_NPROC does not restrict root.
+        if {$failure eq "fork" && [exec id -u] == 0} {continue}
+        foreach rdbchannel {yes no} {
+            test "Diskless replication setup failure preserves client sockets ($failure, rdbchannel $rdbchannel)" {
+                start_server {tags {"repl external:skip"} overrides {repl-diskless-sync yes repl-diskless-sync-delay 0 repl-rdb-channel yes}} {
+                    set master [srv 0 client]
+                    set master_host [srv 0 host]
+                    set master_port [srv 0 port]
+                    set master_pid [srv 0 pid]
+                    start_server {} {
+                        set replica [srv 0 client]
+                        set clients {}
+                        set status [catch {
+                            $master set key value
+                            set legacy [redis $master_host $master_port 0 $::tls]
+                            lappend clients $legacy
+                            $legacy replconf capa eof
+                            $legacy deferred 1
+
+                            set open_fds [glob -tails -directory /proc/$master_pid/fd *]
+                            set free_fds {}
+                            for {set fd 0} {[llength $free_fds] < 4} {incr fd} {
+                                if {[lsearch -exact $open_fds $fd] == -1} {lappend free_fds $fd}
+                            }
+                            set pipe_fds [list [lindex $free_fds 0]]
+                            if {$failure eq "pipe"} {
+                                # Allow the data pipe, but not the child-exit pipe.
+                                set resource nofile
+                                set limit [expr {[lindex $free_fds 1] + 1}]
+                            } else {
+                                set resource nproc
+                                set limit 0
+                                lappend pipe_fds [lindex $free_fds 3]
+                            }
+                            set old_limit [string trim [exec prlimit --pid $master_pid --$resource --output SOFT --noheadings]]
+                            exec prlimit --pid $master_pid --$resource=$limit:
+                            set failed [catch {
+                                $legacy psync ? -1
+                                wait_for_log_messages -1 {"*BGSAVE for replication failed*"} 0 100 10
+                                if {$failure eq "fork"} {assert_match {FULLRESYNC *} [$legacy read]}
+                                $legacy read
+                            } err]
+                            exec prlimit --pid $master_pid --$resource=$old_limit:
+                            $legacy close
+                            set clients {}
+                            assert_equal 1 $failed
+                            assert_match {ERR BGSAVE failed*} $err
+
+                            # Reuse the released pipe descriptors for ordinary clients.
+                            set reused {}
+                            for {set i 0} {$i <= [lindex $pipe_fds end]} {incr i} {
+                                set rd [redis $master_host $master_port 0 $::tls]
+                                lappend clients $rd
+                                assert_equal PONG [$rd ping]
+                                assert {[regexp { fd=(\d+) } [$rd client info] -> fd]}
+                                if {[lsearch -exact $pipe_fds $fd] != -1} {lappend reused $fd}
+                                if {$fd >= [lindex $pipe_fds end]} {break}
+                            }
+                            assert_equal $pipe_fds $reused
+
+                            $replica config set repl-rdb-channel $rdbchannel
+                            $replica replicaof $master_host $master_port
+                            wait_replica_online $master
+                            wait_for_condition 100 10 {
+                                [s -1 total_forks] == 1 && [s -1 rdb_bgsave_in_progress] == 0
+                            } else {
+                                fail "Replication child did not finish"
+                            }
+                            assert_equal value [$replica get key]
+                            foreach rd $clients {
+                                set failed [catch {$rd ping} reply]
+                                assert_equal {0 PONG} [list $failed $reply]
+                            }
+                            $master set key updated
+                            wait_for_ofs_sync $master $replica
+                            assert_equal updated [$replica get key]
+                        } result options]
+                        foreach rd $clients {catch {$rd close}}
+                        if {$status} {return -options $options $result}
+                    }
+                }
+            } {} {repl external:skip}
+        }
+    }
+}
+
 start_server {tags {"repl external:skip"}} {
     set replica1 [srv 0 client]
 
