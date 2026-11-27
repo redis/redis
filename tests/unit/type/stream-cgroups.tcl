@@ -1349,6 +1349,44 @@ start_server {
     }
 
     start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-preamble no appendfsync always}} {
+        foreach unowned {0 1} {
+            foreach mixed {0 1} {
+                test "XREADGROUP CLAIM cleanup survives AOF replay (unowned=$unowned, mixed=$mixed)" {
+                    r DEL mystream
+                    foreach id {1-0 2-0 3-0} {r XADD mystream $id f v}
+                    r XGROUP CREATE mystream mygroup 0
+                    r XREADGROUP GROUP mygroup Alice STREAMS mystream >
+                    if {$unowned} {r XNACK mystream mygroup SILENT IDS 3 1-0 2-0 3-0}
+                    if {$mixed} {
+                        # Exercise cleanup in both the precheck and the claim loop.
+                        r XDEL mystream 1-0 3-0
+                        set count 3
+                        set remaining {1}
+                    } else {
+                        # Cleanup-only reads must create Bob even when capped.
+                        r XDEL mystream 1-0 2-0 3-0
+                        set count 1
+                        set remaining {2 1 0}
+                    }
+                    foreach pending $remaining {
+                        r XREADGROUP GROUP mygroup Bob CLAIM 0 COUNT $count STREAMS mystream >
+                        set expected [r XPENDING mystream mygroup]
+                        assert_equal [lindex $expected 0] $pending
+                        if {$mixed} {assert_equal $expected {1 2-0 2-0 {{Bob 1}}}}
+                        r DEBUG LOADAOF
+                        assert_equal [r XPENDING mystream mygroup] $expected
+                        set names {}
+                        foreach consumer [r XINFO CONSUMERS mystream mygroup] {
+                            lappend names [dict get $consumer name]
+                            if {$pending == 0} {assert_equal [dict get $consumer pending] 0}
+                        }
+                        assert_equal [lsort $names] {Alice Bob}
+                        if {$mixed} {assert_equal [r XPENDING mystream mygroup - + 10 Alice] {}}
+                    }
+                }
+            }
+        }
+
         test {XREADGROUP with NOACK creates consumer} {
             r del mystream
             r XGROUP CREATE mystream mygroup $ MKSTREAM
@@ -1748,6 +1786,50 @@ start_server {
                     assert_equal [$master XCLAIM x grp Bob 0 1-0 2-0 3-0 4-0] {{1-0 {f v}} {3-0 {f v}}}
                     wait_for_ofs_sync $master $replica
                     assert_equal [llength [$replica XPENDING x grp - + 10 Alice]] 1
+                }
+            }
+        }
+
+        foreach unowned {0 1} {
+            foreach mixed {0 1} {
+                test "XREADGROUP CLAIM propagates cleanup (unowned=$unowned, mixed=$mixed)" {
+                    $replica replicaof $master_host $master_port
+                    wait_for_condition 50 100 {[s 0 master_link_status] eq {up}} else {
+                        fail "Replication not started."
+                    }
+                    $master DEL x
+                    foreach id {1-0 2-0 3-0} {$master XADD x $id f v}
+                    $master XGROUP CREATE x grp 0
+                    $master XREADGROUP GROUP grp Alice STREAMS x >
+                    if {$unowned} {$master XNACK x grp SILENT IDS 3 1-0 2-0 3-0}
+                    if {$mixed} {
+                        $master XDEL x 1-0 3-0
+                        set count 3
+                        set remaining {1}
+                    } else {
+                        $master XDEL x 1-0 2-0 3-0
+                        set count 1
+                        set remaining {2 1 0}
+                    }
+                    wait_for_ofs_sync $master $replica
+                    assert_equal [lindex [$replica XPENDING x grp] 0] 3
+                    foreach pending $remaining {
+                        $master XREADGROUP GROUP grp Bob CLAIM 0 COUNT $count STREAMS x >
+                        wait_for_ofs_sync $master $replica
+                        set expected [$master XPENDING x grp]
+                        assert_equal [lindex $expected 0] $pending
+                        if {$mixed} {assert_equal $expected {1 2-0 2-0 {{Bob 1}}}}
+                        foreach client [list $master $replica] {
+                            assert_equal [$client XPENDING x grp] $expected
+                            set names {}
+                            foreach consumer [$client XINFO CONSUMERS x grp] {
+                                lappend names [dict get $consumer name]
+                                if {$pending == 0} {assert_equal [dict get $consumer pending] 0}
+                            }
+                            assert_equal [lsort $names] {Alice Bob}
+                            if {$mixed} {assert_equal [$client XPENDING x grp - + 10 Alice] {}}
+                        }
+                    }
                 }
             }
         }
@@ -3374,6 +3456,96 @@ start_server {
             # Pending list still references trimmed messages but they don't exist. We can't return them.
             set claim_result [r XREADGROUP GROUP group1 consumer2 CLAIM 50 STREAMS mystream >]
             assert_equal [llength $claim_result] 0
+            assert_equal [r XPENDING mystream group1] {0 {} {} {}}
+            foreach consumer [r XINFO CONSUMERS mystream group1] {
+                assert_equal [dict get $consumer pending] 0
+            }
+        }
+
+        foreach unowned {0 1} {
+            foreach prefix {0 1 5} {
+                test "XREADGROUP CLAIM shares cleanup budget between PEL walks (prefix=$prefix, unowned=$unowned)" {
+                    r DEL mystream
+                    set deleted {}
+                    for {set i 1} {$i <= 8} {incr i} {
+                        r XADD mystream $i-0 f v
+                        if {$i != $prefix + 1 && $i != $prefix + 2} {
+                            lappend deleted $i-0
+                        }
+                    }
+                    r XGROUP CREATE mystream group1 0
+                    r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
+                    if {$unowned} {r XNACK mystream group1 SILENT IDS 8 1-0 2-0 3-0 4-0 5-0 6-0 7-0 8-0}
+                    r XDEL mystream {*}$deleted
+
+                    # Cleanup does not consume the delivery count or hide live entries
+                    # beyond the budget, including when BLOCK is requested.
+                    set result [r XREADGROUP GROUP group1 consumer2 CLAIM 0 COUNT 3 BLOCK 1 STREAMS mystream >]
+                    assert_equal [llength [lindex $result 0 1]] 2
+                    assert_equal [lindex $result 0 1 0 0] [expr {$prefix + 1}]-0
+                    assert_equal [lindex $result 0 1 1 0] [expr {$prefix + 2}]-0
+                    assert_equal [lindex [r XPENDING mystream group1] 0] 5
+
+                    # A subsequent read makes progress on the remaining tombstones.
+                    r XREADGROUP GROUP group1 consumer2 CLAIM 0 COUNT 3 STREAMS mystream >
+                    assert_equal [lindex [r XPENDING mystream group1] 0] 2
+                    assert_equal [r XPENDING mystream group1 - + 10 consumer1] {}
+                    # The time list must remain usable after removing the survivors.
+                    assert_equal [r XACK mystream group1 [expr {$prefix + 1}]-0 [expr {$prefix + 2}]-0] 2
+                    assert_equal [r XREADGROUP GROUP group1 consumer2 CLAIM 0 STREAMS mystream >] {}
+                }
+            }
+        }
+
+        foreach count_args {{} {COUNT 1000}} {
+            test "XREADGROUP CLAIM has a finite cleanup cap (options=$count_args)" {
+                r DEL mystream
+                for {set i 1} {$i <= 120} {incr i} {r XADD mystream $i-0 f v}
+                r XGROUP CREATE mystream group1 0
+                r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
+                r XTRIM mystream MAXLEN 0
+                assert_equal [r XREADGROUP GROUP group1 consumer2 CLAIM 0 {*}$count_args STREAMS mystream >] {}
+                assert_equal [lindex [r XPENDING mystream group1] 0] 20
+                r XREADGROUP GROUP group1 consumer2 CLAIM 0 {*}$count_args STREAMS mystream >
+                assert_equal [lindex [r XPENDING mystream group1] 0] 0
+            }
+        }
+
+        test "XREADGROUP CLAIM shares cleanup budget across streams" {
+            foreach key {cleanup{t}1 cleanup{t}2} {
+                r DEL $key
+                foreach id {1-0 2-0 3-0} {r XADD $key $id f v}
+                r XGROUP CREATE $key group1 0
+                r XREADGROUP GROUP group1 consumer1 STREAMS $key >
+                r XTRIM $key MAXLEN 0
+            }
+            r XREADGROUP GROUP group1 consumer2 CLAIM 0 COUNT 2 STREAMS cleanup{t}1 cleanup{t}2 > >
+            assert_equal [lindex [r XPENDING cleanup{t}1 group1] 0] 1
+            assert_equal [lindex [r XPENDING cleanup{t}2 group1] 0] 3
+            r DEL cleanup{t}1 cleanup{t}2
+        }
+
+        test "XREADGROUP CLAIM cleanup preserves history and blocking behavior" {
+            foreach entries {1 3} {
+                r DEL mystream
+                for {set i 1} {$i <= $entries} {incr i} {r XADD mystream $i-0 f v}
+                r XGROUP CREATE mystream group1 0
+                r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
+                r XTRIM mystream MAXLEN 0
+                # History reads must not clean dangling references.
+                r XREADGROUP GROUP group1 consumer1 CLAIM 0 STREAMS mystream 0
+                assert_equal [lindex [r XPENDING mystream group1] 0] $entries
+
+                set rd [redis_deferring_client]
+                $rd XREADGROUP GROUP group1 consumer2 CLAIM 60000 COUNT 1 BLOCK 0 STREAMS mystream >
+                wait_for_blocked_clients_count 1
+                assert_equal [lindex [r XPENDING mystream group1] 0] [expr {$entries - 1}]
+                if {$entries == 1} {assert_equal [r XPENDING mystream group1] {0 {} {} {}}}
+                # New data wakes the client whether cleanup emptied the PEL or not.
+                r XADD mystream 4-0 f v
+                assert_equal [lindex [$rd read] 0 1 0 0] 4-0
+                $rd close
+            }
         }
 
         test "XREADGROUP CLAIM state persists across RDB save/load" {
