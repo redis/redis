@@ -1362,6 +1362,22 @@ start_cluster 1 0 {tags {external:skip cluster needs:debug} overrides {cluster-s
         r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
     }
 
+    test "SLOT-ALLOCSIZE - ZINTERSTORE with repeated key updates alloc once" {
+        # A set input mid-rehash shrinks when ZINTERSTORE probes it. A repeated
+        # key must not apply that shrink twice to the per-slot counter.
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+        r FLUSHALL
+
+        r DEL "ss{t}" "zt{t}" "zdst{t}"
+        for {set i 0} {$i < 265} {incr i} { r SADD "ss{t}" "n-$i" }
+        assert_encoding hashtable "ss{t}"
+        for {set i 0} {$i < 250} {incr i} { r ZADD "zt{t}" 2 "n-$i" }
+
+        r ZINTERSTORE "zdst{t}" 3 "zt{t}" "ss{t}" "ss{t}"
+
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
+    }
+
     test "SLOT-ALLOCSIZE - SUNION/SDIFF family keep slot alloc tracking across rehash" {
         # Every command routed through sunionDiffGenericCommand() is exercised
         # against a source set that is mid-rehash. The DIFF commands dictFind()
