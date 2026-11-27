@@ -1565,6 +1565,22 @@ start_server {tags {"zset"}} {
             verify_zpop_response r $popmin z1 2 {a 0 b 1} {z1 {{a 0} {b 1}}}
             verify_zpop_response r $popmax z1 2 {d 3 c 2} {z1 {{d 3} {c 2}}}
         }
+
+        test "$popmin/$popmax with integer members and a count above the length - $encoding" {
+            # Members that look like integers are stored as integers in a
+            # listpack, and must be replied with their original spelling.
+            create_zset z1 {0 -5 1 007 2 10 3 9223372036854775807 4 -9223372036854775808 5 a}
+            assert_encoding $encoding z1
+            verify_zpop_response r $popmin z1 2 {-5 0 007 1} {z1 {{-5 0} {007 1}}}
+            verify_zpop_response r $popmax z1 2 {a 5 -9223372036854775808 4} {z1 {{a 5} {-9223372036854775808 4}}}
+            assert_equal {10 2 9223372036854775807 3} [r zrange z1 0 -1 withscores]
+            verify_zpop_response r $popmax z1 10 {9223372036854775807 3 10 2} {z1 {{9223372036854775807 3} {10 2}}}
+            assert_equal 0 [r exists z1]
+
+            create_zset z1 {0 1 1 2 2 3}
+            verify_zpop_response r $popmin z1 10 {1 0 2 1 3 2} {z1 {{1 0} {2 1} {3 2}}}
+            assert_equal 0 [r exists z1]
+        }
     }
 
     foreach {popmin popmax} {BZPOPMIN BZPOPMAX BZMPOP_MIN BZMPOP_MAX} {
@@ -3699,6 +3715,39 @@ start_server {tags {"zset"}} {
             }
         }
         r config set zset-max-ziplist-value $original_max_value
+    }
+
+    foreach type {listpack btree} {
+        test "ZRANDMEMBER with a count of at least the size and integer members - $type" {
+            # Members that look like integers are stored as integers in a
+            # listpack, and must be replied with their original spelling.
+            set contents {0 -5 1 007 2 10 3 9223372036854775807 4 -9223372036854775808 5 a}
+            if {$type eq "btree"} {lappend contents 6 [string repeat x 100]}
+            create_zset myzset $contents
+            assert_encoding $type myzset
+            set size [r zcard myzset]
+
+            set members [lsort [r zrange myzset 0 -1]]
+            set pairs {}
+            foreach {m s} [r zrange myzset 0 -1 withscores] {lappend pairs [list $m $s]}
+            foreach count [list $size 100] {
+                assert_equal $members [lsort [r zrandmember myzset $count]]
+                set got {}
+                foreach {m s} [r zrandmember myzset $count withscores] {lappend got [list $m $s]}
+                assert_equal [lsort $pairs] [lsort $got]
+            }
+
+            # Use a separate client, so a failed assertion cannot leave the
+            # shared client in RESP3.
+            set rr [redis_client]
+            $rr hello 3
+            set pairs [lsort [$rr zrange myzset 0 -1 withscores]]
+            foreach count [list $size 100] {
+                assert_equal $members [lsort [$rr zrandmember myzset $count]]
+                assert_equal $pairs [lsort [$rr zrandmember myzset $count withscores]]
+            }
+            $rr close
+        }
     }
 
     test "ZRANDMEMBER count > size/3 - btree" {
