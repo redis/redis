@@ -783,7 +783,7 @@ int anetSetSockMarkId(char *err, int fd, uint32_t id) {
     UNUSED(fd);
     UNUSED(id);
     anetSetError(err,"anetSetSockMarkid unsupported on this platform");
-    return ANET_OK;
+    return ANET_ERR;
 #endif
 }
 
