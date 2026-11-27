@@ -529,6 +529,7 @@ void getexCommand(client *c) {
         keyModified(c, c->db, c->argv[1], NULL, 1);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
         server.dirty++;
+        server.stat_expiredkeys++;
     } else if (args.expire) {
         o = setExpire(c,c->db,c->argv[1],milliseconds);
         /* Propagate as PXEXPIREAT millisecond-timestamp if there is
