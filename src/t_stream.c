@@ -2342,12 +2342,8 @@ size_t streamReplyWithRange(client *c, stream *s, streamReplyRangeArgs *args) {
     if (group && min_idle_time != -1) {
         arraylen_ptr = addReplyDeferredLen(c);
         /* Scan and process the group's pending entries list (PEL) in a single loop.
-         * Each claimed entry is unlinked from the time list and appended to a
-         * local chain, so the walk never visits it again. A claimed entry can't
-         * be reinserted right away: if the list ends with entries whose delivery
-         * time is in the future, it would be sorted in front of them, and the
-         * walk would reach it again. After the walk the chain is spliced back
-         * in time order.
+         * Claimed entries are moved to a local chain and put back after the
+         * loop (see below).
          *
          * The iteration can terminate early when:
          * 1. We find an entry that hasn't been idle long enough
@@ -2401,7 +2397,12 @@ size_t streamReplyWithRange(client *c, stream *s, streamReplyRangeArgs *args) {
                 }
                 nack->delivery_count += nack->delivery_count == LLONG_MAX ? 0 : 1;
 
-                /* Move the entry to the chain of claimed entries. */
+                /* Unlink the entry from the time list and append it to a local
+                 * chain of claimed entries, so the walk never visits it again.
+                 * It can't be reinserted right away: if the list ends with
+                 * entries whose delivery time is in the future, it would be
+                 * sorted in front of them, and the walk would reach it again.
+                 * The chain is spliced back in time order after the walk. */
                 pelListUnlink(group, nack);
                 nack->delivery_time = cmd_time_snapshot;
                 nack->pel_prev = claimed_tail;
