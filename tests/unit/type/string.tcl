@@ -975,6 +975,12 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         } {} {needs:debug}
     }
 
+    test {DEBUG SDSLEN of a key with an expire} {
+        r set sdslen_ttl_key abcdefghijklmnopqrstuvwxyz
+        r expire sdslen_ttl_key 1000
+        assert_match {key_sds_len:14, *} [r debug sdslen sdslen_ttl_key]
+    } {} {needs:debug}
+
     test {DIGEST basic usage with plain string} {
         r set mykey "hello world"
         set digest [r digest mykey]
@@ -1358,6 +1364,33 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         assert_equal 0 [r exists key2]
     }
 
+    test {SET and DELEX with IFEQ/IFNE compare an integer-encoded value as a string} {
+        r set mykey 41
+        assert_encoding int mykey
+        assert_equal {} [r set mykey 42 IFEQ 041]
+        assert_equal {} [r set mykey 42 IFEQ 41.0]
+        assert_equal {} [r set mykey 42 IFNE 41]
+        assert_equal 41 [r get mykey]
+        assert_equal OK [r set mykey 42 IFNE 041]
+        assert_equal OK [r set mykey 43 IFEQ 42]
+        assert_equal 43 [r get mykey]
+
+        # The smallest long, the longest integer-encoded value.
+        set lmin [expr {[s arch_bits] == 32 ? -2147483648 : -9223372036854775808}]
+        r set mykey $lmin
+        assert_encoding int mykey
+        assert_equal 0 [r delex mykey IFEQ -0[string range $lmin 1 end]]
+        assert_equal 0 [r delex mykey IFNE $lmin]
+        assert_equal 1 [r exists mykey]
+        assert_equal 1 [r delex mykey IFNE [string range $lmin 1 end]]
+        assert_equal 0 [r exists mykey]
+
+        r set mykey 12345
+        assert_encoding int mykey
+        assert_equal 1 [r delex mykey IFEQ 12345]
+        assert_equal 0 [r exists mykey]
+    }
+
     test {Extended SET with IFEQ - key exists and matches} {
         r set mykey "hello"
         assert_equal "OK" [r set mykey "world" IFEQ "hello"]
@@ -1710,6 +1743,27 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         r set foo "v8lf0c11xh8ymlqztfd3eeq16kfn4sspw7fqmnuuq3k3t75em5wdizgcdw7uc26nnf961u2jkfzkjytls2kwlj7626sd"
         # Verify it matches the expected value with leading zeros
         assert_equal "00006c38adf31777" [r digest foo]
+    }
+
+    test {DIGEST, IFDEQ and IFDNE match known XXH3 digests} {
+        # Strings and integer-encoded values. The digests of v:2976 and 3131
+        # start with zeros, so the padding is checked for both encodings.
+        foreach {value digest} {
+            "hello world" d447b1ea40e6988b
+            "" 2d06800538d394c2
+            11111 95c413b3c927c6f6
+            -999 9d5a3ec4ad3f47e8
+            9223372036854775807 8e412f1dd5b046a3
+            v:2976 000f75ad215994a7
+            3131 0e07e6b343a1ddbd
+        } {
+            r set mykey $value
+            assert_equal $digest [r digest mykey]
+            assert_equal OK [r set mykey $value IFDEQ $digest]
+            assert_equal {} [r set mykey $value IFDNE $digest]
+            assert_equal 0 [r delex mykey IFDNE $digest]
+            assert_equal 1 [r delex mykey IFDEQ [string toupper $digest]]
+        }
     }
 
     test {IFDEQ/IFDNE reject digest with incorrect format} {

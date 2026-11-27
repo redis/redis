@@ -180,7 +180,9 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
 
 void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
 {
-    if (fd >= eventLoop->setsize) return;
+    /* The events array is grown lazily by aeCreateFileEvent(), so a fd that
+     * was never registered can be within setsize but beyond the array. */
+    if (fd >= eventLoop->nevents) return;
     aeFileEvent *fe = &eventLoop->events[fd];
     if (fe->mask == AE_NONE) return;
 
@@ -201,7 +203,7 @@ void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
 }
 
 void *aeGetFileClientData(aeEventLoop *eventLoop, int fd) {
-    if (fd >= eventLoop->setsize) return NULL;
+    if (fd >= eventLoop->nevents) return NULL;
     aeFileEvent *fe = &eventLoop->events[fd];
     if (fe->mask == AE_NONE) return NULL;
 
@@ -209,7 +211,7 @@ void *aeGetFileClientData(aeEventLoop *eventLoop, int fd) {
 }
 
 int aeGetFileEvents(aeEventLoop *eventLoop, int fd) {
-    if (fd >= eventLoop->setsize) return 0;
+    if (fd >= eventLoop->nevents) return 0;
     aeFileEvent *fe = &eventLoop->events[fd];
 
     return fe->mask;
@@ -514,3 +516,34 @@ void aeSetBeforeSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *beforesleep
 void aeSetAfterSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *aftersleep) {
     eventLoop->aftersleep = aftersleep;
 }
+
+#ifdef REDIS_TEST
+#include "testhelp.h"
+
+#define UNUSED(V) ((void) V)
+#define TEST(name) printf("test - %s\n", name);
+
+int aeTest(int argc, char **argv, int flags) {
+    UNUSED(argc);
+    UNUSED(argv);
+    UNUSED(flags);
+
+    TEST("File event of a fd beyond the allocated events") {
+        /* The events array starts with INITIAL_EVENT entries and is grown
+         * only by aeCreateFileEvent(), so the first fd beyond it is a valid
+         * one that has no entry yet. */
+        aeEventLoop *el = aeCreateEventLoop(INITIAL_EVENT * 2);
+        int fd = el->nevents;
+        assert(fd == INITIAL_EVENT && fd < el->setsize);
+
+        assert(aeGetFileEvents(el, fd) == AE_NONE);
+        assert(aeGetFileClientData(el, fd) == NULL);
+        aeDeleteFileEvent(el, fd, AE_READABLE | AE_WRITABLE);
+        assert(el->nevents == INITIAL_EVENT && el->maxfd == -1);
+
+        aeDeleteEventLoop(el);
+    }
+
+    return 0;
+}
+#endif

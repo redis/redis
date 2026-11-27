@@ -1386,8 +1386,13 @@ start_server {tags {"cli external:skip"}} {
     foreach interrupt {0 1} {
         foreach resumed {0 1} {
             test "keystats clears live no-match statistics (interrupted: $interrupt, resumed: $resumed)" {
-                # COUNT 1 and the interval ensure that a live refresh happens.
-                r debug populate 2000
+                # redis-cli redraws the live report once 300 ms have passed, and
+                # -i 0.1 makes it sleep 100 ms every 100 SCAN calls. SCAN COUNT 1
+                # returns a whole dict bucket per call, so the number of calls
+                # follows the number of buckets, not keys. 3000 keys give 512
+                # buckets with both 7-slot (64-bit) and 12-slot (32-bit) buckets,
+                # so the scan sleeps 500 ms and a live refresh always happens.
+                r debug populate 3000
                 set cursor 0
                 if {$resumed} {
                     set cursor [lindex [r scan 0 count 1] 0]

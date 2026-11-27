@@ -3994,6 +3994,8 @@ int zzlLexValueGteMin(unsigned char *p, zlexrangespec *spec);
 int zzlLexValueLteMax(unsigned char *p, zlexrangespec *spec);
 int zslLexValueGteMin(sds value, zlexrangespec *spec);
 int zslLexValueLteMax(sds value, zlexrangespec *spec);
+int zsetLexValueGteMin(const unsigned char *value, size_t len, zlexrangespec *spec);
+int zsetLexValueLteMax(const unsigned char *value, size_t len, zlexrangespec *spec);
 
 /* gcra related */
 robj *gcraDup(robj *o);
@@ -4778,8 +4780,11 @@ uint64_t redisBuildId(void);
 const char *redisBuildIdRaw(void);
 char *redisBuildIdString(void);
 
-/* XXH3 hash of a string as hex string */
-sds stringDigest(robj *o);
+/* XXH3 hash of a string as hex string: 16 hex characters, and a buffer that
+ * holds them with the null term. */
+#define DIGEST_HEX_LENGTH 16
+#define DIGEST_BUF_SIZE (DIGEST_HEX_LENGTH+1)
+void stringDigest(robj *o, char *hexbuf);
 int validateHexDigest(client *c, const sds digest);
 
 /* Hotkey tracking */

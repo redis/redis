@@ -432,6 +432,12 @@ start_server {tags {"geo"}} {
         assert {$result eq {}}
     }
 
+    test {GEOPOS of a member whose score is not a geohash} {
+        r del points
+        r zadd points -5 neg 1e30 big
+        r geopos points neg big
+    } {{} {}}
+
     test {GEODIST simple & unit} {
         r del points
         r geoadd points 13.361389 38.115556 "Palermo" \
