@@ -215,15 +215,28 @@ void setGenericCommand(client *c, int flags, robj *key, robj **valref, robj *exp
 
     /* Propagate without the GET argument (Isn't needed if we had expire since in that case we completely re-written the command argv) */
     if ((flags & OBJ_SET_GET) && !expire) {
-        for (int j = c->argc - 1; j >= 3; j--) {
+        for (int j = 3; j < c->argc; ) {
             char *a = c->argv[j]->ptr;
-            /* Skip GET which may be repeated multiple times. */
+            /* Skip GET which may be repeated multiple times. Removing an
+             * argument shifts the following ones into its slot, so revisit
+             * the same index instead of advancing. */
             if ((a[0] == 'g' || a[0] == 'G') &&
                 (a[1] == 'e' || a[1] == 'E') &&
                 (a[2] == 't' || a[2] == 'T') && a[3] == '\0')
             {
                 rewriteClientCommandArgument(c, j, NULL);
+                continue;
             }
+            /* The value of a conditional option is an arbitrary string that
+             * may equal "get"; it must not be stripped from the propagated
+             * command as if it were the GET option (issue #16282). */
+            if (!strcasecmp(a, "ifeq") || !strcasecmp(a, "ifne") ||
+                !strcasecmp(a, "ifdeq") || !strcasecmp(a, "ifdne"))
+            {
+                j += 2;
+                continue;
+            }
+            j++;
         }
     }
 }
