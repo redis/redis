@@ -705,4 +705,161 @@ start_server {tags {"maxmemory" "external:skip"}} {
             assert {$write_survived > $read_survived}
         }
     }
+
+    # Regression for #15375: switching to LFU at runtime must re-seed LFU
+    # counters for keys created under a non-LFU policy. Otherwise OBJECT FREQ
+    # reports 0 and eviction prefers those keys incorrectly.
+    test {LFU: CONFIG SET to allkeys-lfu reseeds FREQ for existing keys} {
+        r flushdb
+        r config set maxmemory 0
+        r config set maxmemory-policy noeviction
+        r set foo value-foo
+        r config set maxmemory-policy allkeys-lfu
+        assert_equal 5 [r object freq foo]
+    }
+
+    test {LFU: CONFIG SET to volatile-lfu reseeds FREQ for existing keys} {
+        r flushdb
+        r config set maxmemory 0
+        r config set maxmemory-policy allkeys-lru
+        r set bar value-bar
+        r config set maxmemory-policy volatile-lfu
+        assert_equal 5 [r object freq bar]
+    }
+
+    # Leaving LFU (including CONFIG SET rollback of a failed multi-arg batch)
+    # must re-seed LRU clocks so LFU counters are not read as idle time.
+    test {LFU: CONFIG SET back to allkeys-lru reseeds IDLETIME for existing keys} {
+        r flushdb
+        r config set maxmemory 0
+        r config set maxmemory-policy allkeys-lfu
+        r set baz value-baz
+        assert_equal 5 [r object freq baz]
+        r config set maxmemory-policy allkeys-lru
+        # Fresh LRU clock: idle time should be ~0 right after reseed.
+        assert_lessthan_equal [r object idletime baz] 1
+    }
+
+    # Same-encoding policy switches must not rewrite every key's lru field.
+    test {LRU: CONFIG SET allkeys-lru to volatile-lru preserves IDLETIME} {
+        r flushdb
+        r config set maxmemory 0
+        r config set maxmemory-policy allkeys-lru
+        r set idlekey value-idle
+        after 1100
+        set before [r object idletime idlekey]
+        assert_morethan_equal $before 1
+        r config set maxmemory-policy volatile-lru
+        set after_idle [r object idletime idlekey]
+        # Allow 1s of clock skew between samples; must not reset to a fresh clock (~0).
+        assert_morethan_equal $after_idle 1
+        assert {$after_idle >= $before - 1}
+    }
+
+    test {LFU: CONFIG SET allkeys-lfu to volatile-lfu preserves FREQ} {
+        r flushdb
+        r config set maxmemory 0
+        r config set maxmemory-policy allkeys-lfu
+        r set hotkey value-hot
+        # Bump frequency above the LFU_INIT_VAL reseed (5).
+        for {set i 0} {$i < 200} {incr i} {
+            r get hotkey
+        }
+        set before [r object freq hotkey]
+        assert_morethan $before 5
+        r config set maxmemory-policy volatile-lfu
+        assert_equal $before [r object freq hotkey]
+    }
+
+    # Leaving LFU for LRM must reseed idle clocks: LRM scores with
+    # estimateObjectIdleTime on the shared lru field (same as LRU).
+    test {LFU: CONFIG SET allkeys-lfu to allkeys-lrm reseeds IDLETIME} {
+        r flushdb
+        r config set maxmemory 0
+        r config set maxmemory-policy allkeys-lfu
+        r set lrmkey value-lrm
+        assert_equal 5 [r object freq lrmkey]
+        r config set maxmemory-policy allkeys-lrm
+        assert_lessthan_equal [r object idletime lrmkey] 1
+    }
+
+    test {LFU: CONFIG SET allkeys-lfu to volatile-lrm reseeds IDLETIME} {
+        r flushdb
+        r config set maxmemory 0
+        r config set maxmemory-policy allkeys-lfu
+        r set vlrmkey value-vlrm
+        assert_equal 5 [r object freq vlrmkey]
+        r config set maxmemory-policy volatile-lrm
+        assert_lessthan_equal [r object idletime vlrmkey] 1
+    }
+
+    # Intermediate non-scoring policies must still reseed off LFU encoding so a
+    # later switch to LRU/LRM does not treat LFU counters as idle clocks.
+    test {LFU: via noeviction then allkeys-lru has fresh IDLETIME} {
+        r flushdb
+        r config set maxmemory 0
+        r config set maxmemory-policy allkeys-lfu
+        r set midkey value-mid
+        assert_equal 5 [r object freq midkey]
+        r config set maxmemory-policy noeviction
+        r config set maxmemory-policy allkeys-lru
+        assert_lessthan_equal [r object idletime midkey] 1
+    }
+
+    test {LFU: via allkeys-random then allkeys-lrm has fresh IDLETIME} {
+        r flushdb
+        r config set maxmemory 0
+        r config set maxmemory-policy allkeys-lfu
+        r set midlrm value-midlrm
+        assert_equal 5 [r object freq midlrm]
+        r config set maxmemory-policy allkeys-random
+        r config set maxmemory-policy allkeys-lrm
+        assert_lessthan_equal [r object idletime midlrm] 1
+    }
+
+    test {LFU: via volatile-ttl then volatile-lru has fresh IDLETIME} {
+        r flushdb
+        r config set maxmemory 0
+        r config set maxmemory-policy allkeys-lfu
+        r set midttl value-midttl
+        assert_equal 5 [r object freq midttl]
+        r config set maxmemory-policy volatile-ttl
+        r config set maxmemory-policy volatile-lru
+        assert_lessthan_equal [r object idletime midttl] 1
+    }
+
+    # Quick LFU -> LRU -> LFU must not rewrite LFU keys when idle-time is
+    # computed under LFU (DEBUG OBJECT uses estimateObjectIdleTime).
+    test {LFU: bounce LFU to LRU to LFU keeps FREQ after DEBUG OBJECT} {
+        r flushdb
+        r config set maxmemory 0
+        r config set maxmemory-policy allkeys-lfu
+        r set bouncekey value-bounce
+        for {set i 0} {$i < 200} {incr i} {
+            r get bouncekey
+        }
+        set before [r object freq bouncekey]
+        assert_morethan $before 5
+        r config set maxmemory-policy allkeys-lru
+        r config set maxmemory-policy allkeys-lfu
+        # Uses estimateObjectIdleTime; must not convert under LFU.
+        catch {r debug object bouncekey}
+        assert_equal $before [r object freq bouncekey]
+    }
+
+}
+
+# Conf-file LFU never runs apply at load; baseline must come from the live
+# policy so the first CONFIG SET between LFU variants preserves FREQ.
+start_server {tags {"maxmemory" "external:skip"} overrides {maxmemory-policy allkeys-lfu maxmemory 0}} {
+    test {LFU: conf-file allkeys-lfu then CONFIG SET volatile-lfu preserves FREQ} {
+        r set confkey value-conf
+        for {set i 0} {$i < 200} {incr i} {
+            r get confkey
+        }
+        set before [r object freq confkey]
+        assert_morethan $before 5
+        r config set maxmemory-policy volatile-lfu
+        assert_equal $before [r object freq confkey]
+    }
 }
