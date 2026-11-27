@@ -4308,6 +4308,8 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
                                                               avail,
                                                               &consumed);
                 if (decompressed < 0) {
+                    serverLog(LL_WARNING, "MASTER <-> REPLICA sync: "
+                              "Failed to decompress master stream, aborting sync");
                     ret = C_ERR;
                     break;
                 }
