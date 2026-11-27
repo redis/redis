@@ -835,6 +835,15 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
         addReply(c, shared.cone);
         return;
     } else {
+        /* Stored expire timestamps must be non-negative: -1 is the sentinel
+         * for no expiry and negative values break keyIsExpired() and TTL
+         * arithmetic. Any negative timestamp is already in the past, so clamp
+         * it to 0 before storing and propagating. */
+        int clamped = 0;
+        if (when < 0) {
+            when = 0;
+            clamped = 1;
+        }
         kv = setExpire(c,c->db,key,when); /* might realloc kv */
         addReply(c,shared.cone);
         /* Propagate as PEXPIREAT millisecond-timestamp
@@ -844,7 +853,7 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
         }
 
         /* Avoid creating a string object when it's the same as argv[2] parameter  */
-        if (basetime != 0 || unit == UNIT_SECONDS) {
+        if (basetime != 0 || unit == UNIT_SECONDS || clamped) {
             robj *when_obj = createStringObjectFromLongLong(when);
             rewriteClientCommandArgument(c,2,when_obj);
             decrRefCount(when_obj);
@@ -893,8 +902,12 @@ void ttlGenericCommand(client *c, int output_ms, int output_abs) {
      * TTL value otherwise. */
     expire = kvobjGetExpire(kv);
     if (expire != -1) {
-        ttl = output_abs ? expire : expire-commandTimeSnapshot();
-        if (ttl < 0) ttl = 0;
+        if (output_abs) {
+            ttl = expire < 0 ? 0 : expire;
+        } else {
+            long long now = commandTimeSnapshot();
+            ttl = expire > now ? expire - now : 0;
+        }
     }
     if (ttl == -1) {
         addReplyLongLong(c,-1);
