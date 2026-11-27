@@ -1362,6 +1362,21 @@ start_cluster 1 0 {tags {external:skip cluster needs:debug} overrides {cluster-s
         r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
     }
 
+    test "SLOT-ALLOCSIZE - SINTER with repeated key updates alloc once" {
+        # A mid-rehash set passed twice must not apply its shrink twice.
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+        r FLUSHALL
+
+        r DEL "a{t}" "b{t}"
+        for {set i 0} {$i < 265} {incr i} { r SADD "a{t}" "n-$i" }
+        assert_encoding hashtable "a{t}"
+        for {set i 0} {$i < 100} {incr i} { r SADD "b{t}" "n-$i" }
+
+        r SINTER "b{t}" "a{t}" "a{t}"
+
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
+    }
+
     test "SLOT-ALLOCSIZE - SUNION/SDIFF family keep slot alloc tracking across rehash" {
         # Every command routed through sunionDiffGenericCommand() is exercised
         # against a source set that is mid-rehash. The DIFF commands dictFind()
