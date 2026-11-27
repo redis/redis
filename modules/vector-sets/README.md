@@ -569,7 +569,7 @@ Vector Sets implement a threading model that allows Redis to handle many concurr
 - A maximum of 32 threads can run concurrently (defined by `HNSW_MAX_THREADS`).
 - When this limit is reached, additional `VSIM` requests are queued - Redis remains responsive, no latency event is generated.
 - The `VADD` command with the `CAS` option also leverages threading for the computation-heavy candidate search phase, but the insertion itself is performed in the main thread. `VADD` always runs in a sub-millisecond time, so this is not a source of latency, but having too many hundreds of writes per second can be challenging to handle with a single instance. Please, look at the next section about multiple instances scalability.
-- Commands run within Lua scripts, MULTI/EXEC blocks, or from replication are executed in the main thread to ensure consistency.
+- Commands run within Lua scripts, MULTI/EXEC blocks, from replication, or while the server is loading its AOF are executed in the main thread to ensure consistency.
 
 ```
 > VSIM vset VALUES 3 1 1 1 FILTER '.year > 2000'  # This runs in a thread.
