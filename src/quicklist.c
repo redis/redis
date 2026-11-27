@@ -1654,6 +1654,72 @@ void quicklistRotate(quicklist *quicklist) {
         zfree(value);
 }
 
+/* Pop an element from the head or tail of the quicklist and pass it in place
+ * to 'consume' before deleting it. A string element is passed as 'data' and
+ * 'sz', an integer element as 'data' set to NULL and 'sval'. 'ctx' is passed
+ * through to 'consume', which must not modify the quicklist.
+ *
+ * Return value of 0 means no elements available.
+ * Return value of 1 means an element was popped. */
+int quicklistPopInPlace(quicklist *quicklist, int where,
+                        void (*consume)(void *ctx, unsigned char *data,
+                                        size_t sz, long long sval),
+                        void *ctx) {
+    unsigned char *p;
+    unsigned char *vstr;
+    unsigned int vlen = 0;
+    long long vlong = 0;
+
+    if (quicklist->count == 0)
+        return 0;
+
+    quicklistNode *node;
+    if (where == QUICKLIST_HEAD) {
+        node = quicklist->head;
+    } else if (where == QUICKLIST_TAIL) {
+        node = quicklist->tail;
+    } else {
+        return 0;
+    }
+
+    /* The head and tail should never be compressed */
+    assert(node->encoding != QUICKLIST_NODE_ENCODING_LZF);
+
+    if (unlikely(QL_NODE_IS_PLAIN(node))) {
+        consume(ctx, node->entry, node->sz, 0);
+        quicklistDelIndex(quicklist, node, NULL);
+        return 1;
+    }
+
+    p = lpSeek(node->entry, (where == QUICKLIST_HEAD) ? 0 : -1);
+    vstr = lpGetValue(p, &vlen, &vlong);
+    consume(ctx, vstr, vlen, vlong);
+    quicklistDelIndex(quicklist, node, &p);
+    return 1;
+}
+
+/* Where quicklistPopCustom() saves the popped element. */
+typedef struct {
+    unsigned char **data;
+    size_t *sz;
+    long long *sval;
+    void *(*saver)(unsigned char *data, size_t sz);
+} quicklistPopSave;
+
+/* quicklistPopInPlace() callback for quicklistPopCustom(). */
+REDIS_STATIC void quicklistPopSaveConsumer(void *ctx, unsigned char *data,
+                                           size_t sz, long long sval) {
+    quicklistPopSave *save = ctx;
+    if (data) {
+        if (save->data)
+            *save->data = save->saver(data, sz);
+        if (save->sz)
+            *save->sz = sz;
+    } else if (save->sval) {
+        *save->sval = sval;
+    }
+}
+
 /* pop from quicklist and return result in 'data' ptr.  Value of 'data'
  * is the return value of 'saver' function pointer if the data is NOT a number.
  *
@@ -1666,12 +1732,6 @@ void quicklistRotate(quicklist *quicklist) {
 int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data,
                        size_t *sz, long long *sval,
                        void *(*saver)(unsigned char *data, size_t sz)) {
-    unsigned char *p;
-    unsigned char *vstr;
-    unsigned int vlen;
-    long long vlong;
-    int pos = (where == QUICKLIST_HEAD) ? 0 : -1;
-
     if (quicklist->count == 0)
         return 0;
 
@@ -1682,42 +1742,8 @@ int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data,
     if (sval)
         *sval = -123456789;
 
-    quicklistNode *node;
-    if (where == QUICKLIST_HEAD && quicklist->head) {
-        node = quicklist->head;
-    } else if (where == QUICKLIST_TAIL && quicklist->tail) {
-        node = quicklist->tail;
-    } else {
-        return 0;
-    }
-
-    /* The head and tail should never be compressed */
-    assert(node->encoding != QUICKLIST_NODE_ENCODING_LZF);
-
-    if (unlikely(QL_NODE_IS_PLAIN(node))) {
-        if (data)
-            *data = saver(node->entry, node->sz);
-        if (sz)
-            *sz = node->sz;
-        quicklistDelIndex(quicklist, node, NULL);
-        return 1;
-    }
-
-    p = lpSeek(node->entry, pos);
-    vstr = lpGetValue(p, &vlen, &vlong);
-    if (vstr) {
-        if (data)
-            *data = saver(vstr, vlen);
-        if (sz)
-            *sz = vlen;
-    } else {
-        if (data)
-            *data = NULL;
-        if (sval)
-            *sval = vlong;
-    }
-    quicklistDelIndex(quicklist, node, &p);
-    return 1;
+    quicklistPopSave save = {data, sz, sval, saver};
+    return quicklistPopInPlace(quicklist, where, quicklistPopSaveConsumer, &save);
 }
 
 /* Return a malloc'd copy of data passed in */
