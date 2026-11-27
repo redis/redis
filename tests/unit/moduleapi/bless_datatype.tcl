@@ -30,4 +30,20 @@ start_server {tags {"modules" "bless" "external:skip"}} {
         assert {[s evicted_keys] > 0}
         assert_equal 1 [r exists precious]
     }
+
+    test {BLESS: RM_ModuleTypeSetValue survives metadata set on NEW notification} {
+        r flushall
+        r datatype.set bless_notify 1 a
+        assert_equal 1 [r bless set bless_notify no-evict]
+
+        set notify_module [file normalize tests/modules/keymeta_notify.so]
+        r module load $notify_module
+        r datatype.set bless_notify 2 b
+
+        assert_equal {2 b} [r datatype.get bless_notify]
+        assert_equal {notified} [r keymetanotify.get bless_notify]
+        assert_equal {NO-EVICT} [r bless get bless_notify]
+        assert_equal 1 [s blessed_keys]
+        r module unload keymetanotify
+    }
 }
