@@ -2,6 +2,7 @@
 
 #include <string.h>
 #include <assert.h>
+#include <math.h>
 
 /* Module configuration, save aux or not? */
 #define CONF_AUX_OPTION_NO_AUX           0
@@ -72,6 +73,7 @@ void *testrdb_type_load(RedisModuleIO *rdb, int encver) {
     RedisModuleString *str = RedisModule_LoadString(rdb);
     float f = RedisModule_LoadFloat(rdb);
     long double ld = RedisModule_LoadLongDouble(rdb);
+    long double ld_nan = RedisModule_LoadLongDouble(rdb);
     if (RedisModule_IsIOError(rdb)) {
         RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
         if (str)
@@ -83,6 +85,7 @@ void *testrdb_type_load(RedisModuleIO *rdb, int encver) {
     assert(encver==1);
     assert(f==1.5f);
     assert(ld==0.333333333333333333L);
+    assert(isnan(ld_nan));
     return str;
 }
 
@@ -92,6 +95,7 @@ void testrdb_type_save(RedisModuleIO *rdb, void *value) {
     RedisModule_SaveString(rdb, str);
     RedisModule_SaveFloat(rdb, 1.5);
     RedisModule_SaveLongDouble(rdb, 0.333333333333333333L);
+    RedisModule_SaveLongDouble(rdb, NAN);
 }
 
 void testrdb_aux_save(RedisModuleIO *rdb, int when) {
