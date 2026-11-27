@@ -303,6 +303,9 @@ tags {"external:skip"} {
         clean_aof_persistence $aof_dirpath
     }
 
+    # A leftover INCR AOF is on disk but there is no manifest. The new INCR gets the same name, so
+    # before it was appended to without being loaded, and its stale commands came back on restart.
+    # Check that it is truncated at startup and only the new writes survive a restart.
     test {Multi Part AOF discards an unreferenced INCR when there is no manifest} {
         create_aof $aof_dirpath $aof_incr1_file {
             append_to_aof [formatCommand set stale old]
@@ -325,6 +328,9 @@ tags {"external:skip"} {
         clean_aof_persistence $aof_dirpath
     }
 
+    # As above, but the manifest lists only a BASE, so the leftover INCR is still unreferenced.
+    # Check that the BASE is loaded, the leftover INCR is truncated, and after a restart only the
+    # BASE and the new writes are there.
     test {Multi Part AOF discards an unreferenced INCR with a BASE-only manifest} {
         create_aof $aof_dirpath $aof_base1_file {
             append_to_aof [formatCommand set k0 v0]
@@ -356,6 +362,9 @@ tags {"external:skip"} {
         clean_aof_persistence $aof_dirpath
     }
 
+    # The manifest's BASE is named appendonly.aof.1.incr.aof, the name the first new INCR would get.
+    # Before, the new INCR reused it, so new writes were appended to the BASE and replayed twice on
+    # restart. Check that the new INCR is seq 2 and the BASE data is loaded once.
     test {Multi Part AOF doesn't reuse the BASE name for a new INCR} {
         create_aof $aof_dirpath $aof_incr1_file {
             append_to_aof [formatCommand rpush list a]
@@ -383,6 +392,10 @@ tags {"external:skip"} {
         clean_aof_persistence $aof_dirpath
     }
 
+    # The manifest lists appendonly.aof.1.incr.aof as HISTORY. Before, the new INCR reused that name,
+    # so its writes went after the old commands, and the history GC later deleted the live INCR.
+    # Check that the new INCR is seq 2 and the HISTORY file is untouched (auto GC is disabled so
+    # it stays on disk to check).
     test {Multi Part AOF doesn't reuse a HISTORY name for a new INCR} {
         create_aof $aof_dirpath $aof_base2_file {
             append_to_aof [formatCommand rpush list a]
