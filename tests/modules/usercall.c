@@ -63,6 +63,7 @@ int add_to_acl(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         size_t len;
         const char * e = RedisModule_StringPtrLen(error, &len);
         RedisModule_ReplyWithError(ctx, e);
+        RedisModule_FreeString(ctx, error);
         return REDISMODULE_OK;
     }
 

@@ -18,6 +18,14 @@ start_server {tags {"modules usercall external:skip"}} {
         assert_equal [r usercall.get_context_acl] "off sanitize-payload ~* &* +@all -set"
     }
 
+    # A string that sdssplitargs cannot parse must be rejected, not turned into
+    # an empty ACL that reports success.
+    test {test SetModuleUserACLString API - rejects unbalanced quotes} {
+        assert_equal [r usercall.reset_user] OK
+        assert_error {*Unbalanced quotes in ACL string*} {r usercall.add_to_acl "~* +@all \"oops"}
+        assert_equal [r usercall.get_acl] "off sanitize-payload resetchannels -@all"
+    }
+
     # Test RedisModule_GetUserUsername API: get username of the module user
     test {test GetUserUsername API - returns module user name} {
         assert_equal [r usercall.reset_user] OK
