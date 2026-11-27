@@ -1030,8 +1030,8 @@ static int luaRedisSha1hexCommand(lua_State *lua) {
     size_t len;
     char *s;
 
-    if (argc != 1) {
-        luaPushError(lua, "wrong number of arguments");
+    if (argc != 1 || !lua_isstring(lua,1)) {
+        luaPushError(lua, "wrong number or type of arguments");
         return luaError(lua);
     }
 
