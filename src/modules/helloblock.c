@@ -14,6 +14,8 @@
 #include "../redismodule.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
+#include <time.h>
 #include <pthread.h>
 #include <unistd.h>
 
@@ -47,8 +49,9 @@ void *HelloBlock_ThreadMain(void *arg) {
     RedisModule_Free(targ);
 
     sleep(delay);
+    unsigned int seed = (unsigned int)time(NULL) ^ (unsigned int)(uintptr_t)pthread_self();
     int *r = RedisModule_Alloc(sizeof(int));
-    *r = rand();
+    *r = rand_r(&seed);
     RedisModule_UnblockClient(bc,r);
     return NULL;
 }
@@ -105,6 +108,7 @@ int HelloBlock_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         RedisModule_AbortBlock(bc);
         return RedisModule_ReplyWithError(ctx,"-ERR Can't start thread");
     }
+    pthread_detach(tid);
     return REDISMODULE_OK;
 }
 
@@ -175,6 +179,7 @@ int HelloKeys_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
         RedisModule_AbortBlock(bc);
         return RedisModule_ReplyWithError(ctx,"-ERR Can't start thread");
     }
+    pthread_detach(tid);
     return REDISMODULE_OK;
 }
 
