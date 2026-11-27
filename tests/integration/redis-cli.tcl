@@ -534,6 +534,9 @@ start_server {tags {"cli"}} {
         r hset npkey "K\u0000\u0001ey" "V\u0000\u0001alue"
         assert_equal \{\"K\\u0000\\u0001ey\":\"V\\u0000\\u0001alue\"\} [run_cli --json hgetall npkey]
         assert_equal \{\"K\\\\x00\\\\x01ey\":\"V\\\\x00\\\\x01alue\"\} [run_cli --quoted-json hgetall npkey]
+        # composite keys
+        set script "redis.setresp(3); return {map={\[{'a\"b'}\]='value'}}"
+        assert_equal \{\"\[\\\"a\\\\\\\"b\\\"\]\":\"value\"\} [run_cli --json eval $script 0]
     }
 
     test_nontty_cli "Status reply" {
