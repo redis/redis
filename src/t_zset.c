@@ -1160,34 +1160,17 @@ unsigned char *zzlLastInRange(unsigned char *zl, zrangespec *range) {
     return NULL;
 }
 
-/* Read the listpack member at 'p' in place for a lexical range check. An
- * integer member is formatted into 'buf', which holds LONG_STR_SIZE bytes. */
-static inline unsigned char *zzlGetLexValue(unsigned char *p, char *buf, size_t *len) {
-    unsigned char *vstr;
-    unsigned int vlen;
-    long long vlong;
-
-    serverAssert(p != NULL);
-    vstr = lpGetValue(p,&vlen,&vlong);
-    if (vstr) {
-        *len = vlen;
-        return vstr;
-    }
-    *len = ll2string(buf,LONG_STR_SIZE,vlong);
-    return (unsigned char *)buf;
-}
-
 int zzlLexValueGteMin(unsigned char *p, zlexrangespec *spec) {
-    char buf[LONG_STR_SIZE];
-    size_t len;
-    unsigned char *value = zzlGetLexValue(p,buf,&len);
+    unsigned char buf[LP_INTBUF_SIZE];
+    int64_t len;
+    unsigned char *value = lpGet(p,&len,buf);
     return zsetLexValueGteMin(value,len,spec);
 }
 
 int zzlLexValueLteMax(unsigned char *p, zlexrangespec *spec) {
-    char buf[LONG_STR_SIZE];
-    size_t len;
-    unsigned char *value = zzlGetLexValue(p,buf,&len);
+    unsigned char buf[LP_INTBUF_SIZE];
+    int64_t len;
+    unsigned char *value = lpGet(p,&len,buf);
     return zsetLexValueLteMax(value,len,spec);
 }
 
