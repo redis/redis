@@ -4644,6 +4644,10 @@ int RM_SetAbsExpire(RedisModuleKey *key, mstime_t expire) {
  * * **defrag**: Reserved for active defragmentation. NOT YET INVOKED by Redis;
  *   set to NULL.
  *
+ * * **alloc_size**: A callback function pointer for kvobjAllocSize() (optional).
+ *   Should return the allocated memory of the module value in O(1).
+ *   Unlike mem_usage, this callback must not perform sampling or traversal.
+ *
  * * **mem_usage**: Reserved for MEMORY USAGE command. NOT YET INVOKED by Redis;
  *   set to NULL.
  *
@@ -7668,6 +7672,7 @@ robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj
  *
  *             // Optional fields
  *             .digest = myType_DigestCallBack,
+ *             .alloc_size = myType_AllocSizeCallBack,
  *             .mem_usage = myType_MemUsageCallBack,
  *             .aux_load = myType_AuxRDBLoadCallBack,
  *             .aux_save = myType_AuxRDBSaveCallBack,
@@ -7792,6 +7797,9 @@ moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
         struct {
             moduleTypeAuxSaveFunc aux_save2;
         } v5;
+        struct {
+            moduleTypeAllocSizeFunc alloc_size;
+        } v6;
     } *tms = (struct typemethods*) typemethods_ptr;
 
     moduleType *mt = zcalloc(sizeof(*mt));
@@ -7822,6 +7830,9 @@ moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
     }
     if (tms->version >= 5) {
         mt->aux_save2 = tms->v5.aux_save2;
+    }
+    if (tms->version >= 6) {
+        mt->alloc_size = tms->v6.alloc_size;
     }
     memcpy(mt->entity.name,name,sizeof(mt->entity.name));
     listAddNodeTail(ctx->module->types,mt);
@@ -13672,6 +13683,20 @@ size_t moduleGetFreeEffort(robj *key, robj *val, int dbid) {
     }  
 
     return effort;
+}
+
+/* Return the allocated memory of the module value.
+ * Calls the alloc_size callback if provided.
+ * Returns 0 by default.
+ */
+size_t moduleGetAllocSize(robj *o) {
+    moduleValue *mv = o->ptr;
+    moduleType *mt = mv->type;
+
+    if (mt->alloc_size)
+        return mt->alloc_size(mv->value);
+
+    return 0;
 }
 
 /* Return the memory usage of the module, it will automatically choose to call 
