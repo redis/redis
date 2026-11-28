@@ -43,6 +43,14 @@
  *
  * The fields marked * are written as zero for a digest. The bar and the
  * policy of a generation are not stored: the decoder computes them again.
+ *
+ * WHAT THE DECODER ENFORCES. The limits of gate_defs.h, what the core needs
+ * in order to be safe (the labels and buckets it indexes with, the numbers
+ * it does arithmetic on, the counters that must not wrap around), what
+ * keeps the encoding canonical, and what gateCheckInvariants() states. It
+ * deliberately enforces nothing else: a gate that decodes must still decode
+ * after the core has worked on it, and every further rule is one more way
+ * for a state the core can reach to be refused when it is loaded again.
  */
 
 #include <math.h>
@@ -58,16 +66,26 @@
 #error "gate_codec.c needs IEEE NaN and infinity semantics: do not build it with -ffast-math"
 #endif
 
-/* The low 'n' bytes of 'v', least significant first, and back. */
-static void gatePut(unsigned char *p, uint64_t v, size_t n) {
-    for (size_t i = 0; i < n; i++) p[i] = (unsigned char)(v >> (8 * i));
+/* Little-endian stores and loads, spelled out byte by byte: right on any
+ * host, and a plain move on a little-endian one. */
+static void gatePut32(unsigned char *p, uint32_t v) {
+    p[0] = (unsigned char)v;
+    p[1] = (unsigned char)(v >> 8);
+    p[2] = (unsigned char)(v >> 16);
+    p[3] = (unsigned char)(v >> 24);
 }
 
-static uint64_t gateGet(const unsigned char *p, size_t n) {
-    uint64_t v = 0;
+static void gatePut64(unsigned char *p, uint64_t v) {
+    gatePut32(p, (uint32_t)v);
+    gatePut32(p + 4, (uint32_t)(v >> 32));
+}
 
-    for (size_t i = 0; i < n; i++) v |= (uint64_t)p[i] << (8 * i);
-    return v;
+static uint32_t gateGet32(const unsigned char *p) {
+    return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
+}
+
+static uint64_t gateGet64(const unsigned char *p) {
+    return gateGet32(p) | (uint64_t)gateGet32(p + 4) << 32;
 }
 
 /* --------------------------------- Writer -------------------------------- */
@@ -104,22 +122,36 @@ static void gateWriteBytes(gateWriter *w, const void *src, size_t n) {
     if (p) memcpy(p, src, n);
 }
 
-static void gateWriteInt(gateWriter *w, uint64_t v, size_t n) {
-    unsigned char *p = gateWriteRoom(w, n);
+static void gateWriteU8(gateWriter *w, uint8_t v) {
+    unsigned char *p = gateWriteRoom(w, 1);
 
-    if (p) gatePut(p, v, n);
+    if (p) *p = v;
 }
 
-static void gateWriteU8(gateWriter *w, uint8_t v) { gateWriteInt(w, v, 1); }
-static void gateWriteU32(gateWriter *w, uint32_t v) { gateWriteInt(w, v, 4); }
-static void gateWriteU64(gateWriter *w, uint64_t v) { gateWriteInt(w, v, 8); }
-static void gateWriteI64(gateWriter *w, int64_t v) { gateWriteInt(w, (uint64_t)v, 8); }
+static void gateWriteU16(gateWriter *w, uint16_t v) {
+    gateWriteU8(w, (uint8_t)v);
+    gateWriteU8(w, (uint8_t)(v >> 8));
+}
+
+static void gateWriteU32(gateWriter *w, uint32_t v) {
+    unsigned char *p = gateWriteRoom(w, 4);
+
+    if (p) gatePut32(p, v);
+}
+
+static void gateWriteU64(gateWriter *w, uint64_t v) {
+    unsigned char *p = gateWriteRoom(w, 8);
+
+    if (p) gatePut64(p, v);
+}
+
+static void gateWriteI64(gateWriter *w, int64_t v) { gateWriteU64(w, (uint64_t)v); }
 
 static void gateWriteDouble(gateWriter *w, double v) {
     uint64_t bits;
 
     memcpy(&bits, &v, sizeof(bits));
-    gateWriteInt(w, bits, 8);
+    gateWriteU64(w, bits);
 }
 
 static void gateWriteFloats(gateWriter *w, const float *v, size_t n) {
@@ -130,7 +162,7 @@ static void gateWriteFloats(gateWriter *w, const float *v, size_t n) {
         uint32_t bits;
 
         memcpy(&bits, &v[i], sizeof(bits));
-        gatePut(p, bits, 4);
+        gatePut32(p, bits);
     }
 }
 
@@ -204,8 +236,8 @@ int gateEncode(const gate *g, int for_digest, unsigned char **buf, size_t *len) 
     }
 
     gateWriteBytes(&w, "GATE", 4);
-    gateWriteInt(&w, GATE_CODEC_VERSION, 2);
-    gateWriteInt(&w, GATE_FEATURES_VERSION, 2);
+    gateWriteU16(&w, GATE_CODEC_VERSION);
+    gateWriteU16(&w, GATE_FEATURES_VERSION);
 
     gateWriteU8(&w, (uint8_t)cfg->kind);
     gateWriteDouble(&w, cfg->alpha);
@@ -299,23 +331,38 @@ static const unsigned char *gateReadBytes(gateReader *r, size_t n) {
     return p;
 }
 
-static uint64_t gateReadInt(gateReader *r, size_t n) {
-    const unsigned char *p = gateReadBytes(r, n);
+static uint8_t gateReadU8(gateReader *r) {
+    const unsigned char *p = gateReadBytes(r, 1);
 
-    return p ? gateGet(p, n) : 0;
+    return p ? *p : 0;
 }
 
-static uint8_t gateReadU8(gateReader *r) { return (uint8_t)gateReadInt(r, 1); }
-static uint32_t gateReadU32(gateReader *r) { return (uint32_t)gateReadInt(r, 4); }
-static uint64_t gateReadU64(gateReader *r) { return gateReadInt(r, 8); }
-static int64_t gateReadI64(gateReader *r) { return (int64_t)gateReadInt(r, 8); }
+static uint16_t gateReadU16(gateReader *r) {
+    uint8_t low = gateReadU8(r);
+
+    return (uint16_t)(low | gateReadU8(r) << 8);
+}
+
+static uint32_t gateReadU32(gateReader *r) {
+    const unsigned char *p = gateReadBytes(r, 4);
+
+    return p ? gateGet32(p) : 0;
+}
+
+static uint64_t gateReadU64(gateReader *r) {
+    const unsigned char *p = gateReadBytes(r, 8);
+
+    return p ? gateGet64(p) : 0;
+}
+
+static int64_t gateReadI64(gateReader *r) { return (int64_t)gateReadU64(r); }
 
 /* A counter the core keeps in order with others: the numbers of requests
  * and generations ascend, a part stays below its total. That holds while
  * it does not wrap around, so it may not start near the end of its range.
  * Counting never gets it anywhere near 2^63. */
 static uint64_t gateReadCount(gateReader *r) {
-    uint64_t v = gateReadInt(r, 8);
+    uint64_t v = gateReadU64(r);
 
     if (v > INT64_MAX) gateReadFail(r, "counter out of range");
     return v;
@@ -330,7 +377,7 @@ static int gateReadBool(gateReader *r) {
 
 /* No field of a gate is ever NaN or infinite, so none is let in. */
 static double gateReadDouble(gateReader *r) {
-    uint64_t bits = gateReadInt(r, 8);
+    uint64_t bits = gateReadU64(r);
     double v;
 
     memcpy(&v, &bits, sizeof(v));
@@ -340,7 +387,7 @@ static double gateReadDouble(gateReader *r) {
 }
 
 static float gateGetFloat(const unsigned char *p) {
-    uint32_t bits = (uint32_t)gateGet(p, 4);
+    uint32_t bits = gateGet32(p);
     float v;
 
     memcpy(&v, &bits, sizeof(v));
@@ -349,25 +396,26 @@ static float gateGetFloat(const unsigned char *p) {
 
 /* --------------------------------- Decoder ------------------------------- */
 
-/* Fill an allocated model. The model saturates its weights, so anything
- * beyond the limit (NaN and infinities fail the comparison too) was never
- * written by it. */
-static void gateReadModel(gateReader *r, gateModel *m) {
-    size_t nw = (size_t)m->nvec * m->dim, n = nw + m->nvec;
-    const unsigned char *p;
+/* The model saturates its weights, so one beyond the limit was never
+ * written by it. NaN and infinities fail the comparison too. */
+static void gateReadWeights(gateReader *r, float *v, size_t n) {
+    const unsigned char *p = gateReadBytes(r, n * 4);
 
-    m->updates = gateReadU64(r);
-    p = gateReadBytes(r, n * 4);
     if (p == NULL) return;
     for (size_t i = 0; i < n; i++, p += 4) {
-        float v = gateGetFloat(p);
-
-        if (!(fabsf(v) <= GATE_MAX_WEIGHT)) {
+        v[i] = gateGetFloat(p);
+        if (!(fabsf(v[i]) <= GATE_MAX_WEIGHT)) {
             gateReadFail(r, "weight out of range");
             return;
         }
-        if (i < nw) m->w[i] = v; else m->b[i - nw] = v;
     }
+}
+
+/* Fill an allocated model. */
+static void gateReadModel(gateReader *r, gateModel *m) {
+    m->updates = gateReadU64(r);
+    gateReadWeights(r, m->w, (size_t)m->nvec * m->dim);
+    gateReadWeights(r, m->b, m->nvec);
 }
 
 /* A config the caller releases with gateConfigFree(), whatever happens. */
@@ -481,7 +529,7 @@ static void gateReadClues(gateReader *r, gateSparse *x) {
     }
     x->n = n;
     for (uint32_t i = 0; i < n; i++) {
-        x->idx[i] = (uint32_t)gateGet(p + (size_t)i * 4, 4);
+        x->idx[i] = gateGet32(p + (size_t)i * 4);
         x->val[i] = gateGetFloat(p + ((size_t)n + i) * 4);
         /* What the model relies on: see gateSparse in gate_defs.h. */
         if (x->idx[i] >= GATE_DIM || (i > 0 && x->idx[i] <= x->idx[i - 1]) ||
@@ -617,8 +665,8 @@ gate *gateDecode(const unsigned char *buf, size_t len, char *err, size_t errlen)
     gate *g = NULL;
 
     if (magic && memcmp(magic, "GATE", 4) != 0) gateReadFail(&r, "bad magic");
-    if (gateReadInt(&r, 2) != GATE_CODEC_VERSION) gateReadFail(&r, "unsupported codec version");
-    if (gateReadInt(&r, 2) != GATE_FEATURES_VERSION)
+    if (gateReadU16(&r) != GATE_CODEC_VERSION) gateReadFail(&r, "unsupported codec version");
+    if (gateReadU16(&r) != GATE_FEATURES_VERSION)
         gateReadFail(&r, "unsupported features version");
 
     gateReadConfig(&r, &cfg);

@@ -22,10 +22,10 @@
  *   - refNamed() states the rules for named features the naive way, on a
  *     dense array of GATE_DIM buckets.
  *
- * TOLERANCES. An expected value that is a whole number (clues that were not
- * scaled) must be matched exactly. Any other value is compared to 1e-6; the
- * reference prints 9 significant digits, enough to tell float32 values
- * apart.
+ * TOLERANCES. An expected value that is a whole number (a sum of clues that
+ * was not scaled, a named value such as 1) must be matched exactly. Any
+ * other value is compared to 1e-6; the reference prints 9 significant
+ * digits, enough to tell float32 values apart.
  */
 
 #include <sys/mman.h>
@@ -213,6 +213,18 @@ static size_t randText(uint64_t *rng, unsigned char *buf) {
     return len;
 }
 
+/* Fill 'buf' with random words of some six letters. Nearly every clue of
+ * such a text is a different one: the most buckets, the most work. */
+static void randomWords(char *buf, size_t len, uint64_t seed) {
+    size_t i;
+
+    for (i = 0; i < len; i++) {
+        uint64_t r = gate_test_rand64(&seed);
+
+        buf[i] = r % 7 == 0 ? ' ' : (char)('a' + (r >> 8) % 26);
+    }
+}
+
 /* Fold a vector into a running digest: FNV-1a over 64-bit words, the entry
  * count first, then (bucket << 32 | float bits) for each entry. */
 static uint64_t digestVector(uint64_t d, const gateSparse *x) {
@@ -247,21 +259,34 @@ static void refNamed(const gateNamedFeature *f, uint32_t nf, double *dense) {
     }
 }
 
-/* --------------------------- Counting allocator -------------------------- */
+/* --------------------------- Counting allocator --------------------------
+ * Stands in for the allocator of the library to make allocations fail on
+ * demand and to see how much memory is asked for and how much of it is
+ * still held. Every block carries its size in a header. */
+
+#define ALLOC_HEADER 16 /* room for a size_t; keeps the alignment of malloc() */
 
 static int allocCalls;    /* allocations asked for since the last reset */
 static int allocFailAt;   /* the allocation that fails (1 = the next), 0 = none */
-static int allocLive;     /* blocks handed out and not yet freed */
 static size_t allocBytes; /* bytes asked for since the last reset */
+static size_t allocLive;  /* bytes handed out and not freed yet */
 
 static void *countingMalloc(size_t n) {
-    void *p;
+    size_t *block;
 
     if (++allocCalls == allocFailAt) return NULL;
-    p = xmalloc(n);
-    allocLive++;
+    block = xmalloc(ALLOC_HEADER + n);
+    *block = n;
     allocBytes += n;
-    return p;
+    allocLive += n;
+    return (char *)block + ALLOC_HEADER;
+}
+
+static void countingFree(void *p) {
+    size_t *block = (size_t *)((char *)p - ALLOC_HEADER);
+
+    allocLive -= *block;
+    free(block);
 }
 
 static void *countingCalloc(size_t nmemb, size_t size) {
@@ -272,24 +297,19 @@ static void *countingCalloc(size_t nmemb, size_t size) {
 }
 
 static void *countingRealloc(void *p, size_t n) {
-    void *q;
+    void *q = countingMalloc(n);
+    size_t old;
 
-    if (p == NULL) return countingMalloc(n);
-    if (++allocCalls == allocFailAt) return NULL;
-    q = realloc(p, n);
-    if (q == NULL) abort();
-    allocBytes += n;
+    if (p == NULL || q == NULL) return q;
+    old = *(size_t *)((char *)p - ALLOC_HEADER);
+    memcpy(q, p, old < n ? old : n);
+    countingFree(p);
     return q;
 }
 
-static void countingFree(void *p) {
-    allocLive--;
-    free(p);
-}
-
 static void countAllocations(void) {
-    allocCalls = allocFailAt = allocLive = 0;
-    allocBytes = 0;
+    allocCalls = allocFailAt = 0;
+    allocBytes = allocLive = 0;
     gateSetAllocator(countingMalloc, countingCalloc, countingRealloc, countingFree);
 }
 
@@ -321,6 +341,13 @@ static const entry want_mixed_case[] = {
     {6403, 1}, {7931, 1}
 };
 
+/* Both ends of each range: "A" and "Z" are folded, "a", "z", "0" and "9"
+ * are word bytes. The tokens are "az", "az", "09", "az". */
+static const char text_range_ends[] = "AZ az 09 Az";
+static const entry want_range_ends[] = {
+    {4598, -1}, {4679, -1}, {5973, -1}, {6385, -1}, {6403, 1}, {7729, 1}
+};
+
 /* Digits are word bytes. */
 static const char text_digits[] = "route 66 b2b 2024";
 static const entry want_digits[] = {
@@ -343,8 +370,8 @@ static const entry want_question[] = {
     {2391, -1}, {6403, 1}
 };
 
-/* Repeated punctuation: words "?" and "!", pairs "?""?", "?""!" and
- * "!""!", each once. */
+/* Repeated punctuation: the words "?" and "!" and the pairs ("?", "?"),
+ * ("?", "!") and ("!", "!"), each once. */
 static const char text_punct_repeated[] = "\?\? !!!";
 static const entry want_punct_repeated[] = {
     {2356, -1}, {2391, -1}, {5747, 1}, {6403, 1}, {7138, 1}, {7346, -1}
@@ -556,57 +583,57 @@ static const entry want_opposite_sign[] = {
  * hash of the text the reference was given, so a text built differently
  * is reported as such. --- */
 
-/* 16 bytes of "a b a b ...": words "a" and "b", pairs "a""b" and "b""a",
- * and "len0". */
+/* 16 bytes of "a b a b ...": the words "a" and "b", the pairs ("a", "b")
+ * and ("b", "a"), and "len0". */
 #define FNV_len16 0xf7fe1856a6772605ull
 static const entry want_len16[] = {
     {1656, 1}, {5306, -1}, {5524, 1}, {6278, -1}, {6403, 1}
 };
 
-/* 17 bytes of "a b a b ...": words "a" and "b", pairs "a""b" and "b""a",
- * and "len1". */
+/* 17 bytes of "a b a b ...": the words "a" and "b", the pairs ("a", "b")
+ * and ("b", "a"), and "len1". */
 #define FNV_len17 0xdbe9bf3cdc763becull
 static const entry want_len17[] = {
     {1350, 1}, {1656, 1}, {5306, -1}, {5524, 1}, {6278, -1}
 };
 
-/* 64 bytes of "a b a b ...": words "a" and "b", pairs "a""b" and "b""a",
- * and "len1". */
+/* 64 bytes of "a b a b ...": the words "a" and "b", the pairs ("a", "b")
+ * and ("b", "a"), and "len1". */
 #define FNV_len64 0x5e44007e3c8d44a5ull
 static const entry want_len64[] = {
     {1350, 1}, {1656, 1}, {5306, -1}, {5524, 1}, {6278, -1}
 };
 
-/* 65 bytes of "a b a b ...": words "a" and "b", pairs "a""b" and "b""a",
- * and "len2". */
+/* 65 bytes of "a b a b ...": the words "a" and "b", the pairs ("a", "b")
+ * and ("b", "a"), and "len2". */
 #define FNV_len65 0xbad19a80e40bd90cull
 static const entry want_len65[] = {
     {1656, 1}, {5306, -1}, {5524, 1}, {5770, -1}, {6278, -1}
 };
 
-/* 256 bytes of "a b a b ...": words "a" and "b", pairs "a""b" and "b""a",
- * and "len2". */
+/* 256 bytes of "a b a b ...": the words "a" and "b", the pairs ("a", "b")
+ * and ("b", "a"), and "len2". */
 #define FNV_len256 0x5f0a0b0d9157a925ull
 static const entry want_len256[] = {
     {1656, 1}, {5306, -1}, {5524, 1}, {5770, -1}, {6278, -1}
 };
 
-/* 257 bytes of "a b a b ...": words "a" and "b", pairs "a""b" and "b""a",
- * and "len3". */
+/* 257 bytes of "a b a b ...": the words "a" and "b", the pairs ("a", "b")
+ * and ("b", "a"), and "len3". */
 #define FNV_len257 0xd5ba0c0df7f49e8cull
 static const entry want_len257[] = {
     {1656, 1}, {2159, -1}, {5306, -1}, {5524, 1}, {6278, -1}
 };
 
-/* 1024 bytes of "a b a b ...": words "a" and "b", pairs "a""b" and "b""a",
- * and "len3". */
+/* 1024 bytes of "a b a b ...": the words "a" and "b", the pairs ("a", "b")
+ * and ("b", "a"), and "len3". */
 #define FNV_len1024 0xe6e2bbce41883b25ull
 static const entry want_len1024[] = {
     {1656, 1}, {2159, -1}, {5306, -1}, {5524, 1}, {6278, -1}
 };
 
-/* 1025 bytes of "a b a b ...": words "a" and "b", pairs "a""b" and "b""a",
- * and "len4". */
+/* 1025 bytes of "a b a b ...": the words "a" and "b", the pairs ("a", "b")
+ * and ("b", "a"), and "len4". */
 #define FNV_len1025 0xdb8063795a7cb48cull
 static const entry want_len1025[] = {
     {1656, 1}, {3491, -1}, {5306, -1}, {5524, 1}, {6278, -1}
@@ -684,8 +711,8 @@ static const entry want_code_end[] = {
     {1656, 1}, {3491, -1}, {5306, -1}, {5524, 1}, {6278, -1}, {6438, -1}
 };
 
-/* 4096 question marks: 8191 clues before repeats are dropped, 3 after
- * ("?", "?""?", "len4"). */
+/* 4096 question marks: 8192 clues before the repeats are dropped, 3 after:
+ * the word "?", the pair ("?", "?") and "len4". */
 #define FNV_all_question 0x96d7b490f997f325ull
 static const entry want_all_question[] = {
     {2391, -1}, {3491, -1}, {5747, 1}
@@ -817,12 +844,29 @@ static const entry want_two_names[] = {
     {3581, 1.75f}, {6403, 1}
 };
 
+/* Text "". Each value is clamped, not the sum of a bucket: the two names
+ * add 4 + 4 = 8 to bucket 3581, and (8, 1) is scaled by sqrt(8/65). */
+static const gateNamedFeature feat_two_names_clamped[] = {
+    {"f16", 3, 100.0}, {"f58", 3, 100.0}, {"small", 5, 1.0}
+};
+static const entry want_two_names_clamped[] = {
+    {3581, 2.80658555f}, {5955, 0.350823194f}, {6403, 1}
+};
+
 /* Text "". The same two names with opposite values leave no entry. */
 static const gateNamedFeature feat_two_names_cancel[] = {
     {"f16", 3, 1.5}, {"f58", 3, -1.5}, {"half", 4, 0.5}
 };
 static const entry want_two_names_cancel[] = {
     {2854, 0.5f}, {6403, 1}
+};
+
+/* Text "". Three names in bucket 5655. */
+static const gateNamedFeature feat_three_names[] = {
+    {"f185", 4, 1.25}, {"f321", 4, 0.25}, {"f260", 4, 0.5}
+};
+static const entry want_three_names[] = {
+    {5655, 2}, {6403, 1}
 };
 
 /* Text "". GATE_MAX_FEATURES features, "k0" to "k63", of value 1. Two of
@@ -940,6 +984,7 @@ TEST(case_folding) {
 }
 
 TEST(word_bytes) {
+    EXPECT_TEXT(range_ends);
     EXPECT_TEXT(digits);
     EXPECT_TEXT(high_bytes);
     /* U+00C9 and U+00E9, an upper and a lower case letter outside ASCII,
@@ -1075,9 +1120,7 @@ static double textNorm2(const char *text, size_t len) {
 
 TEST(norm_cap) {
     char words[4000];
-    uint64_t rng = 32;
     gateSparse x;
-    size_t i;
 
     /* 32 clues in 32 buckets are at the cap, not above it: every value is
      * still +1 or -1. */
@@ -1089,12 +1132,8 @@ TEST(norm_cap) {
     EXPECT_TEXT(pangram);
     CHECK_NEAR(textNorm2(text_pangram, sizeof(text_pangram) - 1), 32.0, 1e-4);
 
-    /* Random words, a few thousand clues. */
-    for (i = 0; i < sizeof(words); i++) {
-        uint64_t r = gate_test_rand64(&rng);
-
-        words[i] = r % 7 == 0 ? ' ' : (char)('a' + (r >> 8) % 26);
-    }
+    /* A few thousand clues. */
+    randomWords(words, sizeof(words), 32);
     x = textVector(words, sizeof(words));
     CHECK(x.n > 1000 && wellFormed(&x));
     CHECK_NEAR(squaredNorm(&x), 32.0, 1e-4);
@@ -1104,7 +1143,13 @@ TEST(norm_cap) {
 /* ----------------------------- Named features ---------------------------- */
 
 TEST(named_values) {
+    static const gateNamedFeature reversed[] = {
+        {"thread_depth", 12, 0.3}, {"mentioned", 9, 1.0}
+    };
+
     EXPECT_NAMED(pass_through, "hi");
+    /* The order in which the features are given makes no difference. */
+    expectVector("pass_through, reversed", "hi", 2, reversed, 2, WANT(pass_through));
     EXPECT_NAMED(negative, "");
     EXPECT_NAMED(zero_value, "");
     EXPECT_NAMED(tiny_value, "");
@@ -1135,7 +1180,9 @@ TEST(named_shared_buckets) {
     /* Two names in one bucket. */
     CHECK(gateHash(0x05, "f16", 3) % GATE_DIM == gateHash(0x05, "f58", 3) % GATE_DIM);
     EXPECT_NAMED(two_names, "");
+    EXPECT_NAMED(two_names_clamped, "");
     EXPECT_NAMED(two_names_cancel, "");
+    EXPECT_NAMED(three_names, "");
     /* A name that cancels the only clue of the empty text: no entry is
      * left, and that is not an error. */
     CHECK(gateHash(0x05, "f139", 4) % GATE_DIM == len0);
@@ -1216,9 +1263,9 @@ TEST(allocation_failure) {
         ret = gateFeaturize("some text?", 10, f, 1, &x, err, sizeof(err));
         allocFailAt = 0;
         if (ret == GATE_OK) {
-            /* All that is left is the result: its two arrays. */
-            CHECK_EQ_INT(allocLive, 2);
+            /* All that is still allocated is the result. */
             CHECK(x.n > 0 && wellFormed(&x));
+            CHECK_EQ_INT(allocLive, GATE_SPARSE_BYTES(x.n));
             gateSparseFree(&x);
         } else {
             failed++;
@@ -1230,6 +1277,28 @@ TEST(allocation_failure) {
     stopCounting();
     /* One block of scratch memory and the two arrays of the result. */
     CHECK_EQ_INT(failed, 3);
+}
+
+TEST(result_size) {
+    char words[4000];
+    gateSparse x;
+
+    /* gate_core.h charges a waiting request GATE_SPARSE_BYTES(n) for its
+     * clues, so that is what a result should hold: a bucket whose clues
+     * cancel ("al di" has one, the random words have hundreds) must not
+     * take room in the arrays either. */
+    countAllocations();
+    x = textVector(text_opposite_sign, sizeof(text_opposite_sign) - 1);
+    CHECK_EQ_INT(x.n, 2);
+    CHECK_EQ_INT(allocLive, GATE_SPARSE_BYTES(x.n));
+    gateSparseFree(&x);
+
+    randomWords(words, sizeof(words), 32);
+    x = textVector(words, sizeof(words));
+    CHECK_EQ_INT(allocLive, GATE_SPARSE_BYTES(x.n));
+    gateSparseFree(&x);
+    CHECK_EQ_INT(allocLive, 0);
+    stopCounting();
 }
 
 /* ----------------------------- Random requests --------------------------- */
@@ -1262,6 +1331,9 @@ TEST(random_texts) {
 }
 
 TEST(random_requests_with_features) {
+    /* Zero, too small for a float, far beyond the clamp, and the size of a
+     * clue (so that some cancel one). */
+    static const double special[] = {0.0, 1e-50, 1e9, -1e9, 1.0, -1.0};
     static double want[GATE_DIM];
     unsigned char *text = xmalloc(RANDOM_TEXT_MAX);
     char names[GATE_MAX_FEATURES][24];
@@ -1277,9 +1349,6 @@ TEST(random_requests_with_features) {
 
         for (i = 0; i < nf; i++) {
             uint64_t kind = gate_test_rand64(&rng) % 8;
-            /* Zero, too small for a float, far beyond the clamp, the size
-             * of a clue (so that some cancel one), or anything. */
-            static const double special[] = {0.0, 1e-50, 1e9, -1e9, 1.0, -1.0};
 
             f[i].name = names[i];
             f[i].name_len = (size_t)snprintf(names[i], sizeof(names[i]), "n%u.%u", r, i);
@@ -1288,7 +1357,8 @@ TEST(random_requests_with_features) {
         }
         CHECK(gateFeaturize((char *)text, len, f, nf, &x, NULL, 0) == GATE_OK);
 
-        /* The named part on its own, plus the text part on its own. */
+        /* What the rules say: the named part on its own, plus the text
+         * part on its own. */
         refNamed(f, nf, want);
         for (i = 0; i < t.n; i++) want[t.idx[i]] += (double)t.val[i];
         ok = wellFormed(&x);
@@ -1350,18 +1420,12 @@ TEST(megabyte) {
     const size_t len = GATE_MAX_TEXT_BYTES;
     char *text = xmalloc(len);
     double pass = HUGE_VAL, best = HUGE_VAL, limit;
-    uint64_t rng = 20, hash;
-    size_t i, bytes;
     gateSparse x, y;
-    int r;
+    uint64_t hash;
+    size_t bytes;
+    int r, i;
 
-    /* Random words: nearly every clue of the prefix is a different one,
-     * which is the expensive case. */
-    for (i = 0; i < len; i++) {
-        uint64_t v = gate_test_rand64(&rng);
-
-        text[i] = v % 7 == 0 ? ' ' : (char)('a' + (v >> 8) % 26);
-    }
+    randomWords(text, len, 20);
 
     /* Memory: the megabyte asks for exactly as many bytes as its first
      * 4096 (both are "len4", so the vectors are the same too). */
@@ -1376,10 +1440,11 @@ TEST(megabyte) {
     gateSparseFree(&y);
     stopCounting();
 
-    /* Time: well under 5 ms of CPU, best of five. Under valgrind or a
-     * sanitizer the clock means something else, so the limit is stretched
-     * by how much longer than usual one FNV-1a pass over the megabyte
-     * takes here (it takes about a millisecond; 2 ms is generous). */
+    /* Time: well under 5 ms of CPU, the best of five measurements. valgrind
+     * and the sanitizers slow everything down, so under them the limit is
+     * stretched by how much longer than usual one FNV-1a pass over the
+     * megabyte takes (about a millisecond on a plain build; 2 ms is
+     * generous). */
     hash = gateFnv1a64(text, len);
     for (r = 0; r < 5; r++) {
         clock_t start = clock();
@@ -1431,6 +1496,7 @@ int main(void) {
     RUN(repeated_name);
     RUN(feature_count_limit);
     RUN(allocation_failure);
+    RUN(result_size);
     RUN(random_texts);
     RUN(random_requests_with_features);
     RUN(nothing_past_the_prefix_is_read);

@@ -19,10 +19,10 @@
 #include <string.h>
 #include "gate_args.h"
 
-/* Refusing "1e999" is an isfinite() test, which -ffast-math allows the
- * compiler to assume away. */
+/* Refusing "1e999" or the bits of a NaN is an isfinite() test, which
+ * -ffast-math allows the compiler to assume away. */
 #if defined(__FINITE_MATH_ONLY__) && __FINITE_MATH_ONLY__
-#error "gate_args.c needs IEEE infinity semantics: do not build it with -ffast-math"
+#error "gate_args.c needs IEEE NaN and infinity semantics: do not build it with -ffast-math"
 #endif
 
 #define GATE_ARGS_FAIL(...) do { \
@@ -138,13 +138,19 @@ void gateFormatDoubleBits(char *buf, double v) {
     gateFormatHex64(buf, bits);
 }
 
-/* Every pattern is a double, infinities and NaNs included: this only moves
- * bits. A caller that needs a range checks it. */
+/* The patterns of the infinities and of the NaNs are refused: this file
+ * hands no caller a number that is not finite, whether it was typed as a
+ * decimal or replicated as bits. A primary only sends values it checked, so
+ * such a pattern means a damaged stream, and a NaN let into a gate would
+ * end up in a waiting request that the codec then refuses to load. */
 int gateParseDoubleBits(const char *s, size_t len, double *out) {
     uint64_t bits;
+    double v;
 
     if (!gateParseHex64(s, len, &bits)) return 0;
-    memcpy(out, &bits, sizeof(bits));
+    memcpy(&v, &bits, sizeof(v));
+    if (!isfinite(v)) return 0;
+    *out = v;
     return 1;
 }
 

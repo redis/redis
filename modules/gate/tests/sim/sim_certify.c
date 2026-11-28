@@ -67,8 +67,9 @@
  * table is printed the program replays a few hundred streams, and a dozen
  * complete races, sample by sample through gateRegionUpdate() /
  * gateRegionCertifies() / gateGridCount() and requires identical crossing
- * times. The detector of (D) is always driven spot check by spot check
- * through gateDriftPush().
+ * times. It also draws the scorers of (B) from their definition and
+ * compares them with the bands the race samples from. The detector of (D)
+ * is always driven spot check by spot check through gateDriftPush().
  *
  * The exit status is non zero if a self check fails, if a simulated false
  * proof frequency is significantly above its bound, or if the detector's
@@ -448,12 +449,14 @@ typedef struct simPopulation {
     double err[T];          /* P(the guess is wrong | band b) */
     double coverage[T];     /* P(score >= grid[t]) */
     double risk[T];         /* P(the guess is wrong | score >= grid[t]) */
-    int bad[T];             /* risk[t] is not below alpha: must not be proven */
+    int bad[T];             /* risk[t] is alpha or more: must not be proven */
 } simPopulation;
 
 /* Region t is the union of the bands t..31, so its coverage and risk are
- * suffix sums: the truth the simulation is judged against. */
-static void simPopulationFinish(simPopulation *pop, double alpha, int all_bad) {
+ * suffix sums: the truth the simulation is judged against. 'at_alpha' says
+ * that every band errs at exactly alpha, which makes every region bad and
+ * which a comparison of rounded sums could not tell. */
+static void simPopulationFinish(simPopulation *pop, double alpha, int at_alpha) {
     double c = 0.0, e = 0.0, total = 0.0;
     int b;
 
@@ -467,7 +470,7 @@ static void simPopulationFinish(simPopulation *pop, double alpha, int all_bad) {
         e += pop->mass[b] * pop->err[b];
         pop->coverage[b] = c;
         pop->risk[b] = e / c;
-        pop->bad[b] = all_bad || pop->risk[b] > alpha;
+        pop->bad[b] = at_alpha || pop->risk[b] > alpha;
     }
 }
 
@@ -586,11 +589,11 @@ static void simRuleBoundaries(simBoundary *bd) {
  * sums of per band counters, and it has crossed a bar when its samples
  * reach nmin[its errors]. A threshold meets the bars in ascending order, so
  * it only ever looks at the lowest one it has not crossed: stage[t]. Call
- * the samples it still needs its slack. A correct sample lowers the slack
- * of the regions it falls in by one; an error never lowers it (nmin[k+1] >=
- * nmin[k] + 1). So nothing can cross before 'check' = now + the smallest
- * slack, and the regions only need to be recounted then: a region found at
- * slack 0 crossed with exactly that sample. */
+ * the samples it still needs for that one its slack. A correct sample
+ * lowers the slack of the regions it falls in by one; an error never lowers
+ * it (nmin[k+1] >= nmin[k] + 1). So nothing can cross before 'check' = now
+ * + the smallest slack, and the regions only need to be recounted then: a
+ * region found at slack 0 crossed with exactly that sample. */
 static void simRace(const simPopulation *pop, const simBoundary *bd, uint64_t *rng,
                     uint32_t cross[SIM_RULES][T]) {
     uint32_t seen[T], wrong[T];
@@ -615,20 +618,28 @@ static void simRace(const simPopulation *pop, const simBoundary *bd, uint64_t *r
         for (t = T - 1; t >= 0; t--) {
             n += seen[t];
             k += wrong[t];
-            while (stage[t] < SIM_RULES && k < bd[stage[t]].len && n >= bd[stage[t]].nmin[k])
-                cross[stage[t]++][t] = i;
-            /* Done, or too many errors to make it within the horizon. */
-            if (stage[t] == SIM_RULES || k >= bd[stage[t]].len) continue;
-            if (bd[stage[t]].nmin[k] - n < slack) slack = bd[stage[t]].nmin[k] - n;
+            for (; stage[t] < SIM_RULES; stage[t]++) {
+                const simBoundary *b = &bd[stage[t]];
+
+                /* Too many errors to make it within the horizon, at this
+                 * bar and at every higher one. */
+                if (k >= b->len) break;
+                if (n < b->nmin[k]) {
+                    if (b->nmin[k] - n < slack) slack = b->nmin[k] - n;
+                    break;
+                }
+                cross[stage[t]][t] = i;
+            }
         }
         check = slack == UINT32_MAX ? UINT32_MAX : i + slack;
     }
 }
 
 /* The same race through the library: every request gets a score inside its
- * band, the score goes through the real grid lookup and each region is a
- * real gateRegion updated sample by sample. 'aux' only places the score
- * inside the band, which no region can tell. */
+ * band (one in sixteen exactly on the threshold that opens it), the score
+ * goes through the real grid lookup and each region is a real gateRegion
+ * updated sample by sample. 'aux' only places the score inside the band,
+ * which no region can tell. */
 static void simRaceLibrary(const simPopulation *pop, const simBoundary *bd, uint64_t *rng,
                            uint32_t cross[SIM_RULES][T], uint64_t *misplaced) {
     gateRegion region[T];
@@ -641,7 +652,7 @@ static void simRaceLibrary(const simPopulation *pop, const simBoundary *bd, uint
     for (i = 1; i <= horizon; i++) {
         int error, band = simDrawSample(pop, rng, &error);
         double lo = pop->grid[band], hi = band + 1 < T ? pop->grid[band + 1] : 1.0;
-        double score = lo + gate_test_uniform(&aux) * (hi - lo);
+        double v = gate_test_uniform(&aux), score = v < 0.0625 ? lo : lo + v * (hi - lo);
         uint32_t count;
 
         if (!(score < hi)) score = lo;      /* rounding must not leave the band */
@@ -822,25 +833,30 @@ static void simPrintScorer(const simBoundary *bd, const simRuleStats *st, uint64
     double lo, hi;
     int r, c;
 
-    printf("                                first proven threshold     mean coverage of the lowest proven threshold"
-           "    a bad threshold ever proven\n"
-           "    entry points                 median     p90   never    after %5u     %5u     %5u samples       "
-           "    trials  frequency  95%% Wilson interval     bound\n",
-           simCheckpoints[0], simCheckpoints[1], simCheckpoints[2]);
+    printf("    %-26s  %-23s  %s\n    %-26s  %7s %7s  %6s", "", "first proven threshold",
+           "mean coverage of the lowest proven threshold", "entry points", "median", "p90", "never");
+    for (c = 0; c < SIM_NCHECK; c++) printf("  after %5u", simCheckpoints[c]);
+    printf(" samples\n");
     for (r = 0; r < SIM_RULES; r++) {
         for (never = 0; never < trials && st[r].first[trials - 1 - never] == SIM_NEVER; never++) {}
-        simWilson(st[r].bad, trials, &lo, &hi);
-        printf("    %-26s  %7s %7s  %5.1f%%   ", simRules[r].name,
+        printf("    %-26s  %7s %7s  %5.1f%%", simRules[r].name,
                simFmt(b1, sizeof(b1), simQuantile(st[r].first, trials, 0.5), SIM_RACE_HORIZON),
                simFmt(b2, sizeof(b2), simQuantile(st[r].first, trials, 0.9), SIM_RACE_HORIZON),
                100.0 * (double)never / (double)trials);
-        for (c = 0; c < SIM_NCHECK; c++) printf("      %.4f", st[r].coverage[c] / (double)trials);
-        printf("                   %7llu  %.3e  [%.3e, %.3e]  %.1e  %s\n", (unsigned long long)st[r].bad,
-               (double)st[r].bad / (double)trials, lo, hi, bound, lo <= bound ? "ok" : "VIOLATION");
-        CHECK(lo <= bound);
+        for (c = 0; c < SIM_NCHECK; c++) printf("  %11.4f", st[r].coverage[c] / (double)trials);
+        printf("\n");
         /* No proof can come before a threshold could have crossed this
          * bar with no error at all. */
         CHECK(st[r].first[0] >= bd[r].nmin[0]);
+    }
+    printf("\n    %-26s  %-25s  %-9s  %-22s  %s\n", "entry points", "bad threshold ever proven", "frequency",
+           "95% Wilson interval", "bound");
+    for (r = 0; r < SIM_RULES; r++) {
+        simWilson(st[r].bad, trials, &lo, &hi);
+        printf("    %-26s  %7llu of %-14llu  %.3e  [%.3e, %.3e]  %.1e  %s\n", simRules[r].name,
+               (unsigned long long)st[r].bad, (unsigned long long)trials, (double)st[r].bad / (double)trials,
+               lo, hi, bound, lo <= bound ? "ok" : "VIOLATION");
+        CHECK(lo <= bound);
     }
 }
 
@@ -864,11 +880,12 @@ static void simTableB(uint64_t trials, uint64_t seed) {
            "    an answer whose guess had score s feeds every threshold <= s, so one answer moves many tests.\n"
            "    A threshold is PROVEN when it crossed the bar and it is an entry point or the next more\n"
            "    confident threshold is proven; the row answers at the lowest proven threshold. Three choices\n"
-           "    of entry points run on the same streams. Fewer entry points make the bar lower but leave\n"
-           "    more thresholds waiting for the ones above them:\n",
+           "    of entry points run on the same streams. Fewer entry points make the bar,\n"
+           "    log(g (g + 1) x rows x entry points / DELTA), lower but leave more thresholds waiting for\n"
+           "    the ones above them:\n",
            alpha, SIM_RACE_HORIZON);
     for (r = 0; r < SIM_RULES; r++) {
-        printf("        %-26s  %2u entry point%s  bar log(%d x %2u x 2 / %.2f) = %.4f\n", simRules[r].name,
+        printf("        %-26s  %2u entry point%s  bar log(2 x %d x %2u / %.2f) = %.4f\n", simRules[r].name,
                simEntries(simRules[r].step), simEntries(simRules[r].step) == 1 ? " " : "s",
                SIM_ROWS, simEntries(simRules[r].step), SIM_DELTA, bd[r].bar);
     }
@@ -878,14 +895,15 @@ static void simTableB(uint64_t trials, uint64_t seed) {
            "    is wrong with probability 1 - score (calibrated). 'coverage' = share of the row's requests\n"
            "    at or above the threshold, 'risk' = share of those that are wrong, BAD = risk above alpha.\n"
            "    'entry' marks the entry points of the classifier rule.\n\n"
-           "                             sd %.1f                           sd %.1f\n"
-           "     t  threshold  entry     coverage  risk     risk/alpha     coverage  risk     risk/alpha\n",
-           bound, sds[0], sds[1]);
+           "    %-20s     sd %-31.1fsd %.1f\n    %2s  %-9s  %-5s", bound, "", sds[0], sds[1], "t", "threshold",
+           "entry");
+    for (p = 0; p < 2; p++) printf("     %-8s  %-7s  %s", "coverage", "risk", "risk/alpha");
+    printf("\n");
     for (t = 0; t < T; t++) {
-        printf("    %2d  %.6f   %-5s ", t, pop[0].grid[t], simIsEntry(8, t) ? "entry" : "");
+        printf("    %2d  %-9.6f  %-5s", t, pop[0].grid[t], simIsEntry(8, t) ? "entry" : "");
         for (p = 0; p < 2; p++) {
-            printf("   %.4f    %.5f  %6.3f %-4s  ", pop[p].coverage[t], pop[p].risk[t],
-                   pop[p].risk[t] / alpha, pop[p].bad[t] ? "BAD" : "");
+            printf("     %.4f    %.5f  %6.3f%s", pop[p].coverage[t], pop[p].risk[t], pop[p].risk[t] / alpha,
+                   pop[p].bad[t] ? " BAD" : p == 0 ? "    " : "");
         }
         printf("\n");
     }
@@ -906,13 +924,14 @@ static void simTableB(uint64_t trials, uint64_t seed) {
     printf("\n    (B3) Least favourable for the bound: the traffic of the sd %.1f scorer, but every band errs at\n"
            "    exactly alpha, so every threshold has risk = alpha and any proof is a false one. 'crossed'\n"
            "    counts the trials in which some threshold reached its bar. That alone is not an error: a\n"
-           "    crossing only becomes a proof through an entry point. %llu trials.\n\n"
-           "    entry points                some threshold crossed    some threshold proven    95%% Wilson interval"
-           "     bound\n", sds[1], (unsigned long long)trials);
+           "    crossing only becomes a proof through an entry point. %llu trials.\n\n",
+           sds[1], (unsigned long long)trials);
+    printf("    %-26s  %-22s  %-22s  %-22s  %s\n", "entry points", "some threshold crossed",
+           "some threshold proven", "95% Wilson interval", "bound");
     simRunRaces(&flat, bd, trials, simStream(seed, 0xb300), st);
     for (r = 0; r < SIM_RULES; r++) {
         simWilson(st[r].bad, trials, &lo, &hi);
-        printf("    %-26s  %7llu  %.3e        %7llu  %.3e       [%.3e, %.3e]  %.1e  %s\n", simRules[r].name,
+        printf("    %-26s  %7llu  %.3e      %7llu  %.3e      [%.3e, %.3e]  %.1e  %s\n", simRules[r].name,
                (unsigned long long)st[r].crossed, (double)st[r].crossed / (double)trials,
                (unsigned long long)st[r].bad, (double)st[r].bad / (double)trials, lo, hi, bound,
                lo <= bound ? "ok" : "VIOLATION");
@@ -961,13 +980,16 @@ static void simTableC(uint64_t trials, uint64_t seed) {
 
     gate_test_current = "table C";
     printf("\n(C) SAMPLES A GOOD THRESHOLD NEEDS TO CROSS THE BAR   (DELTA = %.2f, first snapshot)\n"
-           "    'samples' are teacher answers that fall in the threshold's region. While a label has no\n"
-           "    proven threshold every one of its requests is such an answer; afterwards only the spot\n"
-           "    checks are. With no errors the count is exact; at a true risk > 0 it is the median and the\n"
-           "    90th percentile of %llu IID streams, each followed for at most %llu samples ('never' =\n"
-           "    share that had not crossed by then).\n\n",
+           "    'samples' are teacher answers to guesses that fall in the threshold's region: every request\n"
+           "    of the label while nothing is proven for it, only its spot checks afterwards. With no\n"
+           "    errors the count is exact; at a true risk > 0 it is the median and the 90th percentile of\n"
+           "    %llu IID streams, each followed for at most %llu samples ('never' = share that had not\n"
+           "    crossed by then). A stream with k errors behind it crosses when it holds the samples that\n"
+           "    k errors need, so the crossing times pile up on a few values and a median can move by a\n"
+           "    whole step from one seed to the next.\n\n",
            SIM_DELTA, (unsigned long long)trials, (unsigned long long)horizon);
-    printf("    alpha  bar of                                 log bar   true risk            median      p90   never\n");
+    printf("    %-5s  %-37s  %7s   %-9s %-7s  %8s %8s  %6s\n", "alpha", "bar of", "log bar", "true risk", "",
+           "median", "p90", "never");
     for (a = 0; a < 3; a++) {
         for (d = 0; d < 2; d++) {
             double alpha = alphas[a], bar = simBar(bars[d].regions);
@@ -979,7 +1001,7 @@ static void simTableC(uint64_t trials, uint64_t seed) {
              * that needs no simulation. */
             CHECK(bd.len > 0 && bd.nmin[0] == n0);
             if (d == 0) scaled[a][0] = (double)n0 * alpha;
-            printf("    %.3f  %-37s  %7.4f   %-9s %.5f  %8llu %8llu   %5.1f%%\n", alpha, bars[d].name, bar,
+            printf("    %.3f  %-37s  %7.4f   %-9s %.5f  %8llu %8llu  %5.1f%%\n", alpha, bars[d].name, bar,
                    "0 (exact)", 0.0, (unsigned long long)n0, (unsigned long long)n0, 0.0);
             for (m = 0; m < 3; m++) {
                 double p = alpha * mults[m], log1mp = log1p(-p);
@@ -994,7 +1016,7 @@ static void simTableC(uint64_t trials, uint64_t seed) {
                 qsort(times, trials, sizeof(uint64_t), simCmpU64);
                 med = simQuantile(times, trials, 0.5);
                 p90 = simQuantile(times, trials, 0.9);
-                printf("    %.3f  %-37s  %7.4f   %-9s %.5f  %8s %8s   %5.1f%%\n", alpha, bars[d].name, bar,
+                printf("    %.3f  %-37s  %7.4f   %-9s %.5f  %8s %8s  %5.1f%%\n", alpha, bars[d].name, bar,
                        names[m], p, simFmt(b1, sizeof(b1), med, horizon), simFmt(b2, sizeof(b2), p90, horizon),
                        100.0 * (double)never / (double)trials);
                 /* No stream can beat the zero error count. */
@@ -1073,16 +1095,16 @@ static void simTableD(uint64_t trials, uint64_t seed) {
            "    (D1) False alarms: spot checks until the alarm on IID traffic whose risk is at or below the\n"
            "    target. %llu streams per row, each followed for at most %d spot checks. Where some streams\n"
            "    never alarm the mean counts them as %d and is a lower bound. The detector promises a\n"
-           "    mean of at least %.0f.\n\n"
-           "    alpha  true risk                 median        mean   no alarm in %d\n",
-           GATE_DRIFT_ALARM, (unsigned long long)n1, SIM_DRIFT_CAP, SIM_DRIFT_CAP, GATE_DRIFT_ALARM,
+           "    mean of at least %.0f.\n\n",
+           GATE_DRIFT_ALARM, (unsigned long long)n1, SIM_DRIFT_CAP, SIM_DRIFT_CAP, GATE_DRIFT_ALARM);
+    printf("    %-5s  %-18s  %10s  %11s  %s %d\n", "alpha", "true risk", "median", "mean", "no alarm in",
            SIM_DRIFT_CAP);
     for (a = 0; a < 3; a++) {
         for (m = 0; m < 3; m++) {
             double p = alphas[a] * calm[m];
 
             mean = simAlarmTimes(alphas[a], p, n1, simStream(seed, 0xd000 + row++), times, &never);
-            printf("    %.3f  %-10s %.5f   %10s  %s%9.0f   %5.1f%%\n", alphas[a], calm_names[m], p,
+            printf("    %.3f  %-10s %.5f  %10s  %s%9.0f  %5.1f%%\n", alphas[a], calm_names[m], p,
                    simFmt(b1, sizeof(b1), simQuantile(times, n1, 0.5), SIM_DRIFT_CAP), never ? ">=" : "  ",
                    mean, 100.0 * (double)never / (double)n1);
             /* What the detector promises, and what a run of errors can do
@@ -1098,14 +1120,14 @@ static void simTableD(uint64_t trials, uint64_t seed) {
 
     printf("    (D2) Detection delay: spot checks from a jump of the risk to the alarm, %llu streams per\n"
            "    row. The detector is at its restart value when the risk jumps. That is the worst case:\n"
-           "    whatever it saw before can only bring the alarm forward.\n\n"
-           "    alpha  risk after the jump       median        mean         p90\n", (unsigned long long)n2);
+           "    whatever it saw before can only bring the alarm forward.\n\n", (unsigned long long)n2);
+    printf("    %-5s  %-19s %10s  %11s  %10s\n", "alpha", "risk after the jump", "median", "mean", "p90");
     for (a = 0; a < 3; a++) {
         for (m = 0; m < 4; m++) {
             double p = jump[m] > 0.0 ? alphas[a] * jump[m] : 0.5;
 
             mean = simAlarmTimes(alphas[a], p, n2, simStream(seed, 0xd800 + row++), times, &never);
-            printf("    %.3f  %-10s %.5f   %10s   %9.1f  %10s\n", alphas[a], jump_names[m], p,
+            printf("    %.3f  %-10s %.5f  %10s  %11.1f  %10s\n", alphas[a], jump_names[m], p,
                    simFmt(b1, sizeof(b1), simQuantile(times, n2, 0.5), SIM_DRIFT_CAP), mean,
                    simFmt(b2, sizeof(b2), simQuantile(times, n2, 0.9), SIM_DRIFT_CAP));
             /* A risk this far above the target is always caught. */

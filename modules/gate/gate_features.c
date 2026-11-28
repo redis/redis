@@ -21,6 +21,12 @@
  * GATE_TEXT_READ_BYTES bytes of a text is read, and the scratch memory, one
  * block per call, is sized by the prefix. A megabyte of text costs what its
  * first 4096 bytes cost.
+ *
+ * THE SAME BYTES GIVE THE SAME VECTOR EVERYWHERE. A replica computes the
+ * vector of a request again and must find what the primary found. So bytes
+ * are classified by explicit ASCII ranges, not by <ctype.h>, whose answers
+ * depend on the locale, and no sum depends on the order in which qsort()
+ * leaves equal keys.
  */
 
 #include <math.h>
@@ -29,24 +35,23 @@
 #include <string.h>
 #include "gate_features.h"
 
-/* The first byte fed to the hash tells the kinds of clue apart. */
-#define GATE_CLUE_WORD 0x01
-#define GATE_CLUE_PAIR 0x02
-#define GATE_CLUE_CHUNK 0x03
-#define GATE_CLUE_HINT 0x04
-#define GATE_CLUE_NAMED 0x05
+/* ---------------------------------- Hash ---------------------------------- */
+
+/* The domain byte, hashed first, tells apart what is being hashed. */
+#define GATE_DOMAIN_WORD 0x01
+#define GATE_DOMAIN_PAIR 0x02
+#define GATE_DOMAIN_CHUNK 0x03
+#define GATE_DOMAIN_HINT 0x04
+#define GATE_DOMAIN_NAMED 0x05
 
 #define GATE_CHUNK_BYTES 4
-#define GATE_MAX_HINTS 3 /* a length, "link" and "code" */
-
-/* ---------------------------------- Hash ---------------------------------- */
 
 #define GATE_FNV_BASIS 0xcbf29ce484222325ull
 #define GATE_FNV_PRIME 0x100000001b3ull
 
 /* FNV-1a takes its input one byte at a time, so a clue made of several
- * pieces (a pair is two tokens and a separator) is hashed piece by piece and
- * never has to be put together in a buffer. */
+ * pieces is hashed piece by piece and never has to be put together in a
+ * buffer. */
 static uint64_t gateFnvByte(uint64_t h, unsigned char c) {
     return (h ^ c) * GATE_FNV_PRIME;
 }
@@ -77,16 +82,71 @@ uint64_t gateHash(uint8_t domain, const void *data, size_t len) {
     return gateFmix64(gateFnvBytes(gateFnvByte(GATE_FNV_BASIS, domain), data, len));
 }
 
-/* ------------------------------- Text clues ------------------------------- */
+/* H(pair, a || 0x00 || b). */
+static uint64_t gatePairHash(const unsigned char *a, size_t alen,
+                             const unsigned char *b, size_t blen)
+{
+    uint64_t h = gateFnvByte(GATE_FNV_BASIS, GATE_DOMAIN_PAIR);
 
+    h = gateFnvBytes(h, a, alen);
+    h = gateFnvByte(h, 0x00);
+    return gateFmix64(gateFnvBytes(h, b, blen));
+}
+
+/* H(chunk, tag || the GATE_CHUNK_BYTES bytes at 'window'). */
+static uint64_t gateChunkHash(unsigned char tag, const unsigned char *window) {
+    uint64_t h = gateFnvByte(gateFnvByte(GATE_FNV_BASIS, GATE_DOMAIN_CHUNK), tag);
+
+    return gateFmix64(gateFnvBytes(h, window, GATE_CHUNK_BYTES));
+}
+
+static uint64_t gateHintHash(const char *name) {
+    return gateHash(GATE_DOMAIN_HINT, name, strlen(name));
+}
+
+/* ---------------------------------- Terms --------------------------------- */
+
+/* One addition to the vector: 'val' goes to bucket 'idx'. */
+typedef struct gateTerm {
+    uint32_t idx;
+    double val;
+} gateTerm;
+
+/* Replace the terms of each bucket by their sum, in place, and return how
+ * many are left: a bucket that sums to zero is dropped. 't' must be sorted
+ * by bucket. If the squared norm of the result exceeds 'cap' it is scaled
+ * down to exactly that norm. */
+static size_t gateSumBuckets(gateTerm *t, size_t n, double cap) {
+    double norm2 = 0.0;
+    size_t i = 0, m = 0;
+
+    while (i < n) {
+        gateTerm sum = {t[i].idx, 0.0};
+
+        for (; i < n && t[i].idx == sum.idx; i++) sum.val += t[i].val;
+        if (sum.val == 0.0) continue;
+        norm2 += sum.val * sum.val;
+        t[m++] = sum;
+    }
+    if (norm2 > cap) {
+        double scale = sqrt(cap / norm2);
+
+        for (i = 0; i < m; i++) t[i].val *= scale;
+    }
+    return m;
+}
+
+/* -------------------------------- Text part ------------------------------- */
+
+/* Upper case letters never get here: the prefix is lowercased first. */
 static int gateIsWordByte(unsigned char c) {
     return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c >= 0x80;
 }
 
-/* Hash the word, pair and chunk clues of the prefix 'low' (already
- * lowercased) into 'clues' and return how many there are. Never more than
- * 2 * len: a token gives a word clue and a pair clue, and a word of n > 4
- * bytes gives n - 3 chunks more, which is still fewer than 2 per byte. */
+/* Hash the word, pair and chunk clues of the lowercased prefix 'low' into
+ * 'clues' and return how many there are. Never more than 2 * len: a token
+ * gives a word clue and a pair clue, and a word of n > 4 bytes gives n - 3
+ * chunks more, which is still fewer than 2 per byte. */
 static size_t gateTextClues(const unsigned char *low, size_t len, uint64_t *clues) {
     const unsigned char *prev = NULL; /* the token before this one */
     size_t prevlen = 0, n = 0, i = 0;
@@ -94,7 +154,6 @@ static size_t gateTextClues(const unsigned char *low, size_t len, uint64_t *clue
     while (i < len) {
         const unsigned char *tok = low + i;
         size_t toklen, nchunks, k;
-        uint64_t h;
 
         if (gateIsWordByte(low[i])) {
             while (i < len && gateIsWordByte(low[i])) i++;
@@ -109,23 +168,14 @@ static size_t gateTextClues(const unsigned char *low, size_t len, uint64_t *clue
             continue;
         }
 
-        clues[n++] = gateHash(GATE_CLUE_WORD, tok, toklen);
-        if (prev != NULL) {
-            h = gateFnvByte(GATE_FNV_BASIS, GATE_CLUE_PAIR);
-            h = gateFnvBytes(h, prev, prevlen);
-            h = gateFnvByte(h, 0x00);
-            h = gateFnvBytes(h, tok, toklen);
-            clues[n++] = gateFmix64(h);
-        }
+        clues[n++] = gateHash(GATE_DOMAIN_WORD, tok, toklen);
+        if (prev != NULL) clues[n++] = gatePairHash(prev, prevlen, tok, toklen);
         /* Only a word can be longer than a chunk. */
         nchunks = toklen > GATE_CHUNK_BYTES ? toklen - GATE_CHUNK_BYTES + 1 : 0;
         for (k = 0; k < nchunks; k++) {
             unsigned char tag = k == 0 ? '^' : (k == nchunks - 1 ? '$' : '.');
 
-            h = gateFnvByte(GATE_FNV_BASIS, GATE_CLUE_CHUNK);
-            h = gateFnvByte(h, tag);
-            h = gateFnvBytes(h, tok + k, GATE_CHUNK_BYTES);
-            clues[n++] = gateFmix64(h);
+            clues[n++] = gateChunkHash(tag, tok + k);
         }
         prev = tok;
         prevlen = toklen;
@@ -143,9 +193,7 @@ static int gateContains(const unsigned char *s, size_t len, const char *needle) 
     return 0;
 }
 
-static uint64_t gateHintHash(const char *name) {
-    return gateHash(GATE_CLUE_HINT, name, strlen(name));
-}
+#define GATE_MAX_HINTS 3 /* a length, "link" and "code" */
 
 /* Hash the structural hints into 'clues' (room for GATE_MAX_HINTS) and
  * return how many there are. The length is that of the whole text; a link
@@ -174,36 +222,35 @@ static int gateClueCompare(const void *a, const void *b) {
     return (x > y) - (x < y);
 }
 
-/* ---------------------------------- Terms --------------------------------- */
+/* Build the text part of the vector in 'terms' and return how many terms it
+ * has. 'len' is the length of the prefix. 'low' (len bytes) and 'clues'
+ * (2 * len + GATE_MAX_HINTS hashes, which is also the room 'terms' needs)
+ * are scratch memory. */
+static size_t gateTextTerms(const char *text, size_t len, size_t text_len,
+                            unsigned char *low, uint64_t *clues, gateTerm *terms)
+{
+    size_t nclues, n = 0, i;
 
-/* One addition to the vector: 'val' goes to bucket 'idx'. */
-typedef struct gateTerm {
-    uint32_t idx;
-    double val;
-} gateTerm;
+    for (i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)text[i];
 
-/* Replace the terms of each bucket by their sum, in place, and return how
- * many are left: a bucket that sums to zero is dropped. 't' must be sorted
- * by bucket. If the squared norm of the result exceeds 'cap' it is scaled
- * down to exactly that norm. */
-static size_t gateSumBuckets(gateTerm *t, size_t n, double cap) {
-    double norm2 = 0.0, scale;
-    size_t i = 0, m = 0;
-
-    while (i < n) {
-        gateTerm sum = {t[i].idx, 0.0};
-
-        for (; i < n && t[i].idx == sum.idx; i++) sum.val += t[i].val;
-        if (sum.val == 0.0) continue;
-        norm2 += sum.val * sum.val;
-        t[m++] = sum;
+        low[i] = (c >= 'A' && c <= 'Z') ? (unsigned char)(c - 'A' + 'a') : c;
     }
-    if (norm2 > cap) {
-        scale = sqrt(cap / norm2);
-        for (i = 0; i < m; i++) t[i].val *= scale;
+    nclues = gateTextClues(low, len, clues);
+    nclues += gateHintClues(low, len, text_len, clues + nclues);
+
+    /* A clue counts once however often it occurs. */
+    qsort(clues, nclues, sizeof(*clues), gateClueCompare);
+    for (i = 0; i < nclues; i++) {
+        if (i > 0 && clues[i] == clues[i - 1]) continue;
+        terms[n].idx = (uint32_t)(clues[i] % GATE_DIM);
+        terms[n].val = (clues[i] >> 63) ? -1.0 : 1.0;
+        n++;
     }
-    return m;
+    return gateSumBuckets(terms, n, GATE_TEXT_NORM2_CAP);
 }
+
+/* ------------------------------- Named part ------------------------------- */
 
 /* 1 if two features have the same name. Names are compared byte for byte:
  * different names that hash alike share a bucket, they are not an error. */
@@ -217,13 +264,13 @@ static int gateNameIsRepeated(const gateNamedFeature *f, uint32_t n) {
     return 0;
 }
 
-/* Build the named part of the vector in 't' (room for 'n' terms) and return
+/* Build the named part of the vector in 'terms' (room for 'n') and return
  * how many terms it has. */
-static size_t gateNamedTerms(const gateNamedFeature *f, uint32_t n, gateTerm *t) {
+static size_t gateNamedTerms(const gateNamedFeature *f, uint32_t n, gateTerm *terms) {
     uint32_t i, j;
 
     for (i = 0; i < n; i++) {
-        uint64_t h = gateHash(GATE_CLUE_NAMED, f[i].name, f[i].name_len);
+        uint64_t h = gateHash(GATE_DOMAIN_NAMED, f[i].name, f[i].name_len);
         gateTerm term = {(uint32_t)(h % GATE_DIM), f[i].value};
 
         if (term.val > GATE_FEATURE_CLAMP) term.val = GATE_FEATURE_CLAMP;
@@ -231,16 +278,20 @@ static size_t gateNamedTerms(const gateNamedFeature *f, uint32_t n, gateTerm *t)
         /* Insertion sort. Names that share a bucket stay in the order of
          * the request, so their sum is rounded the same way wherever this
          * runs; qsort() makes no promise about equal keys. */
-        for (j = i; j > 0 && t[j - 1].idx > term.idx; j--) t[j] = t[j - 1];
-        t[j] = term;
+        for (j = i; j > 0 && terms[j - 1].idx > term.idx; j--) terms[j] = terms[j - 1];
+        terms[j] = term;
     }
-    return gateSumBuckets(t, n, GATE_FEATURE_NORM2_CAP);
+    return gateSumBuckets(terms, n, GATE_FEATURE_NORM2_CAP);
 }
+
+/* -------------------------------- Featurize ------------------------------- */
 
 /* Merge the text part and the named part (each sorted by bucket, one term
  * per bucket) into 'out'. A bucket is left out when the float stored for it
  * would be zero: the two parts cancel, or the value is too small for a
- * float, and a sparse vector holds no explicit zero. */
+ * float, and a sparse vector holds no explicit zero. The arrays have room
+ * for every term of both parts, which is exactly what is used unless that
+ * happens or the parts share a bucket. */
 static int gateMerge(const gateTerm *a, size_t na, const gateTerm *b, size_t nb,
                      gateSparse *out)
 {
@@ -274,8 +325,6 @@ static int gateMerge(const gateTerm *a, size_t na, const gateTerm *b, size_t nb,
     return GATE_OK;
 }
 
-/* ------------------------------- Featurize -------------------------------- */
-
 static int gateFeaturizeFailed(char *err, size_t errlen, const char *reason) {
     if (err != NULL && errlen > 0) snprintf(err, errlen, "%s", reason);
     return GATE_ERR;
@@ -285,12 +334,13 @@ int gateFeaturize(const char *text, size_t text_len,
                   const gateNamedFeature *features, uint32_t nfeatures,
                   gateSparse *out, char *err, size_t errlen)
 {
-    size_t len = text_len < GATE_TEXT_READ_BYTES ? text_len : GATE_TEXT_READ_BYTES;
-    size_t maxclues = 2 * len + GATE_MAX_HINTS;
-    size_t nclues, nterms = 0, nnamed, i;
-    gateTerm named[GATE_MAX_FEATURES], *terms;
+    size_t prefix = text_len < GATE_TEXT_READ_BYTES ? text_len : GATE_TEXT_READ_BYTES;
+    size_t maxclues = 2 * prefix + GATE_MAX_HINTS;
+    gateTerm named[GATE_MAX_FEATURES];
+    size_t nterms, nnamed;
     unsigned char *low;
     uint64_t *clues;
+    gateTerm *terms;
     int ret;
 
     if (nfeatures > GATE_MAX_FEATURES)
@@ -300,30 +350,13 @@ int gateFeaturize(const char *text, size_t text_len,
 
     /* One block of scratch memory, sized by the prefix: the clue hashes,
      * the terms they become, and the lowercased prefix. */
-    clues = gate_malloc(maxclues * (sizeof(*clues) + sizeof(*terms)) + len);
+    clues = gate_malloc(maxclues * (sizeof(*clues) + sizeof(*terms)) + prefix);
     if (clues == NULL) return gateFeaturizeFailed(err, errlen, "out of memory");
     terms = (gateTerm *)(clues + maxclues);
     low = (unsigned char *)(terms + maxclues);
 
-    for (i = 0; i < len; i++) {
-        unsigned char c = (unsigned char)text[i];
-
-        low[i] = (c >= 'A' && c <= 'Z') ? (unsigned char)(c - 'A' + 'a') : c;
-    }
-    nclues = gateTextClues(low, len, clues);
-    nclues += gateHintClues(low, len, text_len, clues + nclues);
-
-    /* A clue counts once however often it occurs. */
-    qsort(clues, nclues, sizeof(*clues), gateClueCompare);
-    for (i = 0; i < nclues; i++) {
-        if (i > 0 && clues[i] == clues[i - 1]) continue;
-        terms[nterms].idx = (uint32_t)(clues[i] % GATE_DIM);
-        terms[nterms].val = (clues[i] >> 63) ? -1.0 : 1.0;
-        nterms++;
-    }
-    nterms = gateSumBuckets(terms, nterms, GATE_TEXT_NORM2_CAP);
+    nterms = gateTextTerms(text, prefix, text_len, low, clues, terms);
     nnamed = gateNamedTerms(features, nfeatures, named);
-
     ret = gateMerge(terms, nterms, named, nnamed, out);
     gate_free(clues);
     if (ret != GATE_OK) return gateFeaturizeFailed(err, errlen, "out of memory");

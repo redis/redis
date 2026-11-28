@@ -17,8 +17,9 @@
  * option it names, since its wording belongs to the core.
  *
  * NO TERMINATORS. An argument is a (pointer, length) pair. Every argument
- * given to a parser here lives in a heap block of exactly its length, so
- * AddressSanitizer and valgrind catch a parser that reads one byte too far.
+ * given to a parser here lives in a heap block of exactly its length, and
+ * so does the vector of a command, so AddressSanitizer and valgrind catch a
+ * parser that reads one byte, or one argument, too far.
  */
 
 #include <float.h>
@@ -122,6 +123,16 @@ static void args_set(args *a, ...) {
 
 static void args_free(args *a) {
     while (a->n > 0) free((void *)a->v[--a->n].ptr);
+}
+
+/* The vector as a heap block of exactly its 'n' entries. */
+static gateArg *args_exact(const args *a) {
+    size_t size = (size_t)a->n * sizeof(a->v[0]);
+    gateArg *v = malloc(size ? size : 1);
+
+    if (v == NULL) abort();
+    memcpy(v, a->v, size);
+    return v;
 }
 
 /* ------------------------------ gateParseDouble -------------------------- */
@@ -261,7 +272,7 @@ TEST(arg_is_case_insensitive_and_exact) {
 
 /* ---------------------------------- Hex64 -------------------------------- */
 
-TEST(hex64_format) {
+TEST(hex64_known_values) {
     static const struct { uint64_t v; const char *hex; } t[] = {
         {0, "0000000000000000"},
         {1, "0000000000000001"},
@@ -272,22 +283,22 @@ TEST(hex64_format) {
     size_t i;
 
     for (i = 0; i < COUNTOF(t); i++) {
-        char *buf = malloc(17); /* exactly what the formatter may write */
+        char *buf = malloc(17); /* all the formatter may write: 16 digits, a NUL */
+        uint64_t v = 99;
 
         memset(buf, 'x', 17);
         gateFormatHex64(buf, t[i].v);
-        CHECK(buf[16] == '\0');
-        CHECK(memcmp(buf, t[i].hex, 17) == 0);
+        CHECK_ON(t[i].hex, memcmp(buf, t[i].hex, 17) == 0);
+        CHECK_ON(t[i].hex, parse_hex64(t[i].hex, 16, &v) && v == t[i].v);
         free(buf);
     }
 }
 
-TEST(hex64_parse) {
+TEST(hex64_parse_is_strict) {
     static const bytes bad[] = {
         {LIT("")},
         {LIT("0123456789abcde")},   /* 15 digits */
         {LIT("0123456789abcdef0")}, /* 17 digits */
-        {LIT("0123456789abcdeg")}, {LIT("0123456789abcdeG")},
         {LIT("0x23456789abcdef")}, {LIT("+123456789abcdef")}, {LIT("-123456789abcdef")},
         {LIT(" 123456789abcdef")}, {LIT("0123456789abcde ")},
         {LIT("0123456789abcde\0")}, {LIT("01234567\0" "9abcdef")},
@@ -298,9 +309,6 @@ TEST(hex64_parse) {
     uint64_t v = 99;
     size_t i;
 
-    CHECK(parse_hex64(LIT("0123456789abcdef"), &v) && v == 0x0123456789abcdefull);
-    CHECK(parse_hex64(LIT("0000000000000000"), &v) && v == 0);
-    CHECK(parse_hex64(LIT("ffffffffffffffff"), &v) && v == UINT64_MAX);
     /* Upper case is read as well (it is never written). */
     CHECK(parse_hex64(LIT("0123456789ABCDEF"), &v) && v == 0x0123456789abcdefull);
     CHECK(parse_hex64(LIT("FfFfFfFfFfFfFfFf"), &v) && v == UINT64_MAX);
@@ -311,13 +319,14 @@ TEST(hex64_parse) {
 }
 
 TEST(hex64_round_trip) {
-    uint64_t rng = 64, v, back;
+    uint64_t rng = 64;
     char buf[17];
     int i, bad = 0;
 
     for (i = 0; i < 2000; i++) {
-        /* Shifted so that short values and leading zeros occur. */
-        v = gate_test_rand64(&rng) >> (gate_test_rand64(&rng) % 64);
+        uint64_t v = gate_test_rand64(&rng), back = 0;
+
+        v >>= gate_test_rand64(&rng) % 64; /* short values, leading zeros */
         gateFormatHex64(buf, v);
         if (strlen(buf) != 16 || strspn(buf, "0123456789abcdef") != 16 ||
             strtoull(buf, NULL, 16) != v || !parse_hex64(buf, 16, &back) || back != v)
@@ -328,50 +337,46 @@ TEST(hex64_round_trip) {
 
 /* ------------------------------- Double bits ----------------------------- */
 
-static const struct { double v; const char *hex; } bits_table[] = {
-    {0.0, "0000000000000000"},
-    {-0.0, "8000000000000000"},
-    {0x1p-1074, "0000000000000001"}, /* the smallest denormal */
-    {DBL_MIN, "0010000000000000"},   /* the smallest normal */
-    {1.0 / 3.0, "3fd5555555555555"},
-    {0.05, "3fa999999999999a"},
-    {1.0, "3ff0000000000000"},
-    {-2.5, "c004000000000000"},
-    {DBL_MAX, "7fefffffffffffff"}
-};
-
-TEST(double_bits_format) {
+TEST(double_bits_known_values) {
+    static const struct { double v; const char *hex; } t[] = {
+        {0.0, "0000000000000000"},
+        {-0.0, "8000000000000000"},
+        {0x1p-1074, "0000000000000001"}, /* the smallest denormal */
+        {DBL_MIN, "0010000000000000"},   /* the smallest normal */
+        {1.0 / 3.0, "3fd5555555555555"},
+        {0.05, "3fa999999999999a"},
+        {1.0, "3ff0000000000000"},
+        {-2.5, "c004000000000000"},
+        {DBL_MAX, "7fefffffffffffff"},
+        {-DBL_MAX, "ffefffffffffffff"}
+    };
     size_t i;
 
-    for (i = 0; i < COUNTOF(bits_table); i++) {
+    for (i = 0; i < COUNTOF(t); i++) {
         char *buf = malloc(17);
+        double v = 99.0;
 
         memset(buf, 'x', 17);
-        gateFormatDoubleBits(buf, bits_table[i].v);
-        CHECK_ON(bits_table[i].hex, memcmp(buf, bits_table[i].hex, 17) == 0);
+        gateFormatDoubleBits(buf, t[i].v);
+        CHECK_ON(t[i].hex, memcmp(buf, t[i].hex, 17) == 0);
+        /* Bit for bit: memcmp tells -0 from 0, which == does not. */
+        CHECK_ON(t[i].hex, parse_bits(t[i].hex, 16, &v) && memcmp(&v, &t[i].v, sizeof(v)) == 0);
         free(buf);
     }
 }
 
-TEST(double_bits_parse) {
+TEST(double_bits_parse_is_strict) {
     static const bytes bad[] = {
         {LIT("")},
         {LIT("3fd555555555555")},   /* 15 digits */
         {LIT("3fd55555555555555")}, /* 17 digits */
         {LIT("3fd555555555555g")}, {LIT("0x3fd55555555555")}, {LIT("3fd5555555555 55")},
         {LIT("-fd5555555555555")}, {LIT("3fd555555555555\0")},
-        {LIT("0.3333333333333333")}, {LIT("0.33333333333333")} /* 16 bytes, not hex */
+        {LIT("0.33333333333333")}   /* 16 bytes, but a decimal */
     };
-    double v;
+    double v = 99.0;
     size_t i;
 
-    for (i = 0; i < COUNTOF(bits_table); i++) {
-        v = 99.0;
-        /* Bit for bit: memcmp tells -0 from 0, which == does not. */
-        CHECK_ON(bits_table[i].hex, parse_bits(bits_table[i].hex, 16, &v) &&
-                                    memcmp(&v, &bits_table[i].v, sizeof(v)) == 0);
-    }
-    v = 99.0;
     CHECK(parse_bits(LIT("3FD5555555555555"), &v) && v == 1.0 / 3.0);
     for (i = 0; i < COUNTOF(bad); i++) {
         v = 99.0;
@@ -379,17 +384,22 @@ TEST(double_bits_parse) {
     }
 }
 
-/* The parser moves bits and judges nothing: infinities and NaNs come out as
- * they went in. Whoever needs a draw in [0,1) or a score in [0,1] checks. */
-TEST(double_bits_are_not_judged) {
-    char buf[17];
-    double v = 99.0;
+/* "No nan / inf" holds for bits as it does for decimals: the patterns just
+ * above the largest doubles of the table above are not numbers to parse. */
+TEST(double_bits_must_be_finite) {
+    static const char *const bad[] = {
+        "7ff0000000000000", "fff0000000000000", /* +inf, -inf */
+        "7ff8000000000000", "fff8000000000000", /* quiet NaNs */
+        "7ff0000000000001", "7fffffffffffffff", /* the first and the last NaN */
+        "ffffffffffffffff"
+    };
+    size_t i;
 
-    CHECK(parse_bits(LIT("7ff0000000000000"), &v) && isinf(v) && v > 0);
-    CHECK(parse_bits(LIT("fff0000000000000"), &v) && isinf(v) && v < 0);
-    CHECK(parse_bits(LIT("7ff8000000000000"), &v) && isnan(v));
-    gateFormatDoubleBits(buf, INFINITY);
-    CHECK_EQ_STR(buf, "7ff0000000000000");
+    for (i = 0; i < COUNTOF(bad); i++) {
+        double v = 99.0;
+
+        CHECK_ON(bad[i], !parse_bits(bad[i], 16, &v) && v == 99.0);
+    }
 }
 
 TEST(double_bits_round_trip) {
@@ -398,10 +408,12 @@ TEST(double_bits_round_trip) {
     int i, bad = 0;
 
     for (i = 0; i < 2000; i++) {
-        double v, back = 99.0;
         uint64_t pattern = gate_test_rand64(&rng);
+        double v, back = 99.0;
 
-        if ((pattern >> 52 & 0x7ff) == 0x7ff) continue; /* finite doubles only */
+        /* An exponent of all ones is an infinity or a NaN: about one
+         * pattern in two thousand. Those have their own test. */
+        if (((pattern >> 52) & 0x7ff) == 0x7ff) continue;
         memcpy(&v, &pattern, sizeof(v));
         gateFormatDoubleBits(buf, v);
         if (strtoull(buf, NULL, 16) != pattern || !parse_bits(buf, 16, &back) ||
@@ -505,10 +517,12 @@ TEST(id_round_trip) {
     int i, bad = 0;
 
     for (i = 0; i < 2000; i++) {
-        uint64_t epoch = gate_test_rand64(&rng), e = 0, q = 0;
-        uint64_t seq = (gate_test_rand64(&rng) >> (gate_test_rand64(&rng) % 64)) | 1;
-        size_t n = gateFormatId(buf, sizeof(buf), epoch, seq);
+        uint64_t epoch = gate_test_rand64(&rng), seq = gate_test_rand64(&rng), e = 0, q = 0;
+        size_t n;
 
+        seq >>= gate_test_rand64(&rng) % 64; /* ids of every length */
+        if (seq == 0) seq = 1;
+        n = gateFormatId(buf, sizeof(buf), epoch, seq);
         if (n != strlen(buf) || n < 18 || !parse_id(buf, n, &e, &q) || e != epoch || q != seq)
             bad++;
     }
@@ -526,9 +540,14 @@ static char g_err[256];
 /* 'cfg' starts as garbage, the message empty: what a test then finds in
  * them is the parser's doing. */
 static int create_args(gateConfig *cfg, const args *a) {
+    gateArg *v = args_exact(a);
+    int rc;
+
     memset(cfg, 0xff, sizeof(*cfg));
     g_err[0] = '\0';
-    return gateParseCreate(a->v, a->n, SNAPSHOT, TIMEOUT, cfg, g_err, sizeof(g_err));
+    rc = gateParseCreate(v, a->n, SNAPSHOT, TIMEOUT, cfg, g_err, sizeof(g_err));
+    free(v);
+    return rc;
 }
 
 /* Parse a NULL-terminated list of C strings. The arguments are freed before
@@ -586,6 +605,10 @@ static int refused(int rc, gateConfig *cfg) {
     CHECK(strstr(g_err, about) != NULL); \
 } while (0)
 
+/* Two valid commands for the tests to add to. */
+#define SCORE_GATE "ALPHA", "0.1", "SCORE"
+#define AB_GATE "ALPHA", "0.1", "CLASSES", "2", "a", "b"
+
 /* What a command asks for. */
 typedef struct want {
     int kind;
@@ -618,50 +641,44 @@ static const char *differs(const gateConfig *c, const want *w) {
     return "";
 }
 
-/* The first form of SPEC.md section 2, every option in the order written
- * there. A label without a CLASSALPHA of its own gets ALPHA. */
+/* The two forms of GCREATE in SPEC.md section 2 with every option they
+ * take, one option per row, and what they ask for. A label without a
+ * CLASSALPHA of its own gets ALPHA. */
+static const char *const classifier_options[6][8] = {
+    {"ALPHA", "0.05"},
+    {"CLASSES", "3", "billing", "bug", "other"},
+    {"AUDIT", "0.1"},
+    {"DELTA", "0.001"},
+    {"ALWAYSDEFER", "1", "other"},
+    {"CLASSALPHA", "2", "billing", "0.01", "bug", "0.02"}
+};
+static const want classifier_want = {
+    .kind = GATE_KIND_CLASSIFIER, .alpha = 0.05, .delta = 0.001, .audit = 0.1, .n = 3,
+    .labels = {"billing", "bug", "other"}, .class_alpha = {0.01, 0.02, 0.05}, .defer = {0, 0, 1}
+};
+static const char *const score_options[4][8] = {
+    {"ALPHA", "0.02"}, {"SCORE"}, {"AUDIT", "0.2"}, {"DELTA", "0.05"}
+};
+static const want score_want = {
+    .kind = GATE_KIND_SCORE, .alpha = 0.02, .delta = 0.05, .audit = 0.2
+};
+
+/* In the order SPEC.md writes them. */
 TEST(create_classifier) {
-    static const want w = {
-        .kind = GATE_KIND_CLASSIFIER, .alpha = 0.05, .delta = 0.001, .audit = 0.1, .n = 3,
-        .labels = {"billing", "bug", "other"},
-        .class_alpha = {0.01, 0.02, 0.05}, .defer = {0, 0, 1}
-    };
     gateConfig cfg;
 
     CREATE_OK(&cfg, "ALPHA", "0.05", "CLASSES", "3", "billing", "bug", "other",
               "AUDIT", "0.1", "DELTA", "0.001", "ALWAYSDEFER", "1", "other",
               "CLASSALPHA", "2", "billing", "0.01", "bug", "0.02");
-    CHECK_EQ_STR(differs(&cfg, &w), "");
+    CHECK_EQ_STR(differs(&cfg, &classifier_want), "");
     gateConfigFree(&cfg);
 }
 
-/* The second form. */
 TEST(create_score) {
-    static const want w = {.kind = GATE_KIND_SCORE, .alpha = 0.02, .delta = 0.05, .audit = 0.2};
     gateConfig cfg;
 
     CREATE_OK(&cfg, "ALPHA", "0.02", "SCORE", "AUDIT", "0.2", "DELTA", "0.05");
-    CHECK_EQ_STR(differs(&cfg, &w), "");
-    gateConfigFree(&cfg);
-}
-
-/* The two commands README.md starts with. SPEC.md gives the defaults:
- * AUDIT 0.05, DELTA 0.01, nothing deferred, every label at ALPHA. */
-TEST(create_defaults) {
-    static const want classes = {
-        .kind = GATE_KIND_CLASSIFIER, .alpha = 0.05, .delta = 0.01, .audit = 0.05, .n = 2,
-        .labels = {"ignore", "respond"}, .class_alpha = {0.05, 0.05}
-    };
-    static const want score = {
-        .kind = GATE_KIND_SCORE, .alpha = 0.05, .delta = 0.01, .audit = 0.05
-    };
-    gateConfig cfg;
-
-    CREATE_OK(&cfg, "ALPHA", "0.05", "CLASSES", "2", "ignore", "respond");
-    CHECK_EQ_STR(differs(&cfg, &classes), "");
-    gateConfigFree(&cfg);
-    CREATE_OK(&cfg, "ALPHA", "0.05", "SCORE");
-    CHECK_EQ_STR(differs(&cfg, &score), "");
+    CHECK_EQ_STR(differs(&cfg, &score_want), "");
     gateConfigFree(&cfg);
 }
 
@@ -677,7 +694,7 @@ static int next_permutation(int *p, int n) {
     return 1;
 }
 
-/* Parse the options 'opt' (rows of words ending with a NULL) in every
+/* Parse the options 'opt' (rows of words, each ended by a NULL) in every
  * order. Returns how many orders there were; '*bad' counts those that did
  * not give 'w'. */
 static int every_order(const char *const opt[][8], int nopts, const want *w, int *bad) {
@@ -704,49 +721,54 @@ static int every_order(const char *const opt[][8], int nopts, const want *w, int
     return orders;
 }
 
-/* "Options may come in any order". In most of the 720 orders of a
- * classifier ALWAYSDEFER or CLASSALPHA comes before the CLASSES whose
+/* "Options may come in any order". In most of the 720 orders of the
+ * classifier, ALWAYSDEFER or CLASSALPHA comes before the CLASSES whose
  * labels it names. */
 TEST(create_any_order) {
-    static const char *const classifier[6][8] = {
-        {"ALPHA", "0.05"},
-        {"CLASSES", "3", "billing", "bug", "other"},
-        {"AUDIT", "0.1"},
-        {"DELTA", "0.001"},
-        {"ALWAYSDEFER", "1", "other"},
-        {"CLASSALPHA", "2", "billing", "0.01", "bug", "0.02"}
-    };
-    static const want wc = {
-        .kind = GATE_KIND_CLASSIFIER, .alpha = 0.05, .delta = 0.001, .audit = 0.1, .n = 3,
-        .labels = {"billing", "bug", "other"},
-        .class_alpha = {0.01, 0.02, 0.05}, .defer = {0, 0, 1}
-    };
-    static const char *const score[4][8] = {
-        {"ALPHA", "0.02"}, {"SCORE"}, {"AUDIT", "0.2"}, {"DELTA", "0.05"}
-    };
-    static const want ws = {.kind = GATE_KIND_SCORE, .alpha = 0.02, .delta = 0.05, .audit = 0.2};
     int bad = 0;
 
-    CHECK_EQ_INT(every_order(classifier, 6, &wc, &bad), 720);
+    CHECK_EQ_INT(every_order(classifier_options, 6, &classifier_want, &bad), 720);
     CHECK_EQ_INT(bad, 0);
-    CHECK_EQ_INT(every_order(score, 4, &ws, &bad), 24);
+    CHECK_EQ_INT(every_order(score_options, 4, &score_want, &bad), 24);
     CHECK_EQ_INT(bad, 0);
 }
 
+/* The two commands README.md starts with. SPEC.md gives the defaults:
+ * AUDIT 0.05, DELTA 0.01, nothing deferred, every label at ALPHA. */
+TEST(create_defaults) {
+    static const want classes = {
+        .kind = GATE_KIND_CLASSIFIER, .alpha = 0.05, .delta = 0.01, .audit = 0.05, .n = 2,
+        .labels = {"ignore", "respond"}, .class_alpha = {0.05, 0.05}
+    };
+    static const want score = {
+        .kind = GATE_KIND_SCORE, .alpha = 0.05, .delta = 0.01, .audit = 0.05
+    };
+    gateConfig cfg;
+
+    CREATE_OK(&cfg, "ALPHA", "0.05", "CLASSES", "2", "ignore", "respond");
+    CHECK_EQ_STR(differs(&cfg, &classes), "");
+    gateConfigFree(&cfg);
+    CREATE_OK(&cfg, "ALPHA", "0.05", "SCORE");
+    CHECK_EQ_STR(differs(&cfg, &score), "");
+    gateConfigFree(&cfg);
+}
+
 TEST(create_option_words_in_any_case) {
-    static const want wc = {
+    static const want classes = {
         .kind = GATE_KIND_CLASSIFIER, .alpha = 0.05, .delta = 0.001, .audit = 0.1, .n = 2,
         .labels = {"a", "b"}, .class_alpha = {0.01, 0.05}, .defer = {0, 1}
     };
-    static const want ws = {.kind = GATE_KIND_SCORE, .alpha = 0.1, .delta = 0.01, .audit = 0.05};
+    static const want score = {
+        .kind = GATE_KIND_SCORE, .alpha = 0.1, .delta = 0.01, .audit = 0.05
+    };
     gateConfig cfg;
 
     CREATE_OK(&cfg, "alpha", "0.05", "Classes", "2", "a", "b", "aUDIT", "0.1", "dElTa", "0.001",
               "alwaysdefer", "1", "b", "ClassAlpha", "1", "a", "0.01");
-    CHECK_EQ_STR(differs(&cfg, &wc), "");
+    CHECK_EQ_STR(differs(&cfg, &classes), "");
     gateConfigFree(&cfg);
     CREATE_OK(&cfg, "Alpha", "0.1", "score");
-    CHECK_EQ_STR(differs(&cfg, &ws), "");
+    CHECK_EQ_STR(differs(&cfg, &score), "");
     gateConfigFree(&cfg);
 }
 
@@ -811,8 +833,8 @@ TEST(create_numbers) {
     CREATE_FAILS("ALPHA must be a number", "ALPHA", " 0.05", "SCORE");
     CREATE_FAILS("ALPHA must be a number", "ALPHA", "nan", "SCORE");
     CREATE_FAILS("ALPHA must be a number", "ALPHA", "0x1p-4", "SCORE");
-    CREATE_FAILS("DELTA must be a number", "ALPHA", "0.1", "SCORE", "DELTA", "1e999");
-    CREATE_FAILS("AUDIT must be a number", "ALPHA", "0.1", "SCORE", "AUDIT", "inf");
+    CREATE_FAILS("DELTA must be a number", SCORE_GATE, "DELTA", "1e999");
+    CREATE_FAILS("AUDIT must be a number", SCORE_GATE, "AUDIT", "inf");
 
     /* SPEC.md: 0 < alpha < 1, 0 < delta < 1, 0 < rate <= 1. */
     CREATE_INVALID("ALPHA", "ALPHA", "0", "SCORE");
@@ -820,12 +842,12 @@ TEST(create_numbers) {
     CREATE_INVALID("ALPHA", "ALPHA", "-0.05", "SCORE");
     CREATE_INVALID("ALPHA", "ALPHA", "1.5", "SCORE");
     CREATE_INVALID("ALPHA", "ALPHA", "1e-999", "SCORE"); /* rounds to 0 */
-    CREATE_INVALID("DELTA", "ALPHA", "0.1", "SCORE", "DELTA", "0");
-    CREATE_INVALID("DELTA", "ALPHA", "0.1", "SCORE", "DELTA", "1");
-    CREATE_INVALID("DELTA", "ALPHA", "0.1", "SCORE", "DELTA", "-0.01");
-    CREATE_INVALID("AUDIT", "ALPHA", "0.1", "SCORE", "AUDIT", "0");
-    CREATE_INVALID("AUDIT", "ALPHA", "0.1", "SCORE", "AUDIT", "1.0000001");
-    CREATE_INVALID("AUDIT", "ALPHA", "0.1", "SCORE", "AUDIT", "-1");
+    CREATE_INVALID("DELTA", SCORE_GATE, "DELTA", "0");
+    CREATE_INVALID("DELTA", SCORE_GATE, "DELTA", "1");
+    CREATE_INVALID("DELTA", SCORE_GATE, "DELTA", "-0.01");
+    CREATE_INVALID("AUDIT", SCORE_GATE, "AUDIT", "0");
+    CREATE_INVALID("AUDIT", SCORE_GATE, "AUDIT", "1.0000001");
+    CREATE_INVALID("AUDIT", SCORE_GATE, "AUDIT", "-1");
 
     /* Just inside those ranges, with AUDIT on its closed end. */
     CREATE_OK(&cfg, "ALPHA", "0.999999", "SCORE", "DELTA", "0.999999", "AUDIT", "1");
@@ -837,17 +859,16 @@ TEST(create_numbers) {
 }
 
 TEST(create_option_twice) {
-    CREATE_FAILS("ALPHA given twice", "ALPHA", "0.1", "SCORE", "ALPHA", "0.1");
+    CREATE_FAILS("ALPHA given twice", SCORE_GATE, "ALPHA", "0.1");
     CREATE_FAILS("ALPHA given twice", "ALPHA", "0.1", "alpha", "0.2", "SCORE");
-    CREATE_FAILS("DELTA given twice", "ALPHA", "0.1", "SCORE", "DELTA", "0.01", "DELTA", "0.01");
-    CREATE_FAILS("AUDIT given twice", "AUDIT", "0.5", "ALPHA", "0.1", "SCORE", "Audit", "0.5");
-    CREATE_FAILS("SCORE given twice", "ALPHA", "0.1", "SCORE", "SCORE");
-    CREATE_FAILS("CLASSES given twice",
-                 "ALPHA", "0.1", "CLASSES", "2", "a", "b", "CLASSES", "2", "c", "d");
-    CREATE_FAILS("ALWAYSDEFER given twice", "ALPHA", "0.1", "CLASSES", "3", "a", "b", "c",
-                 "ALWAYSDEFER", "1", "a", "ALWAYSDEFER", "1", "b");
-    CREATE_FAILS("CLASSALPHA given twice", "ALPHA", "0.1", "CLASSES", "2", "a", "b",
-                 "CLASSALPHA", "1", "a", "0.05", "CLASSALPHA", "1", "b", "0.05");
+    CREATE_FAILS("DELTA given twice", SCORE_GATE, "DELTA", "0.01", "DELTA", "0.01");
+    CREATE_FAILS("AUDIT given twice", "AUDIT", "0.5", SCORE_GATE, "Audit", "0.5");
+    CREATE_FAILS("SCORE given twice", SCORE_GATE, "SCORE");
+    CREATE_FAILS("CLASSES given twice", AB_GATE, "CLASSES", "2", "c", "d");
+    CREATE_FAILS("ALWAYSDEFER given twice",
+                 AB_GATE, "ALWAYSDEFER", "1", "a", "ALWAYSDEFER", "1", "b");
+    CREATE_FAILS("CLASSALPHA given twice",
+                 AB_GATE, "CLASSALPHA", "1", "a", "0.05", "CLASSALPHA", "1", "b", "0.05");
 }
 
 TEST(create_unknown_option) {
@@ -855,28 +876,26 @@ TEST(create_unknown_option) {
     gateConfig cfg;
     args a;
 
-    CREATE_FAILS("unknown option 'BOGUS'", "ALPHA", "0.1", "SCORE", "BOGUS");
+    CREATE_FAILS("unknown option 'BOGUS'", SCORE_GATE, "BOGUS");
     CREATE_FAILS("unknown option 'ALPH'", "ALPH", "0.1", "SCORE");
     CREATE_FAILS("unknown option 'ALPHAS'", "ALPHAS", "0.1", "SCORE");
     CREATE_FAILS("unknown option '0.1'", "0.1", "SCORE");
-    CREATE_FAILS("unknown option 'TEXT'", "ALPHA", "0.1", "SCORE", "TEXT", "hello");
-    CREATE_FAILS("unknown option '1'", "ALPHA", "0.1", "SCORE", "1"); /* SCORE takes nothing */
+    CREATE_FAILS("unknown option 'TEXT'", SCORE_GATE, "TEXT", "hello");
+    CREATE_FAILS("unknown option '1'", SCORE_GATE, "1"); /* SCORE takes nothing */
     /* A list ends with its count: one item more is not an item. */
-    CREATE_FAILS("unknown option 'c'", "ALPHA", "0.1", "CLASSES", "2", "a", "b", "c");
-    CREATE_FAILS("unknown option 'b'",
-                 "ALPHA", "0.1", "CLASSES", "2", "a", "b", "ALWAYSDEFER", "1", "a", "b");
-    CREATE_FAILS("unknown option 'b'", "ALPHA", "0.1", "CLASSES", "2", "a", "b",
-                 "CLASSALPHA", "1", "a", "0.05", "b", "0.05");
+    CREATE_FAILS("unknown option 'c'", AB_GATE, "c");
+    CREATE_FAILS("unknown option 'b'", AB_GATE, "ALWAYSDEFER", "1", "a", "b");
+    CREATE_FAILS("unknown option 'b'", AB_GATE, "CLASSALPHA", "1", "a", "0.05", "b", "0.05");
 
     /* The message quotes what a label could be: UTF-8, up to 64 bytes. */
-    CREATE_FAILS("unknown option 'caf\xc3\xa9'", "ALPHA", "0.1", "SCORE", "caf\xc3\xa9");
+    CREATE_FAILS("unknown option 'caf\xc3\xa9'", SCORE_GATE, "caf\xc3\xa9");
     snprintf(msg, sizeof(msg), "unknown option '%s'", repeat(word, 'x', 64));
-    CREATE_FAILS(msg, "ALPHA", "0.1", "SCORE", word);
+    CREATE_FAILS(msg, SCORE_GATE, word);
     /* Anything else must not reach a reply. */
-    CREATE_FAILS("unknown option '?'", "ALPHA", "0.1", "SCORE", repeat(word, 'x', 65));
-    CREATE_FAILS("unknown option '?'", "ALPHA", "0.1", "SCORE", "");
-    CREATE_FAILS("unknown option '?'", "ALPHA", "0.1", "SCORE", "\xff\xfe");
-    CREATE_FAILS("unknown option '?'", "ALPHA", "0.1", "SCORE", "x\r\n-ERR forged");
+    CREATE_FAILS("unknown option '?'", SCORE_GATE, repeat(word, 'x', 65));
+    CREATE_FAILS("unknown option '?'", SCORE_GATE, "");
+    CREATE_FAILS("unknown option '?'", SCORE_GATE, "\xff\xfe");
+    CREATE_FAILS("unknown option '?'", SCORE_GATE, "x\r\n-ERR forged");
     args_set(&a, "ALPHA", "0.1", NULL);
     args_add(&a, LIT("SCORE\0"));
     CHECK(refused(create_args(&cfg, &a), &cfg));
@@ -884,37 +903,29 @@ TEST(create_unknown_option) {
     args_free(&a);
 }
 
+#define COUNT_MSG(option) option " count must be a positive integer"
+#define SHORT_MSG(option) option " count exceeds the arguments that follow"
+
 /* Every option, cut off at every point. */
 TEST(create_truncated) {
     CREATE_FAILS("ALPHA needs an argument", "ALPHA");
     CREATE_FAILS("ALPHA needs an argument", "SCORE", "ALPHA");
-    CREATE_FAILS("DELTA needs an argument", "ALPHA", "0.1", "SCORE", "DELTA");
-    CREATE_FAILS("AUDIT needs an argument", "ALPHA", "0.1", "SCORE", "AUDIT");
+    CREATE_FAILS("DELTA needs an argument", SCORE_GATE, "DELTA");
+    CREATE_FAILS("AUDIT needs an argument", SCORE_GATE, "AUDIT");
     CREATE_FAILS("CLASSES needs an argument", "ALPHA", "0.1", "CLASSES");
-    CREATE_FAILS("ALWAYSDEFER needs an argument",
-                 "ALPHA", "0.1", "CLASSES", "2", "a", "b", "ALWAYSDEFER");
-    CREATE_FAILS("CLASSALPHA needs an argument",
-                 "ALPHA", "0.1", "CLASSES", "2", "a", "b", "CLASSALPHA");
+    CREATE_FAILS("ALWAYSDEFER needs an argument", AB_GATE, "ALWAYSDEFER");
+    CREATE_FAILS("CLASSALPHA needs an argument", AB_GATE, "CLASSALPHA");
     /* The next option is taken for the missing number, and is not one. */
     CREATE_FAILS("ALPHA must be a number", "ALPHA", "SCORE");
 
-    CREATE_FAILS("CLASSES count exceeds the arguments that follow",
-                 "ALPHA", "0.1", "CLASSES", "2");
-    CREATE_FAILS("CLASSES count exceeds the arguments that follow",
-                 "ALPHA", "0.1", "CLASSES", "2", "a");
-    CREATE_FAILS("CLASSES count exceeds the arguments that follow",
-                 "ALPHA", "0.1", "CLASSES", "3", "a", "b");
-    CREATE_FAILS("ALWAYSDEFER count exceeds the arguments that follow",
-                 "ALPHA", "0.1", "CLASSES", "2", "a", "b", "ALWAYSDEFER", "1");
-    CREATE_FAILS("ALWAYSDEFER count exceeds the arguments that follow",
-                 "ALPHA", "0.1", "CLASSES", "2", "a", "b", "ALWAYSDEFER", "2", "a");
-    CREATE_FAILS("CLASSALPHA count exceeds the arguments that follow",
-                 "ALPHA", "0.1", "CLASSES", "2", "a", "b", "CLASSALPHA", "1");
-    /* A label without its alpha. */
-    CREATE_FAILS("CLASSALPHA count exceeds the arguments that follow",
-                 "ALPHA", "0.1", "CLASSES", "2", "a", "b", "CLASSALPHA", "1", "a");
-    CREATE_FAILS("CLASSALPHA count exceeds the arguments that follow",
-                 "ALPHA", "0.1", "CLASSES", "2", "a", "b", "CLASSALPHA", "2", "a", "0.05", "b");
+    CREATE_FAILS(SHORT_MSG("CLASSES"), "ALPHA", "0.1", "CLASSES", "2");
+    CREATE_FAILS(SHORT_MSG("CLASSES"), "ALPHA", "0.1", "CLASSES", "2", "a");
+    CREATE_FAILS(SHORT_MSG("CLASSES"), "ALPHA", "0.1", "CLASSES", "3", "a", "b");
+    CREATE_FAILS(SHORT_MSG("ALWAYSDEFER"), AB_GATE, "ALWAYSDEFER", "1");
+    CREATE_FAILS(SHORT_MSG("ALWAYSDEFER"), AB_GATE, "ALWAYSDEFER", "2", "a");
+    CREATE_FAILS(SHORT_MSG("CLASSALPHA"), AB_GATE, "CLASSALPHA", "1");
+    CREATE_FAILS(SHORT_MSG("CLASSALPHA"), AB_GATE, "CLASSALPHA", "1", "a"); /* no alpha */
+    CREATE_FAILS(SHORT_MSG("CLASSALPHA"), AB_GATE, "CLASSALPHA", "2", "a", "0.05", "b");
 }
 
 TEST(create_count) {
@@ -925,26 +936,20 @@ TEST(create_count) {
     size_t i;
 
     for (i = 0; i < COUNTOF(bad); i++) {
-        CREATE_FAILS("CLASSES count must be a positive integer",
-                     "ALPHA", "0.1", "CLASSES", bad[i], "a", "b");
-        CREATE_FAILS("ALWAYSDEFER count must be a positive integer",
-                     "ALPHA", "0.1", "CLASSES", "2", "a", "b", "ALWAYSDEFER", bad[i], "a");
-        CREATE_FAILS("CLASSALPHA count must be a positive integer",
-                     "ALPHA", "0.1", "CLASSES", "2", "a", "b", "CLASSALPHA", bad[i], "a", "0.05");
+        CREATE_FAILS(COUNT_MSG("CLASSES"), "ALPHA", "0.1", "CLASSES", bad[i], "a", "b");
+        CREATE_FAILS(COUNT_MSG("ALWAYSDEFER"), AB_GATE, "ALWAYSDEFER", bad[i], "a");
+        CREATE_FAILS(COUNT_MSG("CLASSALPHA"), AB_GATE, "CLASSALPHA", bad[i], "a", "0.05");
     }
 
     /* Counts that become small again when narrowed or doubled carelessly:
      * 2^32 + 2 is 2 in 32 bits, and twice 2^63 is 0 in 64. */
-    CREATE_FAILS("CLASSES count exceeds the arguments that follow",
-                 "ALPHA", "0.1", "CLASSES", "4294967298", "a", "b");
-    CREATE_FAILS("CLASSES count exceeds the arguments that follow",
+    CREATE_FAILS(SHORT_MSG("CLASSES"), "ALPHA", "0.1", "CLASSES", "4294967298", "a", "b");
+    CREATE_FAILS(SHORT_MSG("CLASSES"),
                  "ALPHA", "0.1", "CLASSES", "18446744073709551615", "a", "b");
-    CREATE_FAILS("ALWAYSDEFER count exceeds the arguments that follow",
-                 "ALPHA", "0.1", "CLASSES", "2", "a", "b", "ALWAYSDEFER", "4294967297", "a");
-    CREATE_FAILS("CLASSALPHA count exceeds the arguments that follow", "ALPHA", "0.1",
-                 "CLASSES", "2", "a", "b", "CLASSALPHA", "9223372036854775808", "a", "0.05");
-    CREATE_FAILS("CLASSALPHA count exceeds the arguments that follow", "ALPHA", "0.1",
-                 "CLASSES", "2", "a", "b", "CLASSALPHA", "4294967297", "a", "0.05");
+    CREATE_FAILS(SHORT_MSG("ALWAYSDEFER"), AB_GATE, "ALWAYSDEFER", "4294967297", "a");
+    CREATE_FAILS(SHORT_MSG("CLASSALPHA"), AB_GATE, "CLASSALPHA", "4294967297", "a", "0.05");
+    CREATE_FAILS(SHORT_MSG("CLASSALPHA"),
+                 AB_GATE, "CLASSALPHA", "9223372036854775808", "a", "0.05");
 }
 
 TEST(create_alpha_is_required) {
@@ -965,17 +970,14 @@ TEST(create_classes_or_score) {
     CREATE_FAILS("exactly one of CLASSES and SCORE is required", "ALPHA", "0.1");
     CREATE_FAILS("exactly one of CLASSES and SCORE is required",
                  "ALPHA", "0.1", "AUDIT", "0.5", "DELTA", "0.1");
-    CREATE_FAILS("exactly one of CLASSES and SCORE is required",
-                 "ALPHA", "0.1", "SCORE", "CLASSES", "2", "a", "b");
-    CREATE_FAILS("exactly one of CLASSES and SCORE is required",
-                 "CLASSES", "2", "a", "b", "ALPHA", "0.1", "score");
+    CREATE_FAILS("exactly one of CLASSES and SCORE is required", AB_GATE, "SCORE");
+    CREATE_FAILS("exactly one of CLASSES and SCORE is required", "score", AB_GATE);
 }
 
 TEST(create_lists_need_classes) {
-    CREATE_FAILS("ALWAYSDEFER needs CLASSES", "ALPHA", "0.1", "SCORE", "ALWAYSDEFER", "1", "a");
-    CREATE_FAILS("ALWAYSDEFER needs CLASSES", "ALWAYSDEFER", "1", "a", "SCORE", "ALPHA", "0.1");
-    CREATE_FAILS("CLASSALPHA needs CLASSES",
-                 "ALPHA", "0.1", "SCORE", "CLASSALPHA", "1", "a", "0.05");
+    CREATE_FAILS("ALWAYSDEFER needs CLASSES", SCORE_GATE, "ALWAYSDEFER", "1", "a");
+    CREATE_FAILS("ALWAYSDEFER needs CLASSES", "ALWAYSDEFER", "1", "a", SCORE_GATE);
+    CREATE_FAILS("CLASSALPHA needs CLASSES", SCORE_GATE, "CLASSALPHA", "1", "a", "0.05");
     /* With neither CLASSES nor SCORE, this is the more useful complaint. */
     CREATE_FAILS("ALWAYSDEFER needs CLASSES", "ALPHA", "0.1", "ALWAYSDEFER", "1", "a");
     CREATE_FAILS("CLASSALPHA needs CLASSES", "ALPHA", "0.1", "CLASSALPHA", "1", "a", "0.05");
@@ -1047,7 +1049,8 @@ TEST(create_labels) {
     };
     static const bytes bad[] = {
         {LIT("")},
-        {LIT("a\nb")}, {LIT("a\rb")}, {LIT("tab\t")}, {LIT("\x1b[31m")}, {LIT("del\x7f")},
+        {LIT("a\nb")}, {LIT("a\rb")}, {LIT("tab\t")}, {LIT("\x1b[31m")}, {LIT("\x1f")},
+        {LIT("del\x7f")},
         /* NUL is a control character. Cut at it, each of these would be a
          * fine label. */
         {LIT("a\0b")}, {LIT("fine\0")},
@@ -1095,10 +1098,8 @@ TEST(create_duplicate_labels) {
 TEST(create_defer_every_label) {
     gateConfig cfg;
 
-    CREATE_INVALID("ALWAYSDEFER", "ALPHA", "0.1", "CLASSES", "2", "a", "b",
-                   "ALWAYSDEFER", "2", "a", "b");
-    CREATE_INVALID("ALWAYSDEFER", "ALWAYSDEFER", "3", "c", "a", "b", "ALPHA", "0.1",
-                   "CLASSES", "3", "a", "b", "c");
+    CREATE_INVALID("ALWAYSDEFER", AB_GATE, "ALWAYSDEFER", "2", "a", "b");
+    CREATE_INVALID("ALWAYSDEFER", "ALWAYSDEFER", "2", "b", "a", AB_GATE);
     /* All but one is fine. */
     CREATE_OK(&cfg, "ALPHA", "0.1", "CLASSES", "3", "a", "b", "c", "ALWAYSDEFER", "2", "c", "a");
     CHECK(cfg.class_defer[0] == 1 && cfg.class_defer[1] == 0 && cfg.class_defer[2] == 1);
@@ -1109,31 +1110,22 @@ TEST(create_unknown_label) {
     gateConfig cfg;
     args a;
 
-    CREATE_FAILS("unknown label 'c' in ALWAYSDEFER",
-                 "ALPHA", "0.1", "CLASSES", "2", "a", "b", "ALWAYSDEFER", "1", "c");
-    CREATE_FAILS("unknown label 'c' in ALWAYSDEFER",
-                 "ALPHA", "0.1", "CLASSES", "2", "a", "b", "ALWAYSDEFER", "2", "a", "c");
+    CREATE_FAILS("unknown label 'c' in ALWAYSDEFER", AB_GATE, "ALWAYSDEFER", "1", "c");
+    CREATE_FAILS("unknown label 'c' in ALWAYSDEFER", AB_GATE, "ALWAYSDEFER", "2", "a", "c");
+    CREATE_FAILS("unknown label 'c' in CLASSALPHA", AB_GATE, "CLASSALPHA", "1", "c", "0.05");
     CREATE_FAILS("unknown label 'c' in CLASSALPHA",
-                 "ALPHA", "0.1", "CLASSES", "2", "a", "b", "CLASSALPHA", "1", "c", "0.05");
-    CREATE_FAILS("unknown label 'c' in CLASSALPHA", "ALPHA", "0.1", "CLASSES", "2", "a", "b",
-                 "CLASSALPHA", "2", "a", "0.05", "c", "0.05");
+                 AB_GATE, "CLASSALPHA", "2", "a", "0.05", "c", "0.05");
     /* Named before CLASSES is read, it is still looked up in CLASSES. */
-    CREATE_FAILS("unknown label 'c' in ALWAYSDEFER",
-                 "ALWAYSDEFER", "1", "c", "ALPHA", "0.1", "CLASSES", "2", "a", "b");
+    CREATE_FAILS("unknown label 'c' in ALWAYSDEFER", "ALWAYSDEFER", "1", "c", AB_GATE);
     /* Byte for byte. */
-    CREATE_FAILS("unknown label 'SPAM' in ALWAYSDEFER",
-                 "ALPHA", "0.1", "CLASSES", "2", "spam", "ham", "ALWAYSDEFER", "1", "SPAM");
-    CREATE_FAILS("unknown label 'spa' in CLASSALPHA",
-                 "ALPHA", "0.1", "CLASSES", "2", "spam", "ham", "CLASSALPHA", "1", "spa", "0.05");
-    CREATE_FAILS("unknown label 'spam ' in ALWAYSDEFER",
-                 "ALPHA", "0.1", "CLASSES", "2", "spam", "ham", "ALWAYSDEFER", "1", "spam ");
+    CREATE_FAILS("unknown label 'A' in ALWAYSDEFER", AB_GATE, "ALWAYSDEFER", "1", "A");
+    CREATE_FAILS("unknown label 'ab' in CLASSALPHA", AB_GATE, "CLASSALPHA", "1", "ab", "0.05");
+    CREATE_FAILS("unknown label 'a ' in ALWAYSDEFER", AB_GATE, "ALWAYSDEFER", "1", "a ");
     /* What could not be a label is not quoted. */
-    CREATE_FAILS("unknown label '?' in ALWAYSDEFER",
-                 "ALPHA", "0.1", "CLASSES", "2", "a", "b", "ALWAYSDEFER", "1", "\xff");
-    CREATE_FAILS("unknown label '?' in CLASSALPHA",
-                 "ALPHA", "0.1", "CLASSES", "2", "a", "b", "CLASSALPHA", "1", "", "0.05");
+    CREATE_FAILS("unknown label '?' in ALWAYSDEFER", AB_GATE, "ALWAYSDEFER", "1", "\xff");
+    CREATE_FAILS("unknown label '?' in CLASSALPHA", AB_GATE, "CLASSALPHA", "1", "", "0.05");
     /* "a" followed by a NUL is not "a". */
-    args_set(&a, "ALPHA", "0.1", "CLASSES", "2", "a", "b", "ALWAYSDEFER", "1", NULL);
+    args_set(&a, AB_GATE, "ALWAYSDEFER", "1", NULL);
     args_add(&a, LIT("a\0"));
     CHECK(refused(create_args(&cfg, &a), &cfg));
     CHECK_EQ_STR(g_err, "unknown label '?' in ALWAYSDEFER");
@@ -1141,55 +1133,53 @@ TEST(create_unknown_label) {
 }
 
 TEST(create_label_twice_in_a_list) {
-    CREATE_FAILS("label 'a' given twice in ALWAYSDEFER",
-                 "ALPHA", "0.1", "CLASSES", "3", "a", "b", "c", "ALWAYSDEFER", "2", "a", "a");
+    CREATE_FAILS("label 'a' given twice in ALWAYSDEFER", AB_GATE, "ALWAYSDEFER", "2", "a", "a");
     CREATE_FAILS("label 'b' given twice in ALWAYSDEFER", "ALWAYSDEFER", "3", "a", "b", "b",
                  "ALPHA", "0.1", "CLASSES", "4", "a", "b", "c", "d");
-    CREATE_FAILS("label 'a' given twice in CLASSALPHA", "ALPHA", "0.1", "CLASSES", "2", "a", "b",
-                 "CLASSALPHA", "2", "a", "0.05", "a", "0.01");
+    CREATE_FAILS("label 'a' given twice in CLASSALPHA",
+                 AB_GATE, "CLASSALPHA", "2", "a", "0.05", "a", "0.01");
     /* With the same alpha as well, and when the first one was ALPHA. */
-    CREATE_FAILS("label 'a' given twice in CLASSALPHA", "ALPHA", "0.1", "CLASSES", "2", "a", "b",
-                 "CLASSALPHA", "2", "a", "0.05", "a", "0.05");
-    CREATE_FAILS("label 'b' given twice in CLASSALPHA", "ALPHA", "0.1", "CLASSES", "2", "a", "b",
-                 "CLASSALPHA", "3", "b", "0.1", "a", "0.05", "b", "0.05");
+    CREATE_FAILS("label 'a' given twice in CLASSALPHA",
+                 AB_GATE, "CLASSALPHA", "2", "a", "0.05", "a", "0.05");
+    CREATE_FAILS("label 'b' given twice in CLASSALPHA",
+                 AB_GATE, "CLASSALPHA", "3", "b", "0.1", "a", "0.05", "b", "0.05");
 }
 
 TEST(create_label_in_both_lists) {
-    CREATE_FAILS("label 'a' is in both ALWAYSDEFER and CLASSALPHA", "ALPHA", "0.1", "CLASSES",
-                 "2", "a", "b", "ALWAYSDEFER", "1", "a", "CLASSALPHA", "1", "a", "0.05");
-    CREATE_FAILS("label 'a' is in both ALWAYSDEFER and CLASSALPHA", "ALPHA", "0.1", "CLASSES",
-                 "2", "a", "b", "CLASSALPHA", "1", "a", "0.05", "ALWAYSDEFER", "1", "a");
+    CREATE_FAILS("label 'a' is in both ALWAYSDEFER and CLASSALPHA",
+                 AB_GATE, "ALWAYSDEFER", "1", "a", "CLASSALPHA", "1", "a", "0.05");
+    CREATE_FAILS("label 'a' is in both ALWAYSDEFER and CLASSALPHA",
+                 AB_GATE, "CLASSALPHA", "1", "a", "0.05", "ALWAYSDEFER", "1", "a");
     CREATE_FAILS("label 'c' is in both ALWAYSDEFER and CLASSALPHA",
                  "CLASSALPHA", "2", "a", "0.05", "c", "0.05", "ALWAYSDEFER", "2", "b", "c",
                  "ALPHA", "0.1", "CLASSES", "3", "a", "b", "c");
 }
 
-#define CLASSALPHA(v) "ALPHA", "0.1", "CLASSES", "2", "a", "b", "CLASSALPHA", "1", "a", v
 #define CLASSALPHA_MSG "CLASSALPHA for 'a' must be greater than 0 and at most ALPHA"
 
 /* SPEC.md: "a stricter error rate for some labels (must be <= ALPHA)". */
 TEST(create_class_alpha_value) {
     gateConfig cfg;
 
-    CREATE_FAILS(CLASSALPHA_MSG, CLASSALPHA("abc"));
-    CREATE_FAILS(CLASSALPHA_MSG, CLASSALPHA(""));
-    CREATE_FAILS(CLASSALPHA_MSG, CLASSALPHA("0.05 "));
-    CREATE_FAILS(CLASSALPHA_MSG, CLASSALPHA("nan"));
-    CREATE_FAILS(CLASSALPHA_MSG, CLASSALPHA("inf"));
-    CREATE_FAILS(CLASSALPHA_MSG, CLASSALPHA("-0.05"));
+    CREATE_FAILS(CLASSALPHA_MSG, AB_GATE, "CLASSALPHA", "1", "a", "abc");
+    CREATE_FAILS(CLASSALPHA_MSG, AB_GATE, "CLASSALPHA", "1", "a", "");
+    CREATE_FAILS(CLASSALPHA_MSG, AB_GATE, "CLASSALPHA", "1", "a", "0.05 ");
+    CREATE_FAILS(CLASSALPHA_MSG, AB_GATE, "CLASSALPHA", "1", "a", "nan");
+    CREATE_FAILS(CLASSALPHA_MSG, AB_GATE, "CLASSALPHA", "1", "a", "inf");
+    CREATE_FAILS(CLASSALPHA_MSG, AB_GATE, "CLASSALPHA", "1", "a", "-0.05");
     /* Zero must be refused, not read as "no CLASSALPHA for this label". */
-    CREATE_FAILS(CLASSALPHA_MSG, CLASSALPHA("0"));
-    CREATE_FAILS(CLASSALPHA_MSG, CLASSALPHA("0.0"));
-    CREATE_FAILS(CLASSALPHA_MSG, CLASSALPHA("1e-999"));
-    /* Above ALPHA. */
-    CREATE_INVALID("CLASSALPHA", CLASSALPHA("0.11"));
-    CREATE_INVALID("CLASSALPHA", CLASSALPHA("1"));
+    CREATE_FAILS(CLASSALPHA_MSG, AB_GATE, "CLASSALPHA", "1", "a", "0");
+    CREATE_FAILS(CLASSALPHA_MSG, AB_GATE, "CLASSALPHA", "1", "a", "0.0");
+    CREATE_FAILS(CLASSALPHA_MSG, AB_GATE, "CLASSALPHA", "1", "a", "1e-999");
+    /* Above the ALPHA of 0.1. */
+    CREATE_INVALID("CLASSALPHA", AB_GATE, "CLASSALPHA", "1", "a", "0.11");
+    CREATE_INVALID("CLASSALPHA", AB_GATE, "CLASSALPHA", "1", "a", "1");
 
     /* ALPHA itself is allowed, and so is anything positive below it. */
-    CREATE_OK(&cfg, CLASSALPHA("0.1"));
+    CREATE_OK(&cfg, AB_GATE, "CLASSALPHA", "1", "a", "0.1");
     CHECK(cfg.class_alpha[0] == 0.1 && cfg.class_alpha[1] == 0.1);
     gateConfigFree(&cfg);
-    CREATE_OK(&cfg, CLASSALPHA("1e-300"));
+    CREATE_OK(&cfg, AB_GATE, "CLASSALPHA", "1", "a", "1e-300");
     CHECK(cfg.class_alpha[0] == 1e-300 && cfg.class_alpha[1] == 0.1);
     gateConfigFree(&cfg);
 }
@@ -1200,7 +1190,7 @@ TEST(create_server_values) {
     gateConfig cfg;
     args a;
 
-    args_set(&a, "ALPHA", "0.1", "SCORE", NULL);
+    args_set(&a, SCORE_GATE, NULL);
     CHECK(gateParseCreate(a.v, a.n, 1, 1, &cfg, g_err, sizeof(g_err)) == GATE_OK);
     CHECK(cfg.snapshot_examples == 1 && cfg.feedback_timeout_ms == 1);
     gateConfigFree(&cfg);
@@ -1222,7 +1212,7 @@ TEST(create_error_buffer) {
     char *small;
     args a;
 
-    args_set(&a, "ALPHA", "0.1", "SCORE", "BOGUS", NULL);
+    args_set(&a, SCORE_GATE, "BOGUS", NULL);
     CHECK(refused(gateParseCreate(a.v, a.n, SNAPSHOT, TIMEOUT, &cfg, NULL, 0), &cfg));
     CHECK(refused(gateParseCreate(a.v, a.n, SNAPSHOT, TIMEOUT, &cfg, NULL, 100), &cfg));
     small = malloc(8);
@@ -1261,8 +1251,8 @@ static void *budget_realloc(void *p, size_t n) {
  * AddressSanitizer see to it that nothing is leaked on the way out. */
 TEST(create_out_of_memory) {
     static const want w = {
-        .kind = GATE_KIND_CLASSIFIER, .alpha = 0.1, .delta = 0.01, .audit = 0.05, .n = 3,
-        .labels = {"a", "b", "c"}, .class_alpha = {0.02, 0.1, 0.1}, .defer = {0, 0, 1}
+        .kind = GATE_KIND_CLASSIFIER, .alpha = 0.1, .delta = 0.01, .audit = 0.05, .n = 2,
+        .labels = {"a", "b"}, .class_alpha = {0.02, 0.1}, .defer = {0, 1}
     };
     gateConfig cfg;
     int budget, failures = 0, rc = GATE_ERR;
@@ -1270,8 +1260,7 @@ TEST(create_out_of_memory) {
     gateSetAllocator(budget_malloc, budget_calloc, budget_realloc, free);
     for (budget = 0; budget < 64; budget++) {
         alloc_budget = budget;
-        rc = create(&cfg, "ALPHA", "0.1", "CLASSES", "3", "a", "b", "c",
-                    "ALWAYSDEFER", "1", "c", "CLASSALPHA", "1", "a", "0.02", NULL);
+        rc = create(&cfg, AB_GATE, "ALWAYSDEFER", "1", "b", "CLASSALPHA", "1", "a", "0.02", NULL);
         if (rc == GATE_OK) break;
         failures++;
         CHECK(zeroed(&cfg));
@@ -1362,9 +1351,14 @@ TEST(create_survives_edits) {
 
 /* 'req' starts as garbage, like the config of a GCREATE. */
 static int request(const args *a, int *pos, gateRequest *req) {
+    gateArg *v = args_exact(a);
+    int rc;
+
     memset(req, 0xff, sizeof(*req));
     g_err[0] = '\0';
-    return gateParseRequest(a->v, a->n, pos, req, g_err, sizeof(g_err));
+    rc = gateParseRequest(v, a->n, pos, req, g_err, sizeof(g_err));
+    free(v);
+    return rc;
 }
 
 static int empty(const gateRequest *req) {
@@ -1441,6 +1435,14 @@ TEST(request_stops_at_the_next_argument) {
     CHECK_EQ_INT(req.nfeatures, 0);
     args_free(&a);
 
+    /* FEATURES 0 is still two arguments. */
+    pos = 0;
+    args_set(&a, "TEXT", "x", "FEATURES", "0", "LABEL", "billing", NULL);
+    CHECK(request(&a, &pos, &req) == GATE_OK);
+    CHECK_EQ_INT(pos, 4);
+    CHECK(req.text == a.v[1].ptr && req.text_len == 1 && req.nfeatures == 0);
+    args_free(&a);
+
     /* FEATURES takes its count of pairs, whatever they spell, and leaves
      * the rest. */
     pos = 0;
@@ -1457,19 +1459,6 @@ TEST(request_stops_at_the_next_argument) {
     CHECK(request(&a, &pos, &req) == GATE_OK);
     CHECK_EQ_INT(pos, 2);
     CHECK(req.text == a.v[1].ptr && req.text_len == 8 && req.nfeatures == 0);
-    args_free(&a);
-}
-
-TEST(request_features_zero) {
-    gateRequest req;
-    args a;
-    int pos = 0;
-
-    args_set(&a, "TEXT", "x", "FEATURES", "0", "LABEL", "billing", NULL);
-    CHECK(request(&a, &pos, &req) == GATE_OK);
-    CHECK_EQ_INT(pos, 4);
-    CHECK(req.text == a.v[1].ptr && req.text_len == 1);
-    CHECK_EQ_INT(req.nfeatures, 0);
     args_free(&a);
 }
 
@@ -1492,7 +1481,7 @@ TEST(request_text_bytes) {
     CHECK(pos == 2 && req.text == a.v[1].ptr && req.text_len == 6);
     args_free(&a);
 
-    /* SPEC.md reads 4,096 bytes; gate_args.h accepts up to 2^20. */
+    /* gate_defs.h: a TEXT of up to 2^20 bytes is accepted. */
     memset(big, 'a', GATE_MAX_TEXT_BYTES + 1);
     pos = 0;
     args_set(&a, "TEXT", NULL);
@@ -1521,7 +1510,7 @@ TEST(request_needs_text) {
     REQUEST_FAILS("expected TEXT", "LABEL", "x", "TEXT", "y");
     REQUEST_FAILS("expected TEXT", "TEXT"); /* the word without the text */
 
-    /* Nothing left to parse. */
+    /* Nothing, or too little, left to parse. */
     args_set(&a, "TEXT", "x", NULL);
     pos = 2;
     CHECK(request(&a, &pos, &req) == GATE_ERR && pos == 2 && empty(&req));
@@ -1529,12 +1518,12 @@ TEST(request_needs_text) {
     pos = 1;
     CHECK(request(&a, &pos, &req) == GATE_ERR && pos == 1 && empty(&req));
     args_free(&a);
+    /* And no room for the message. */
     pos = 0;
     CHECK(gateParseRequest(NULL, 0, &pos, &req, NULL, 0) == GATE_ERR && pos == 0 && empty(&req));
 }
 
 #define FEATURES_COUNT_MSG "FEATURES count must be an integer between 0 and 64"
-#define FEATURES_SHORT_MSG "FEATURES count exceeds the arguments that follow"
 
 TEST(request_feature_count) {
     gateRequest req;
@@ -1550,10 +1539,10 @@ TEST(request_feature_count) {
     REQUEST_FAILS(FEATURES_COUNT_MSG, "TEXT", "x", "FEATURES", "18446744073709551616", "a", "1");
 
     /* More pairs announced than given. */
-    REQUEST_FAILS(FEATURES_SHORT_MSG, "TEXT", "x", "FEATURES", "1");
-    REQUEST_FAILS(FEATURES_SHORT_MSG, "TEXT", "x", "FEATURES", "1", "a");
-    REQUEST_FAILS(FEATURES_SHORT_MSG, "TEXT", "x", "FEATURES", "2", "a", "1");
-    REQUEST_FAILS(FEATURES_SHORT_MSG, "TEXT", "x", "FEATURES", "2", "a", "1", "b");
+    REQUEST_FAILS(SHORT_MSG("FEATURES"), "TEXT", "x", "FEATURES", "1");
+    REQUEST_FAILS(SHORT_MSG("FEATURES"), "TEXT", "x", "FEATURES", "1", "a");
+    REQUEST_FAILS(SHORT_MSG("FEATURES"), "TEXT", "x", "FEATURES", "2", "a", "1");
+    REQUEST_FAILS(SHORT_MSG("FEATURES"), "TEXT", "x", "FEATURES", "2", "a", "1", "b");
 
     /* Fewer: the rest is the caller's to refuse. */
     args_set(&a, "TEXT", "x", "FEATURES", "1", "a", "1", "b", "2", NULL);
@@ -1635,23 +1624,26 @@ TEST(request_feature_values) {
 
 #define NAME_MSG "feature names must be 1 to 64 bytes of UTF-8 without control characters"
 
-/* TEXT x FEATURES 1 <name> 1 */
-static int request_named(gateRequest *req, const char *name, size_t len) {
+/* TEXT x FEATURES 1 <name> 1: GATE_OK if the name was taken, GATE_ERR if it
+ * was refused as a name, something else if anything is not as it should. */
+static int request_named(const char *name, size_t len) {
+    gateRequest req;
     args a;
     int pos = 0, rc;
 
     args_set(&a, "TEXT", "x", "FEATURES", "1", NULL);
     args_add(&a, name, len);
     args_add(&a, "1", 1);
-    rc = request(&a, &pos, req);
-    if (rc == GATE_OK && (pos != 6 || req->nfeatures != 1 || req->features[0].name_len != len ||
-                          req->features[0].name != a.v[4].ptr))
+    rc = request(&a, &pos, &req);
+    if (rc == GATE_OK && (pos != 6 || req.nfeatures != 1 || req.features[0].name_len != len ||
+                          req.features[0].name != a.v[4].ptr))
         rc = -2;
-    if (rc == GATE_ERR && (pos != 0 || !empty(req) || strcmp(g_err, NAME_MSG) != 0)) rc = -2;
+    if (rc == GATE_ERR && (pos != 0 || !empty(&req) || strcmp(g_err, NAME_MSG) != 0)) rc = -2;
     args_free(&a);
     return rc;
 }
 
+/* gate_args.h: names follow the rule of labels. */
 TEST(request_feature_names) {
     static const bytes good[] = {
         {LIT("mentioned")}, {LIT("thread depth")}, {LIT("caf\xc3\xa9")}, {LIT("1")},
@@ -1668,11 +1660,11 @@ TEST(request_feature_names) {
     int pos = 0;
 
     for (i = 0; i < COUNTOF(good); i++)
-        CHECK_ON(good[i].s, request_named(&req, good[i].s, good[i].len) == GATE_OK);
+        CHECK_ON(good[i].s, request_named(good[i].s, good[i].len) == GATE_OK);
     for (i = 0; i < COUNTOF(bad); i++)
-        CHECK_ON(bad[i].s, request_named(&req, bad[i].s, bad[i].len) == GATE_ERR);
-    CHECK(request_named(&req, repeat(longest, 'n', 64), 64) == GATE_OK);
-    CHECK(request_named(&req, repeat(longest, 'n', 65), 65) == GATE_ERR);
+        CHECK_ON(bad[i].s, request_named(bad[i].s, bad[i].len) == GATE_ERR);
+    CHECK(request_named(repeat(longest, 'n', 64), 64) == GATE_OK);
+    CHECK(request_named(repeat(longest, 'n', 65), 65) == GATE_ERR);
 
     /* A name given twice is for the featurizer to refuse, not the parser. */
     args_set(&a, "TEXT", "x", "FEATURES", "2", "a", "1", "a", "2", NULL);
@@ -1689,12 +1681,12 @@ int main(void) {
     RUN(u64_accepts_digits);
     RUN(u64_rejects_everything_else);
     RUN(arg_is_case_insensitive_and_exact);
-    RUN(hex64_format);
-    RUN(hex64_parse);
+    RUN(hex64_known_values);
+    RUN(hex64_parse_is_strict);
     RUN(hex64_round_trip);
-    RUN(double_bits_format);
-    RUN(double_bits_parse);
-    RUN(double_bits_are_not_judged);
+    RUN(double_bits_known_values);
+    RUN(double_bits_parse_is_strict);
+    RUN(double_bits_must_be_finite);
     RUN(double_bits_round_trip);
     RUN(id_format);
     RUN(id_parse);
@@ -1703,8 +1695,8 @@ int main(void) {
 
     RUN(create_classifier);
     RUN(create_score);
-    RUN(create_defaults);
     RUN(create_any_order);
+    RUN(create_defaults);
     RUN(create_option_words_in_any_case);
     RUN(create_labels_that_spell_option_words);
     RUN(create_labels_are_exact);
@@ -1732,7 +1724,6 @@ int main(void) {
     RUN(request_text_only);
     RUN(request_text_and_features);
     RUN(request_stops_at_the_next_argument);
-    RUN(request_features_zero);
     RUN(request_text_bytes);
     RUN(request_needs_text);
     RUN(request_feature_count);

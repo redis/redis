@@ -106,6 +106,16 @@ static double gateRandomUniform(void) {
     return (double)(gateRandom64() >> 11) * (1.0 / 9007199254740992.0);
 }
 
+/* A new incarnation: always really random, even under gate.test-seed (a
+ * repeated value would make this server trust proof it must not), and
+ * never 0, which is what loaded gates carry. */
+static uint64_t gateNewIncarnation(void) {
+    uint64_t v;
+
+    RedisModule_GetRandomBytes((unsigned char *)&v, sizeof(v));
+    return v | 1;
+}
+
 /* ------------------------------- Arguments ------------------------------- */
 
 #define GATE_STACK_ARGS 48
@@ -222,6 +232,11 @@ static int GCreate_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
     long long now = RedisModule_Milliseconds();
     uint64_t lineage = gateRandom64(), epoch = gateRandom64();
     gate *g = gateCreate(&cfg, lineage, epoch, now);
+    if (g == NULL) {
+        gateConfigFree(&cfg);
+        RedisModule_CloseKey(key);
+        return RedisModule_ReplyWithError(ctx, "ERR out of memory");
+    }
     g->runtime_tag = gateIncarnation;
     RedisModule_ModuleTypeSetValue(key, GateType, g);
     RedisModule_CloseKey(key);
@@ -382,7 +397,7 @@ static int gateAnswer(const gate *g, RedisModuleString *word, RedisModuleString 
 static int GLearn_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModuleKey *key;
     gate *g;
-    char err[160], epoch_hex[17];
+    char err[160];
     uint64_t epoch, seq;
     size_t idlen;
 
@@ -405,9 +420,10 @@ static int GLearn_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, in
     long long now = gateNow(g);
     gateTrust(ctx, argv[1], g, now);
     int used = gateLearn(g, now, epoch, seq, answer);
-    gateFormatHex64(epoch_hex, epoch);
-    RedisModule_Replicate(ctx, "_GATE.APPLY", "sclcll", argv[1], "LEARN", now, epoch_hex,
-                          (long long)seq, (long long)answer);
+    /* The id travels as the client sent it: any 64-bit sequence number
+     * survives, and the replica parses it exactly as we did. */
+    RedisModule_Replicate(ctx, "_GATE.APPLY", "sclsl", argv[1], "LEARN", now, argv[2],
+                          (long long)answer);
     RedisModule_CloseKey(key);
     return RedisModule_ReplyWithLongLong(ctx, used);
 }
@@ -522,7 +538,10 @@ static int GInfo_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
     RedisModule_ReplyWithCString(ctx, "generation");
     RedisModule_ReplyWithLongLong(ctx, serving ? (long long)serving->gen : 0);
     RedisModule_ReplyWithCString(ctx, "candidate");
-    RedisModule_ReplyWithLongLong(ctx, candidate ? (long long)candidate->gen : 0);
+    long long candidate_number = candidate ? (long long)candidate->gen : 0;
+    if (untrusted && (!classifier || g->trainer.updates >= g->cfg.snapshot_examples))
+        candidate_number = (long long)g->generations + 1; /* taken at its first write */
+    RedisModule_ReplyWithLongLong(ctx, candidate_number);
     RedisModule_ReplyWithCString(ctx, "learned");
     RedisModule_ReplyWithLongLong(ctx, (long long)g->trainer.updates);
     RedisModule_ReplyWithCString(ctx, "requests");
@@ -644,6 +663,7 @@ static int gateApply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         if (!ok) return 0;
         gate *g = gateCreate(&cfg, lineage, epoch, now);
         gateConfigFree(&cfg);
+        if (g == NULL) return 0;
         RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ | REDISMODULE_WRITE);
         RedisModule_ModuleTypeSetValue(key, GateType, g);
         RedisModule_CloseKey(key);
@@ -693,15 +713,17 @@ static int gateApply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
             gateSparseFree(&x);
         }
     } else if (gateStringIs(op, "LEARN")) {
-        /* _GATE.APPLY key LEARN now epoch seq answer */
-        uint64_t epoch;
-        long long seq, answer;
+        /* _GATE.APPLY key LEARN now id answer */
+        uint64_t epoch, seq;
+        long long answer;
+        size_t idlen;
+        const char *id = argc == 6 ? RedisModule_StringPtrLen(argv[4], &idlen) : NULL;
 
-        if (argc == 7 && gateStringHex64(argv[4], &epoch) && gateParseI64(argv[5], &seq) &&
-            gateParseI64(argv[6], &answer) && seq >= 0 && answer >= 0 &&
+        if (id && gateParseId(id, idlen, &epoch, &seq) && gateParseI64(argv[5], &answer) &&
+            answer >= 0 &&
             answer < (g->cfg.kind == GATE_KIND_CLASSIFIER ? (long long)g->cfg.nclasses : 2))
         {
-            gateLearn(g, now, epoch, (uint64_t)seq, (int32_t)answer);
+            gateLearn(g, now, epoch, seq, (int32_t)answer);
             ok = 1;
         }
     } else if (gateStringIs(op, "ADD")) {
@@ -829,8 +851,8 @@ static void gateRoleChanged(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t su
     REDISMODULE_NOT_USED(sub);
     REDISMODULE_NOT_USED(data);
     /* Whatever this server becomes, gates trusted so far are not trusted
-     * by the new incarnation. Never 0: that is what loaded gates carry. */
-    gateIncarnation = gateRandom64() | 1;
+     * by the new incarnation. */
+    gateIncarnation = gateNewIncarnation();
 }
 
 /* ------------------------------ Configuration ---------------------------- */
@@ -934,7 +956,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         gateCommand(ctx, "_GATE.APPLY", GApply_RedisCommand, "write internal", NULL, -3, create) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    gateIncarnation = gateRandom64() | 1;
+    gateIncarnation = gateNewIncarnation();
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ReplicationRoleChanged, gateRoleChanged);
     return REDISMODULE_OK;
 }

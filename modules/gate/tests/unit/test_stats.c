@@ -1275,8 +1275,8 @@ TEST(grid_other_ranges) {
     static const struct {
         double lo, hi;
     } ranges[] = {
-        {0.0, 0.5},         {0.9, 0.99},  {0.999, 0.9999999}, {0.0, 1e-300},
-        {1e-300, 1e-200},   {-0.0, 0.998}, {0.0, 1.0 - DBL_EPSILON / 2} /* the largest double below 1 */
+        {0.0, 0.5}, {0.9, 0.99}, {0.999, 0.9999999}, {0.0, 1e-300}, {1e-300, 1e-200}, {-0.0, 0.998},
+        {0.0, 1.0 - DBL_EPSILON / 2} /* the largest double below 1 */
     };
     double grid[T];
     uint64_t rng = 0x961d;
@@ -1293,7 +1293,7 @@ TEST(grid_other_ranges) {
      * taken through log1p() and expm1() rarely comes back unchanged. */
     for (i = 0; i < 2000; i++) {
         double lo = 0.9 * gate_test_uniform(&rng);
-        double hi = lo + 0.01 + (0.99 - lo) * gate_test_uniform(&rng);
+        double hi = lo + 0.01 + (0.98 - lo) * gate_test_uniform(&rng); /* below 0.99 */
 
         if (gateGridBuild(grid, lo, hi) != GATE_OK || grid[0] != lo || grid[T - 1] != hi ||
             !strictlyIncreasing(grid, T)) bad++;
