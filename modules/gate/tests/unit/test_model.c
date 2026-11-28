@@ -2083,7 +2083,7 @@ TEST(debug_builds_assert_on_malformed_sparse_input) {
     const double q[2] = {0.0, 1.0};
     float val[3] = {1.0f, 1.0f, 1.0f};
     uint32_t idx[3];
-    void (*old_handler)(int);
+    struct sigaction catch_abort, old_action;
     int saved_stderr, devnull, learn;
     gateModel m;
     modelSnap s;
@@ -2092,12 +2092,17 @@ TEST(debug_builds_assert_on_malformed_sparse_input) {
     CHECK(gateModelInit(&m, 8, 2) == GATE_OK);
 
     /* The assertion messages are expected here, not news: keep them out of
-     * the test output. */
+     * the test output. (stdout is flushed so that nothing reported so far
+     * is lost, should a missing assertion let a bad index crash the test.) */
+    fflush(stdout);
     fflush(stderr);
     saved_stderr = dup(STDERR_FILENO);
     devnull = open("/dev/null", O_WRONLY);
     if (saved_stderr >= 0 && devnull >= 0) dup2(devnull, STDERR_FILENO);
-    old_handler = signal(SIGABRT, onAbort);
+    memset(&catch_abort, 0, sizeof(catch_abort));
+    catch_abort.sa_handler = onAbort;
+    sigemptyset(&catch_abort.sa_mask);
+    sigaction(SIGABRT, &catch_abort, &old_action);
 
     for (learn = 0; learn <= 1; learn++) {
         for (c = 0; c < ARRAY_LEN(cases); c++) {
@@ -2112,7 +2117,7 @@ TEST(debug_builds_assert_on_malformed_sparse_input) {
         }
     }
 
-    signal(SIGABRT, old_handler);
+    sigaction(SIGABRT, &old_action, NULL);
     fflush(stderr);
     if (saved_stderr >= 0 && devnull >= 0) dup2(saved_stderr, STDERR_FILENO);
     if (saved_stderr >= 0) close(saved_stderr);

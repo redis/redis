@@ -119,9 +119,11 @@ static int steps_to_certify(double alpha, double delta_region, const int *err_at
     CHECK_EQ_STR(gateReasonName(gateIdleReason(g)), gateReasonName(why)); \
 } while (0)
 
+/* 'r' is evaluated once: it is often a call that issues a request. */
 #define CHECK_RES(r, act, why) do { \
-    CHECK_EQ_STR(gateActionName((r).action), gateActionName(act)); \
-    CHECK_EQ_STR(gateReasonName((r).reason), gateReasonName(why)); \
+    gatePredictResult _res = (r); \
+    CHECK_EQ_STR(gateActionName(_res.action), gateActionName(act)); \
+    CHECK_EQ_STR(gateReasonName(_res.reason), gateReasonName(why)); \
 } while (0)
 
 #define CHECK_FB(status, expected) \
@@ -193,7 +195,7 @@ static uint64_t fp_model(uint64_t h, const gateModel *m) {
 static uint64_t fp_generation(uint64_t h, const gate *g, const gateGeneration *gen) {
     uint32_t i, j;
 
-    if (gen == NULL) return fp_u64(h, 0xabsent & 0);
+    if (gen == NULL) return fp_u64(h, 0xabcdef);
     h = fp_u64(h, gen->gen);
     h = fp_u64(h, (uint64_t)gen->frozen_ms);
     h = fp_u64(h, (uint64_t)gen->promoted_ms);
@@ -432,15 +434,20 @@ static int64_t promote_at_two_thirds(gate *g, int64_t now) {
     return now;
 }
 
-/* Freeze a generation and certify everything: 28 clean samples at 1.0 are
- * in all four regions, so the policy is threshold 0 and every request is a
- * would-accept. */
+/* Freeze a generation and certify everything: clean samples at 1.0 are in
+ * all four regions, so the policy is threshold 0 and every request is a
+ * would-accept. Generation g of a pooled gate needs steps_to_certify() of
+ * them for its share 0.1 / (g (g+1)) / 4 (28 for the first), and is checked
+ * to need exactly that many. */
 static int64_t promote_everything(gate *g, int64_t now) {
     uint64_t gen = 0;
-    int i;
+    int i, need;
 
     CHECK_EQ_INT(gateFreeze(g, ++now, &gen), GATE_FREEZE_OK);
-    for (i = 0; i < 28; i++) sample(g, ++now, 1.0, -1, 1);
+    need = steps_to_certify(0.2, 0.1 / ((double)gen * ((double)gen + 1.0)) / 4, NULL, 0);
+    for (i = 1; i < need; i++) sample(g, ++now, 1.0, -1, 1);
+    CHECK(g->candidate != NULL && g->candidate->gen == gen); /* not one sample early */
+    sample(g, ++now, 1.0, -1, 1);
     CHECK(g->serving != NULL && g->serving->gen == gen && g->serving->policy[0] == 0);
     return now;
 }
@@ -1651,9 +1658,10 @@ TEST(missing_label_revoke) {
     gateMaintain(g, T0 + 10 + TTL);
     INV(g);
     CHECK(g->candidate == NULL && g->npending == 0);
-    CHECK_EQ_INT(g->stats.expired, 1); /* o1 only */
-    CHECK_EQ_INT(g->expired_through, o2); /* both outlived their TTL */
-    (void)o1;
+    CHECK_EQ_INT(g->stats.expired, 1);    /* o1 only */
+    CHECK_EQ_INT(g->expired_through, o1); /* o2 was consumed, not expired */
+    CHECK_FB(fb(g, T0 + 10 + TTL, o1, 1), GATE_FB_EXPIRED);
+    CHECK_FB(fb(g, T0 + 10 + TTL, o2, 1), GATE_FB_DUPLICATE);
     gateFree(g);
 }
 
@@ -1869,7 +1877,7 @@ TEST(resource_limit_memory) {
     CHECK(first != 0);
     CHECK(creq(g, ++now, 0, &v16).seq != 0);
     CHECK_EQ_INT(g->pending_bytes, 2 * (sizeof(gateObs) + 16 * 8));
-    r = creq(g, ++now, 0, &v16); /* 128 feature bytes too many */
+    r = creq(g, ++now, 0, &v16); /* 120 bytes more than what is left */
     CHECK_RES(r, GATE_ACTION_ABSTAIN, GATE_REASON_RESOURCE_LIMIT);
     CHECK(r.seq == 0 && g->npending == 2 && g->stats.resource_limited == 1);
     CHECK(creq(g, ++now, 0, &VA).seq != 0); /* a smaller one fits exactly */
@@ -2247,9 +2255,9 @@ TEST(drift_guard) {
     gateFree(g);
 
     /* With a candidate already calibrating in the background, the gate goes
-     * from ACTIVE to CALIBRATING. The tripping audit was a sample of the
-     * candidate too (an error, its first), so generation 2 certifies on its
-     * 46th sample. */
+     * from ACTIVE to CALIBRATING. The tripping audit (score 1.0: in all four
+     * regions) was a sample of the candidate too, an error and its first, so
+     * generation 2 certifies on its 46th sample. */
     cfg_score(&c);
     g = mk(&c);
     now = promote_everything(g, T0);
@@ -2257,7 +2265,9 @@ TEST(drift_guard) {
     audits(g, &now, 40, 0);
     CHECK_EQ_INT(gateFreeze(g, ++now, &gen), GATE_FREEZE_OK);
     CHECK_STATE(g, GATE_STATE_ACTIVE, GATE_REASON_NONE);
-    audits(g, &now, 1, 0);
+    r = req(g, ++now, 1, 1.0, -1);
+    CHECK_RES(r, GATE_ACTION_AUDIT, GATE_REASON_NONE);
+    CHECK_FB(fb(g, now, r.seq, 0), GATE_FB_APPLIED);
     CHECK(g->serving == NULL && g->candidate != NULL);
     CHECK_STATE(g, GATE_STATE_CALIBRATING, GATE_REASON_DRIFT_DETECTED);
     CHECK(g->candidate->samples == 1 && g->candidate->errors == 1);
@@ -2629,7 +2639,7 @@ TEST(config_changes) {
     CHECK(gateSetTeacher(g, T0, "teacher-v2") == GATE_OK); /* same length */
     CHECK(gateSetTeacher(g, T0, "t") == GATE_OK);          /* shorter */
     CHECK(g->fixed_bytes == gateFixedBytes(&g->cfg) && g->fixed_bytes < g->cfg.max_memory);
-    CHECK(gateSetSchemaVersion(g, T0, "schema-v1-and-9") == GATE_OK); /* uses the slack */
+    CHECK(gateSetSchemaVersion(g, T0, "schema-v1-plus-9ch") == GATE_OK); /* the 9 bytes saved */
     CHECK(g->fixed_bytes == g->cfg.max_memory);
     CHECK(gateSetTeacher(g, T0, "tt") == GATE_ERR);
     INV(g);
@@ -2853,11 +2863,15 @@ TEST(free_with_pending) {
     g = mk(&c);
     now = classifier_promote(g, now);
     CHECK_EQ_INT(gateFreeze(g, ++now, &gen), GATE_FREEZE_OK);
+    /* Odd i: audited, so always an observation (10). Even i: A is accepted
+     * (6 times), C is below the threshold and kept for training (4). */
     for (i = 0; i < 20; i++) creq(g, ++now, i % 2, i % 3 ? &VA : &VC);
     seq = creq(g, ++now, 1, &VA).seq;
     CHECK_FB(clearn(g, ++now, seq, 1), GATE_FB_APPLIED); /* resolved, still queued */
-    CHECK(g->npending == 21 && g->candidate != NULL && g->serving != NULL);
-    CHECK(live_blocks > before + 21);
+    CHECK_EQ_INT(g->npending, 15);
+    CHECK(g->candidate != NULL && g->serving != NULL);
+    CHECK(gateFindObservation(g, seq) != NULL);
+    CHECK(live_blocks > before + 15);
     gateFree(g);
     CHECK_EQ_INT(live_blocks, before);
 }
@@ -2868,9 +2882,9 @@ TEST(allocation_failures) {
     gatePredictResult r;
     gateEval ev;
     gateSparse x;
-    long base, k;
+    long start = live_blocks, base, k;
     uint64_t gen = 55, fp;
-    int rc;
+    int rc = -1;
     gate *g = NULL;
 
     cfg_classifier(&c);
@@ -2886,8 +2900,8 @@ TEST(allocation_failures) {
         if (g != NULL) break;
         CHECK_EQ_INT(live_blocks, base);
     }
-    CHECK(g != NULL);
-    /* The gate, 5 config blocks, grid, bets, 2 trainer arrays, the index. */
+    /* 11 allocations: the gate, 5 blocks of configuration, the grid, the
+     * bets, 2 trainer arrays, the index. */
     CHECK_EQ_INT(k, 12);
     if (g == NULL) exit(1);
     INV(g);
@@ -2896,6 +2910,8 @@ TEST(allocation_failures) {
     CHECK(ctrain(g, T0, &VA, 1) == GATE_OK);
     fp = fingerprint(g, FP_ALL);
     for (k = 1; k < 100; k++) {
+        long live = live_blocks;
+
         alloc_calls = 0;
         fail_at = k;
         rc = gateFreeze(g, T0, &gen);
@@ -2904,10 +2920,12 @@ TEST(allocation_failures) {
         CHECK_EQ_INT(rc, GATE_FREEZE_ERR_NOMEM);
         CHECK(gen == 55 && g->generations == 0 && g->candidate == NULL);
         CHECK(fingerprint(g, FP_ALL) == fp);
+        CHECK_EQ_INT(live_blocks, live);
         INV(g);
     }
-    CHECK_EQ_INT(k, 7); /* the generation and its 3 arrays, 2 model arrays */
-    CHECK(gen == 1 && g->generations == 1 && g->candidate != NULL);
+    /* 6 allocations: the generation, its 3 arrays, 2 arrays of weights. */
+    CHECK_EQ_INT(k, 7);
+    CHECK(rc == GATE_FREEZE_OK && gen == 1 && g->generations == 1 && g->candidate != NULL);
     INV(g);
 
     /* gatePredict(): an observation that cannot be allocated is one that
@@ -2923,6 +2941,7 @@ TEST(allocation_failures) {
     CHECK_RES(r, GATE_ACTION_ABSTAIN, GATE_REASON_RESOURCE_LIMIT);
     CHECK(r.seq == 0 && x.n == 1 && x.idx != NULL); /* still the caller's */
     CHECK(g->candidate == NULL && g->npending == 0 && g->stats.resource_limited == 1);
+    CHECK(g->stats.candidates_discarded == 1 && g->next_seq == 1);
     gateSparseFree(&x);
 
     /* gateSetTeacher(): refused before anything is invalidated. */
@@ -2931,15 +2950,15 @@ TEST(allocation_failures) {
     alloc_calls = 0;
     fail_at = 1;
     CHECK(gateSetTeacher(g, T0, "teacher-v2") == GATE_ERR);
-    CHECK(gateSetSchemaVersion(g, T0, "schema-v2") == GATE_OK); /* only the first failed */
     fail_at = 0;
+    CHECK(fingerprint(g, FP_ALL) == fp);
     CHECK_EQ_STR(g->cfg.teacher, "teacher-v1");
-    CHECK_EQ_STR(g->cfg.schema_version, "schema-v2");
+    CHECK(g->candidate != NULL && g->trainer.updates == 1);
     INV(g);
 
     gateFree(g);
     gateConfigFree(&c);
-    CHECK_EQ_INT(live_blocks, base - 9); /* the config's own 5 strings + array... */
+    CHECK_EQ_INT(live_blocks, start);
 }
 
 /* Arguments the caller is supposed to have validated: refused without
@@ -3250,6 +3269,7 @@ static uint64_t soak_run(int variant, uint64_t seed, int nops, soakTally *tally)
         int drifting = op >= 3500 && op < 4500;  /* the cheap answers go bad */
         uint64_t roll = gate_test_rand64(&rng) % 100;
         uint64_t gens0 = g->generations, seq0 = g->next_seq, epoch0 = g->epoch;
+        int64_t clock0 = g->now_ms;
         gateCounters s0;
         int reset_all = 0, epoch_may_change = 0;
 
@@ -3430,7 +3450,7 @@ static uint64_t soak_run(int variant, uint64_t seed, int nops, soakTally *tally)
             /* ---- GCONFIG SET AUDIT ---- */
             double q = gate_test_rand64(&rng) % 2 ? 0.5 : 0.6;
             int same = q == g->cfg.audit;
-            const gateGeneration *cand0 = g->candidate;
+            const gateGeneration *cand0;
 
             gateMaintain(g, now);
             cand0 = g->candidate;
@@ -3490,7 +3510,7 @@ static uint64_t soak_run(int variant, uint64_t seed, int nops, soakTally *tally)
         CHECK(epoch_may_change || g->epoch == epoch0);
         CHECK(gateMemoryUsage(g) <= g->cfg.max_memory);
         CHECK(gateBudgetSpentNow(g) < g->cfg.delta);
-        CHECK(g->now_ms >= now);
+        CHECK(g->now_ms >= clock0 && g->now_ms <= now);
         if (!reset_all) {
             tally->promotions += g->stats.promotions - s0.promotions;
             tally->discarded += g->stats.candidates_discarded - s0.candidates_discarded;

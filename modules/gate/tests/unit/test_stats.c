@@ -430,6 +430,173 @@ TEST(zero_error_certification_n) {
     }
 }
 
+/* What makes the test valid. A bet is fair exactly at the boundary of the
+ * null hypothesis: with error rate p the expected factor of one sample is
+ *
+ *     (1 - p) (1 + lambda alpha) + p (1 - c) = 1 + lambda (alpha - p)
+ *
+ * which is 1 at p = alpha, below 1 for any p > alpha (the wealth of a bad
+ * region is a supermartingale: Ville's inequality applies) and above 1 for
+ * p < alpha (a good region grows, i.e. the test has power). */
+TEST(bets_are_fair_at_the_boundary) {
+    static const double alphas[] = {1e-6, 0.001, 0.01, 0.02, 0.05, 0.1, 0.3, 0.5, 0.9, 0.999};
+    size_t i;
+    int j;
+
+    for (i = 0; i < COUNTOF(alphas); i++) {
+        double alpha = alphas[i];
+        gateBets b;
+
+        gateBetsInit(&b, alpha);
+        for (j = 0; j < GATE_NBETS; j++) {
+            double ok = exp(b.inc_ok[j]), err = exp(b.inc_err[j]);
+            double worse = alpha + 0.5 * (1.0 - alpha), better = 0.5 * alpha;
+
+            CHECK_NEAR((1.0 - alpha) * ok + alpha * err, 1.0, 4.0 * DBL_EPSILON);
+            CHECK((1.0 - worse) * ok + worse * err < 1.0);
+            CHECK((1.0 - better) * ok + better * err > 1.0);
+            /* The slope in p is -lambda = -c / (1 - alpha). The gain is a
+             * difference of two numbers near 1 (or near lambda when alpha is
+             * close to 1), hence a tolerance relative to 1 + gain. */
+            {
+                double gain = gateBetFractions[j] / (1.0 - alpha) * (alpha - better);
+
+                CHECK_NEAR(((1.0 - better) * ok + better * err) - 1.0, gain, 1e-13 * (1.0 + gain));
+            }
+        }
+    }
+}
+
+/* Expected mixture wealth after 'left' more samples of an IID stream with
+ * error rate p, by following every one of the 2^left paths. */
+static double expectedWealth(const gateRegion *r, const gateBets *b, double p, int left) {
+    gateRegion ok = *r, err = *r;
+
+    if (left == 0) return exp(gateRegionLogWealth(r));
+    gateRegionUpdate(&ok, b, 0);
+    gateRegionUpdate(&err, b, 1);
+    return (1.0 - p) * expectedWealth(&ok, b, p, left - 1) + p * expectedWealth(&err, b, p, left - 1);
+}
+
+/* The same property for the quantity that is actually compared with the
+ * threshold: over all 4096 streams of 12 samples the mean of the mixture
+ * wealth is (1/4) sum_j (1 + lambda_j (alpha - p))^12, i.e. exactly 1 at
+ * p = alpha whatever the bets are, and less for a bad region. */
+TEST(mixture_wealth_is_a_martingale_at_the_boundary) {
+    static const double alphas[] = {0.02, 0.05, 0.3};
+    static const double mults[] = {1.0, 1.5, 3.0, 0.5, 0.0};
+    const int n = 12;
+    size_t i, m;
+    int j;
+
+    for (i = 0; i < COUNTOF(alphas); i++) {
+        double alpha = alphas[i];
+        gateBets b;
+        gateRegion r;
+
+        gateBetsInit(&b, alpha);
+        gateRegionInit(&r);
+        for (m = 0; m < COUNTOF(mults); m++) {
+            double p = alpha * mults[m], closed = 0.0, mean = expectedWealth(&r, &b, p, n);
+
+            for (j = 0; j < GATE_NBETS; j++)
+                closed += 0.25 * pow(1.0 + gateBetFractions[j] / (1.0 - alpha) * (alpha - p), n);
+            CHECK_REL(mean, closed, 1e-12);
+            if (mults[m] == 1.0) CHECK_NEAR(mean, 1.0, 1e-13);
+            if (mults[m] > 1.0) CHECK(mean < 1.0);
+            if (mults[m] < 1.0) CHECK(mean > 1.0);
+        }
+    }
+}
+
+/* Probability that an IID stream with error rate p is certified by one of
+ * its first 'left' samples, by following every path until it certifies.
+ * '*paths' counts the full length paths that got certified. */
+static double certifiedProbability(const gateRegion *r, const gateBets *b, double thr,
+                                   double p, int left, long *paths) {
+    double total = 0.0;
+    int e;
+
+    if (left == 0) return 0.0;
+    for (e = 0; e <= 1; e++) {
+        gateRegion next = *r;
+        double weight = e ? p : 1.0 - p;
+
+        gateRegionUpdate(&next, b, e);
+        if (gateRegionCertifies(&next, thr)) {
+            total += weight;
+            *paths += 1L << (left - 1);
+        } else {
+            total += weight * certifiedProbability(&next, b, thr, p, left - 1, paths);
+        }
+    }
+    return total;
+}
+
+/* The whole procedure (update, mixture, threshold, first passage) against
+ * exact probabilities. The reference comes from a recursion over (samples,
+ * errors) in high precision; here every path is walked through the library.
+ * In all the cases the closest any reachable state gets to the threshold is
+ * 0.03, so no path depends on rounding.
+ *
+ * At p = alpha the result is the false certification probability of a
+ * boundary region within 16 samples: it must be below delta. */
+TEST(exhaustive_certification_probability) {
+    static const struct {
+        double alpha, delta, p;
+        int n;
+        double expected;
+    } cases[] = {
+        {0.3, 0.25, 0.30, 16, 1.0270099218547001259e-1},  /* H0 boundary: <= 0.25 */
+        {0.3, 0.25, 0.45, 16, 1.6551824795573516210e-2},  /* bad region */
+        {0.3, 0.25, 0.10, 16, 6.5622750798302997496e-1},  /* good region: power */
+        {0.5, 0.10, 0.50, 16, 2.6245117187500000000e-2},  /* H0 boundary: <= 0.1 */
+        {0.5, 0.10, 0.25, 16, 3.9355368912220001221e-1}
+    };
+    gateBets b;
+    gateRegion r;
+    size_t i;
+    long paths;
+    double pr;
+
+    for (i = 0; i < COUNTOF(cases); i++) {
+        paths = 0;
+        gateBetsInit(&b, cases[i].alpha);
+        gateRegionInit(&r);
+        pr = certifiedProbability(&r, &b, -log(cases[i].delta), cases[i].p, cases[i].n, &paths);
+        CHECK_NEAR(pr, cases[i].expected, 1e-13);
+        if (cases[i].p >= cases[i].alpha) CHECK(pr <= cases[i].delta);
+    }
+
+    /* alpha = 0.5 and p = 0.5 make the 65536 paths equally likely: exactly
+     * 1720 of them are certified, and 1720 / 65536 has no rounding. */
+    paths = 0;
+    gateBetsInit(&b, 0.5);
+    gateRegionInit(&r);
+    pr = certifiedProbability(&r, &b, -log(0.1), 0.5, 16, &paths);
+    CHECK_EQ_INT(paths, 1720);
+    CHECK(pr == 1720.0 / 65536.0);
+
+    /* No path can beat the error free one. With alpha = 0.1 and delta = 0.2
+     * it needs 27 samples, so nothing is certified within 12, whatever the
+     * error rate. */
+    paths = 0;
+    gateBetsInit(&b, 0.1);
+    gateRegionInit(&r);
+    CHECK(certifiedProbability(&r, &b, -log(0.2), 0.0, 12, &paths) == 0.0);
+    CHECK(certifiedProbability(&r, &b, -log(0.2), 0.05, 12, &paths) == 0.0);
+    CHECK_EQ_INT(paths, 0);
+    {
+        int n = 0;
+
+        while (!gateRegionCertifies(&r, -log(0.2)) && n < 1000) {
+            gateRegionUpdate(&r, &b, 0);
+            n++;
+        }
+        CHECK_EQ_INT(n, 27);
+    }
+}
+
 /* A stream whose error rate is above alpha is exactly what the test must not
  * certify. 'p' is the true error rate; the stream is IID from a fixed seed.
  * Besides "never certified at any of the n prefixes" this checks that the
@@ -1529,6 +1696,9 @@ int main(void) {
     RUN(error_factor_is_independent_of_alpha);
     RUN(order_independence);
     RUN(zero_error_certification_n);
+    RUN(bets_are_fair_at_the_boundary);
+    RUN(mixture_wealth_is_a_martingale_at_the_boundary);
+    RUN(exhaustive_certification_probability);
     RUN(high_error_stream_never_certifies);
     RUN(log_wealth_extremes);
     RUN(non_finite_wealth_never_certifies);
