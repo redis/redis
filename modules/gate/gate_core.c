@@ -598,12 +598,10 @@ void gateMaintain(gate *g, int64_t now_ms) {
     if (now_ms > g->now_ms) g->now_ms = now_ms;
     now = g->now_ms;
 
-    if (g->serving != NULL && now >= g->serving->expires_ms) {
+    /* The certificate goes first: an unanswered audit of a generation whose
+     * certificate ran out anyway must not be blamed on the feedback. */
+    if (g->serving != NULL && now >= g->serving->expires_ms)
         gateRevoke(g, GATE_REASON_CERT_EXPIRED);
-        /* Before looking at expired observations: an audit of the generation
-         * that just went away is not missing evidence for anything. */
-        gateDrain(g);
-    }
 
     /* The pending list is in creation order, so the expired observations
      * are a prefix of it. */
@@ -1355,7 +1353,8 @@ int gateCheckInvariants(const gate *g, char *err, size_t errlen) {
     GATE_INVARIANT(g->serving == NULL || g->revoked_reason == GATE_REASON_NONE,
                    "a generation is serving but a revocation reason is set");
     GATE_INVARIANT((g->last_revoked_reason == GATE_REASON_NONE) == (g->last_revoked_gen == 0) &&
-                   g->last_revoked_gen <= g->generations && g->last_revoked_ms <= g->now_ms,
+                   g->last_revoked_gen <= g->generations &&
+                   (g->last_revoked_gen == 0 || g->last_revoked_ms <= g->now_ms),
                    "last revocation record is inconsistent");
     GATE_INVARIANT(!g->recovery_required ||
                    (g->candidate == NULL && g->serving == NULL && g->npending == 0),

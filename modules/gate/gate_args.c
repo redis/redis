@@ -275,7 +275,7 @@ void gateFormatDoubleBits(char *buf, double v) {
  * come from a corrupted stream and must stop there. The sign of zero and
  * denormals are preserved exactly. */
 int gateParseDoubleBits(const char *s, size_t len, double *out) {
-    uint64_t bits;
+    uint64_t bits = 0;
     double v;
 
     if (!gateParseHex64(s, len, &bits)) return 0;
@@ -318,7 +318,7 @@ size_t gateFormatObservationId(char *buf, size_t buflen, uint64_t epoch, uint64_
  * can never name the same observation with the same epoch spelling. The
  * first digit being non-zero also gives seq >= 1. */
 int gateParseObservationId(const char *s, size_t len, uint64_t *epoch, uint64_t *seq) {
-    uint64_t e, q;
+    uint64_t e = 0, q = 0;
 
     if (s == NULL || len < GATE_HEX64_DIGITS + 2) return 0;
     if (!gateParseHex64(s, GATE_HEX64_DIGITS, &e)) return 0;
@@ -352,7 +352,7 @@ static int gateArgsInteger(const gateArg *a, const char *name, const char *suffi
                            uint64_t lo, uint64_t hi, const char *unit, uint64_t *out,
                            char *err, size_t errlen)
 {
-    uint64_t v;
+    uint64_t v = 0;
 
     if (gateParseU64(a->ptr, a->len, &v)) {
         if (v >= lo && v <= hi) {
@@ -379,15 +379,16 @@ static int gateArgsCount(const gateArg *a, const char *name, uint64_t lo, uint64
                          unsigned per_entry, int after, uint32_t *count,
                          char *err, size_t errlen)
 {
-    uint64_t n, need;
+    uint64_t n = 0, need, have = after > 0 ? (uint64_t)after : 0;
 
     if (gateArgsInteger(a, name, " count", lo, hi, "", &n, err, errlen) != GATE_OK)
         return GATE_ERR;
     need = n * per_entry; /* n <= hi, a small hard limit: no overflow */
-    if ((uint64_t)after < need)
+    if (have < need)
         return gateArgsFail(err, errlen,
-                            "%s count %llu needs %llu argument(s) after it but only %d follow",
-                            name, (unsigned long long)n, (unsigned long long)need, after);
+                            "%s count %llu needs %llu argument(s) after it but only %llu follow",
+                            name, (unsigned long long)n, (unsigned long long)need,
+                            (unsigned long long)have);
     *count = (uint32_t)n;
     return GATE_OK;
 }
@@ -636,28 +637,31 @@ static int gateCreateWalk(gateCreateState *st) {
     while (i < st->argc) {
         const gateCreateOptionSpec *spec;
         const gateArg *val;
+        gateCreateOption opt;
         int avail = st->argc - i - 1; /* arguments after the option token */
         int used = 1;                 /* ... of which this option consumes */
         int rc = GATE_OK;
-        int opt = gateCreateLookup(&argv[i]);
+        int id = gateCreateLookup(&argv[i]);
         uint32_t count = 0;
         uint64_t u = 0;
         double d = 0;
 
-        if (opt < 0)
+        if (id < 0)
             return gateArgsFail(st->err, st->errlen, "unknown option '%s'",
                                 gateArgsQuote(quote, &argv[i]));
+        opt = (gateCreateOption)id;
         spec = &gateCreateOptions[opt];
         if (st->seen[opt])
             return gateArgsFail(st->err, st->errlen, "option %s given more than once",
                                 spec->name);
         st->seen[opt] = 1;
+        /* Every option takes at least one argument, so 'val' exists. */
         if (avail < spec->min_args)
             return gateArgsFail(st->err, st->errlen, "option %s requires %d argument(s)",
                                 spec->name, spec->min_args);
         val = &argv[i + 1];
 
-        switch ((gateCreateOption)opt) {
+        switch (opt) {
         case GATE_OPT_MODE:
             if (gateArgIs(val, "SCORE")) cfg->mode = GATE_MODE_SCORE;
             else if (gateArgIs(val, "CLASSIFIER")) cfg->mode = GATE_MODE_CLASSIFIER;
@@ -936,7 +940,7 @@ static int gateSectionsFeatures(const gateArg *count_arg, int after, gateRequest
 {
     const gateArg *pairs = count_arg + 1;
     char quote[GATE_QUOTE_BUF];
-    uint32_t count, i;
+    uint32_t count = 0, i;
 
     if (gateArgsCount(count_arg, "FEATURES", 0, GATE_MAX_FEATURES_PER_REQUEST, 2, after,
                       &count, err, errlen) != GATE_OK)
@@ -950,7 +954,7 @@ static int gateSectionsFeatures(const gateArg *count_arg, int after, gateRequest
 
     for (i = 0; i < count; i++) {
         const gateArg *name = &pairs[2 * i], *value = &pairs[2 * i + 1];
-        double v;
+        double v = 0.0;
 
         if (!gateValidName(name->ptr, name->len, GATE_MAX_NAME_BYTES))
             return gateArgsFail(err, errlen,
@@ -1037,8 +1041,16 @@ fail:
 
 /* ------------------------------- Targets --------------------------------- */
 
-/* PROBS must sum to 1 within this absolute tolerance (see gate_args.h). */
+/* PROBS must sum to 1 within GATE_PROBS_TOLERANCE (see gate_args.h). The
+ * documented boundary is a decimal one and teachers do sit on it: three
+ * classes at 0.333 sum to 0.999. Whether the double sum of such values lands
+ * a hair inside or outside 1e-3 is an accident of rounding (0.333 three
+ * times is accepted, 0.1665 six times is not), so the comparison allows for
+ * that rounding. The error of adding at most GATE_MAX_CLASSES decimals that
+ * are each below 1.001 is under 1e-13; the allowance is ten times that and
+ * a million times below the tolerance's last documented digit. */
 #define GATE_PROBS_TOLERANCE 1e-3
+#define GATE_PROBS_ROUNDING 1e-12
 
 void gateTargetFree(gateTarget *t) {
     if (t == NULL) return;
@@ -1070,6 +1082,17 @@ static int gateTargetRefused(const gateConfig *cfg, int allow_classes, int allow
     if (accepted == NULL)
         return gateArgsFail(err, errlen, "%s is not accepted here", keyword);
     return gateArgsFail(err, errlen, "%s is not accepted here: expected %s", keyword, accepted);
+}
+
+/* No target keyword where one is required: the end of the command, or some
+ * other token. */
+static int gateTargetMissing(const gateConfig *cfg, int allow_classes, int allow_correct,
+                             char *err, size_t errlen)
+{
+    const char *accepted = gateTargetAccepted(cfg, allow_classes, allow_correct);
+
+    return gateArgsFail(err, errlen, "expected %s",
+                        accepted != NULL ? accepted : "LABEL, PROBS or CORRECT");
 }
 
 static int gateTargetLabel(const gateConfig *cfg, const gateArg *argv, int avail,
@@ -1108,7 +1131,7 @@ static int gateTargetProbs(const gateConfig *cfg, const gateArg *argv, int avail
      * not a probability the message still leads with the count, since the
      * usual cause is a list that is one short and ran into the next token. */
     for (i = 0; i < k; i++) {
-        double p;
+        double p = 0.0;
 
         if (!gateParseDouble(argv[i].ptr, argv[i].len, &p) || !(p >= 0.0))
             return gateArgsFail(err, errlen,
@@ -1119,7 +1142,7 @@ static int gateTargetProbs(const gateConfig *cfg, const gateArg *argv, int avail
     }
     /* The values are finite and non-negative, so the sum is never a NaN; a
      * sum that overflowed to infinity fails this test like any other. */
-    if (!(fabs(sum - 1.0) <= GATE_PROBS_TOLERANCE))
+    if (!(fabs(sum - 1.0) <= GATE_PROBS_TOLERANCE + GATE_PROBS_ROUNDING))
         return gateArgsFail(err, errlen, "PROBS must sum to 1");
 
     /* The reference label is taken from the renormalized values, the ones
@@ -1154,62 +1177,50 @@ int gateParseTarget(const gateConfig *cfg, const gateArg *argv, int argc, int *p
                     char *err, size_t errlen)
 {
     const gateArg *keyword, *values;
-    int i = *pos, avail, used, rc;
+    int i = *pos, avail, used, rc, probs;
 
     gateArgsClearError(err, errlen);
     memset(t, 0, sizeof(*t));
 
-    if (i >= 0 && i < argc) {
-        int probs;
+    if (i < 0 || i >= argc)
+        return gateTargetMissing(cfg, allow_classes, allow_correct, err, errlen);
+    keyword = &argv[i];
+    values = keyword + 1;
+    avail = argc - i - 1; /* arguments after the keyword */
+    probs = gateArgIs(keyword, "PROBS");
 
-        keyword = &argv[i];
-        values = keyword + 1;
-        avail = argc - i - 1; /* arguments after the keyword */
-        probs = gateArgIs(keyword, "PROBS");
+    if (probs || gateArgIs(keyword, "LABEL")) {
+        const char *name = probs ? "PROBS" : "LABEL";
 
-        if (probs || gateArgIs(keyword, "LABEL")) {
-            const char *name = probs ? "PROBS" : "LABEL";
-
-            if (!allow_classes)
-                return gateTargetRefused(cfg, allow_classes, allow_correct, name, err, errlen);
-            if (cfg->nclasses == 0)
-                return gateArgsFail(err, errlen, "%s requires a gate with CLASSES", name);
-            if (probs && cfg->mode != GATE_MODE_CLASSIFIER)
-                return gateArgsFail(err, errlen, "PROBS is only accepted by CLASSIFIER gates");
-            if (probs) {
-                rc = gateTargetProbs(cfg, values, avail, t, err, errlen);
-                used = 1 + (int)cfg->nclasses;
-            } else {
-                rc = gateTargetLabel(cfg, values, avail, t, err, errlen);
-                used = 2;
-            }
-        } else if (gateArgIs(keyword, "CORRECT")) {
-            if (!allow_correct)
-                return gateTargetRefused(cfg, allow_classes, allow_correct, "CORRECT",
-                                         err, errlen);
-            rc = gateTargetCorrect(values, avail, t, err, errlen);
-            used = 2;
+        if (!allow_classes)
+            return gateTargetRefused(cfg, allow_classes, allow_correct, name, err, errlen);
+        if (probs && cfg->mode != GATE_MODE_CLASSIFIER)
+            return gateArgsFail(err, errlen, "PROBS is only accepted by CLASSIFIER gates");
+        if (cfg->nclasses == 0)
+            return gateArgsFail(err, errlen, "%s requires a gate with CLASSES", name);
+        if (probs) {
+            rc = gateTargetProbs(cfg, values, avail, t, err, errlen);
+            used = 1 + (int)cfg->nclasses;
         } else {
-            rc = GATE_ERR;
-            used = 0;
+            rc = gateTargetLabel(cfg, values, avail, t, err, errlen);
+            used = 2;
         }
-        if (rc == GATE_OK) {
-            *pos = i + used;
-            return GATE_OK;
-        }
-        if (used != 0) {
-            gateTargetFree(t);
-            return GATE_ERR;
-        }
+    } else if (gateArgIs(keyword, "CORRECT")) {
+        if (!allow_correct)
+            return gateTargetRefused(cfg, allow_classes, allow_correct, "CORRECT",
+                                     err, errlen);
+        rc = gateTargetCorrect(values, avail, t, err, errlen);
+        used = 2;
+    } else {
+        return gateTargetMissing(cfg, allow_classes, allow_correct, err, errlen);
     }
 
-    /* No target at all: the end of the command, or some other token. */
-    {
-        const char *accepted = gateTargetAccepted(cfg, allow_classes, allow_correct);
-
-        return gateArgsFail(err, errlen, "expected %s",
-                            accepted != NULL ? accepted : "LABEL, PROBS or CORRECT");
+    if (rc != GATE_OK) {
+        gateTargetFree(t);
+        return GATE_ERR;
     }
+    *pos = i + used;
+    return GATE_OK;
 }
 
 /* ------------------------------ Small enums ------------------------------ */

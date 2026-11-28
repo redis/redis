@@ -1492,6 +1492,38 @@ TEST(non_finite_update_is_rejected_atomically) {
     }
 }
 
+TEST(overflow_in_the_step_or_the_loss_alone_is_rejected) {
+    /* The guarantee covers every intermediate value, so it must hold when
+     * only one of them overflows. That takes a target far outside [0, 1]
+     * (with a real distribution neither case can arise), which is exactly
+     * the kind of input an atomic update must survive. */
+    gateSparse x1 = {3, s1_idx, s1_val}, x2 = {3, s2_idx, s2_val}, empty = {0, NULL, NULL};
+    double q[3] = {0.0, 0.0, 0.0};
+    gateModel m;
+
+    /* Binary, logit 0.375, no feature present: the step 100 * 1e307 is
+     * infinite and the bias is the only value it could reach, while the
+     * loss, about -1e307 * 0.375, is finite. */
+    s1Load(&m);
+    q[1] = 1e307;
+    CASE("binary, step only", expectRejected(&m, &empty, q, 100.0, 0.0));
+    /* Binary, logit -1.875: the loss 1e308 * 1.875 is infinite, while the
+     * step 1e-10 * 1e308 and every weight it produces are finite. */
+    q[1] = 1e308;
+    CASE("binary, loss only", expectRejected(&m, &x1, q, 1e-10, 0.0));
+    gateModelFree(&m);
+
+    /* Three classes, same two situations (class 0 has the largest logit
+     * for the empty input, the smallest one for x2). */
+    s2Load(&m);
+    q[1] = 0.0;
+    q[0] = 1e307;
+    CASE("multiclass, step only", expectRejected(&m, &empty, q, 100.0, 0.0));
+    q[0] = 1e308;
+    CASE("multiclass, loss only", expectRejected(&m, &x2, q, 1e-10, 0.0));
+    gateModelFree(&m);
+}
+
 TEST(huge_finite_updates_are_clamped_not_rejected) {
     uint32_t idx[1] = {0};
     float val[1];
@@ -1568,8 +1600,9 @@ TEST(predict_reports_non_finite_logits) {
     float val[2];
     gateSparse x = {2, idx, val}, empty = {0, NULL, NULL};
     const double q[3] = {0.0, 1.0, 0.0};
-    double probs[3], score;
+    double probs[GATE_MAX_CLASSES], score;
     gateModel m, dead;
+    uint32_t k;
 
     CHECK(gateModelInit(&m, 3, 2) == GATE_OK);
     m.w[0] = 1.0f;
@@ -1609,11 +1642,14 @@ TEST(predict_reports_non_finite_logits) {
     gateModelFree(&m);
 
     /* A zeroed model has nothing to predict with or to train: both calls
-     * fail cleanly. */
+     * fail cleanly. Its class count means nothing, so 'probs' is not
+     * written at all. */
     memset(&dead, 0, sizeof(dead));
     score = 7.0;
-    CHECK_EQ_INT(gateModelPredict(&dead, &empty, NULL, &score), -1);
+    for (k = 0; k < GATE_MAX_CLASSES; k++) probs[k] = 7.0;
+    CHECK_EQ_INT(gateModelPredict(&dead, &empty, probs, &score), -1);
     CHECK(score == 0.0);
+    for (k = 0; k < GATE_MAX_CLASSES; k++) CHECK(probs[k] == 7.0);
     CHECK(gateModelLearn(&dead, &empty, q, 0.1, 0.0, NULL) == GATE_ERR);
     CHECK(modelIsZeroed(&dead));
 }
@@ -1734,11 +1770,19 @@ TEST(copy_is_deep_and_independent) {
         gateModelFree(&dst);
     }
 
-    /* A zeroed model copies to a zeroed model. */
+    /* A zeroed model copies to a zeroed model ... */
     memset(&zero, 0, sizeof(zero));
     memset(&zcopy, 0xA5, sizeof(zcopy));
     CHECK(gateModelCopy(&zcopy, &zero) == GATE_OK);
     CHECK(modelIsZeroed(&zcopy));
+    /* ... but a struct that is neither a model nor zeroed is refused. */
+    CHECK(gateModelInit(&zero, DIM, 3) == GATE_OK);
+    zero.nclasses = 1;
+    memset(&zcopy, 0xA5, sizeof(zcopy));
+    CHECK(gateModelCopy(&zcopy, &zero) == GATE_ERR);
+    CHECK(modelIsZeroed(&zcopy));
+    zero.nclasses = 3;
+    gateModelFree(&zero);
 }
 
 TEST(reset_returns_to_the_initial_model) {
@@ -2099,6 +2143,7 @@ int main(void) {
     RUN(score_is_the_largest_probability_and_never_below_one_over_k);
     RUN(sparse_input_matches_the_dense_reference);
     RUN(non_finite_update_is_rejected_atomically);
+    RUN(overflow_in_the_step_or_the_loss_alone_is_rejected);
     RUN(huge_finite_updates_are_clamped_not_rejected);
     RUN(predict_reports_non_finite_logits);
     RUN(init_rejects_bad_shapes);
