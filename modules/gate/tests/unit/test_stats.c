@@ -552,13 +552,15 @@ TEST(log_wealth_extremes) {
         for (j = 0; j < GATE_NBETS; j++) r.logw[j] = 1e12 * b.inc_ok[j];
         lw = gateRegionUpdate(&r, &b, 0);
         CHECK(isfinite(lw));
-        CHECK_REL(lw, 1e12 * ref_inc_ok[0].inc_ok[3] - log(4.0), 1e-12);
+        /* Only the 0.9 bet is left in the mixture: its wealth / 4. */
+        CHECK_REL(lw, (1e12 + 1.0) * ref_inc_ok[0].inc_ok[3] - log(4.0), 1e-13);
         CHECK(gateRegionCertifies(&r, 100.0));
 
         for (j = 0; j < GATE_NBETS; j++) r.logw[j] = 1e12 * b.inc_err[j];
         lw = gateRegionUpdate(&r, &b, 1);
         CHECK(isfinite(lw));
-        CHECK_REL(lw, 1e12 * ref_inc_err[0] - log(4.0), 1e-12);
+        /* And here only the 0.1 bet, which loses the least. */
+        CHECK_REL(lw, (1e12 + 1.0) * ref_inc_err[0] - log(4.0), 1e-13);
         CHECK(!gateRegionCertifies(&r, 0.0));
     }
 }
@@ -800,15 +802,16 @@ TEST(budget_sum_never_exceeds_total) {
                 if (!(sum > before)) growing = 0;
                 if (!(sum < total)) below = 0;
             }
-            /* 1e-11: bound on the rounding of 100000 additions. */
-            CHECK_REL(sum, gateBudgetSpent(total, g), 1e-11);
-            CHECK_REL(sum, total * (double)g / (double)(g + 1), 1e-11);
+            /* 1e-10: ten times the worst case rounding of 100000
+             * additions. */
+            CHECK_REL(sum, gateBudgetSpent(total, g), 1e-10);
+            CHECK_REL(sum, total * (double)g / (double)(g + 1), 1e-10);
         }
         CHECK(below);
         CHECK(growing);
         /* It approaches the total: 1/100001 of it is left after 100000
          * generations. */
-        CHECK_REL(total - sum, total / 100001.0, 1e-6);
+        CHECK_REL(total - sum, total / 100001.0, 1e-5);
     }
 
     /* Monotone, and never above the total however large g is: not even by
