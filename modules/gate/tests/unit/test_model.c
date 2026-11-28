@@ -1532,57 +1532,69 @@ TEST(huge_finite_updates_are_clamped_not_rejected) {
     gateSparse x = {1, idx, val};
     const double ignore[2] = {1.0, 0.0}, respond[2] = {0.0, 1.0};
     const double third[3] = {0.0, 0.0, 1.0};
+    /* Every weight below is placed relative to the limit, so the test holds
+     * for whatever GATE_MAX_WEIGHT is, within the range these scenarios
+     * need: 'inside' must remain a weight within the limit, and a step of
+     * one half must not be lost in the rounding of a float32 next to it. */
+    const float lim = GATE_MAX_WEIGHT;
+    const float below = nextafterf(lim, 0.0f); /* the largest float32 inside */
+    const float inside = lim - 10.0f;
     double probs[3], score, loss;
     gateModel m;
 
-    /* Features of 1e30 on weights that are already large: z = 5e35 and the
-     * step is 1e29. Enormous, but finite in double, so this is not an
-     * error: the weight is clamped and the model stays usable. */
+    CHECK(lim >= 8.0f && lim <= 1048576.0f);
+
+    /* A feature of 1e30 on weights at half the limit: z = lim / 2 * 1e30
+     * and the step is 1e29. Enormous, but finite in double, so this is not
+     * an error: the weight is clamped and the model stays usable. */
     CHECK(gateModelInit(&m, 3, 2) == GATE_OK);
-    m.w[0] = 5e5f;
-    m.w[1] = -5e5f;
+    m.w[0] = lim / 2;
+    m.w[1] = -lim / 2;
     val[0] = 1e30f;
     loss = -1.0;
     CHECK(gateModelLearn(&m, &x, ignore, 0.1, 0.0, &loss) == GATE_OK);
-    CHECK_REL(loss, (double)5e5f * (double)1e30f, 1e-15); /* y = 0: the loss is z */
-    CHECK(m.w[0] == -GATE_MAX_WEIGHT);
-    CHECK(m.w[1] == -5e5f);
+    CHECK_REL(loss, (double)(lim / 2) * (double)1e30f, 1e-15); /* y = 0: the loss is z */
+    CHECK(m.w[0] == -lim);
+    CHECK(m.w[1] == -lim / 2);
     CHECK_F32(m.b[0], -0.1); /* p = 1, so the bias steps by -eta */
     CHECK_EQ_INT(m.updates, 1);
-    /* ... and the other way: z = -1e36, p = 0, y = 1. */
+    /* ... and the other way: z = -lim * 1e30, p = 0, y = 1. */
     CHECK(gateModelLearn(&m, &x, respond, 0.1, 0.0, &loss) == GATE_OK);
-    CHECK(m.w[0] == GATE_MAX_WEIGHT);
+    CHECK(m.w[0] == lim);
     CHECK_EQ_INT(gateModelPredict(&m, &x, probs, &score), 1);
     CHECK(score == 1.0 && probs[1] == 1.0 && probs[0] == 0.0);
     gateModelFree(&m);
 
-    /* The bias is clamped too. b = 999999.9375 is the largest float32 below
-     * the limit; w * x = -1e6 brings the logit down to -0.0625, so p is
-     * about one half and a step of eta = 10 overshoots the limit. */
+    /* The bias is clamped too. It starts one float32 inside the limit and
+     * w * x = -lim brings the logit to just below 0, so p is one half and a
+     * step of eta = 10 (that is 5) overshoots the limit. So does the weight,
+     * at -1 + 5 * lim. */
     CHECK(gateModelInit(&m, 3, 2) == GATE_OK);
-    m.b[0] = 999999.9375f;
+    m.b[0] = below;
     m.w[0] = -1.0f;
-    val[0] = 1e6f;
+    val[0] = lim;
     CHECK(gateModelLearn(&m, &x, respond, 10.0, 0.0, NULL) == GATE_OK);
-    CHECK(m.b[0] == GATE_MAX_WEIGHT);
-    CHECK(m.w[0] == GATE_MAX_WEIGHT); /* -1 + 10 * 0.52 * 1e6 */
+    CHECK(m.b[0] == lim);
+    CHECK(m.w[0] == lim);
     /* Mirror image, towards the negative limit. */
-    m.b[0] = -999999.9375f;
+    m.b[0] = -below;
     m.w[0] = 1.0f;
     CHECK(gateModelLearn(&m, &x, ignore, 10.0, 0.0, NULL) == GATE_OK);
-    CHECK(m.b[0] == -GATE_MAX_WEIGHT);
-    CHECK(m.w[0] == -GATE_MAX_WEIGHT);
+    CHECK(m.b[0] == -lim);
+    CHECK(m.w[0] == -lim);
     gateModelFree(&m);
 
-    /* Just inside the limit nothing is clamped: z = 999990 - 999990 = 0,
-     * p = 0.5, and with eta = 1 the bias gains exactly 0.5. */
+    /* Inside the limit nothing is clamped: z = inside - inside = 0, p = 0.5,
+     * and with eta = 1 the bias gains exactly one half while the weight
+     * becomes -1 + inside / 2 (54.5 and 26 for a limit of 64). */
     CHECK(gateModelInit(&m, 3, 2) == GATE_OK);
-    m.b[0] = 999990.0f;
+    m.b[0] = inside;
     m.w[0] = -1.0f;
-    val[0] = 999990.0f;
+    val[0] = inside;
     CHECK(gateModelLearn(&m, &x, respond, 1.0, 0.0, NULL) == GATE_OK);
-    CHECK(m.b[0] == 999990.5f);
-    CHECK(m.w[0] == 499994.0f); /* -1 + 0.5 * 999990 */
+    CHECK(m.b[0] == (float)((double)inside + 0.5));
+    CHECK(m.w[0] == (float)(-1.0 + 0.5 * (double)inside));
+    CHECK(m.b[0] > inside && m.b[0] < lim && fabsf(m.w[0]) < lim);
     gateModelFree(&m);
 
     /* Multiclass: every vector is clamped on its own side. */
