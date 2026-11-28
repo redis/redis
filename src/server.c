@@ -8122,8 +8122,10 @@ void loadDataFromDisk(void) {
         if (!strncmp(server.preload_file, "aof:/", 5)) {
             int ret;
             if (!strcmp(getFileExtension(server.preload_file), "aof")) {
+                if (validatePreloadPath(server.preload_file + 4) != C_OK) exit(1);
                 ret = loadPreLoadAOFFile(server.preload_file + 4);
             } else if (!strcmp(getFileExtension(server.preload_file), "manifest")) {
+                if (validatePreloadPath(server.preload_file + 4) != C_OK) exit(1);
                 ret = loadPreLoadManifestFile(server.preload_file + 4);
             } else {
                 serverLog(LL_NOTICE,"Invalid preload-file configuration (not .aof or .manifest): %s. Exiting.", server.preload_file);
@@ -8137,6 +8139,7 @@ void loadDataFromDisk(void) {
             }
             loaded = 1;
         } else if (!strncmp(server.preload_file, "rdb:/", 5)) {
+            if (validatePreloadPath(server.preload_file + 4) != C_OK) exit(1);
             int rdbflags = RDBFLAGS_NONE;
             if (iAmMaster()) {
                 /* Master may delete expired keys when loading, we should

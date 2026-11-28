@@ -269,6 +269,193 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
         }
     }
 
+    test {Preload rejects symlink directory aliases without removing local AOF} {
+        set local_dir [file normalize [tmpdir preload.alias-local]]
+        file delete -force $local_dir
+        create_local_aof $local_dir
+        set alias_dir [file normalize [tmpdir preload.alias-link]]
+        file delete -force $alias_dir
+        file link -symbolic $alias_dir [file join $local_dir appendonlydir]
+        set source_manifest [file join $alias_dir appendonly.aof.manifest]
+        set incr [file join $local_dir appendonlydir appendonly.aof.1.incr.aof]
+        set fp [open $incr r]
+        set contents [read $fp]
+        close $fp
+
+        assert_equal 1 [catch {exec src/redis-server --port 0 \
+            --unixsocket socket --dir $local_dir \
+            --save "" --appendonly yes --preload-file "aof:$source_manifest"} error]
+        assert_match {*does not support symlinks in preload file*} $error
+        assert {[file exists $incr]}
+        set fp [open $incr r]
+        assert_equal $contents [read $fp]
+        close $fp
+
+        start_server [list overrides [list dir $local_dir appendonly yes]] {
+            assert_equal value [r get local-aof-key]
+        }
+    }
+
+    test {Preload rejects symlinked standalone AOF and RDB files} {
+        set local_dir [file normalize [tmpdir preload.symlink-local]]
+        file delete -force $local_dir
+        create_local_aof $local_dir
+        set aof_dir [file join $local_dir appendonlydir]
+        set old_aof [file join $aof_dir appendonly.aof.1.incr.aof]
+
+        set preload_dir [file normalize [tmpdir preload.symlink-source]]
+        file delete -force $preload_dir
+        file mkdir $preload_dir
+        set real_aof [file join $preload_dir real.aof]
+        set fp [open $real_aof w]
+        puts -nonewline $fp [formatCommand select 9]
+        puts -nonewline $fp [formatCommand set external-key value]
+        close $fp
+        set real_rdb [file join $preload_dir real.rdb]
+        create_local_rdb $real_rdb
+
+        set ext_aof_link [file join $preload_dir ext-link.aof]
+        set local_aof_link [file join $preload_dir local-link.aof]
+        set rdb_link [file join $preload_dir link.rdb]
+        file link -symbolic $ext_aof_link $real_aof
+        file link -symbolic $local_aof_link $old_aof
+        file link -symbolic $rdb_link $real_rdb
+
+        foreach {spec appendonly} [list \
+            "aof:$ext_aof_link" yes \
+            "aof:$ext_aof_link" no \
+            "aof:$local_aof_link" yes \
+            "rdb:$rdb_link" yes \
+            "rdb:$rdb_link" no] {
+            assert_equal 1 [catch {exec src/redis-server --port 0 \
+                --unixsocket socket --dir $local_dir \
+                --save "" --appendonly $appendonly --preload-file $spec} error]
+            assert_match {*does not support symlinks in preload file*} $error
+        }
+
+        # Non-directory parent component triggers an lstat inspection error.
+        assert_equal 1 [catch {exec src/redis-server --port 0 \
+            --unixsocket socket --dir $local_dir \
+            --save "" --appendonly no --preload-file "aof:$real_aof/child.aof"} error]
+        assert_match {*Can't inspect preload file*} $error
+
+        assert {[file exists $old_aof]}
+        start_server [list overrides [list dir $local_dir appendonly yes]] {
+            assert_equal value [r get local-aof-key]
+        }
+    }
+
+    test {Preload rejects a manifest with symlinked entries before touching local AOF} {
+        set local_dir [file normalize [tmpdir preload.manifest-symlink-local]]
+        file delete -force $local_dir
+        create_local_aof $local_dir
+        set aof_dir [file join $local_dir appendonlydir]
+        set base_name appendonly.aof.1.base.aof
+        set incr_name appendonly.aof.1.incr.aof
+        set local_base [file join $aof_dir $base_name]
+        set fp [open $local_base w]
+        puts -nonewline $fp [formatCommand select 9]
+        puts -nonewline $fp [formatCommand set original-base-key value]
+        close $fp
+        set fp [open [file join $aof_dir appendonly.aof.manifest] w]
+        puts -nonewline $fp "file $base_name seq 1 type b\nfile $incr_name seq 1 type i\n"
+        close $fp
+        set fp [open $local_base r]
+        set original_base [read $fp]
+        close $fp
+
+        # Case 1: regular BASE + symlinked INCR pointing into appendonlydir.
+        set preload_dir [file normalize [tmpdir preload.manifest-symlink-incr]]
+        file delete -force $preload_dir
+        file mkdir $preload_dir
+        set fp [open [file join $preload_dir $base_name] w]
+        puts -nonewline $fp [formatCommand select 9]
+        puts -nonewline $fp [formatCommand set external-base-key value]
+        close $fp
+        file link -symbolic [file join $preload_dir $incr_name] [file join $aof_dir $incr_name]
+        set incr_manifest [file join $preload_dir appendonly.aof.manifest]
+        set fp [open $incr_manifest w]
+        puts -nonewline $fp "file $base_name seq 1 type b\nfile $incr_name seq 1 type i\n"
+        close $fp
+
+        assert_equal 1 [catch {exec src/redis-server --port 0 \
+            --unixsocket socket --dir $local_dir \
+            --save "" --appendonly yes --preload-file "aof:$incr_manifest"} error]
+        assert_match {*does not support symlinks in preload file*} $error
+
+        # Case 2: symlinked BASE entry in manifest.
+        set base_preload_dir [file normalize [tmpdir preload.manifest-symlink-base]]
+        file delete -force $base_preload_dir
+        file mkdir $base_preload_dir
+        file link -symbolic [file join $base_preload_dir $base_name] [file join $preload_dir $base_name]
+        set base_manifest [file join $base_preload_dir appendonly.aof.manifest]
+        set fp [open $base_manifest w]
+        puts -nonewline $fp "file $base_name seq 1 type b\n"
+        close $fp
+
+        assert_equal 1 [catch {exec src/redis-server --port 0 \
+            --unixsocket socket --dir $local_dir \
+            --save "" --appendonly yes --preload-file "aof:$base_manifest"} error]
+        assert_match {*does not support symlinks in preload file*} $error
+
+        set fp [open $local_base r]
+        assert_equal $original_base [read $fp]
+        close $fp
+        start_server [list overrides [list dir $local_dir appendonly yes]] {
+            assert_equal value [r get original-base-key]
+            assert_equal value [r get local-aof-key]
+            assert_equal {} [r get external-base-key]
+        }
+    }
+
+    test {Preload rejects a symlinked append-only directory without modifying preload files} {
+        set preload_dir [file normalize [tmpdir preload.symlink-aofdir-source]]
+        file delete -force $preload_dir
+        create_local_aof $preload_dir
+        set source_aof_dir [file join $preload_dir appendonlydir]
+        set source_manifest [file join $source_aof_dir appendonly.aof.manifest]
+        set source_incr [file join $source_aof_dir appendonly.aof.1.incr.aof]
+        set fp [open $source_incr r]
+        set contents [read $fp]
+        close $fp
+
+        set local_dir [file normalize [tmpdir preload.symlink-aofdir-local]]
+        file delete -force $local_dir
+        file mkdir $local_dir
+        file link -symbolic [file join $local_dir appendonlydir] $source_aof_dir
+
+        assert_equal 1 [catch {exec src/redis-server --port 0 \
+            --unixsocket socket --dir $local_dir \
+            --save "" --appendonly yes --preload-file "aof:$source_manifest"} error]
+        assert_match {*does not support symlinks in append-only directory*} $error
+        assert {[file exists $source_incr]}
+        set fp [open $source_incr r]
+        assert_equal $contents [read $fp]
+        close $fp
+    }
+
+    test {A destination symlink can be replaced without removing its preload source} {
+        set local_dir [file normalize [tmpdir preload.target-symlink]]
+        file delete -force $local_dir
+        file mkdir $local_dir
+        set preload_aof [file join $local_dir source.aof]
+        set fp [open $preload_aof w]
+        puts -nonewline $fp [formatCommand select 9]
+        puts -nonewline $fp [formatCommand set target-symlink-key value]
+        close $fp
+        set aof_dir [file join $local_dir appendonlydir]
+        file mkdir $aof_dir
+        set target [file join $aof_dir source.aof]
+        file link -symbolic $target $preload_aof
+
+        start_server [list overrides [list dir $local_dir appendonly yes preload-file "aof:$preload_aof"]] {
+            assert_equal value [r get target-symlink-key]
+            assert {[file exists $preload_aof]}
+            assert {[file exists $target]}
+            assert_equal file [file type $target]
+        }
+    }
+
     test {Preload from appendonlydir preserves its source and recreates the INCR} {
         set local_dir [file normalize [tmpdir preload.same-aof-dir]]
         create_local_aof $local_dir

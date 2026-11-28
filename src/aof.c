@@ -838,6 +838,50 @@ static aofManifest *aofManifestFromPreloadFile(char *preload_path) {
     return am;
 }
 
+/* Reject symlink components in preload paths so lexical path comparisons stay
+ * unambiguous and hard-linking never installs or breaks symlinks. */
+static int rejectSymlinkPath(const char *desc, const char *path) {
+    int has_symlink = pathContainsSymlink(path);
+    if (has_symlink == 1) {
+        serverLog(LL_WARNING, "Preload does not support symlinks in %s: %s",
+                              desc, path);
+        return C_ERR;
+    }
+    if (has_symlink == -1) {
+        serverLog(LL_WARNING, "Can't inspect %s %s: %s",
+                              desc, path, strerror(errno));
+        return C_ERR;
+    }
+    return C_OK;
+}
+
+int validatePreloadPath(const char *path) {
+    return rejectSymlinkPath("preload file", path);
+}
+
+/* Validate that none of the BASE or INCR files referenced by a preload
+ * manifest are or traverse symlinks. */
+static int aofValidatePreloadManifest(char *absolute_preload_dir, aofManifest *am) {
+    if (am->base_aof_info) {
+        sds source_path = makePath(absolute_preload_dir, am->base_aof_info->file_name);
+        int ok = validatePreloadPath(source_path);
+        sdsfree(source_path);
+        if (ok != C_OK) return C_ERR;
+    }
+
+    listIter li;
+    listNode *ln;
+    listRewind(am->incr_aof_list, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        aofInfo *ai = listNodeValue(ln);
+        sds source_path = makePath(absolute_preload_dir, ai->file_name);
+        int ok = validatePreloadPath(source_path);
+        sdsfree(source_path);
+        if (ok != C_OK) return C_ERR;
+    }
+    return C_OK;
+}
+
 /* Install one preload manifest entry under its existing filename. Leave the
  * file in place when source and target are the same path, otherwise replace
  * the target without changing the manifest metadata. */
@@ -973,6 +1017,10 @@ static void aofRemoveFilesOutsideManifest(aofManifest *am) {
 void aofSetupAfterPreloadFile(void) {
     if (server.preload_file == NULL || server.aof_state != AOF_ON) {
         return;
+    }
+
+    if (rejectSymlinkPath("append-only directory", server.aof_dirname) != C_OK) {
+        exit(1);
     }
 
     /* If preload-file points to the current local manifest, the normal startup
@@ -1796,13 +1844,19 @@ int loadPreLoadAOFFile(char *file) {
 
 int loadPreLoadManifestFile(char *file) {
     aofManifest* preload_am = aofLoadManifestFromFile(file);
+    sds preload_dir = getFilePath(file);
+    if (aofValidatePreloadManifest(preload_dir, preload_am) != C_OK) {
+        sdsfree(preload_dir);
+        aofManifestFree(preload_am);
+        exit(1);
+    }
 
     /* We change server.aof_filename temporarily to skip upgradeAofIfNeeded */
     char *tmp_aof_fullfilename = server.aof_filename;
     server.aof_filename = "";
     char *tmp_aof_dirname = server.aof_dirname;
     /* Load preload manifest entries relative to the preload file directory. */
-    server.aof_dirname = getFilePath(file);
+    server.aof_dirname = preload_dir;
     int ret = loadAppendOnlyFiles(preload_am);
     /* Update server.master_repl_offset if possible. */
     if (listLength(preload_am->incr_aof_list) > 0) {
