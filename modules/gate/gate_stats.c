@@ -26,6 +26,13 @@
 #include <string.h>
 #include "gate_stats.h"
 
+/* The fail closed paths are comparisons with NaN and infinity. Under
+ * -ffast-math / -ffinite-math-only the compiler is allowed to assume those
+ * values do not exist and to delete the checks. */
+#if defined(__FINITE_MATH_ONLY__) && __FINITE_MATH_ONLY__
+#error "gate_stats.c needs IEEE NaN and infinity semantics: do not build it with -ffast-math"
+#endif
+
 /* ------------------------------ E-process -------------------------------- */
 
 const double gateBetFractions[GATE_NBETS] = {0.1, 0.25, 0.5, 0.9};
@@ -93,13 +100,15 @@ double gateRegionLogWealth(const gateRegion *r) {
     for (j = 0; j < GATE_NBETS; j++) {
         double v = r->logw[j];
 
-        if (isnan(v)) return v;
+        /* The updates can only produce finite log wealths (see above), so a
+         * NaN or an infinity here is corrupted state, in any of the four
+         * slots and of either sign: -inf would be a bet that lost
+         * everything, which a factor of 1 - c > 0 never does. There is no
+         * evidence to report then, and NaN is the one answer that no
+         * comparison downstream can mistake for some. */
+        if (!isfinite(v)) return NAN;
         if (v > max) max = v;
     }
-    /* An infinite maximum is its own answer (+inf: one wealth is infinite,
-     * -inf: all four are zero). It must not reach the subtraction below,
-     * where inf - inf would turn it into a NaN. */
-    if (isinf(max)) return max;
 
     /* Subtracting the maximum makes every exponent <= 0 and one of them
      * exactly 0: the sum is in [1, 4] whatever the magnitude of the log
@@ -114,9 +123,10 @@ double gateRegionLogWealth(const gateRegion *r) {
 int gateRegionCertifies(const gateRegion *r, double log_threshold) {
     double lw = gateRegionLogWealth(r);
 
-    /* The comparison alone would already reject a NaN wealth (and a NaN
-     * threshold); isfinite() also rejects +inf, which can only come from
-     * corrupted state and must not be read as overwhelming evidence. */
+    /* The comparison alone already rejects a NaN wealth (and a NaN
+     * threshold): a comparison with NaN is false. isfinite() states the
+     * contract of the header explicitly and keeps it true even if the
+     * comparison is ever rewritten in a form that NaN would pass. */
     return isfinite(lw) && lw >= log_threshold;
 }
 

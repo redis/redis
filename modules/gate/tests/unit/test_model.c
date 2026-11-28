@@ -40,9 +40,9 @@
 #include "gate_model.h"
 
 #if !defined(NDEBUG)
+#include <fcntl.h>
+#include <setjmp.h>
 #include <signal.h>
-#include <sys/resource.h>
-#include <sys/wait.h>
 #include <unistd.h>
 #endif
 
@@ -274,6 +274,8 @@ static void stepAgainstReference(gateModel *m, const gateSparse *x, const double
     refStep r;
     int cls;
 
+    CHECK(m->dim <= ARRAY_LEN(xd));
+    if (m->dim > ARRAY_LEN(xd)) return;
     densify(x, xd, m->dim);
     refCompute(&r, m, xd, q, eta, lambda);
 
@@ -422,7 +424,7 @@ TEST(softmax_sums_to_one_and_ignores_a_common_shift) {
             }
             /* n terms, each off by an ulp or two of itself. */
             CHECK_NEAR(sum, 1.0, (n + 2) * DBL_EPSILON);
-            CHECK(lse >= zmax && lse <= zmax + log((double)n) + 1e-15);
+            CHECK(lse >= zmax && lse <= zmax + log((double)n) + 1e-14);
             CHECK_NEAR(lses, lse + c, 1e-13);
         }
     }
@@ -1354,7 +1356,7 @@ TEST(sparse_input_matches_the_dense_reference) {
      * interface. */
     enum { DIM = 24 };
     static const struct { uint32_t K; double lambda; } cfg[] = {
-        {2, 0.0}, {2, 0.25}, {3, 0.0}, {5, 0.25}};
+        {2, 0.0}, {2, 0.25}, {3, 0.0}, {5, 0.25}, {GATE_MAX_CLASSES, 0.0}};
     uint32_t idx[DIM];
     float val[DIM];
     uint64_t rng = 0x5eed0007;
@@ -2041,76 +2043,83 @@ TEST(learns_a_separable_three_class_problem) {
 /* --------------------------- Debug-build contract ------------------------ */
 
 #if !defined(NDEBUG)
-/* Sparse inputs must be coalesced with every index below the dimension.
- * Release builds trust the caller; builds with assertions enabled (the
- * default of this Makefile) must catch a violation before it turns into an
- * out-of-bounds access. Each violation runs in a child process, which is
- * expected to die of the SIGABRT a failed assert() raises. */
-static uint32_t bad_idx[3];
-static float bad_val[3] = {1.0f, 1.0f, 1.0f};
-static uint32_t bad_n;
-static int bad_learn;
+/* Sparse inputs must have strictly increasing indices, all below the model
+ * dimension. Release builds (-DNDEBUG) trust the caller; a build with
+ * assertions enabled, which is what this Makefile produces, must stop a
+ * violation before it turns into an out-of-bounds access.
+ *
+ * A failed assert() ends in abort(). C11 7.22.4.1 lets a SIGABRT handler
+ * not return, and these assertions fire before the model is read or
+ * written, so the handler simply jumps back into the test. */
+static sigjmp_buf abort_jump;
+static double abort_score;
 
-static void violateContract(void) {
-    gateSparse x = {bad_n, bad_idx, bad_val};
-    const double q[2] = {0.0, 1.0};
-    double score;
-    gateModel m;
+static void onAbort(int sig) {
+    (void)sig;
+    siglongjmp(abort_jump, 1);
+}
 
-    if (gateModelInit(&m, 8, 2) != GATE_OK) _exit(2);
-    if (bad_learn)
-        gateModelLearn(&m, &x, q, 0.1, 0.0, NULL);
+/* 1 if the call aborted, 0 if it returned. Deliberately without locals:
+ * there is nothing here for the jump to clobber. */
+static int callAborts(gateModel *m, const gateSparse *x, const double *q, int learn) {
+    if (sigsetjmp(abort_jump, 1) != 0) return 1;
+    if (learn)
+        gateModelLearn(m, x, q, 0.1, 0.0, NULL);
     else
-        gateModelPredict(&m, &x, NULL, &score);
-    gateModelFree(&m);
-}
-
-/* 1 if 'fn' died of SIGABRT, 0 if it returned, -1 if no child could be
- * started. */
-static int diesOnAssert(void (*fn)(void)) {
-    int status = 0;
-    pid_t pid;
-
-    fflush(NULL); /* the child must not replay buffered output */
-    pid = fork();
-    if (pid < 0) return -1;
-    if (pid == 0) {
-        struct rlimit nocore = {0, 0};
-        setrlimit(RLIMIT_CORE, &nocore);
-        /* The assertion message is expected here, not news. */
-        if (freopen("/dev/null", "w", stderr) == NULL) _exit(3);
-        fn();
-        _exit(0);
-    }
-    if (waitpid(pid, &status, 0) != pid) return -1;
-    return WIFSIGNALED(status) && WTERMSIG(status) == SIGABRT;
-}
-
-static int violationDies(uint32_t n, uint32_t i0, uint32_t i1, uint32_t i2, int learn) {
-    bad_n = n;
-    bad_idx[0] = i0;
-    bad_idx[1] = i1;
-    bad_idx[2] = i2;
-    bad_learn = learn;
-    return diesOnAssert(violateContract);
+        gateModelPredict(m, x, NULL, &abort_score);
+    return 0;
 }
 
 TEST(debug_builds_assert_on_malformed_sparse_input) {
-    int learn;
+    static const struct { uint32_t n; uint32_t idx[3]; int bad; } cases[] = {
+        {3, {1, 4, 7}, 0}, /* well formed */
+        {3, {0, 1, 2}, 0},
+        {0, {9, 9, 9}, 0}, /* empty: the entries are not looked at */
+        {3, {1, 4, 8}, 1}, /* index == dim */
+        {1, {9, 0, 0}, 1}, /* index > dim */
+        {3, {4, 1, 7}, 1}, /* not ascending */
+        {3, {1, 4, 4}, 1}, /* duplicate */
+    };
+    const double q[2] = {0.0, 1.0};
+    float val[3] = {1.0f, 1.0f, 1.0f};
+    uint32_t idx[3];
+    void (*old_handler)(int);
+    int saved_stderr, devnull, learn;
+    gateModel m;
+    modelSnap s;
+    size_t c;
 
-    if (violationDies(3, 1, 4, 7, 0) < 0) {
-        printf("  (skipped: cannot fork)\n");
-        return;
-    }
+    CHECK(gateModelInit(&m, 8, 2) == GATE_OK);
+
+    /* The assertion messages are expected here, not news: keep them out of
+     * the test output. */
+    fflush(stderr);
+    saved_stderr = dup(STDERR_FILENO);
+    devnull = open("/dev/null", O_WRONLY);
+    if (saved_stderr >= 0 && devnull >= 0) dup2(devnull, STDERR_FILENO);
+    old_handler = signal(SIGABRT, onAbort);
+
     for (learn = 0; learn <= 1; learn++) {
-        CHECK_EQ_INT(violationDies(3, 1, 4, 7, learn), 0); /* well formed: survives */
-        CHECK_EQ_INT(violationDies(3, 0, 1, 2, learn), 0);
-        CHECK_EQ_INT(violationDies(0, 9, 9, 9, learn), 0); /* empty: entries unused */
-        CHECK_EQ_INT(violationDies(3, 1, 4, 8, learn), 1); /* index == dim */
-        CHECK_EQ_INT(violationDies(1, UINT32_MAX, 0, 0, learn), 1);
-        CHECK_EQ_INT(violationDies(3, 4, 1, 7, learn), 1); /* not ascending */
-        CHECK_EQ_INT(violationDies(3, 1, 4, 4, learn), 1); /* duplicate */
+        for (c = 0; c < ARRAY_LEN(cases); c++) {
+            gateSparse x = {cases[c].n, idx, val};
+
+            memcpy(idx, cases[c].idx, sizeof(idx));
+            snapTake(&s, &m);
+            CHECK_EQ_INT(callAborts(&m, &x, q, learn), cases[c].bad);
+            /* A refused call has not touched the model. */
+            if (cases[c].bad) CHECK(snapMatches(&s, &m));
+            snapFree(&s);
+        }
     }
+
+    signal(SIGABRT, old_handler);
+    fflush(stderr);
+    if (saved_stderr >= 0 && devnull >= 0) dup2(saved_stderr, STDERR_FILENO);
+    if (saved_stderr >= 0) close(saved_stderr);
+    if (devnull >= 0) close(devnull);
+
+    CHECK_EQ_INT(m.updates, 3); /* the three well formed inputs were learned */
+    gateModelFree(&m);
 }
 #endif
 

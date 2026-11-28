@@ -11,6 +11,11 @@
  *
  * Usage: sim_certify [trials [seed]]
  *
+ * 'trials' (default 30000, about 50 seconds on one core) is the number of
+ * races of table (B) and of streams per row of tables (C) and (D); table (A)
+ * estimates much smaller probabilities and uses 5 x trials streams per row.
+ * Everything is deterministic for a given (trials, seed).
+ *
  * It prints four tables:
  *
  *   (A) how often one region whose true risk is at or above alpha gets
@@ -113,7 +118,8 @@ static int simCmpU64(const void *a, const void *b) {
  * are stored as SIM_NEVER and sort last, so a quantile that falls among
  * them comes out as SIM_NEVER ("beyond the cap"). */
 static uint64_t simQuantile(const uint64_t *sorted, uint64_t n, double q) {
-    uint64_t idx = (uint64_t)ceil(q * (double)n);
+    double rank = ceil(q * (double)n);
+    uint64_t idx = (uint64_t)rank;
 
     if (idx < 1) idx = 1;
     if (idx > n) idx = n;
@@ -350,6 +356,8 @@ static void simTableA(uint64_t trials, uint64_t seed) {
     static const double mults[] = {1.0, 1.25};
     const uint64_t horizon = 20000, n = trials * 5;
     clock_t start = clock();
+    /* Range of exact/bound over the rows at risk = alpha and 1.25 alpha. */
+    double ratio_lo[2] = {INFINITY, INFINITY}, ratio_hi[2] = {0.0, 0.0};
     size_t a, d, m;
     uint64_t row = 0;
 
@@ -387,13 +395,15 @@ static void simTableA(uint64_t trials, uint64_t seed) {
                 CHECK(exact <= delta);
                 CHECK(lo <= delta);
                 CHECK(fabs((double)x - (double)n * exact) <= 4.5 * sqrt((double)n * exact) + 3.0);
+                if (exact / delta < ratio_lo[m]) ratio_lo[m] = exact / delta;
+                if (exact / delta > ratio_hi[m]) ratio_hi[m] = exact / delta;
                 simBoundaryFree(&bd);
             }
         }
     }
-    printf("\n    At true risk = alpha the test spends most of its budget (exact/bound 0.7 - 0.9): it is valid\n"
-           "    without being wasteful. A quarter above alpha it is already 20 - 100 times below the bound.\n"
-           "    The table took %.1f s.\n", simSeconds(start));
+    printf("\n    At true risk = alpha the exact probability is %.2f - %.2f of the bound: the test is valid without\n"
+           "    wasting much of its budget. At 1.25 alpha it is already down to %.3f - %.3f of the bound.\n"
+           "    The table took %.1f s.\n", ratio_lo[0], ratio_hi[0], ratio_lo[1], ratio_hi[1], simSeconds(start));
 }
 
 /* ------------------------------- table (B) ------------------------------- */
@@ -806,6 +816,7 @@ static void simTableC(uint64_t trials, uint64_t seed) {
     clock_t start = clock();
     uint64_t *times = simAlloc(trials, sizeof(uint64_t));
     uint64_t row = 0, i;
+    double scaled[3][4];    /* median x alpha of the default gate rows */
     char b1[32], b2[32], b3[32], b4[32];
     size_t a, g, r, m;
 
@@ -833,6 +844,7 @@ static void simTableC(uint64_t trials, uint64_t seed) {
                 /* The boundary table and the library agree on the one
                  * point that needs no simulation. */
                 CHECK(bd.len > 0 && bd.nmin[0] == n0);
+                if (g == 0 && r == 0) scaled[a][0] = (double)n0 * alpha;
                 printf("    %.3f  %2llu    %3u    %7.4f   %-9s %.5f  %8llu %8llu   %5.1f%%   %12.0f   %12.0f\n",
                        alpha, (unsigned long long)gens[g], regions[r], thr, "0 (exact)", 0.0,
                        (unsigned long long)n0, (unsigned long long)n0, 0.0,
@@ -858,6 +870,7 @@ static void simTableC(uint64_t trials, uint64_t seed) {
                            simFmtScaled(b4, sizeof(b4), p90, horizon, per));
                     /* No stream can beat the zero error count. */
                     CHECK(times[0] >= n0);
+                    if (g == 0 && r == 0) scaled[a][m + 1] = med == SIM_NEVER ? NAN : (double)med * alpha;
                 }
                 simBoundaryFree(&bd);
                 printf("\n");
@@ -865,6 +878,12 @@ static void simTableC(uint64_t trials, uint64_t seed) {
         }
     }
     free(times);
+    printf("    Scaling. The sample count is close to a constant divided by alpha. Median samples x alpha for\n"
+           "    the default gate (generation 1, 32 regions) at alpha = 0.05 / 0.02 / 0.01:\n"
+           "        no errors %.1f / %.1f / %.1f    alpha/4 %.1f / %.1f / %.1f    alpha/2 %.1f / %.1f / %.1f"
+           "    0.8 alpha %.0f / %.0f / %.0f\n",
+           scaled[0][0], scaled[1][0], scaled[2][0], scaled[0][1], scaled[1][1], scaled[2][1],
+           scaled[0][2], scaled[1][2], scaled[2][2], scaled[0][3], scaled[1][3], scaled[2][3]);
     printf("    The table took %.1f s.\n", simSeconds(start));
 }
 
@@ -911,11 +930,14 @@ static void simTableD(uint64_t trials, uint64_t seed) {
     static const double mults[] = {0.25, 0.5, 1.0};
     static const char *names[] = {"alpha/4", "alpha/2", "alpha"};
     const uint64_t short_cap = 10000, long_cap = 1000000, burn = 2 * GATE_DRIFT_WINDOW;
-    /* Long runs are expensive when the alarm (rightly) never comes: only
-     * the first 'deep' streams of each row are followed up to long_cap. */
+    /* Every stream is followed for short_cap audits. When fewer than half
+     * of them have fired by then the median lies beyond, and following all
+     * of them further is expensive exactly when the alarm (rightly) never
+     * comes: only the first 'deep' streams of the row go on to long_cap. */
     uint64_t deep = trials / 50 < 200 ? 200 : trials / 50;
     clock_t start = clock();
     uint64_t *times, row = 0, i;
+    double by10000_half[3] = {0.0, 0.0, 0.0};
     char b1[32], b2[32], b3[32];
     size_t a, m;
 
@@ -925,21 +947,24 @@ static void simTableD(uint64_t trials, uint64_t seed) {
     printf("\n(D) DRIFT GUARD   window = %d audits, first evaluated at %d, alarm when errors > 2 alpha n\n"
            "    The guard is a heuristic: it has false alarms and a detection delay, measured here.\n"
            "    An alarm revokes the serving policy, so a false alarm costs a recalibration.\n\n"
-           "    (D1) False alarms on IID traffic whose risk is at or below the target. Probability that the\n"
+           "    (D1) False alarms on IID traffic whose risk is at or below the target: probability that the\n"
            "    alarm has fired by audit 100 / 1000 / 10000 (%llu streams per row) and median number of\n"
-           "    audits until it fires (first %llu streams, each followed for up to %llu audits).\n\n",
+           "    audits until it fires. The median is over all the streams when it is below 10000 audits,\n"
+           "    otherwise over the first %llu, each followed for up to %llu audits ('streams' column).\n\n",
            GATE_DRIFT_WINDOW, GATE_DRIFT_MIN, (unsigned long long)trials,
            (unsigned long long)deep, (unsigned long long)long_cap);
     printf("    alpha  limit  true risk            P(by 100)  P(by 1000)  P(by 10000)   median audits to alarm"
-           "   accepted requests (q = %.2f)\n", SIM_AUDIT_RATE);
+           "  streams   accepted requests (q = %.2f)\n", SIM_AUDIT_RATE);
     for (a = 0; a < 3; a++) {
         for (m = 0; m < 3; m++) {
             double alpha = alphas[a], p = alpha * mults[m], limit = 2.0 * alpha;
-            uint64_t rng = simStream(seed, 0xd000 + row++);
-            uint64_t by100 = 0, by1000 = 0, by10000 = 0, earliest = SIM_NEVER, med;
+            uint64_t base = (0xd000 + row++) << 32;
+            uint64_t by100 = 0, by1000 = 0, by10000 = 0, earliest = SIM_NEVER, used, med;
 
+            /* One generator per stream, so that a stream can be replayed. */
             for (i = 0; i < trials; i++) {
-                uint64_t t = simAlarmTime(p, limit, i < deep ? long_cap : short_cap, &rng);
+                uint64_t rng = simStream(seed, base + i);
+                uint64_t t = simAlarmTime(p, limit, short_cap, &rng);
 
                 by100 += t <= 100;
                 by1000 += t <= 1000;
@@ -947,18 +972,35 @@ static void simTableD(uint64_t trials, uint64_t seed) {
                 if (t < earliest) earliest = t;
                 times[i] = t;
             }
-            qsort(times, deep, sizeof(uint64_t), simCmpU64);
-            med = simQuantile(times, deep, 0.5);
-            printf("    %.3f  %.3f  %-9s %.5f   %.5f    %.5f     %.5f      %12s             %12s\n",
+            if (2 * by10000 >= trials) {
+                used = trials;
+            } else {
+                used = deep;
+                for (i = 0; i < deep; i++) {
+                    uint64_t rng = simStream(seed, base + i);
+
+                    if (times[i] == SIM_NEVER) times[i] = simAlarmTime(p, limit, long_cap, &rng);
+                }
+            }
+            qsort(times, used, sizeof(uint64_t), simCmpU64);
+            med = simQuantile(times, used, 0.5);
+            printf("    %.3f  %.3f  %-9s %.5f   %.5f    %.5f     %.5f      %12s        %7llu          %12s\n",
                    alpha, limit, names[m], p, (double)by100 / (double)trials,
                    (double)by1000 / (double)trials, (double)by10000 / (double)trials,
-                   simFmt(b1, sizeof(b1), med, long_cap),
+                   simFmt(b1, sizeof(b1), med, long_cap), (unsigned long long)used,
                    simFmtScaled(b2, sizeof(b2), med, long_cap, SIM_AUDIT_RATE));
             /* Nothing can fire before the window holds GATE_DRIFT_MIN. */
             CHECK(earliest >= GATE_DRIFT_MIN);
+            if (m == 1) by10000_half[a] = (double)by10000 / (double)trials;
         }
         printf("\n");
     }
+    printf("    Reading: a policy that runs at HALF its risk target is revoked by a false alarm within 10000\n"
+           "    audits (%.0f accepted requests at q = %.2f) in %.1f%% of the runs at alpha = 0.05, %.1f%% at\n"
+           "    alpha = 0.02 and %.1f%% at alpha = 0.01. A window of %d audits cannot tell alpha from 2 alpha\n"
+           "    when alpha is small: 2 alpha x %d is only %.1f errors at alpha = 0.01.\n\n",
+           10000.0 / SIM_AUDIT_RATE, SIM_AUDIT_RATE, 100.0 * by10000_half[0], 100.0 * by10000_half[1],
+           100.0 * by10000_half[2], GATE_DRIFT_WINDOW, GATE_DRIFT_WINDOW, 2.0 * 0.01 * GATE_DRIFT_WINDOW);
 
     printf("    (D2) Detection delay. The window is full of audits at risk alpha/2 (%llu audits without an\n"
            "    alarm), then the risk jumps. Audits from the jump to the alarm, %llu streams per row.\n\n",
@@ -992,7 +1034,7 @@ static void simTableD(uint64_t trials, uint64_t seed) {
 /* ---------------------------------- main --------------------------------- */
 
 int main(int argc, char **argv) {
-    uint64_t trials = 20000, seed = 20261128;
+    uint64_t trials = 30000, seed = 20261128;
     clock_t start = clock();
     int status;
 
@@ -1004,7 +1046,8 @@ int main(int argc, char **argv) {
     }
 
     printf("GATE certification Monte Carlo: trials = %llu, seed = %llu\n"
-           "Mixture of %d betting e-processes (c = %.2f, %.2f, %.2f, %.2f), log threshold -log(delta_region).\n\n",
+           "Test: mixture of %d betting e-processes (c = %.2f, %.2f, %.2f, %.2f); a region is certified when\n"
+           "the log mixture wealth reaches -log(delta_region). All streams are IID.\n\n",
            (unsigned long long)trials, (unsigned long long)seed, GATE_NBETS,
            gateBetFractions[0], gateBetFractions[1], gateBetFractions[2], gateBetFractions[3]);
 

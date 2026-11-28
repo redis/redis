@@ -29,10 +29,18 @@
  * (24 + 24 significand bits), so a logit is rounded only by its additions,
  * and it cannot overflow: |w| <= GATE_MAX_WEIGHT and |x| <= FLT_MAX bound
  * every term by 3.5e44, and 2^32 terms by 1.5e54. Likewise a step
- * eta * (q - p) * x stays below 1e41 for any eta up to GATE_MAX_LR. The
+ * eta * (q - p) * x stays below 3.5e39 for any eta up to GATE_MAX_LR. The
  * finiteness checks therefore never fire on legitimately large values (those
  * are handled by clamping); they catch NaN / Inf features or targets, a
- * corrupted weight, or an absurd learning rate.
+ * corrupted weight, or an absurd learning rate or target.
+ *
+ * L2 MEETS FLOAT32. The decay factor is applied in double but the result is
+ * stored in float32, so it only acts where it moves a weight by at least half
+ * a float32 ulp. For eta * lambda <= 2^-25 (3e-8) every weight rounds back to
+ * itself and L2 silently does nothing; from there up to about 1e-7 it acts at
+ * a visibly wrong rate. Likewise a decaying weight never reaches zero: it
+ * stalls at a subnormal. Both are inherent to "float32 weights, exact formula,
+ * no lazy scale"; it is up to the caller not to accept such a small product.
  *
  * DECISIONS ARE TAKEN ON PROBABILITIES. The predicted class is derived from
  * the computed probabilities, not from the logits, exactly as the header
@@ -79,6 +87,7 @@ static int gateModelIsLive(const gateModel *m) {
 size_t gateModelBytes(uint32_t dim, uint32_t nclasses) {
     uint64_t floats;
 
+    /* No model of such a shape can exist, so it accounts for nothing. */
     if (!gateModelShapeIsValid(dim, nclasses)) return 0;
     /* nvec * (dim weights + 1 bias) is below 2^39 and cannot overflow 64
      * bits. It may not fit a 32 bit size_t: the answer then saturates, so
@@ -122,6 +131,7 @@ void gateModelFree(gateModel *m) {
 }
 
 int gateModelCopy(gateModel *dst, const gateModel *src) {
+    assert(dst != src);
     if (!gateModelIsLive(src)) {
         /* Not a model. A zeroed struct (never initialized, or already
          * freed) copies to a zeroed struct; anything else is refused. */
@@ -252,6 +262,8 @@ static int gatePredictFailed(uint32_t nclasses, double *probs, double *score) {
     return -1;
 }
 
+/* Where the header is silent: 'score' may be NULL like 'probs', and a failed
+ * prediction (-1) reports the outputs of gatePredictFailed(). */
 int gateModelPredict(const gateModel *m, const gateSparse *x, double *probs, double *score) {
     double pbuf[GATE_MAX_CLASSES];
     double *p, zmax;
@@ -361,6 +373,9 @@ static void gateVectorStepCommit(float *w, uint32_t dim, const gateSparse *x,
     for (; i < dim; i++) w[i] = gateClampWeight(decay * (double)w[i]);
 }
 
+/* Where the header is silent: a rejected update leaves '*loss' alone as well,
+ * and a learning rate or L2 coefficient outside the documented contract is
+ * rejected like any other update that cannot be trusted. */
 int gateModelLearn(gateModel *m, const gateSparse *x, const double *q,
                    double eta, double lambda, double *loss)
 {

@@ -565,64 +565,61 @@ TEST(log_wealth_extremes) {
     }
 }
 
-/* Corrupted evidence must never be read as evidence. The other three bets
- * are far above the threshold in every case, so a wrong answer here would
- * be a certification. */
+/* Corrupted evidence must never be read as evidence. No sequence of updates
+ * can produce a NaN or an infinite log wealth, so one in any slot means the
+ * state is not to be trusted: the mixture is reported as NaN and nothing
+ * certifies. The other three bets are far above the threshold in every
+ * case, so a wrong answer here would be a certification. */
 TEST(non_finite_wealth_never_certifies) {
     static const double thresholds[] = {-DBL_MAX, -1.0, 0.0, 1.0, 4.6};
+    double poison[3];
     gateBets b;
     gateRegion r;
-    size_t k;
+    size_t k, v;
     int j, i;
 
+    poison[0] = NAN;
+    poison[1] = INFINITY;
+    poison[2] = -INFINITY;
     gateBetsInit(&b, 0.05);
-    for (j = 0; j < GATE_NBETS; j++) {
-        /* NaN in slot j. */
-        gateRegionInit(&r);
-        for (i = 0; i < GATE_NBETS; i++) r.logw[i] = 100.0;
-        r.logw[j] = NAN;
+    for (v = 0; v < COUNTOF(poison); v++) {
+        /* One bad slot, in each of the four positions. */
+        for (j = 0; j < GATE_NBETS; j++) {
+            gateRegionInit(&r);
+            for (i = 0; i < GATE_NBETS; i++) r.logw[i] = 100.0;
+            CHECK(gateRegionCertifies(&r, 4.6)); /* healthy: it would */
+            r.logw[j] = poison[v];
+            CHECK(isnan(gateRegionLogWealth(&r)));
+            for (k = 0; k < COUNTOF(thresholds); k++) CHECK(!gateRegionCertifies(&r, thresholds[k]));
+            CHECK(!gateRegionCertifies(&r, -INFINITY));
+            /* It does not heal: more good samples change nothing. */
+            for (i = 0; i < 500; i++) gateRegionUpdate(&r, &b, 0);
+            CHECK(isnan(gateRegionLogWealth(&r)));
+            CHECK(!gateRegionCertifies(&r, 1.0));
+            CHECK(!gateRegionCertifies(&r, -DBL_MAX));
+        }
+        /* All four slots. For -inf this is "total wealth zero", which the
+         * arithmetic alone would call -inf. */
+        for (i = 0; i < GATE_NBETS; i++) r.logw[i] = poison[v];
         CHECK(isnan(gateRegionLogWealth(&r)));
         for (k = 0; k < COUNTOF(thresholds); k++) CHECK(!gateRegionCertifies(&r, thresholds[k]));
         CHECK(!gateRegionCertifies(&r, -INFINITY));
-        /* It does not heal: more good samples keep it NaN. */
-        for (i = 0; i < 500; i++) gateRegionUpdate(&r, &b, 0);
-        CHECK(isnan(gateRegionLogWealth(&r)));
-        CHECK(!gateRegionCertifies(&r, 1.0));
-
-        /* +inf in slot j: infinite wealth is not finite evidence. */
-        gateRegionInit(&r);
+        /* Two different kinds in the same region. */
         for (i = 0; i < GATE_NBETS; i++) r.logw[i] = 100.0;
-        r.logw[j] = INFINITY;
-        CHECK(gateRegionLogWealth(&r) == INFINITY);
-        for (k = 0; k < COUNTOF(thresholds); k++) CHECK(!gateRegionCertifies(&r, thresholds[k]));
-
-        /* +inf and NaN together. */
-        r.logw[(j + 1) % GATE_NBETS] = NAN;
+        r.logw[1] = poison[v];
+        r.logw[2] = poison[(v + 1) % COUNTOF(poison)];
         CHECK(isnan(gateRegionLogWealth(&r)));
-        CHECK(!gateRegionCertifies(&r, 1.0));
-
-        /* -inf in slot j is a bet that lost everything (wealth 0). The
-         * mixture of the other three is still a valid, finite wealth:
-         * log(3 e^10 / 4) = 10 + log(0.75). */
-        gateRegionInit(&r);
-        for (i = 0; i < GATE_NBETS; i++) r.logw[i] = 10.0;
-        r.logw[j] = -INFINITY;
-        CHECK_NEAR(gateRegionLogWealth(&r), 10.0 - 0.28768207245178092744, 1e-14);
-        CHECK(gateRegionCertifies(&r, 9.7));
-        CHECK(!gateRegionCertifies(&r, 9.72));
+        CHECK(!gateRegionCertifies(&r, -DBL_MAX));
     }
 
-    /* All four at +inf, all four at -inf (total wealth 0), all NaN. */
-    for (i = 0; i < GATE_NBETS; i++) r.logw[i] = INFINITY;
-    CHECK(gateRegionLogWealth(&r) == INFINITY);
-    CHECK(!gateRegionCertifies(&r, 1.0));
-    CHECK(!gateRegionCertifies(&r, -INFINITY));
-    for (i = 0; i < GATE_NBETS; i++) r.logw[i] = -INFINITY;
-    CHECK(gateRegionLogWealth(&r) == -INFINITY);
-    for (k = 0; k < COUNTOF(thresholds); k++) CHECK(!gateRegionCertifies(&r, thresholds[k]));
-    CHECK(!gateRegionCertifies(&r, -INFINITY));
-    for (i = 0; i < GATE_NBETS; i++) r.logw[i] = NAN;
-    CHECK(!gateRegionCertifies(&r, -DBL_MAX));
+    /* The largest and smallest finite values are still numbers. */
+    for (i = 0; i < GATE_NBETS; i++) r.logw[i] = DBL_MAX;
+    CHECK(gateRegionLogWealth(&r) == DBL_MAX);
+    CHECK(gateRegionCertifies(&r, 1e300));
+    for (i = 0; i < GATE_NBETS; i++) r.logw[i] = -DBL_MAX;
+    CHECK(gateRegionLogWealth(&r) == -DBL_MAX);
+    CHECK(!gateRegionCertifies(&r, 0.0));
+    CHECK(gateRegionCertifies(&r, -DBL_MAX)); /* finite and equal */
 
     /* A NaN or infinite threshold cannot be met by a healthy region. */
     gateRegionInit(&r);
