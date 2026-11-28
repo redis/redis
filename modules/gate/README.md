@@ -111,8 +111,11 @@ If Redis is unreachable or replies with an error, call the teacher.
 * Send `GLEARN` for every id you are given, once the teacher has answered.
   If the teacher fails, send nothing: an id that gets no `GLEARN` within
   `gate.feedback-timeout` counts as a wrong guess, which is the safe
-  reading. If no answers arrive at all, the gate stops answering by itself
-  and resumes when they do.
+  reading. A gate whose answers stop arriving, or whose spot checks go
+  unanswered many times in a row, stops answering by itself and proves
+  itself again when the answers are back.
+* After an outage that lost many answers a score gate needs a long run of
+  right answers before it answers again; `GRESET` starts its proof afresh.
 * Keep gates out of reach of eviction (`noeviction` or a `volatile-*`
   policy): an evicted gate is simply gone.
 * Suggested ACLs: application servers `+gpredict +glearn`, operators the

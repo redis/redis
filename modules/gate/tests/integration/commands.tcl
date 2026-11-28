@@ -14,7 +14,8 @@
 #    8. The fixed choices of SPEC.md section 5, as far as commands show them
 #    9. Late and lost answers (real time)
 #   10. Random arguments and random sessions
-#   11. _GATE.APPLY called the way a replication link calls it
+#   11. _GATE.APPLY called the way a replication link calls it, and the way
+#       an append only file does
 #
 # Run from the root of a Redis tree (or of a copy of its test harness) whose
 # modules/gate is the module under test:
@@ -27,17 +28,23 @@
 # are the same on every run, and the random choices of the tests come from
 # generators with a fixed seed. Where an exact outcome is asserted it follows
 # from the contract, not from one draw. A few tests need real time to pass
-# (section 9): they measure how long they took and start over, at most
-# twice, when the machine was too slow for the timing they need. The second
-# test of random sessions (section 10) sleeps a millisecond now and then on
-# purpose: which of its gates time out when depends on the clock, what it
-# asserts does not.
+# (section 9, and one RESTORE test of section 2 that needs a lost answer):
+# they measure how long they took and start over, at most twice, when the
+# machine was too slow for the timing they need. The second test of random
+# sessions (section 10) and the test that follows what the server sends on
+# (section 11) sleep on purpose: which of their requests time out when
+# depends on the clock, what they assert does not.
 #
 # This file is plain ASCII on purpose: byte strings that are not ASCII are
 # built with [binary format H* ...] so that nothing depends on the encoding
 # the file is read with.
 
 set gatemodule [file normalize modules/gate/gate.so]
+# (To run the file against another build of the module, as mutation testing
+# does, name it in the environment.)
+if {[info exists ::env(GATE_TEST_MODULE)] && $::env(GATE_TEST_MODULE) ne {}} {
+    set gatemodule [file normalize $::env(GATE_TEST_MODULE)]
+}
 
 # ============================================================================
 # Helpers. All are prefixed gcmd_ so they cannot clash with another suite.
@@ -153,16 +160,35 @@ proc gcmd_check_saveable {key {detail {}}} {
     if {!$same} {fail "the gate '$key' is another gate after DUMP and RESTORE $detail"}
 }
 
+# The DUMP payload of a key as it is, not compressed: the bytes of the value
+# can be looked for in it.
+proc gcmd_dump_plain {key} {
+    r config set rdbcompression no
+    set rc [catch {r dump $key} payload]
+    r config set rdbcompression yes
+    if {$rc} {error $payload}
+    return $payload
+}
+
 # The checksum at the end of a DUMP payload: CRC-64 "Jones", the low bit
-# first, as Redis computes it over everything before it.
+# first, as Redis computes it over everything before it. (A byte at a time,
+# with the 256 remainders worked out once: a classifier is 100 KB.)
+set ::gcmd_crc64_table {}
 proc gcmd_crc64 {data} {
+    if {$::gcmd_crc64_table eq {}} {
+        for {set n 0} {$n < 256} {incr n} {
+            set crc $n
+            for {set i 0} {$i < 8} {incr i} {
+                set crc [expr {$crc & 1 ? ($crc >> 1) ^ 0x95AC9329AC4BC9B5 : $crc >> 1}]
+            }
+            lappend ::gcmd_crc64_table $crc
+        }
+    }
+    set table $::gcmd_crc64_table
     set crc 0
     binary scan $data cu* bytes
     foreach b $bytes {
-        set crc [expr {$crc ^ $b}]
-        for {set i 0} {$i < 8} {incr i} {
-            set crc [expr {$crc & 1 ? ($crc >> 1) ^ 0x95AC9329AC4BC9B5 : $crc >> 1}]
-        }
+        set crc [expr {[lindex $table [expr {($crc ^ $b) & 255}]] ^ ($crc >> 8)}]
     }
     return $crc
 }
@@ -3892,18 +3918,19 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
 
     gcmd_test {RESTORE: a payload at the end of what the module accepts stays a gate that can be loaded} {
         # A DUMP payload is bytes anybody may write: the value, the RDB
-        # version and a checksum. What the module cannot hold it refuses.
-        # The two payloads here it accepts: a new gate with one waiting
-        # request, with its clock moved to the last moment the module
-        # takes (7 days before the end of 64 bits), or with its count of
-        # requests moved to the largest the module takes (2^62). Either
-        # those are refused too, or the gate must stay a gate while clients
-        # use it: a gate that its own DUMP cannot bring back turns the next
-        # RDB file into one the server cannot load.
+        # version and a checksum. What the module cannot hold it refuses:
+        # no counter above 2^62, no clock after the last moment the gate
+        # takes (7 days before the end of 64 bits), no setting outside its
+        # range (CHANGES 9d and 9g). What it accepts must stay a gate while
+        # clients use it, "whatever the core did with it in between": a
+        # gate that its own DUMP cannot bring back turns the next RDB file
+        # into one the server cannot load.
         r del kdr:edge kdr:edge:copy
         assert_equal 0xe9c6d914c4b8d9ca [format 0x%x [gcmd_crc64 123456789]]
         r config set rdbcompression no
+        r config set gate.snapshot-examples 777 gate.feedback-timeout 54321
         r gcreate kdr:edge ALPHA 0.2 DELTA 0.2 SCORE
+        r config set gate.snapshot-examples 1000 gate.feedback-timeout 60000
         set id [lindex [r gpredict kdr:edge SCORE 0.5] 1]
         set payload [r dump kdr:edge]
         r config set rdbcompression yes
@@ -3911,64 +3938,282 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert_equal $checksum [gcmd_crc64 [string range $payload 0 end-8]]
         set body [string range $payload 0 end-8]
 
-        # Where things are in the value (gate_codec.c). One after the
-        # other: the number the ids of the gate start with, the time it was
-        # created, its clock. Further on: the number of the next request,
-        # how many wait, and the first of them with its number and its time.
+        # Where things are in the value (gate_codec.c), found in this
+        # payload by what it must hold. Around the number the ids of the
+        # gate start with: before it the two settings the gate was created
+        # with and the number of its ledger; after it the time it was
+        # created, its clock, how many snapshots it has taken, the pause,
+        # the examples at the last snapshot, the outage flag, the answers
+        # missing in a row, and the number the next request had when the
+        # last answer was used.
         set at [string first [binary format w 0x[string range $id 0 15]] $body]
-        assert {$at > 0}
-        binary scan [string range $body [expr {$at + 8}] [expr {$at + 23}]] ww created clock
+        assert {$at > 20}
+        binary scan [string range $body [expr {$at - 20}] [expr {$at + 53}]] iwwwwwwcwciw \
+            step timeout ledger epoch created clock snapshots paused examples blind run mark
         set wall [clock milliseconds]
         if {abs($created - $wall) > 600000 || abs($clock - $wall) > 600000 || $clock < $created} {
             fail "the clock of a gate is not where this test looks for it in a DUMP payload"
         }
-        # (the last such pair: a snapshot taken in the same millisecond
-        # has the number 1 and that time too)
+        if {[list $step $timeout $snapshots $paused $examples $blind $run $mark] ne {777 54321 1 0 0 0 0 0}} {
+            fail "the settings and the ledger of a gate are not where this test looks for them in a DUMP\
+                payload: $step $timeout $snapshots $paused $examples $blind $run $mark"
+        }
+        # Further on: the number of the next request, how many wait, and
+        # the first of them with its number and its time (the last such
+        # pair: a snapshot taken in the same millisecond has the number 1
+        # and that time too), its flags, guesses and answer, and its
+        # number as a spot check.
         set waiting [string last [binary format ww 1 $clock] $body]
         set next_number -1
         set waiting_count -1
         if {$waiting >= 12} {
             binary scan [string range $body [expr {$waiting - 12}] [expr {$waiting - 1}]] wi next_number waiting_count
+            binary scan [string range $body [expr {$waiting + 16}] [expr {$waiting + 75}]] iiiwwwwiwi \
+                flags cand_label serv_label cand_score serv_score cand_snapshot serv_snapshot answer spot clues
         }
         if {$next_number != 2 || $waiting_count != 1} {
             fail "the request counter of a gate is not where this test looks for it in a DUMP payload"
         }
+        # (proof for the snapshot being tested, number 1, bit 4; the draw
+        # may have set bit 1; no answer yet)
+        if {[list [expr {$flags & ~1}] $cand_label $serv_label $cand_snapshot $serv_snapshot $answer $spot $clues] ne
+            {4 -1 -1 1 0 -1 0 0}} {
+            fail "the waiting request of a gate is not where this test looks for it in a DUMP payload:\
+                $flags $cand_label $serv_label $cand_snapshot $serv_snapshot $answer $spot $clues"
+        }
+        # At the end of the value, before the three bytes that close it:
+        # the counters. Requests, those accepted, audited and left to the
+        # teacher, those refused because the gate was full, the requests
+        # behind the coverage and the coverage; then the ids handed out,
+        # the answers used and not used, those missing, the requests
+        # dropped, and how often a snapshot took over, was withdrawn, or
+        # was given up.
+        set counters [expr {[string length $body] - 123}]
+        binary scan [string range $body $counters end-3] w15 counted
+        if {$counted ne {1 0 0 1 0 0 0 1 0 0 0 0 0 0 0}} {
+            fail "the counters of a gate are not where this test looks for them in a DUMP payload: $counted"
+        }
         set last_clock [expr {9223372036854775807 - 7 * 86400 * 1000}]
         set last_count [expr {1 << 62}]
 
-        # (one step further the module refuses both)
-        foreach {offset value} [list [expr {$at + 16}] [expr {$last_clock + 1}] \
-                                     [expr {$waiting - 12}] [expr {$last_count + 1}]] {
-            set bad [string replace $body $offset [expr {$offset + 7}] [binary format w $value]]
-            assert_error "ERR*" {r restore kdr:edge:copy 0 $bad[binary format w [gcmd_crc64 $bad]]}
-        }
-
+        # what, where, as which kind of number(s), the value(s), and how
+        # many of the next two requests of a client get an id. -1: the
+        # payload must be refused. With a "!": it must be taken, it is
+        # what a gate of this server can come to hold (the settings at the
+        # end of their ranges, 31 answers missing in a row); the others
+        # the module may refuse as well.
+        set forgeries [list \
+            "the clock one millisecond past its last value" [expr {$at + 16}]      w [expr {$last_clock + 1}] -1 \
+            "the next request number 2^62 + 1"              [expr {$waiting - 12}] w [expr {$last_count + 1}] -1 \
+            "2^62 + 1 snapshots taken"                      [expr {$at + 24}]      w [expr {$last_count + 1}] -1 \
+            "2^62 + 1 examples at the last snapshot"        [expr {$at + 33}]      w [expr {$last_count + 1}] -1 \
+            "a snapshot step of 1,000,000,001 examples"     [expr {$at - 20}]      i 1000000001               -1 \
+            "a snapshot step of 0 examples"                 [expr {$at - 20}]      i 0                        -1 \
+            "a feedback timeout of 7 days and 1 ms"         [expr {$at - 16}]      w 604800001                -1 \
+            "a feedback timeout of 0 ms"                    [expr {$at - 16}]      w 0                        -1 \
+            "32 answers missing in a row"                   [expr {$at + 42}]      i 32                       -1 \
+            "the last answer used at request number 3"      [expr {$at + 46}]      w 3                        -1 \
+            "an outage, with a snapshot being tested"       [expr {$at + 41}]      c 1                        -1 \
+            "a spot check number on a request that is none" [expr {$waiting + 64}] w 1                        -1 \
+            "2^62 + 1 ids handed out"                       [expr {$counters + 56}] w [expr {$last_count + 1}] -1 \
+            "2^62 + 1 answers used"                         [expr {$counters + 64}] w [expr {$last_count + 1}] -1 \
+            "2^62 + 1 requests, all left to the teacher"    $counters w4 [list [expr {$last_count + 1}] 0 0 [expr {$last_count + 1}]] -1 \
+            "the clock $last_clock"                         [expr {$at + 16}]      w $last_clock              2 \
+            "the next request number 2^62"                  [expr {$waiting - 12}] w $last_count              0 \
+            "the next request number 2^62 - 1"              [expr {$waiting - 12}] w [expr {$last_count - 1}] 1 \
+            "2^62 snapshots taken"                          [expr {$at + 24}]      w $last_count              0 \
+            "2^62 - 1 snapshots taken"                      [expr {$at + 24}]      w [expr {$last_count - 1}] 2 \
+            "a snapshot step of 1,000,000,000 examples"     [expr {$at - 20}]      i 1000000000               2! \
+            "a feedback timeout of 7 days"                  [expr {$at - 16}]      w 604800000                2! \
+            "31 answers missing in a row"                   [expr {$at + 42}]      i 31                       2! \
+            "the last answer used at request number 2"      [expr {$at + 46}]      w 2                        2! \
+            "2^62 ids handed out"                           [expr {$counters + 56}] w $last_count             2 \
+            "2^62 answers used"                             [expr {$counters + 64}] w $last_count             2 \
+            "2^62 answers missing"                          [expr {$counters + 80}] w $last_count             2 \
+            "2^62 requests, all left to the teacher"        $counters w4 [list $last_count 0 0 $last_count]   2 \
+        ]
         set failures {}
-        foreach {what offset value} [list \
-            "the clock $last_clock"        [expr {$at + 16}]      $last_clock \
-            "the next request number 2^62" [expr {$waiting - 12}] $last_count \
-        ] {
+        foreach {what offset kind value ids} $forgeries {
             r del kdr:edge:copy
-            set forged [string replace $body $offset [expr {$offset + 7}] [binary format w $value]]
+            set raw [binary format $kind $value]
+            set forged [string replace $body $offset [expr {$offset + [string length $raw] - 1}] $raw]
             append forged [binary format w [gcmd_crc64 $forged]]
-            if {[catch {r restore kdr:edge:copy 0 $forged}]} continue
+            set refused [catch {r restore kdr:edge:copy 0 $forged} err]
+            set must [regsub {!$} $ids {} ids]
+            if {$ids < 0} {
+                if {!$refused} {lappend failures "RESTORE of a payload with $what is accepted"}
+                continue
+            }
+            if {$refused} {
+                if {$must} {lappend failures "RESTORE of a payload with $what is refused: $err"}
+                continue
+            }
             if {[catch {
                 gcmd_check_saveable kdr:edge:copy "as restored"
+                # GINFO shows a loaded gate as its first write will leave
+                # it (here: a write that does nothing by itself)
+                set shown [r ginfo kdr:edge:copy]
+                assert_equal OK [r gresume kdr:edge:copy]
+                set after [r ginfo kdr:edge:copy]
+                if {[dict remove $shown memory] ne [dict remove $after memory]} {
+                    fail "GINFO before its first write:\n$shown\nand after it:\n$after"
+                }
                 # a client uses the gate
                 lassign [r gpredict kdr:edge:copy SCORE 0.5] action first
                 assert_equal ABSTAIN $action
+                gcmd_check_saveable kdr:edge:copy "after one GPREDICT"
                 after 5
                 lassign [r gpredict kdr:edge:copy SCORE 0.5] action second
-                assert_equal 1 [r glearn kdr:edge:copy $second CORRECT 1]
+                assert_equal ABSTAIN $action
+                # A gate that has no request number left answers ABSTAIN
+                # without an id, like a gate that is full; one that has no
+                # snapshot number left tests nothing and wants no feedback
+                # (CHANGES 9d).
+                assert_equal $ids [expr {($first ne {}) + ($second ne {})}] "requests that got an id"
+                foreach answered [list $second $first] {
+                    if {$answered eq {}} continue
+                    assert_equal 1 [r glearn kdr:edge:copy $answered CORRECT 1]
+                    break
+                }
                 after 5
                 assert_equal OK [r gpause kdr:edge:copy]
                 gcmd_check_saveable kdr:edge:copy "after GPREDICT, GPREDICT, GLEARN and GPAUSE some milliseconds apart"
+                assert_equal OK [r greset kdr:edge:copy]
+                gcmd_check_saveable kdr:edge:copy "after GRESET"
             } err]} {
                 regsub {^assertion:} $err {} err
                 lappend failures "RESTORE of a payload with $what is accepted, and then: $err"
             }
         }
         r del kdr:edge kdr:edge:copy
+        if {[llength $failures]} {fail [join $failures "\n"]}
+    }
+
+    gcmd_test {RESTORE: a spot check or a drift detector that cannot be is refused} {
+        # CHANGES 9, codec: a request keeps the number it has as a spot
+        # check, and each label of an answering snapshot its detector: how
+        # many spot checks were asked, how many disagreed, and for each of
+        # the three open blocks the disagreements and the lost answers.
+        # Refused: "wrong + lost of an open block above its size, errors
+        # above asked"; "a spot number on a request that was not a spot
+        # check, or above what its row's detector has handed out".
+        #
+        # The gate: four spot checks. The first gets no answer and is lost
+        # (the feedback timeout of the gate is 300 ms), the second agrees,
+        # the third disagrees, the fourth waits. If the machine was too
+        # slow for exactly one answer to be lost, the gate is made again.
+        r config set rdbcompression no
+        for {set attempt 1} {$attempt <= 3} {incr attempt} {
+            r del kdr:spot kdr:spot:copy
+            r config set gate.feedback-timeout 300
+            r gcreate kdr:spot ALPHA 0.2 DELTA 0.2 AUDIT 1 SCORE
+            r config set gate.feedback-timeout 60000
+            gcmd_prove_all kdr:spot
+            assert_equal AUDIT [lindex [r gpredict kdr:spot SCORE 0.9] 0]
+            after 320
+            assert_equal AUDIT [gcmd_ask_score kdr:spot 1 0.9 1]
+            assert_equal AUDIT [gcmd_ask_score kdr:spot 1 0.9 0]
+            lassign [r gpredict kdr:spot SCORE 0.9] action id
+            assert_equal AUDIT $action
+            set info [r ginfo kdr:spot]
+            set payload [r dump kdr:spot]
+            if {[dict get $info missing] == 1 && [dict get $info audit-samples] == 2 &&
+                [dict get $info pending] == 1} break
+        }
+        r config set rdbcompression yes
+        assert_equal 1 [dict get $info missing] "answers lost (after three attempts)"
+        assert_equal ACTIVE [dict get $info state]
+        assert_equal 1 [dict get $info audit-errors]
+        set body [string range $payload 0 end-8]
+
+        # The waiting request, found by its number and the clock of the
+        # gate (it was the last write); before it the number of the next
+        # request and how many wait; before those the detector of the
+        # snapshot that answers (a score gate has one). And in the ledger,
+        # 46 bytes after the number the ids start with: the number the
+        # next request had when the last answer was used, which is the
+        # number of the request that waits.
+        set number [lindex [split $id -] 1]
+        set at [string first [binary format w 0x[string range $id 0 15]] $body]
+        assert {$at > 0}
+        binary scan [string range $body [expr {$at + 16}] [expr {$at + 23}]] w clock
+        binary scan [string range $body [expr {$at + 41}] [expr {$at + 53}]] ciw blind run mark
+        set waiting [string last [binary format ww $number $clock] $body]
+        assert {$waiting > 52}
+        binary scan [string range $body [expr {$waiting - 52}] [expr {$waiting - 1}]] wwiiiiiiwi \
+            asked errors wrong64 wrong512 wrong4096 lost64 lost512 lost4096 next_number waiting_count
+        binary scan [string range $body [expr {$waiting + 16}] [expr {$waiting + 75}]] iiiwwwwiwi \
+            flags cand_label serv_label cand_score serv_score cand_snapshot serv_snapshot answer spot clues
+        if {[list $asked $errors $wrong64 $wrong512 $wrong4096 $lost64 $lost512 $lost4096 $next_number $waiting_count] ne
+            [list 4 1 1 1 1 1 1 1 [expr {$number + 1}] 1]} {
+            fail "the drift detector of a gate is not where this test looks for it in a DUMP payload:\
+                $asked $errors $wrong64 $wrong512 $wrong4096 $lost64 $lost512 $lost4096 $next_number $waiting_count"
+        }
+        # (a spot check: bits 1, 2 and 8, proof for the snapshot that
+        # answers, number 1; the fourth of its label)
+        if {[list $flags $serv_snapshot $answer $spot $clues] ne {11 1 -1 4 0}} {
+            fail "the waiting spot check of a gate is not where this test looks for it in a DUMP payload:\
+                $flags $serv_snapshot $answer $spot $clues"
+        }
+        # (one answer was lost, and one has been used since: no outage)
+        if {[list $blind $run $mark] ne [list 0 0 $number]} {
+            fail "the answers missing in a row are not where this test looks for them in a DUMP payload:\
+                $blind $run $mark"
+        }
+        # (The copies made below get a feedback timeout of a minute, so
+        # that nothing they are asked from here on depends on the clock:
+        # the setting is 16 bytes before the number the ids start with.)
+        binary scan [string range $body [expr {$at - 16}] [expr {$at - 9}]] w timeout
+        assert_equal 300 $timeout
+        set body [string replace $body [expr {$at - 16}] [expr {$at - 9}] [binary format w 60000]]
+        set detector [expr {$waiting - 52}]
+        set failures {}
+        foreach {what offset kind value accepted} [list \
+            "the payload as it is"                                       $detector               w 4  1 \
+            "spot check number 5 of 4 asked"                             [expr {$waiting + 64}]  w 5  0 \
+            "a spot check number on a request the gate would not answer" [expr {$waiting + 16}]  i 9  0 \
+            "5 disagreements among 4 spot checks"                        [expr {$detector + 8}]  w 5  0 \
+            "4 disagreements and 1 lost answer in an open block of 4"    [expr {$detector + 16}] i 4  0 \
+            "1 disagreement and 4 lost answers in an open block of 4"    [expr {$detector + 28}] i 4  0 \
+            "5 lost answers in an open block of 4 (blocks of 4,096)"     [expr {$detector + 36}] i 5  0 \
+            "the last answer used at a request number not reached yet"   [expr {$at + 46}]       w [expr {$number + 2}] 0 \
+            "1 disagreement and 3 lost answers in an open block of 4"    [expr {$detector + 28}] i 3  1 \
+            "3 disagreements and 1 lost answer in an open block of 4"    [expr {$detector + 24}] i 3  1 \
+            "4 disagreements among 4 spot checks"                        [expr {$detector + 8}]  w 4  1 \
+            "spot check number 1 of 4 asked"                             [expr {$waiting + 64}]  w 1  1 \
+        ] {
+            r del kdr:spot:copy
+            set raw [binary format $kind $value]
+            set forged [string replace $body $offset [expr {$offset + [string length $raw] - 1}] $raw]
+            append forged [binary format w [gcmd_crc64 $forged]]
+            set refused [catch {r restore kdr:spot:copy 0 $forged} err]
+            if {!$accepted} {
+                if {!$refused} {lappend failures "RESTORE of a payload with $what is accepted"}
+                continue
+            }
+            if {$refused} {
+                lappend failures "RESTORE of a payload with $what is refused: $err"
+                continue
+            }
+            if {[catch {
+                gcmd_check_saveable kdr:spot:copy "as restored"
+                set shown [r ginfo kdr:spot:copy]
+                assert_equal CALIBRATING [dict get $shown state]
+                assert_equal 0 [dict get $shown audit-samples]
+                # the copy starts over; its spot checks are numbered from 1 again
+                assert_equal 0 [r glearn kdr:spot:copy $id CORRECT 1]
+                gcmd_prove_all kdr:spot:copy
+                assert_equal AUDIT [lsort -unique [gcmd_ask_score kdr:spot:copy 6 0.9 0]]
+                assert_equal ACTIVE [gcmd_info kdr:spot:copy state]
+                assert_equal AUDIT [gcmd_ask_score kdr:spot:copy 1 0.9 0]
+                assert_equal 1 [gcmd_info kdr:spot:copy revocations]
+                gcmd_check_saveable kdr:spot:copy "after its seventh wrong spot check"
+            } err]} {
+                regsub {^assertion:} $err {} err
+                lappend failures "RESTORE of a payload with $what is accepted, and then: $err"
+            }
+        }
+        r del kdr:spot kdr:spot:copy
         if {[llength $failures]} {fail [join $failures "\n"]}
     }
 
@@ -5761,22 +6006,115 @@ proc gcmd_count_proof {key {max 2000}} {
     fail "$key: a label is not proven after $max requests: [r ginfo $key]"
 }
 
-# SPEC 5, "drift detector": which of the spot-check outcomes (1 = the gate
-# was wrong) is the one that raises the alarm, 0 if none does. Two
-# likelihood ratios, for 2 and 4 times the error rate (at most halfway from
-# the error rate to 1); the alarm is their average reaching 1,000.
+# SPEC 5, "drift detector": likelihood ratios for 2 and 4 times the error
+# rate (at most halfway from the error rate to 1), averaged, over blocks of
+# 64, 512 and 4,096 spot checks in the order they were asked; a spot check
+# counts as right until its answer says otherwise; the alarm is at 1,000,
+# and at 10^9 with lost answers counted as disagreements (CHANGES 9f).
+#
+# The logarithm of the statistic of a block in which 'asked' spot checks
+# were asked so far and 'against' of them count against the gate: each of
+# those multiplies a ratio by p / alpha, each of the others by
+# (1 - p) / (1 - alpha).
+proc gcmd_drift_log_stat {alpha asked against} {
+    set logs {}
+    foreach times {2 4} {
+        set p [expr {min($times * $alpha, 0.5 * (1 + $alpha))}]
+        lappend logs [expr {$against * log($p / $alpha) +
+                            ($asked - $against) * log((1 - $p) / (1 - $alpha))}]
+    }
+    lassign $logs a b
+    set top [expr {max($a, $b)}]
+    expr {$top + log((exp($a - $top) + exp($b - $top)) / 2)}
+}
+
+# A detector of our own, written from that sentence and kept as a dict: the
+# error rate, how many spot checks were asked, and for each of the three
+# block lengths the disagreements and the lost answers of the block that is
+# open.
+proc gcmd_drift_new {alpha} {
+    dict create alpha $alpha asked 0 wrong {0 0 0} lost {0 0 0}
+}
+
+# A spot check is asked. Returns its number: 1, 2, 3, ...
+proc gcmd_drift_ask {name} {
+    upvar 1 $name d
+    set asked [dict get $d asked]
+    set wrong {}
+    set lost {}
+    foreach length {64 512 4096} w [dict get $d wrong] l [dict get $d lost] {
+        # the first spot check of a block opens it
+        if {$asked % $length == 0} {
+            set w 0
+            set l 0
+        }
+        lappend wrong $w
+        lappend lost $l
+    }
+    dict set d wrong $wrong
+    dict set d lost $lost
+    dict set d asked [incr asked]
+    return $asked
+}
+
+# The answer of spot check 'number' disagreed ('what' is wrong) or was given
+# up ('what' is lost). Returns "worse" when the disagreements of a block
+# reach 1,000, else "unchecked" when its disagreements and lost answers
+# together reach 10^9, else {}. An answer whose block has ended counts only
+# in the longer blocks that are still open.
+proc gcmd_drift_tell {name number what} {
+    upvar 1 $name d
+    set alpha [dict get $d alpha]
+    set asked [dict get $d asked]
+    set wrong {}
+    set lost {}
+    set verdict {}
+    foreach length {64 512 4096} w [dict get $d wrong] l [dict get $d lost] {
+        if {($number - 1) / $length == ($asked - 1) / $length} {
+            set open [expr {($asked - 1) % $length + 1}]
+            if {$what eq "wrong"} {incr w} else {incr l}
+            if {$what eq "wrong" && [gcmd_drift_log_stat $alpha $open $w] >= log(1000)} {
+                set verdict worse
+            }
+            if {$verdict ne "worse" && [gcmd_drift_log_stat $alpha $open [expr {$w + $l}]] >= log(1e9)} {
+                set verdict unchecked
+            }
+        }
+        lappend wrong $w
+        lappend lost $l
+    }
+    dict set d wrong $wrong
+    dict set d lost $lost
+    return $verdict
+}
+
+# Spot checks asked and answered one after the other, the first of them the
+# first of a block ('outcomes': 1 = the gate was wrong): which of them is
+# the one that raises the alarm, 0 if none does.
 proc gcmd_drift_alarm_at {alpha outcomes} {
-    set stats {1.0 1.0}
+    set d [gcmd_drift_new $alpha]
     set n 0
     foreach wrong $outcomes {
         incr n
-        set next {}
-        foreach times {2 4} stat $stats {
-            set p [expr {min($times * $alpha, 0.5 * (1 + $alpha))}]
-            lappend next [expr {$stat * ($wrong ? $p / $alpha : (1 - $p) / (1 - $alpha))}]
-        }
-        set stats $next
-        if {([lindex $stats 0] + [lindex $stats 1]) / 2 >= 1000} {return $n}
+        set number [gcmd_drift_ask d]
+        if {$wrong && [gcmd_drift_tell d $number wrong] eq "worse"} {return $n}
+    }
+    return 0
+}
+
+# 'right' spot checks that were answered and agreed, then 'asked' more that
+# nobody answers and that are given up one after the other, the oldest
+# first: which of those lost answers is the one after which the gate can no
+# longer be checked, 0 if none is.
+proc gcmd_drift_lost_at {alpha asked {right 0}} {
+    set d [gcmd_drift_new $alpha]
+    for {set i 0} {$i < $right} {incr i} {gcmd_drift_ask d}
+    set numbers {}
+    for {set i 0} {$i < $asked} {incr i} {lappend numbers [gcmd_drift_ask d]}
+    set n 0
+    foreach number $numbers {
+        incr n
+        if {[gcmd_drift_tell d $number lost] eq "unchecked"} {return $n}
     }
     return 0
 }
@@ -5796,10 +6134,69 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert_equal 41 [gcmd_proof_needed 0.2 0.2 2]
         # a wrong answer first leaves each bet 1 - c of its wealth
         assert_equal 47 [gcmd_proof_needed 0.2 0.2 1 1 1]
-        # 0.4 and 0.6 against 0.2: a wrong spot check multiplies by 2 and
-        # 3; (2^6 + 3^6) / 2 = 396.5, (2^7 + 3^7) / 2 = 1157.5
+        # ---- the drift detector, by hand
+        # 0.4 and 0.6 against 0.2: a wrong spot check multiplies the two
+        # ratios by 2 and 3, a right one by 0.75 and 0.5. In a block of
+        # nothing but wrong ones: (2^6 + 3^6) / 2 = 396.5, (2^7 + 3^7) / 2
+        # = 1157.5.
         assert_equal 7 [gcmd_drift_alarm_at 0.2 {1 1 1 1 1 1 1 1 1 1}]
         assert_equal 0 [gcmd_drift_alarm_at 0.2 {1 1 1 1 1 1}]
+        assert {abs(exp([gcmd_drift_log_stat 0.2 6 6]) - 396.5) < 1e-6}
+        assert {abs(exp([gcmd_drift_log_stat 0.2 7 7]) - 1157.5) < 1e-6}
+        # One right spot check in the block, wherever it is (a block does
+        # not start over): (2^7 x 0.75 + 3^7 x 0.5) / 2 = 594.75 after the
+        # seventh wrong one, (2^8 x 0.75 + 3^8 x 0.5) / 2 = 1736.25 after
+        # the eighth, which is the ninth spot check.
+        assert {abs(exp([gcmd_drift_log_stat 0.2 8 7]) - 594.75) < 1e-6}
+        assert {abs(exp([gcmd_drift_log_stat 0.2 9 8]) - 1736.25) < 1e-6}
+        assert_equal 9 [gcmd_drift_alarm_at 0.2 {0 1 1 1 1 1 1 1 1 1 1}]
+        assert_equal 9 [gcmd_drift_alarm_at 0.2 {1 1 1 0 1 1 1 1 1 1 1}]
+        assert_equal 9 [gcmd_drift_alarm_at 0.2 {1 1 1 1 1 1 0 1 1 1 1}]
+        # Five right ones first: (2^9 x 0.75^5 + 3^9 x 0.5^5) / 2 = 368.3
+        # after the ninth wrong one, (2^10 x 0.75^5 + 3^10 x 0.5^5) / 2 =
+        # 1044.1 after the tenth.
+        assert_equal 15 [gcmd_drift_alarm_at 0.2 {0 0 0 0 0 1 1 1 1 1 1 1 1 1 1 1 1}]
+        # 0.2 and 0.4 against 0.1 (or 0.1 and 0.2 against 0.05): 2 and 4;
+        # (2^5 + 4^5) / 2 = 528, (2^6 + 4^6) / 2 = 2080.
+        assert_equal 6 [gcmd_drift_alarm_at 0.1 {1 1 1 1 1 1 1 1 1 1}]
+        assert_equal 6 [gcmd_drift_alarm_at 0.05 {1 1 1 1 1 1 1 1 1 1}]
+        # Against 0.5 both alternatives are 0.75, halfway to 1: 1.5 for a
+        # wrong spot check; 1.5^17 = 985.3, 1.5^18 = 1477.9.
+        assert_equal 18 [gcmd_drift_alarm_at 0.5 [lrepeat 30 1]]
+        # Blocks of 64. After 60 right spot checks the four wrong ones
+        # that end the block count for nothing in it ((2^4 x 0.75^60 +
+        # 3^4 x 0.5^60) / 2 is less than a millionth); the next block
+        # starts with spot check 65 and its seventh wrong one is the 71st.
+        # In the blocks of 512 and 4,096 the 60 right ones still count.
+        assert_equal 71 [gcmd_drift_alarm_at 0.2 [concat [lrepeat 60 0] [lrepeat 40 1]]]
+        assert_equal 71 [gcmd_drift_alarm_at 0.2 [concat [lrepeat 64 0] [lrepeat 40 1]]]
+        # (the same after 57 right ones: the seven wrong ones that end
+        # the first block are forgotten when the next one begins)
+        assert_equal 71 [gcmd_drift_alarm_at 0.2 [concat [lrepeat 57 0] [lrepeat 40 1]]]
+        # A rate that is only moderately too high is for the longer
+        # blocks. Three wrong ones in every eight: the first block of 64
+        # gets no further than (2^24 x 0.75^35 + 3^24 x 0.5^35) / 2 = 359
+        # (at its 59th spot check); the block of 512 has (2^30 x 0.75^45 +
+        # 3^30 x 0.5^45) / 2 = 1284 at spot check 75, the 30th wrong one.
+        assert {abs(exp([gcmd_drift_log_stat 0.2 59 24]) - 359) < 1}
+        assert {abs(exp([gcmd_drift_log_stat 0.2 75 30]) - 1284) < 1}
+        assert_equal 75 [gcmd_drift_alarm_at 0.2 [concat {*}[lrepeat 12 {1 1 1 0 0 0 0 0}]]]
+        # ---- lost answers, counted as disagreements, against 10^9:
+        # (2^19 + 3^19) / 2 = 5.8 x 10^8, (2^20 + 3^20) / 2 = 1.74 x 10^9.
+        assert_equal 0 [gcmd_drift_lost_at 0.2 19]
+        assert_equal 20 [gcmd_drift_lost_at 0.2 20]
+        # Asked before any of them was given up, the others still count
+        # as right: of 32, 24 lost are (2^24 x 0.75^8 + 3^24 x 0.5^8) / 2
+        # = 5.5 x 10^8 and 25 lost are (2^25 x 0.75^7 + 3^25 x 0.5^7) / 2
+        # = 3.3 x 10^9.
+        assert_equal 25 [gcmd_drift_lost_at 0.2 32]
+        # After five right ones: 22 lost are (2^22 x 0.75^5 + 3^22 x
+        # 0.5^5) / 2 = 4.9 x 10^8, 23 lost are 1.47 x 10^9.
+        assert_equal 0 [gcmd_drift_lost_at 0.2 22 5]
+        assert_equal 23 [gcmd_drift_lost_at 0.2 23 5]
+        # (2^15 + 4^15) / 2 = 5.4 x 10^8, (2^16 + 4^16) / 2 = 2.1 x 10^9
+        assert_equal 0 [gcmd_drift_lost_at 0.05 15]
+        assert_equal 16 [gcmd_drift_lost_at 0.05 16]
         # the 32 thresholds of a score gate: 0, 0.1817, 0.3303, ... 0.998
         assert_equal 0 [gcmd_grid_index 0 0.998 0]
         assert_equal 1 [gcmd_grid_index 0 0.998 0.18165496569273065]
@@ -6081,31 +6478,353 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             (a flawless threshold needs $need right answers; 10 times that for each of 2 labels)"
     }
 
+    gcmd_test {SPEC 5: a snapshot that leaves everything to the teacher is dropped too, by the requests it could have answered} {
+        # "requests it left to the teacher although their label is one the
+        # gate may answer count like proof". CHANGES 9c: before, a snapshot
+        # that only ever guessed an ALWAYSDEFER label was never dropped.
+        # The snapshot here has seen nothing but "b", which is always
+        # deferred, and guesses "b" every time. One label may be answered:
+        # a flawless threshold needs 35 right answers, and the snapshot
+        # gets 10 times that.
+        set need [gcmd_proof_needed 0.2 0.2 1 1]
+        assert_equal 35 $need
+        set budget [expr {10 * $need}]
+        r config set gate.snapshot-examples 4
+        r del fx:defer
+        r gcreate fx:defer ALPHA 0.2 DELTA 0.2 CLASSES 2 a b ALWAYSDEFER 1 b
+        r config set gate.snapshot-examples 1000
+        for {set i 0} {$i < 4} {incr i} {r gadd fx:defer TEXT "beta two" LABEL b}
+        assert_equal 1 [gcmd_info fx:defer candidate]
+        # (30 requests that get their answer much later: below)
+        set later {}
+        for {set i 0} {$i < 30} {incr i} {lappend later [lindex [r gpredict fx:defer TEXT "beta two"] 1]}
+        # While the teacher says "b" as well, the gate could not have
+        # answered whatever the snapshot guessed: nothing counts, however
+        # many such requests there are.
+        for {set n 1} {$n <= $budget + 20} {incr n} {
+            lassign [r gpredict fx:defer TEXT "beta two"] action id
+            assert_equal ABSTAIN $action
+            assert_equal 1 [r glearn fx:defer $id LABEL b]
+        }
+        set info [r ginfo fx:defer]
+        assert_equal 1 [dict get $info candidate] "after [expr {$budget + 20}] requests whose label is never answered"
+        assert_equal CALIBRATING [dict get $info state]
+        assert_equal 0 [dict get $info calibration-samples]
+        # Now the teacher says "a".
+        set dropped_at 0
+        for {set n 1} {$n <= $budget + 10} {incr n} {
+            lassign [r gpredict fx:defer TEXT "beta two"] action id
+            assert_equal ABSTAIN $action
+            assert_equal 1 [r glearn fx:defer $id LABEL a]
+            set info [r ginfo fx:defer]
+            if {[dict get $info candidate] != 1} {
+                set dropped_at $n
+                break
+            }
+            # (a guess of the label that is never answered is not proof)
+            assert_equal 0 [dict get $info calibration-samples]
+            # The count is part of the gate: the value holds, one after
+            # the other, the proof of the snapshot, its wrong guesses, the
+            # requests it left to the teacher, its spot checks and those
+            # that disagreed, and what it may use up (gate_codec.c).
+            if {$n == 123} {
+                assert {[string first [binary format w6 [list 0 0 123 0 0 $budget]] [gcmd_dump_plain fx:defer]] > 0}
+            }
+        }
+        assert_equal $dropped_at $budget "requests the snapshot left to the teacher before it was dropped\
+            (a flawless threshold needs $need right answers; 10 times that for the one label)"
+        # the next snapshot is taken at once: the gate has learned since
+        assert_equal 2 [dict get $info candidate]
+        assert_equal 0 [dict get $info generation]
+        assert_equal CALIBRATING [dict get $info state]
+        assert_equal 0 [dict get $info missing]
+        assert_equal 30 [dict get $info pending]
+
+        # The second snapshot has learned "a" from those answers and
+        # guesses "a". The 30 requests from before get their answer, "a":
+        # they were asked while the first snapshot was the one being
+        # tested, so they are nothing the second could have been tested
+        # on. Then the teacher says "b" again: every guess of the second
+        # snapshot is proof, all of it wrong, and it is dropped after 10
+        # times what a flawless threshold of snapshot 2 needs, 41: not 30
+        # requests sooner.
+        foreach id $later {assert_equal 1 [r glearn fx:defer $id LABEL a]}
+        set info [r ginfo fx:defer]
+        assert_equal 2 [dict get $info candidate]
+        assert_equal 0 [dict get $info calibration-samples]
+        assert_equal 0 [dict get $info pending]
+        set need [gcmd_proof_needed 0.2 0.2 2 1]
+        assert_equal 41 $need
+        set budget [expr {10 * $need}]
+        set dropped_at 0
+        for {set n 1} {$n <= $budget + 10} {incr n} {
+            lassign [r gpredict fx:defer TEXT "beta two"] action id
+            assert_equal ABSTAIN $action
+            assert_equal 1 [r glearn fx:defer $id LABEL b]
+            set info [r ginfo fx:defer]
+            if {[dict get $info candidate] != 2} {
+                set dropped_at $n
+                break
+            }
+            assert_equal $n [dict get $info calibration-samples] "proof of the second snapshot (it guesses 'a')"
+        }
+        r del fx:defer
+        assert_equal $dropped_at $budget "pieces of proof before the second snapshot was dropped"
+        assert_equal 3 [dict get $info candidate]
+        assert_equal 0 [dict get $info generation]
+    }
+
+    gcmd_test {SPEC 5: once a snapshot answers, only spot checks count against the one being tested} {
+        # CHANGES 9c: a request counts against a snapshot when it "could
+        # have been tested on" it: "asked while it was the candidate, and
+        # nothing serving or audit". That is the sample its proof comes
+        # from: every request while nothing answers, the spot-checked
+        # share afterwards.
+        # A classifier of "a" and "b", "b" always deferred. X is "a" to
+        # every snapshot and Y is "b" to every snapshot (a named feature
+        # decides). The first snapshot proves "a" on X and answers; the
+        # second is being tested. Then come requests Y to which the
+        # teacher says "a": both snapshots leave them to the teacher.
+        # With AUDIT 1 every one of them is a request the second snapshot
+        # would have been tested on: it is dropped after 10 times the 41
+        # right answers a flawless threshold of snapshot 2 needs. With
+        # AUDIT one in a billion none of them is, and nothing counts.
+        set x {TEXT {} FEATURES 1 f 2}
+        set y {TEXT {} FEATURES 1 f -2}
+        assert_equal 35 [gcmd_proof_needed 0.2 0.2 1 1]
+        set budget [expr {10 * [gcmd_proof_needed 0.2 0.2 2 1]}]
+        assert_equal 410 $budget
+        foreach {audit dropped} {1 1  0.000000001 0} {
+            set shown "AUDIT $audit"
+            r config set gate.snapshot-examples 4
+            r del fx:share
+            r gcreate fx:share ALPHA 0.2 DELTA 0.2 AUDIT $audit CLASSES 2 a b ALWAYSDEFER 1 b
+            r config set gate.snapshot-examples 1000
+            foreach form [list $x $y $x $y] label {a b a b} {r gadd fx:share {*}$form LABEL $label}
+            assert_equal 1 [gcmd_info fx:share candidate] $shown
+            for {set i 0} {$i < 35} {incr i} {
+                lassign [r gpredict fx:share {*}$x] action id
+                assert_equal ABSTAIN $action "$shown: request X [expr {$i + 1}]"
+                assert_equal 1 [r glearn fx:share $id LABEL a]
+            }
+            set info [r ginfo fx:share]
+            assert_equal ACTIVE [dict get $info state] $shown
+            assert_equal 1 [dict get $info generation] $shown
+            assert_equal 2 [dict get $info candidate] $shown
+            set dropped_at 0
+            for {set n 1} {$n <= $budget + 40} {incr n} {
+                lassign [r gpredict fx:share {*}$y] action id
+                # (no snapshot guesses "a" here: nothing to answer, nothing to spot-check)
+                assert_equal ABSTAIN $action "$shown: request Y $n"
+                assert_equal 1 [r glearn fx:share $id LABEL a]
+                set info [r ginfo fx:share]
+                if {[dict get $info candidate] != 2} {
+                    set dropped_at $n
+                    break
+                }
+                assert_equal 0 [dict get $info calibration-samples] "$shown: request Y $n"
+            }
+            if {$dropped} {
+                assert_equal $budget $dropped_at "$shown: requests the second snapshot left to the teacher before it was dropped"
+                assert_equal 3 [dict get $info candidate] $shown
+            } else {
+                assert_equal 0 $dropped_at "$shown: the second snapshot was dropped by requests it was not to be tested on"
+                assert_equal 2 [dict get $info candidate] $shown
+            }
+            # the first snapshot goes on answering
+            assert_equal 1 [dict get $info generation] $shown
+            assert_equal ACTIVE [dict get $info state] $shown
+            assert_equal 0 [dict get $info revocations] $shown
+            gcmd_check_saveable fx:share $shown
+        }
+        r del fx:share
+    }
+
+    gcmd_test {SPEC 3: a newer snapshot takes over only if it answers more than the current one answers now} {
+        # "A newer snapshot takes over only when it has proven thresholds
+        # of its own and answers more of the same spot-checked requests
+        # than the current one." CHANGES 9a: the current snapshot is judged
+        # by the thresholds it has NOW. Before, one whose thresholds had
+        # moved down since the requests were asked was undercounted and
+        # could be replaced by a snapshot that answers no more than it.
+        #
+        # Two requests, X and Y: the same (empty) text and a named feature
+        # the model has learned to lean on. Every snapshot guesses "b" for
+        # both and is surer of X. While the first snapshot is tested the
+        # teacher says "a" to Y 'errors' times and "b" to X: the thresholds
+        # above Y are proven by 39 right answers, those that take Y in
+        # need more, so the snapshot answers X only. From then on the
+        # teacher says "b" to both, every request is proof for both
+        # snapshots (AUDIT 1), and all of it is right:
+        #   - the lower thresholds of the first snapshot are proven by
+        #     request number need(errors) - 39; from then on it answers Y;
+        #   - the second snapshot has its first proven thresholds at
+        #     request 44 (snapshot 2, two labels), and they take all 44.
+        # After 4 errors the first of these is request 43: at request 44
+        # the second snapshot answers no more than the first does now, and
+        # does not take over. After 5 errors it is request 53: at request
+        # 44 the second snapshot answers X and Y, the first only X, and
+        # the second takes over.
+        # A third gate: the teacher goes on saying "a" to Y. Neither
+        # snapshot ever gets to answer Y; the second answers what the
+        # first answers, X, and does not take over however much proof it
+        # has (44 right answers to X at request 88).
+        set x {TEXT {} FEATURES 1 f 2}
+        set y {TEXT {} FEATURES 1 f -0.5}
+        assert_equal 39 [gcmd_proof_needed 0.2 0.2 1 2]
+        assert_equal 82 [gcmd_proof_needed 0.2 0.2 1 2 4]
+        assert_equal 92 [gcmd_proof_needed 0.2 0.2 1 2 5]
+        assert_equal 44 [gcmd_proof_needed 0.2 0.2 2 2]
+        foreach {errors teacher_y takes_over} {4 b 0  5 b 1  1 a 0} {
+            set shown "$errors errors"
+            set lower_at [expr {[gcmd_proof_needed 0.2 0.2 1 2 $errors] - 39}]
+            r del fx:take
+            gcmd_create_fast fx:take ALPHA 0.2 DELTA 0.2 AUDIT 1 CLASSES 2 a b
+            for {set i 0} {$i < 40} {incr i} {r gadd fx:take {*}$x LABEL b}
+            assert_equal 1 [gcmd_info fx:take candidate]
+            for {set i 0} {$i < $errors} {incr i} {
+                lassign [r gpredict fx:take {*}$y] action id
+                assert_equal ABSTAIN $action
+                assert_equal 1 [r glearn fx:take $id LABEL a]
+            }
+            for {set i 1} {$i <= 39} {incr i} {
+                assert_equal 0 [gcmd_info fx:take generation] "$shown: before right answer $i"
+                lassign [r gpredict fx:take {*}$x] action id
+                assert_equal ABSTAIN $action
+                assert_equal 1 [r glearn fx:take $id LABEL b]
+            }
+            # The first snapshot answers "b", from a threshold that is not
+            # the lowest; the second is being tested.
+            set info [r ginfo fx:take]
+            assert_equal 1 [dict get $info generation] $shown
+            assert_equal 2 [dict get $info candidate] $shown
+            lassign [dict get $info thresholds] a high
+            assert_equal {} $a
+            if {$high eq {} || [gcmd_grid_index 0.5 0.999 $high] < 1} {
+                fail "$shown: this test needs a first snapshot that is less sure of Y than of X, with one\
+                    of the 32 thresholds between them; its threshold for 'b' is '$high'"
+            }
+            set steps [gcmd_grid_index 0.5 0.999 $high]
+            for {set k 1} {$k <= ($teacher_y eq "b" ? 60 : 100)} {incr k} {
+                set shown "$errors errors, then '$teacher_y' for Y, request $k"
+                set took_over [expr {$takes_over && $k > 44}]
+                set info [r ginfo fx:take]
+                assert_equal [expr {$took_over ? 2 : 1}] [dict get $info generation] "$shown: before it"
+                if {$k % 2} {
+                    # Y: left to the teacher until a snapshot that answers
+                    # takes it in (request 43 or 44 made one do so)
+                    lassign [r gpredict fx:take {*}$y] action id
+                    assert_equal [expr {$teacher_y eq "b" && $k >= 44 ? "AUDIT" : "ABSTAIN"}] $action $shown
+                    assert_equal 1 [r glearn fx:take $id LABEL $teacher_y]
+                } else {
+                    lassign [r gpredict fx:take {*}$x] action id
+                    assert_equal AUDIT $action $shown
+                    assert_equal 1 [r glearn fx:take $id LABEL b]
+                }
+                set info [r ginfo fx:take]
+                set threshold [lindex [dict get $info thresholds] 1]
+                if {$takes_over && $k >= 44} {
+                    assert_equal 2 [dict get $info generation] "$shown: the second snapshot answers more"
+                    assert_equal 3 [dict get $info candidate] $shown
+                    assert {$threshold == 0.5}
+                } else {
+                    assert_equal 1 [dict get $info generation] "$shown: the second snapshot answers no more than the first"
+                    assert_equal 2 [dict get $info candidate] $shown
+                    # the proof of the snapshot being tested: every request so far
+                    assert_equal $k [dict get $info calibration-samples] $shown
+                    if {$teacher_y eq "a" || $k < $lower_at} {
+                        assert_equal $high $threshold "$shown: the first snapshot answers X only"
+                    } else {
+                        assert {$threshold == 0.5}
+                    }
+                }
+                assert_equal 0 [dict get $info revocations] $shown
+                assert_equal 0 [dict get $info audit-errors] $shown
+                # What the comparison is made with is part of the gate
+                # (gate_codec.c, "paired"): for each threshold of "b", how
+                # many of the requests so far the first snapshot's own
+                # guess put at or above it. Both X and Y are above the
+                # thresholds below the one it answered from at first, X
+                # alone is above that one and the next. The table is
+                # the second snapshot's while it is being tested, and is
+                # cleared when it takes over (CHANGES 9a).
+                if {$teacher_y eq "b" && $k in {43 44}} {
+                    set payload [gcmd_dump_plain fx:take]
+                    set table [binary format w* [concat [lrepeat $steps $k] [list [expr {$k / 2}] [expr {$k / 2}]]]]
+                    if {$takes_over && $k == 44} {
+                        assert_equal -1 [string first $table $payload] "$shown: the table of the snapshot that took over"
+                    } else {
+                        assert {[string first $table $payload] > 0}
+                    }
+                }
+                # A table that cannot be is refused (CHANGES 9g: "paired
+                # is nested and at most samples"): more requests above a
+                # threshold than the snapshot has proof, or more above a
+                # threshold than above the one below it.
+                if {$teacher_y eq "b" && !$takes_over && $k == 43} {
+                    set at [string first $table $payload]
+                    set body [string range $payload 0 end-8]
+                    foreach {what entry value accepted} [list \
+                        "one request more above the lowest threshold than the snapshot has proof" 0 [expr {$k + 1}] 0 \
+                        "one request more above a threshold than above the one below it" \
+                            [expr {$steps + 1}] [expr {$k / 2 + 1}] 0 \
+                        "one request less above the second threshold than above the lowest" 1 [expr {$k - 1}] 1 \
+                    ] {
+                        r del fx:take:copy
+                        set offset [expr {$at + 8 * $entry}]
+                        set forged [string replace $body $offset [expr {$offset + 7}] [binary format w $value]]
+                        append forged [binary format w [gcmd_crc64 $forged]]
+                        set refused [catch {r restore fx:take:copy 0 $forged} err]
+                        assert_equal $refused [expr {!$accepted}] "RESTORE of a payload with $what in the table: $err"
+                    }
+                    r del fx:take:copy
+                }
+            }
+            gcmd_check_saveable fx:take $shown
+        }
+        r del fx:take
+    }
+
     gcmd_test {SPEC 5: the drift detector stops a gate at the wrong spot check the table says} {
-        foreach {alpha outcomes} {
-            0.2 {1 1 1 1 1 1 1 1 1 1}
-            0.1 {1 1 1 1 1 1 1 1 1 1}
-            0.5 {1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1}
-            0.2 {1 1 1 0 1 1 1 1 1 1 1 1}
-            0.2 {1 1 1 1 1 1 0 1 1 1 1 1}
-        } {
-            set shown "ALPHA $alpha, spot checks $outcomes"
+        # Spot checks asked and answered one after the other; the first is
+        # the first of a block (the gate answers since this moment). 'at'
+        # is worked out by hand in the helpers test above: the 7th, 6th or
+        # 18th of nothing but wrong ones; later when right ones came before
+        # in the same block (a block does not start over, CHANGES 9f); in
+        # the next block of 64 when too many did; and in the block of 512
+        # when three in eight are wrong.
+        foreach {alpha outcomes at} [list \
+            0.2  {1 1 1 1 1 1 1 1 1 1}                   7 \
+            0.1  {1 1 1 1 1 1 1 1 1 1}                   6 \
+            0.05 {1 1 1 1 1 1 1 1 1 1}                   6 \
+            0.5  [lrepeat 20 1]                          18 \
+            0.2  {1 1 1 0 1 1 1 1 1 1 1 1}               9 \
+            0.2  {1 1 1 1 1 1 0 1 1 1 1 1}               9 \
+            0.2  [concat [lrepeat 5 0] [lrepeat 12 1]]   15 \
+            0.2  [concat [lrepeat 60 0] [lrepeat 20 1]]  71 \
+            0.2  [concat [lrepeat 57 0] [lrepeat 20 1]]  71 \
+            0.2  [concat {*}[lrepeat 12 {1 1 1 0 0 0 0 0}]] 75 \
+        ] {
+            set shown "ALPHA $alpha, spot checks [string map {{ } {}} $outcomes]"
             set alarm [gcmd_drift_alarm_at $alpha $outcomes]
-            assert {$alarm > 0}
+            assert_equal $alarm $at "$shown: the spot check that raises the alarm"
             r del fx:drift
             r gcreate fx:drift ALPHA $alpha DELTA 0.2 AUDIT 1 SCORE
             gcmd_prove_all fx:drift
             assert_equal ACTIVE [gcmd_info fx:drift state]
             set n 0
+            set errors 0
             foreach wrong [lrange $outcomes 0 [expr {$alarm - 1}]] {
                 incr n
                 set info [r ginfo fx:drift]
                 assert_equal [dict get $info state] ACTIVE "$shown: before spot check $n"
                 assert_equal [dict get $info revocations] 0 "$shown: before spot check $n"
                 assert_equal [dict get $info audit-samples] [expr {$n - 1}] $shown
+                assert_equal [dict get $info audit-errors] $errors $shown
                 lassign [r gpredict fx:drift SCORE 0.9] action id
                 assert_equal $action AUDIT "$shown: spot check $n"
                 assert_equal 1 [r glearn fx:drift $id CORRECT [expr {!$wrong}]]
+                incr errors $wrong
             }
             # "the gate stops answering at once ... and starts over by itself"
             set info [r ginfo fx:drift]
@@ -6131,16 +6850,22 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         r del fx:drift
     }
 
-    gcmd_test {SPEC 3: a spot check counts the moment its answer arrives, whatever still waits} {
-        # "Every spot-check answer reaches a drift detector ... the moment
-        # it arrives." CHANGES 6: one unanswered spot check used to hide
-        # every later one from the detector.
+    gcmd_test {SPEC 3: a spot check counts the moment its answer arrives; one that still waits counts as right} {
+        # gate_core.h, DRIFT: "A spot check gets its number when it is
+        # asked and counts as right until a disagreeing answer arrives,
+        # which is reported the moment it arrives." CHANGES 6: one
+        # unanswered spot check used to hide every later one from the
+        # detector. Here the first spot check of the block never gets its
+        # answer: it is in the block, as a right one, so the alarm is at
+        # the eighth wrong answer and not at the seventh (helpers test:
+        # 594.75 and 1736.25).
         r del fx:drift
         r gcreate fx:drift ALPHA 0.2 DELTA 0.2 AUDIT 1 SCORE
         gcmd_prove_all fx:drift
         lassign [r gpredict fx:drift SCORE 0.9] action waiting
         assert_equal AUDIT $action
-        set alarm [gcmd_drift_alarm_at 0.2 {1 1 1 1 1 1 1 1 1 1}]
+        set alarm [expr {[gcmd_drift_alarm_at 0.2 {0 1 1 1 1 1 1 1 1 1 1}] - 1}]
+        assert_equal 8 $alarm
         for {set n 1} {$n <= $alarm} {incr n} {
             set info [r ginfo fx:drift]
             assert_equal [dict get $info state] ACTIVE "before spot check $n"
@@ -6165,6 +6890,144 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         r del fx:drift
     }
 
+    gcmd_test {SPEC 3: disagreements that arrive in a batch do not stop a gate that is as good as it says} {
+        # "Its verdict does not depend on the order or the timing of the
+        # answers." 40 spot checks are asked; 7 of them disagree (17.5%,
+        # the gate promised 20%), and those 7 answers arrive first, in one
+        # transaction. A detector that takes the answers in the order they
+        # arrive saw seven disagreements in a row there, which is the
+        # alarm (the rule before CHANGES 9f). In a block of 40 spot checks
+        # 7 disagreements are (2^7 x 0.75^33 + 3^7 x 0.5^33) / 2 = 0.005.
+        r del fx:batch
+        r gcreate fx:batch ALPHA 0.2 DELTA 0.2 AUDIT 1 SCORE
+        gcmd_prove_all fx:batch
+        set ids {}
+        for {set i 0} {$i < 40} {incr i} {
+            lassign [r gpredict fx:batch SCORE 0.9] action id
+            assert_equal AUDIT $action "spot check [expr {$i + 1}]"
+            lappend ids $id
+        }
+        set d [gcmd_drift_new 0.2]
+        for {set i 0} {$i < 40} {incr i} {gcmd_drift_ask d}
+        foreach number {1 6 11 16 21 26 31} {assert_equal {} [gcmd_drift_tell d $number wrong]}
+        assert {exp([gcmd_drift_log_stat 0.2 40 7]) < 0.01}
+
+        r multi
+        foreach i {0 5 10 15 20 25 30} {r glearn fx:batch [lindex $ids $i] CORRECT 0}
+        assert_equal {1 1 1 1 1 1 1} [r exec]
+        set info [r ginfo fx:batch]
+        assert_equal ACTIVE [dict get $info state] "after seven disagreements in a row, of 40 spot checks"
+        assert_equal 0 [dict get $info revocations]
+        assert_equal 1 [dict get $info generation]
+        assert_equal 7 [dict get $info audit-samples]
+        assert_equal 7 [dict get $info audit-errors]
+        assert_equal 33 [dict get $info pending]
+        # the other 33 agree, the newest first
+        foreach i {39 38 37 36 35 34 33 32 31 29 28 27 26 24 23 22 21 19 18 17 16 14 13 12 11 9 8 7 6 4 3 2 1} {
+            assert_equal 1 [r glearn fx:batch [lindex $ids $i] CORRECT 1]
+        }
+        set info [r ginfo fx:batch]
+        assert_equal ACTIVE [dict get $info state]
+        assert_equal 0 [dict get $info revocations]
+        assert_equal 40 [dict get $info audit-samples]
+        assert_equal 7 [dict get $info audit-errors]
+        assert_equal 0 [dict get $info pending]
+        assert_equal 0 [dict get $info missing]
+        # it goes on answering (here: asking for the next spot check)
+        lassign [r gpredict fx:batch SCORE 0.9] action id
+        assert_equal AUDIT $action
+        assert_equal 1 [r glearn fx:batch $id CORRECT 1]
+        gcmd_check_saveable fx:batch
+        r del fx:batch
+    }
+
+    gcmd_test {SPEC 3: the answers of a block stop a gate at the same disagreement in whatever order they arrive} {
+        # Nine spot checks are asked before any answer. Seven
+        # disagreements among nine are (2^7 x 0.75^2 + 3^7 x 0.5^2) / 2 =
+        # 309.4, eight are (2^8 x 0.75 + 3^8 x 0.5) / 2 = 1736.25: the
+        # eighth disagreement is the alarm, whichever of the nine spot
+        # checks it belongs to. (Asked and answered one at a time, the
+        # seventh is: above.)
+        assert {abs(exp([gcmd_drift_log_stat 0.2 9 7]) - 309.375) < 1e-6}
+        foreach order {oldest-first newest-first} {
+            r del fx:order
+            r gcreate fx:order ALPHA 0.2 DELTA 0.2 AUDIT 1 SCORE
+            gcmd_prove_all fx:order
+            set ids {}
+            for {set i 0} {$i < 9} {incr i} {
+                lassign [r gpredict fx:order SCORE 0.9] action id
+                assert_equal AUDIT $action
+                lappend ids $id
+            }
+            if {$order eq "newest-first"} {set ids [lreverse $ids]}
+            set n 0
+            foreach id [lrange $ids 0 7] {
+                incr n
+                set info [r ginfo fx:order]
+                assert_equal ACTIVE [dict get $info state] "$order: before disagreement $n"
+                assert_equal 0 [dict get $info revocations] "$order: before disagreement $n"
+                assert_equal [expr {$n - 1}] [dict get $info audit-errors] "$order: before disagreement $n"
+                assert_equal [expr {10 - $n}] [dict get $info pending] "$order: before disagreement $n"
+                assert_equal 1 [r glearn fx:order $id CORRECT 0]
+            }
+            set info [r ginfo fx:order]
+            assert_equal 1 [dict get $info revocations] "$order: after the eighth disagreement"
+            assert_equal CALIBRATING [dict get $info state] $order
+            assert_equal 2 [dict get $info candidate] $order
+            # the ninth was proof for what the gate dropped
+            assert_equal 0 [dict get $info pending] $order
+            assert_equal 0 [dict get $info missing] $order
+            assert_equal 0 [r glearn fx:order [lindex $ids 8] CORRECT 0] $order
+            gcmd_check_saveable fx:order $order
+        }
+        r del fx:order
+    }
+
+    gcmd_test {SPEC 5: a disagreement that arrives after its block of 64 has ended counts in the longer blocks only} {
+        # gate_stats.h: "A disagreeing answer that arrives after its block
+        # has ended counts only in the longer blocks that are still open."
+        # Spot check 1 waits; 2 to 64 agree; 65 and 66, the first two of
+        # the next block of 64, agree; then the answer of spot check 1
+        # arrives, and disagrees. The block that began with 65 still has
+        # no disagreement: with the two right spot checks in it the alarm
+        # is at its ninth wrong one ((2^8 x 0.75^2 + 3^8 x 0.5^2) / 2 =
+        # 892.1 after eight, 2604.4 after nine), which is spot check 75 and
+        # the tenth disagreement the gate is told. Had the late answer
+        # been counted in the open block, spot check 73 would have been
+        # the alarm. (In the blocks of 512 and of 4,096, ten disagreements
+        # among 75 spot checks are nothing.)
+        assert {abs(exp([gcmd_drift_log_stat 0.2 10 8]) - 892.125) < 1e-6}
+        set d [gcmd_drift_new 0.2]
+        set first [gcmd_drift_ask d]
+        for {set i 0} {$i < 65} {incr i} {gcmd_drift_ask d}
+        assert_equal {} [gcmd_drift_tell d $first wrong]
+        for {set i 0} {$i < 8} {incr i} {assert_equal {} [gcmd_drift_tell d [gcmd_drift_ask d] wrong]}
+        assert_equal worse [gcmd_drift_tell d [gcmd_drift_ask d] wrong]
+        assert_equal 75 [dict get $d asked]
+
+        r del fx:late
+        r gcreate fx:late ALPHA 0.2 DELTA 0.2 AUDIT 1 SCORE
+        gcmd_prove_all fx:late
+        lassign [r gpredict fx:late SCORE 0.9] action waiting
+        assert_equal AUDIT $action
+        assert_equal AUDIT [lsort -unique [gcmd_ask_score fx:late 65 0.9 1]]
+        assert_equal 1 [r glearn fx:late $waiting CORRECT 0]
+        for {set told 1} {$told < 10} {incr told} {
+            set info [r ginfo fx:late]
+            assert_equal ACTIVE [dict get $info state] "after $told disagreements"
+            assert_equal 0 [dict get $info revocations] "after $told disagreements"
+            assert_equal $told [dict get $info audit-errors]
+            assert_equal [expr {65 + $told}] [dict get $info audit-samples]
+            assert_equal AUDIT [gcmd_ask_score fx:late 1 0.9 0]
+        }
+        set info [r ginfo fx:late]
+        assert_equal 1 [dict get $info revocations] "after the tenth disagreement, spot check 75"
+        assert_equal CALIBRATING [dict get $info state]
+        assert_equal [expr {[gcmd_proof_needed 0.2 0.2] + 75}] [dict get $info requests]
+        gcmd_check_saveable fx:late
+        r del fx:late
+    }
+
     gcmd_test {SPEC 3: a classifier that got worse forgets its model and learns again} {
         r del fx:drift
         gcmd_create_fast fx:drift ALPHA 0.2 DELTA 0.2 AUDIT 1 CLASSES 2 spam ham
@@ -6172,16 +7035,21 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         gcmd_count_proof fx:drift
         set before [r ginfo fx:drift]
         assert_equal ACTIVE [dict get $before state]
-        # The teacher changes its mind about one message. Seven wrong spot
-        # checks in a row are the fewest that can raise the alarm (above);
-        # the right ones that came before may cost a few more.
+        # Each label has a detector of its own. The two labels were proven
+        # by requests that came in turns, "ham" right after "spam", so no
+        # spot check was asked yet: the blocks of "spam" begin here.
+        assert_equal 0 [dict get $before audit-samples]
+        # The teacher changes its mind about one message: the seventh
+        # wrong spot check is the alarm (above).
         for {set n 0} {$n < 40 && [gcmd_info fx:drift revocations] == 0} {incr n} {
+            assert_equal $n [gcmd_info fx:drift audit-errors]
             lassign [r gpredict fx:drift TEXT "buy cheap pills now"] action id
             assert_equal $action AUDIT "spot check [expr {$n + 1}]"
             assert_equal 1 [r glearn fx:drift $id LABEL ham]
         }
         set alarm $n
-        assert {$alarm >= [gcmd_drift_alarm_at 0.2 {1 1 1 1 1 1 1 1 1 1}] && $alarm < 40}
+        assert_equal $alarm [gcmd_drift_alarm_at 0.2 {1 1 1 1 1 1 1 1 1 1}] "the wrong spot check that stopped the gate"
+        assert_equal 7 $alarm
         set info [r ginfo fx:drift]
         assert_equal 1 [dict get $info revocations]
         assert_equal COLD [dict get $info state]
@@ -6203,6 +7071,52 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert {[dict get $info candidate] > [dict get $before generation]}
         gcmd_check_saveable fx:drift
         r del fx:drift
+    }
+
+    gcmd_test {SPEC 3: each label has a drift detector of its own} {
+        # gate_core.h, DRIFT: "Each serving row runs a drift detector over
+        # its spot checks of accepted traffic." CHANGES 9f: spot checks
+        # are numbered per label. Six spot checks of "spam" agree. Six of
+        # "ham" disagree: (2^6 + 3^6) / 2 = 396.5 in the block of "ham",
+        # and nothing in the block of "spam", whose spot checks have the
+        # same numbers, 1 to 6. Then one of "spam" disagrees: one wrong
+        # among seven in its block, and the gate goes on. The seventh
+        # disagreement of "ham" is the alarm.
+        r del fx:rows
+        gcmd_create_fast fx:rows ALPHA 0.2 DELTA 0.2 AUDIT 1 CLASSES 2 spam ham
+        gcmd_teach fx:rows 40
+        gcmd_count_proof fx:rows
+        set before [r ginfo fx:rows]
+        assert_equal ACTIVE [dict get $before state]
+        assert_equal 0 [dict get $before audit-samples]
+        set asked 0
+        set wrong 0
+        foreach {text teacher} [concat \
+            [lrepeat 6 "buy cheap pills now" spam] \
+            [lrepeat 6 "meeting at noon tomorrow" spam] \
+            [list "buy cheap pills now" ham] \
+        ] {
+            lassign [r gpredict fx:rows TEXT $text] action id
+            assert_equal AUDIT $action "spot check [incr asked]"
+            assert_equal 1 [r glearn fx:rows $id LABEL $teacher]
+            if {$asked > 6} {incr wrong}
+            set info [r ginfo fx:rows]
+            assert_equal ACTIVE [dict get $info state] "after $asked spot checks, $wrong of them wrong"
+            assert_equal 0 [dict get $info revocations] "after $asked spot checks, $wrong of them wrong"
+            assert_equal $wrong [dict get $info audit-errors]
+            assert_equal $asked [dict get $info audit-samples]
+            assert_equal 1 [dict get $info generation]
+        }
+        assert_equal {13 7} [list $asked $wrong]
+        lassign [r gpredict fx:rows TEXT "meeting at noon tomorrow"] action id
+        assert_equal AUDIT $action
+        assert_equal 1 [r glearn fx:rows $id LABEL spam]
+        set info [r ginfo fx:rows]
+        assert_equal 1 [dict get $info revocations] "after the seventh disagreement for 'ham'"
+        assert_equal COLD [dict get $info state]
+        assert_equal 0 [dict get $info learned]
+        gcmd_check_saveable fx:rows
+        r del fx:rows
     }
 
     gcmd_test {SPEC 3: a model copy is one weight per bucket and label, 8,192 buckets} {
@@ -6265,8 +7179,9 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
 # 9. Late and lost answers (real time)
 # ============================================================================
 #
-# SPEC 3, "Late and lost answers" and "No answers at all"; SPEC 5, "feedback
-# timeout" and "answers missing in a row"; CHANGES 2 and 3. A gate does its
+# SPEC 3, "Late and lost answers", "No answers at all" and the lost spot
+# checks of "Getting worse"; SPEC 5, "feedback timeout", "answers missing in
+# a row" and "drift detector"; CHANGES 2, 3 and 9 (b, e, f). A gate does its
 # bookkeeping when it is written to, so each moment below is a write at a
 # known time after the requests were made:
 #
@@ -6300,17 +7215,26 @@ proc gcmd_late_run {timeout k} {
     foreach name {early late wrong flip gone lost idle} {
         r gcreate $k:$name ALPHA 0.2 DELTA 0.2 SCORE
     }
-    foreach name {blind b31} {
+    foreach name {blind b31 b33 burst older u20 u19 u19w ur22 ur23} {
         r gcreate $k:$name ALPHA 0.2 DELTA 0.2 AUDIT 1 SCORE
+    }
+    foreach name {s16 s15} {
+        r gcreate $k:$name ALPHA 0.05 DELTA 0.2 AUDIT 1 SCORE
     }
     r gcreate $k:cls ALPHA 0.2 DELTA 0.2 CLASSES 2 a b
     r gcreate $k:bcls ALPHA 0.2 DELTA 0.2 AUDIT 1 CLASSES 2 a b
     r config set gate.feedback-timeout 60000
     r config set gate.snapshot-examples 1000
-    # two score gates and a classifier that answer (every request a spot
-    # check), and a classifier that tests its first snapshot
-    gcmd_prove_all $k:blind
-    gcmd_prove_all $k:b31
+    # Gates that answer, with AUDIT 1: every request is proof. Five score
+    # gates answer from a threshold between 0.1 and 0.9, so that a request
+    # at 0.1 is proof they want and no spot check; seven score gates (two
+    # of them with an error rate of 0.05) and a classifier answer
+    # everything they are asked, so that every request is a spot check.
+    # Two of those have had five spot checks that agreed. And a classifier
+    # that tests its first snapshot.
+    foreach name {blind b31 b33 burst older} {gcmd_prove_score $k:$name}
+    foreach name {u20 u19 u19w ur22 ur23 s16 s15} {gcmd_prove_all $k:$name}
+    foreach name {ur22 ur23} {dict set seen $name agreed [gcmd_ask_score $k:$name 5 0.9 1]}
     r gadd $k:bcls TEXT "alpha one" LABEL a
     gcmd_prove_label $k:bcls
     r gadd $k:cls TEXT "alpha one" LABEL a
@@ -6335,15 +7259,26 @@ proc gcmd_late_run {timeout k} {
     dict set seen flip first [lindex [r gpredict $k:flip SCORE 0.7] 1]
     gcmd_ask_score $k:flip 39 0.7 1
     dict set seen flip start [r ginfo $k:flip]
-    # spot checks nobody answers: 32 and 31
-    foreach {name n ask} {blind 32 {SCORE 0.9} b31 31 {SCORE 0.9} bcls 32 {TEXT {alpha one}}} {
+    # requests nobody answers: proof below the threshold of the gate (32,
+    # 31, 33, 40 of which the newest gets its answer at once, and 33 of
+    # which the oldest gets its answer when all have been asked), and spot
+    # checks
+    foreach {name n ask} {blind 32 {SCORE 0.1} b31 31 {SCORE 0.1} b33 33 {SCORE 0.1} burst 40 {SCORE 0.1}
+                          older 33 {SCORE 0.1}
+                          u20 20 {SCORE 0.9} u19 19 {SCORE 0.9} u19w 19 {SCORE 0.9}
+                          ur22 22 {SCORE 0.9} ur23 23 {SCORE 0.9} s16 16 {SCORE 0.9} s15 15 {SCORE 0.9}
+                          bcls 32 {TEXT {alpha one}}} {
         set actions {}
+        set oldest {}
         for {set i 0} {$i < $n} {incr i} {
             lassign [r gpredict $k:$name {*}$ask] action id
             lappend actions $action
             if {$id eq {}} {lappend actions "no id"}
+            if {$i == 0} {set oldest $id}
         }
         dict set seen $name asked [lsort -unique $actions]
+        if {$name eq "burst"} {dict set seen burst newest [r glearn $k:burst $id CORRECT 0]}
+        if {$name eq "older"} {dict set seen older oldest [r glearn $k:older $oldest CORRECT 0]}
         dict set seen $name start [r ginfo $k:$name]
     }
     set t1 [clock milliseconds]
@@ -6402,8 +7337,15 @@ proc gcmd_late_run {timeout k} {
     dict set seen lost third [r glearn $k:lost $id CORRECT 1]
     dict set seen lost after [r ginfo $k:lost]
     dict set seen lost answer [r glearn $k:lost [dict get $seen lost first] CORRECT 1]
-    # the spot checks
+    # the gates whose requests nobody answered: one request more, which
+    # gets its answer (a wrong guess for one of them)
     foreach {name ask answer} {blind {SCORE 0.9} {CORRECT 1} b31 {SCORE 0.9} {CORRECT 1}
+                               b33 {SCORE 0.9} {CORRECT 1} burst {SCORE 0.9} {CORRECT 1}
+                               older {SCORE 0.9} {CORRECT 1}
+                               u20 {SCORE 0.9} {CORRECT 1} u19 {SCORE 0.9} {CORRECT 1}
+                               u19w {SCORE 0.9} {CORRECT 0}
+                               ur22 {SCORE 0.9} {CORRECT 1} ur23 {SCORE 0.9} {CORRECT 1}
+                               s16 {SCORE 0.9} {CORRECT 1} s15 {SCORE 0.9} {CORRECT 1}
                                bcls {TEXT {alpha one}} {LABEL a}} {
         set reply [r gpredict $k:$name {*}$ask]
         dict set seen $name reply $reply
@@ -6419,7 +7361,8 @@ proc gcmd_late_run {timeout k} {
     dict set seen cls more [gcmd_prove_label $k:cls]
     r greset $k:lost
     dict set seen lost reset [r ginfo $k:lost]
-    foreach name {early late wrong flip gone lost idle blind b31 cls bcls} {
+    foreach name {early late wrong flip gone lost idle blind b31 b33 burst older u20 u19 u19w ur22 ur23
+                  s16 s15 cls bcls} {
         gcmd_check_saveable $k:$name
         r del $k:$name
     }
@@ -6570,54 +7513,211 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
 
     gcmd_test {late answers: 32 answers missing in a row stop the gate, 31 do not} {
         # "When 32 requests in a row end without an answer and no answer
-        # arrives in between, ... the gate ... stops answering, keeps its
-        # model, and proves itself again as soon as answers arrive."
-        foreach gate {blind b31} n {32 31} {
-            assert_equal AUDIT [gcmd_late $late $gate asked]
+        # of any request has arrived since the first of them was asked,
+        # the feedback path is broken and the gate cannot check itself.
+        # It stops answering, keeps its model, and proves itself again as
+        # soon as answers arrive."
+        # The gates answer from the second of their thresholds; the
+        # requests nobody answers are below it: proof the gates asked for
+        # (AUDIT 1), and not spot checks, which have a rule of their own
+        # (below).
+        foreach gate {blind b31 b33} n {32 31 33} {
+            assert_equal ABSTAIN [gcmd_late $late $gate asked]
             assert_equal ACTIVE [gcmd_late $late $gate start state]
             assert_equal $n [gcmd_late $late $gate start pending]
             assert_equal 0 [gcmd_late $late $gate start missing]
             assert_equal 1 [gcmd_late $late $gate start generation]
+            assert_equal 1 [gcmd_grid_index 0 0.998 [lindex [gcmd_late $late $gate start thresholds] 0]]
         }
         # 31: the gate still answers (here: asks for a spot check)
         assert_equal AUDIT [lindex [gcmd_late $late b31 reply] 0]
         assert_equal ACTIVE [gcmd_late $late b31 after state]
         assert_equal 31 [gcmd_late $late b31 after missing]
         assert_equal 0 [gcmd_late $late b31 after revocations]
-        # an answer that is missing is not a spot check that disagreed
         assert_equal 0 [gcmd_late $late b31 after audit-samples]
         assert_equal 0 [gcmd_late $late b31 after audit-errors]
         assert_equal 1 [gcmd_late $late b31 after generation]
+        assert_equal [gcmd_late $late b31 start thresholds] [gcmd_late $late b31 after thresholds]
         assert_equal 1 [gcmd_late $late b31 after pending]
         assert_equal 1 [gcmd_late $late b31 answer]
         assert_equal ACTIVE [gcmd_late $late b31 again state]
+        assert_equal 1 [gcmd_late $late b31 again audit-samples]
         # 32: it stopped by itself. Nothing is tested (GINFO revocations
         # counts the stop); the request that found it so gets an id.
-        lassign [gcmd_late $late blind reply] action id
-        assert_equal ABSTAIN $action
-        assert {$id ne {}}
-        assert_equal COLD [gcmd_late $late blind after state]
+        foreach gate {blind b33} {
+            lassign [gcmd_late $late $gate reply] action id
+            assert_equal ABSTAIN $action
+            assert {$id ne {}}
+            assert_equal COLD [gcmd_late $late $gate after state]
+            assert_equal 1 [gcmd_late $late $gate after revocations]
+            assert_equal 0 [gcmd_late $late $gate after generation]
+            assert_equal 0 [gcmd_late $late $gate after candidate]
+            assert_equal {{}} [gcmd_late $late $gate after thresholds]
+            assert_equal 0 [gcmd_late $late $gate after calibration-samples]
+            assert_equal 1 [gcmd_late $late $gate after pending]
+            # An answer arrives: a new snapshot, with a new number, is tested.
+            assert_equal 1 [gcmd_late $late $gate answer]
+            assert_equal CALIBRATING [gcmd_late $late $gate again state]
+            assert_equal 2 [gcmd_late $late $gate again candidate]
+            assert_equal 0 [gcmd_late $late $gate again pending]
+            assert_equal 1 [gcmd_late $late $gate again revocations]
+        }
         assert_equal 32 [gcmd_late $late blind after missing]
-        assert_equal 1 [gcmd_late $late blind after revocations]
-        assert_equal 0 [gcmd_late $late blind after generation]
-        assert_equal 0 [gcmd_late $late blind after candidate]
-        assert_equal {{}} [gcmd_late $late blind after thresholds]
-        assert_equal 1 [gcmd_late $late blind after pending]
-        # An answer arrives: a new snapshot, with a new number, is tested.
-        assert_equal 1 [gcmd_late $late blind answer]
-        assert_equal CALIBRATING [gcmd_late $late blind again state]
-        assert_equal 2 [gcmd_late $late blind again candidate]
-        assert_equal 0 [gcmd_late $late blind again pending]
         assert_equal 32 [gcmd_late $late blind again missing]
-        assert_equal 1 [gcmd_late $late blind again revocations]
+        # 33: the last one was proof for what the gate dropped at the
+        # 32nd. It is forgotten, not missing (CHANGES 9e).
+        assert_equal 32 [gcmd_late $late b33 after missing]
+        assert_equal 32 [gcmd_late $late b33 again missing]
     }
 
-    gcmd_test {late answers: a classifier whose answers stop arriving keeps its model} {
-        # CHANGES 3: missing answers say nothing about the model. (A gate
-        # that got worse forgets it: section 8.)
+    gcmd_test {late answers: answers that are lost while another arrives are not an outage} {
+        # "... and no answer of any request has arrived since the first of
+        # them was asked." CHANGES 9b: 40 requests in one burst; the
+        # answer of the newest arrives at once, the other 39 never do and
+        # are given up together when their time is up. Each of them saw an
+        # answer arrive after it was asked: 39 lost answers, no outage.
+        # (Before, requests given up together were a run, whatever had
+        # been answered in between.)
+        assert_equal ABSTAIN [gcmd_late $late burst asked]
+        assert_equal 1 [gcmd_late $late burst newest]
+        assert_equal ACTIVE [gcmd_late $late burst start state]
+        assert_equal 39 [gcmd_late $late burst start pending]
+        assert_equal AUDIT [lindex [gcmd_late $late burst reply] 0]
+        assert_equal ACTIVE [gcmd_late $late burst after state]
+        assert_equal 39 [gcmd_late $late burst after missing]
+        assert_equal 0 [gcmd_late $late burst after revocations]
+        assert_equal 1 [gcmd_late $late burst after generation]
+        assert_equal [gcmd_late $late burst start thresholds] [gcmd_late $late burst after thresholds]
+        assert_equal 1 [gcmd_late $late burst after pending]
+        assert_equal 1 [gcmd_late $late burst answer]
+        assert_equal ACTIVE [gcmd_late $late burst again state]
+        assert_equal 0 [gcmd_late $late burst again pending]
+        # The same when the answer that arrives is the one of the oldest
+        # request, after 32 more were asked: none of those 32 gets an
+        # answer, but an answer has arrived since the first of them was
+        # asked.
+        assert_equal ABSTAIN [gcmd_late $late older asked]
+        assert_equal 1 [gcmd_late $late older oldest]
+        assert_equal ACTIVE [gcmd_late $late older start state]
+        assert_equal 32 [gcmd_late $late older start pending]
+        assert_equal AUDIT [lindex [gcmd_late $late older reply] 0]
+        assert_equal ACTIVE [gcmd_late $late older after state]
+        assert_equal 32 [gcmd_late $late older after missing]
+        assert_equal 0 [gcmd_late $late older after revocations]
+        assert_equal 1 [gcmd_late $late older after generation]
+        assert_equal 1 [gcmd_late $late older after pending]
+    }
+
+    gcmd_test {late answers: lost spot checks stop a gate that answers, at the lost answer the table says} {
+        # SPEC 3 "Getting worse": "A spot check whose answer is lost may
+        # hide a disagreement: when so many are lost that the gate can no
+        # longer rule that out, it stops answering, keeps its model, and
+        # proves itself again." SPEC 5: at 10^9, with lost answers counted
+        # as disagreements (worked out in the helpers test of section 8).
+        # The gates answer everything (AUDIT 1): every request is a spot
+        # check, the first one the first of a block.
+        foreach {gate n} {u20 20 u19 19 u19w 19 ur22 22 ur23 23 s16 16 s15 15} {
+            assert_equal AUDIT [gcmd_late $late $gate asked]
+            assert_equal ACTIVE [gcmd_late $late $gate start state]
+            assert_equal $n [gcmd_late $late $gate start pending]
+            assert_equal 0 [gcmd_late $late $gate start missing]
+            assert {[lindex [gcmd_late $late $gate start thresholds] 0] == 0}
+        }
+        # 20 spot checks, all lost: the 20th is the one.
+        assert_equal 20 [gcmd_drift_lost_at 0.2 20]
+        lassign [gcmd_late $late u20 reply] action id
+        assert_equal ABSTAIN $action
+        assert {$id ne {}}
+        assert_equal COLD [gcmd_late $late u20 after state]
+        assert_equal 20 [gcmd_late $late u20 after missing]
+        assert_equal 1 [gcmd_late $late u20 after revocations]
+        assert_equal 0 [gcmd_late $late u20 after generation]
+        assert_equal 0 [gcmd_late $late u20 after candidate]
+        assert_equal {{}} [gcmd_late $late u20 after thresholds]
+        assert_equal 0 [gcmd_late $late u20 after audit-samples]
+        assert_equal 1 [gcmd_late $late u20 after pending]
+        # it proves itself again as soon as an answer arrives
+        assert_equal 1 [gcmd_late $late u20 answer]
+        assert_equal CALIBRATING [gcmd_late $late u20 again state]
+        assert_equal 2 [gcmd_late $late u20 again candidate]
+        assert_equal 20 [gcmd_late $late u20 again missing]
+        assert_equal 1 [gcmd_late $late u20 again revocations]
+        # 19 spot checks, all lost: the gate goes on answering.
+        assert_equal 0 [gcmd_drift_lost_at 0.2 19]
+        foreach gate {u19 u19w} {
+            assert_equal AUDIT [lindex [gcmd_late $late $gate reply] 0]
+            assert_equal ACTIVE [gcmd_late $late $gate after state]
+            assert_equal 19 [gcmd_late $late $gate after missing]
+            assert_equal 0 [gcmd_late $late $gate after revocations]
+            assert_equal 1 [gcmd_late $late $gate after generation]
+            # a lost answer is not a spot check that disagreed
+            assert_equal 0 [gcmd_late $late $gate after audit-samples]
+            assert_equal 0 [gcmd_late $late $gate after audit-errors]
+            assert_equal 1 [gcmd_late $late $gate after pending]
+            assert_equal 1 [gcmd_late $late $gate answer]
+        }
+        # ... the 20th spot check agrees: nothing happens
+        assert_equal ACTIVE [gcmd_late $late u19 again state]
+        assert_equal 1 [gcmd_late $late u19 again audit-samples]
+        assert_equal 0 [gcmd_late $late u19 again audit-errors]
+        assert_equal 0 [gcmd_late $late u19 again revocations]
+        # ... the 20th spot check disagrees: 19 lost and 1 wrong of 20 is
+        # the same number. The gate stops because it cannot be checked.
+        set d [gcmd_drift_new 0.2]
+        for {set i 0} {$i < 19} {incr i} {assert_equal {} [gcmd_drift_tell d [gcmd_drift_ask d] lost]}
+        assert_equal unchecked [gcmd_drift_tell d [gcmd_drift_ask d] wrong]
+        assert_equal COLD [gcmd_late $late u19w again state]
+        assert_equal 1 [gcmd_late $late u19w again revocations]
+        assert_equal 19 [gcmd_late $late u19w again missing]
+        assert_equal 0 [gcmd_late $late u19w again generation]
+        assert_equal 0 [gcmd_late $late u19w again candidate]
+        assert_equal 0 [gcmd_late $late u19w again pending]
+        # After five spot checks that agreed it takes 23, not 22 ("more
+        # after right ones", CHANGES 9).
+        assert_equal 0 [gcmd_drift_lost_at 0.2 22 5]
+        assert_equal 23 [gcmd_drift_lost_at 0.2 23 5]
+        foreach gate {ur22 ur23} {
+            assert_equal {AUDIT AUDIT AUDIT AUDIT AUDIT} [gcmd_late $late $gate agreed]
+            assert_equal 5 [gcmd_late $late $gate start audit-samples]
+        }
+        assert_equal AUDIT [lindex [gcmd_late $late ur22 reply] 0]
+        assert_equal ACTIVE [gcmd_late $late ur22 after state]
+        assert_equal 22 [gcmd_late $late ur22 after missing]
+        assert_equal 0 [gcmd_late $late ur22 after revocations]
+        assert_equal 5 [gcmd_late $late ur22 after audit-samples]
+        assert_equal ABSTAIN [lindex [gcmd_late $late ur23 reply] 0]
+        assert_equal COLD [gcmd_late $late ur23 after state]
+        assert_equal 23 [gcmd_late $late ur23 after missing]
+        assert_equal 1 [gcmd_late $late ur23 after revocations]
+        assert_equal 0 [gcmd_late $late ur23 after generation]
+        # With an error rate of 0.05 a lost answer counts 2 and 4: the
+        # 16th is the one, 15 are not enough ("about 15 to 16 lost in a
+        # row in a fresh block at small ALPHA", CHANGES 9).
+        assert_equal 0 [gcmd_drift_lost_at 0.05 15]
+        assert_equal 16 [gcmd_drift_lost_at 0.05 16]
+        assert_equal AUDIT [lindex [gcmd_late $late s15 reply] 0]
+        assert_equal ACTIVE [gcmd_late $late s15 after state]
+        assert_equal 15 [gcmd_late $late s15 after missing]
+        assert_equal 0 [gcmd_late $late s15 after revocations]
+        assert_equal ABSTAIN [lindex [gcmd_late $late s16 reply] 0]
+        assert_equal COLD [gcmd_late $late s16 after state]
+        assert_equal 16 [gcmd_late $late s16 after missing]
+        assert_equal 1 [gcmd_late $late s16 after revocations]
+        assert_equal 0 [gcmd_late $late s16 after generation]
+        assert_equal 0 [gcmd_late $late s16 after candidate]
+    }
+
+    gcmd_test {late answers: a classifier whose spot checks are lost stops answering and keeps its model} {
+        # CHANGES 3 and 9f: lost answers say nothing about the model. (A
+        # gate that got worse forgets it: section 8.) 32 spot checks of
+        # the label "a" are asked before any of them is given up: the 25th
+        # lost answer is the one (helpers test of section 8), and the
+        # seven behind it were proof for what the gate dropped there.
+        assert_equal 25 [gcmd_drift_lost_at 0.2 32]
         assert_equal AUDIT [gcmd_late $late bcls asked]
         assert_equal ACTIVE [gcmd_late $late bcls start state]
         assert_equal 32 [gcmd_late $late bcls start pending]
+        assert_equal 0 [gcmd_late $late bcls start audit-samples]
         set learned [gcmd_late $late bcls start learned]
         assert {$learned >= 40}
         set numbers [expr {max([gcmd_late $late bcls start generation], [gcmd_late $late bcls start candidate])}]
@@ -6626,16 +7726,19 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert {$id ne {}}
         assert_equal COLD [gcmd_late $late bcls after state]
         assert_equal $learned [gcmd_late $late bcls after learned]
-        assert_equal 32 [gcmd_late $late bcls after missing]
+        assert_equal 25 [gcmd_late $late bcls after missing]
         assert_equal 1 [gcmd_late $late bcls after revocations]
         assert_equal 0 [gcmd_late $late bcls after generation]
         assert_equal 0 [gcmd_late $late bcls after candidate]
         assert_equal {{} {}} [gcmd_late $late bcls after thresholds]
+        assert_equal 1 [gcmd_late $late bcls after pending]
         # an answer arrives: the model it kept is tested again, as a new snapshot
         assert_equal 1 [gcmd_late $late bcls answer]
         assert_equal CALIBRATING [gcmd_late $late bcls again state]
         assert_equal [expr {$learned + 1}] [gcmd_late $late bcls again learned]
         assert_equal [expr {$numbers + 1}] [gcmd_late $late bcls again candidate]
+        assert_equal 25 [gcmd_late $late bcls again missing]
+        assert_equal 1 [gcmd_late $late bcls again revocations]
     }
 
     gcmd_test {late answers: a classifier learns from a late answer and counts it for its snapshot} {
@@ -7014,10 +8117,12 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
 # get it from a primary that realized every value it carries. DEBUG
 # MARK-INTERNAL-CLIENT turns a test connection into such a caller, so that
 # these tests can also send what no primary sends. The contract (gate.c,
-# CHANGES 5 and 8): the values are checked before they are used; an
-# operation that does not fit its gate is skipped and counted
-# (gate_apply_mismatches in INFO) and the reply is OK all the same; a gate
-# that was changed this way is not trusted by this server any more.
+# CHANGES 5, 8 and 9): the values are checked before they are used; an
+# operation that does not fit its gate, or has too few words to be one, is
+# skipped and counted (gate_apply_mismatches in INFO) and the reply is OK
+# all the same; a gate that was changed this way is not trusted by this
+# server any more. The last test of the section goes the other way: it
+# applies what the server itself sends on.
 #
 #   _GATE.APPLY key CREATE now lineage epoch snapshot-examples timeout <GCREATE arguments>
 #   _GATE.APPLY key PREDICT now draw has-serving label score has-candidate label score
@@ -7052,6 +8157,29 @@ proc gcmd_apply {key args} {
     set counted [expr {[gcmd_mismatches] - $before}]
     if {$counted ni {0 1}} {fail "one operation, $counted mismatches"}
     expr {!$counted}
+}
+
+# What the server has sent on since 'repl' was attached to it
+# (attach_to_replication_stream), up to a marker written here: the
+# _GATE.APPLY operations, each as the list {key operation value ...}.
+set ::gcmd_marker 0
+proc gcmd_stream_ops {repl} {
+    r set gcmd:marker [incr ::gcmd_marker]
+    set ops {}
+    while 1 {
+        set cmd [read_from_replication_stream $repl]
+        if {$cmd eq {}} {fail "what the server sends on ended before the marker"}
+        if {[lrange $cmd 0 2] eq [list set gcmd:marker $::gcmd_marker]} break
+        if {[lindex $cmd 0] eq "_gate.apply"} {lappend ops [lrange $cmd 1 end]}
+    }
+    return $ops
+}
+
+# One command as an append only file holds it.
+proc gcmd_aof_format {args} {
+    set out "*[llength $args]\r\n"
+    foreach arg $args {append out "\$[string length $arg]\r\n$arg\r\n"}
+    return $out
 }
 
 start_server [list tags {"modules external:skip needs:debug"} overrides [list loadmodule $gatemodule]] {
@@ -7182,6 +8310,9 @@ start_server [list tags {"modules external:skip needs:debug"} overrides [list lo
         set epoch [string range $id 0 15]
         r gpredict ia:cls TEXT hello
         set before [list [debug_digest_value ia:score] [debug_digest_value ia:cls]]
+        # (one millisecond past the last value of the clock, which is 7
+        # days before the end of 64 bits)
+        set past [expr {9223372036854775807 - 7 * 86400 * 1000 + 1}]
         foreach op [list \
             [list ia:score PREDICT $now [gcmd_bits 1.5] 0 -1 $half 1 -1 $half 2] \
             [list ia:score PREDICT $now [gcmd_bits 1.0] 0 -1 $half 1 -1 $half 2] \
@@ -7204,9 +8335,14 @@ start_server [list tags {"modules external:skip needs:debug"} overrides [list lo
             [list ia:score PREDICT $now $half 0 -1 $half 1 -1 $half -1] \
             [list ia:score PREDICT $now $half 0 -1 $half 1 -1 $half two] \
             [list ia:score PREDICT $now $half 0 -1 $half 1 -1 $half] \
+            [list ia:score PREDICT $now $half 0 -1 $half 1 -1 $half 4611686018427387904] \
+            [list ia:score PREDICT $now $half 0 -1 $half 1 -1 $half 9223372036854775807] \
+            [list ia:score PREDICT $now $half 0 -1 $half 1 -1 $half 9223372036854775808] \
             [list ia:score PREDICT -1 $half 0 -1 $half 1 -1 $half 2] \
             [list ia:score PREDICT 9223372036854775807 $half 0 -1 $half 1 -1 $half 2] \
+            [list ia:score PREDICT $past $half 0 -1 $half 1 -1 $half 2] \
             [list ia:score PREDICT soon $half 0 -1 $half 1 -1 $half 2] \
+            [list ia:score TICK $past] \
             [list ia:score LEARN $now $id 2] \
             [list ia:score LEARN $now $id -1] \
             [list ia:score LEARN $now $id yes] \
@@ -7255,11 +8391,6 @@ start_server [list tags {"modules external:skip needs:debug"} overrides [list lo
         assert_equal $before [list [debug_digest_value ia:score] [debug_digest_value ia:cls]]
         assert_equal 0 [r exists ia:none]
         assert_equal value [r get ia:string]
-        # a wrong number of arguments is the one error, and is not counted
-        set mismatches [gcmd_mismatches]
-        assert_error "ERR wrong number of arguments*" {$::gcmd_internal _gate.apply ia:score}
-        assert_error "ERR wrong number of arguments*" {$::gcmd_internal _gate.apply}
-        assert_equal $mismatches [gcmd_mismatches]
         gcmd_check_saveable ia:score
         gcmd_check_saveable ia:cls
         # the gates go on working for their clients
@@ -7268,28 +8399,201 @@ start_server [list tags {"modules external:skip needs:debug"} overrides [list lo
         r del ia:score ia:cls ia:string
     }
 
-    gcmd_test {_GATE.APPLY: a request number no primary sends does not leave a gate that cannot be loaded} {
+    gcmd_test {_GATE.APPLY: an operation of fewer than three words is counted like any other that does not fit} {
+        # CHANGES 9: "_GATE.APPLY with fewer than three words is counted as
+        # a mismatch and replies OK (an error reply while loading an AOF
+        # can stop the server)". So can an error reply to a primary, on a
+        # replica that is set to stop on one. (The file itself: below.)
+        r del ia:short
+        r gcreate ia:short ALPHA 0.2 DELTA 0.2 SCORE
+        set digest [debug_digest_value ia:short]
+        set failures {}
+        foreach op {{ia:short} {}} {
+            set before [gcmd_mismatches]
+            set rc [catch {$::gcmd_internal _gate.apply {*}$op} reply]
+            set counted [expr {[gcmd_mismatches] - $before}]
+            if {$rc || $reply ne "OK" || $counted != 1} {
+                lappend failures "_GATE.APPLY [expr {$op eq {} ? "alone" : "with a key and nothing else"}]:\
+                    [expr {$rc ? "the error" : "the reply"}] '$reply', counted $counted times as an\
+                    operation that did not fit (expected: the reply OK, counted once)"
+            }
+        }
+        assert_equal $digest [debug_digest_value ia:short]
+        r del ia:short
+        if {[llength $failures]} {fail [join $failures "\n"]}
+    }
+
+    gcmd_test {_GATE.APPLY: a request number of 2^62 or more is refused; the last one below it leaves a gate that can be loaded} {
         # The request number of a PREDICT operation is taken over by the
-        # gate (CHANGES 8). The module itself refuses to load a gate whose
-        # request counter is above 2^62 (CHANGES 5), so an operation with
-        # such a number does not fit: either it is skipped, or what it
-        # leaves is still a gate. A gate that its own DUMP cannot bring
-        # back also stops the next restart of the server at its RDB file.
+        # gate (CHANGES 8). No counter of a gate goes above 2^62, and the
+        # module refuses to load one that did (CHANGES 9d): an operation
+        # with such a number does not fit (CHANGES 9, gate.c). It is
+        # counted and changes nothing, the numbers of the gate go on from
+        # where they were.
         set now [expr {[clock milliseconds] + 1000}]
         set half [gcmd_bits 0.5]
-        set failures {}
-        foreach seq {4611686018427387903 4611686018427387904 4611686018427387905 9223372036854775807} {
+        foreach seq {4611686018427387904 4611686018427387905 9223372036854775807} {
+            set shown "the request number $seq"
             r del ia:odd
             r gcreate ia:odd ALPHA 0.2 DELTA 0.2 SCORE
-            set applied [gcmd_apply ia:odd PREDICT $now $half 0 -1 $half 1 -1 $half $seq]
-            if {[catch {gcmd_check_saveable ia:odd} err]} {
-                regsub {^assertion:} $err {} err
-                lappend failures "_GATE.APPLY key PREDICT $now $half 0 -1 $half 1 -1 $half $seq on a\
-                    new score gate ([expr {$applied ? "applied" : "counted as a mismatch"}]): $err"
-            }
+            set digest [debug_digest_value ia:odd]
+            assert_equal 0 [gcmd_apply ia:odd PREDICT $now $half 0 -1 $half 1 -1 $half $seq] $shown
+            assert_equal $digest [debug_digest_value ia:odd] $shown
+            gcmd_check_saveable ia:odd "(after a PREDICT with $shown)"
+            assert_equal 1 [gcmd_apply ia:odd PREDICT $now $half 0 -1 $half 1 -1 $half 1] $shown
+            gcmd_check_saveable ia:odd "(after a PREDICT with $shown and one with the number 1)"
+        }
+        # The largest number that fits is 2^62 - 1. After it the gate has
+        # no number left for another request: it answers ABSTAIN without
+        # an id, like a gate that is full (CHANGES 9d), and it is still a
+        # gate that can be saved and loaded. (A gate that its own DUMP
+        # cannot bring back also stops the next restart of the server at
+        # its RDB file.)
+        r del ia:odd
+        r gcreate ia:odd ALPHA 0.2 DELTA 0.2 SCORE
+        assert_equal 1 [gcmd_apply ia:odd PREDICT $now $half 0 -1 $half 1 -1 $half 4611686018427387903]
+        set failures {}
+        if {[catch {gcmd_check_saveable ia:odd} err]} {
+            regsub {^assertion:} $err {} err
+            lappend failures "after _GATE.APPLY key PREDICT $now $half 0 -1 $half 1 -1 $half 4611686018427387903\
+                (2^62 - 1, applied) on a new score gate: $err"
+        }
+        assert_equal {ABSTAIN {}} [r gpredict ia:odd SCORE 0.5]
+        assert_equal {ABSTAIN {}} [r gpredict ia:odd SCORE 0.9]
+        set info [r ginfo ia:odd]
+        assert_equal 0 [dict get $info pending]
+        assert_equal 3 [dict get $info requests]
+        assert_equal 3 [dict get $info abstained]
+        if {[catch {gcmd_check_saveable ia:odd} err]} {
+            regsub {^assertion:} $err {} err
+            lappend failures "the same gate after two requests of a client: $err"
         }
         r del ia:odd
         if {[llength $failures]} {fail [join $failures "\n"]}
+    }
+
+    gcmd_test {_GATE.APPLY: a PREDICT that records nothing gives its request number back} {
+        # CHANGES 9: "... and gives the number back if nothing was
+        # recorded under it."
+        set now [expr {[clock milliseconds] + 1000}]
+        set half [gcmd_bits 0.5]
+        # A new score gate tests its first snapshot: an operation without
+        # the guess of that snapshot does not fit, whatever its number.
+        r del ia:back
+        r gcreate ia:back ALPHA 0.2 DELTA 0.2 SCORE
+        assert_equal 0 [gcmd_apply ia:back PREDICT $now $half 0 -1 $half 0 -1 $half 1000]
+        assert_equal 1 [gcmd_apply ia:back PREDICT $now $half 0 -1 $half 1 -1 $half 1]
+        # (the number 1 is taken now)
+        assert_equal 0 [gcmd_apply ia:back PREDICT $now $half 0 -1 $half 1 -1 $half 1]
+        # a client goes on with the number 2
+        lassign [r gpredict ia:back SCORE 0.5] action id
+        assert_equal ABSTAIN $action
+        assert_equal 2 [lindex [split $id -] 1]
+        gcmd_check_saveable ia:back
+        # A gate that answers. A request it answers by itself (the draw
+        # 0.5 is no spot check with AUDIT 0.05, the score 0.9 is above
+        # its threshold 0) records nothing, so no primary sends it: it
+        # does not fit, and the spot check a primary does send, under the
+        # next number of the gate, still fits.
+        r del ia:back
+        r gcreate ia:back ALPHA 0.2 DELTA 0.2 SCORE
+        set next [expr {[gcmd_prove_all ia:back] + 1}]
+        assert_equal [expr {[gcmd_proof_needed 0.2 0.2] + 1}] $next
+        assert_equal ACTIVE [gcmd_info ia:back state]
+        set digest [debug_digest_value ia:back]
+        assert_equal 0 [gcmd_apply ia:back PREDICT $now $half 1 -1 [gcmd_bits 0.9] 0 -1 [gcmd_bits 0.0] [expr {$next + 7}]]
+        assert_equal $digest [debug_digest_value ia:back]
+        assert_equal 1 [gcmd_apply ia:back PREDICT $now [gcmd_bits 0.01] 1 -1 [gcmd_bits 0.9] 0 -1 [gcmd_bits 0.0] $next]
+        if {[gcmd_has_digest]} {assert {$digest ne [debug_digest_value ia:back]}}
+        gcmd_check_saveable ia:back
+        r del ia:back
+    }
+
+    gcmd_test {_GATE.APPLY: what the commands of clients send on fits a gate that follows them, to the last value of the clock} {
+        # SPEC 3 "Redis": replicas "receive what actually happened". Here
+        # the test is the replica: it reads what the server sends on and
+        # applies it, operation by operation, to a twin of each gate.
+        # Every operation must fit and each twin must end as the same
+        # gate. The first gate starts three milliseconds before the end of
+        # the range of the clock, with a feedback timeout of two (CHANGES
+        # 9d: "the clock a command realizes is clamped at
+        # GATE_MAX_CLOCK_MS"; an operation with a later clock is refused
+        # by whoever gets it). The others are random sessions with
+        # feedback timeouts of a few milliseconds: late and lost answers,
+        # spot checks, alarms.
+        set last_clock [expr {9223372036854775807 - 7 * 86400 * 1000}]
+        r del tw:clock tw:clock:twin tw:score tw:score:twin tw:cls tw:cls:twin
+        foreach key {tw:clock tw:clock:twin} {
+            assert_equal 1 [gcmd_apply $key CREATE [expr {$last_clock - 200}] 00000000000000aa 00000000000000bb \
+                                1000 100 ALPHA 0.2 DELTA 0.2 AUDIT 1 SCORE]
+        }
+        assert_equal 0 [gcmd_apply tw:clock TICK [expr {$last_clock + 1}]]
+        set repl [attach_to_replication_stream]
+        set rc [catch {
+            # ---- the gate that reaches the end of the clock. (What is
+            # lost when depends on the machine; what is asserted does not.)
+            expr {srand(20261202)}
+            set ids {}
+            for {set i 0} {$i < 3} {incr i} {
+                lassign [r gpredict tw:clock SCORE 0.9] action id
+                assert_equal ABSTAIN $action
+                lappend ids $id
+            }
+            r glearn tw:clock [lindex $ids 2] CORRECT 1
+            after 130
+            # 70 ms before the end: the two requests without an answer
+            # are older than the feedback timeout, 100 ms
+            lassign [r gpredict tw:clock SCORE 0.9] action id
+            assert_equal ABSTAIN $action
+            r glearn tw:clock $id CORRECT 1
+            assert_equal 0 [r glearn tw:clock [lindex $ids 0] CORRECT 1]
+            assert_equal 0 [r glearn tw:clock [lindex $ids 1] CORRECT 1]
+            set info [r ginfo tw:clock]
+            assert {[dict get $info missing] >= 2}
+            assert_equal 0 [dict get $info pending]
+            after 80
+            # the clock has reached its end: it stays there, nothing that
+            # is asked from here on gets older
+            assert_equal OK [r gpause tw:clock]
+            assert_equal OK [r gresume tw:clock]
+            gcmd_session tw:clock score 250 0
+
+            # ---- two sessions with feedback timeouts of 12 ms
+            r config set gate.feedback-timeout 12
+            r config set gate.snapshot-examples 5
+            assert_equal OK [r gcreate tw:score ALPHA 0.2 DELTA 0.2 AUDIT 1 SCORE]
+            assert_equal OK [r gcreate tw:cls ALPHA 0.2 DELTA 0.5 AUDIT 0.5 CLASSES 3 spam ham other ALWAYSDEFER 1 other]
+            r config set gate.feedback-timeout 60000
+            r config set gate.snapshot-examples 1000
+            gcmd_session tw:score score 500 1
+            gcmd_session tw:cls cls 500 1
+            set ops [gcmd_stream_ops $repl]
+        } err]
+        close_replication_stream $repl
+        if {$rc} {error $err}
+
+        # ---- the twins
+        set applied {}
+        foreach op $ops {
+            set key [lindex $op 0]
+            if {$key ni {tw:clock tw:score tw:cls}} continue
+            dict incr applied $key
+            set shown "_GATE.APPLY [string range $op 0 160] (operation [dict get $applied $key] of $key)"
+            # (RESTORE has a blob where the others have the clock)
+            if {[lindex $op 1] ne "RESTORE" && [lindex $op 2] > $last_clock} {
+                fail "$shown: the clock [lindex $op 2] is past its last value, $last_clock"
+            }
+            if {![gcmd_apply $key:twin {*}[lrange $op 1 end]]} {
+                fail "$shown did not fit the twin of the gate"
+            }
+        }
+        foreach key {tw:clock tw:score tw:cls} {
+            assert {[dict get $applied $key] > 20}
+            assert_equal [debug_digest_value $key] [debug_digest_value $key:twin] "the twin of $key"
+            gcmd_check_saveable $key:twin
+        }
+        assert {[dict get $applied tw:score] > 300 && [dict get $applied tw:cls] > 300}
+        r del tw:clock tw:clock:twin tw:score tw:score:twin tw:cls tw:cls:twin
     }
 
     gcmd_test {_GATE.APPLY: random operations are answered OK, the gates stay gates, the server stays up} {
@@ -7399,5 +8703,144 @@ start_server [list tags {"modules external:skip needs:debug"} overrides [list lo
         assert_equal PONG [r ping]
     }
 
+    gcmd_test {_GATE.APPLY: random operations at the end of the clock and of the request numbers leave gates that can be loaded} {
+        # CHANGES 9d: "A gate that decodes can therefore always be encoded
+        # and decoded again, whatever the core did with it in between".
+        # The same must hold for a gate that operations take to the last
+        # value of its clock (7 days before the end of 64 bits) and to its
+        # last request numbers (below 2^62): after every operation each
+        # gate is saved and loaded. Nothing past either end is applied.
+        expr {srand(20261203)}
+        set last_clock [expr {9223372036854775807 - 7 * 86400 * 1000}]
+        set last_count [expr {1 << 62}]
+        set bits [list [gcmd_bits 0.0] [gcmd_bits 0.5] [gcmd_bits 0.9] [gcmd_bits 0.04]]
+        set failures {}
+        set applied 0
+        set refused 0
+        unset -nocomplain ib_next ib_epoch ib_asked
+        for {set round 0} {$round < 12 && [llength $failures] < 3} {incr round} {
+            r del ib:score ib:cls
+            set now [expr {$last_clock - [gcmd_pick {0 1 3 50 100000}]}]
+            assert_equal 1 [gcmd_apply ib:score CREATE $now 00000000000000aa 00000000000000bb 1000 [gcmd_pick {2 60000}] \
+                                ALPHA 0.2 DELTA 0.2 AUDIT [gcmd_pick {1 0.5}] SCORE]
+            assert_equal 1 [gcmd_apply ib:cls CREATE $now 00000000000000cc 00000000000000dd 1000 [gcmd_pick {2 60000}] \
+                                ALPHA 0.2 DELTA 0.2 CLASSES 3 a b c ALWAYSDEFER 1 c]
+            # the number the next request of each gate gets, the first
+            # number of its ids, and the numbers that may be waiting
+            foreach key {ib:score ib:cls} epoch {00000000000000bb 00000000000000dd} {
+                set ib_next($key) [expr {$last_count - [gcmd_pick {40 5 3 2 1}]}]
+                set ib_epoch($key) $epoch
+                set ib_asked($key) {}
+            }
+            set did {}
+            for {set it 0} {$it < 40} {incr it} {
+                set key [gcmd_pick {ib:score ib:cls}]
+                # (time passes; at the end of the clock most operations
+                # stay at its last value, some try to go past it)
+                set t [expr {$now + [gcmd_pick {0 0 0 1 1 2 30}]}]
+                if {$t > $last_clock && [gcmd_rnd 4]} {set t $last_clock}
+                set now [expr {min($t, $last_clock)}]
+                set seq [expr {$ib_next($key) + [gcmd_pick {0 0 0 0 1 2}]}]
+                set recorded 0
+                switch [gcmd_rnd 8] {
+                    0 - 1 - 2 - 3 {
+                        # a request: the score gate tests a snapshot, the
+                        # classifier has learned nothing yet
+                        if {$key eq "ib:score"} {
+                            set score [gcmd_pick $bits]
+                            set op [list PREDICT $t [gcmd_pick $bits] 0 -1 $score 1 -1 $score $seq]
+                        } else {
+                            set op [list PREDICT $t [gcmd_pick $bits] 0 -1 [gcmd_bits 0.0] 0 -1 [gcmd_bits 0.0] $seq \
+                                        TEXT [gcmd_pick {hello "buy cheap pills now"}]]
+                        }
+                        set recorded 1
+                    }
+                    4 - 5 {
+                        set number [gcmd_pick [concat $ib_asked($key) [list $ib_next($key) 1]]]
+                        set op [list LEARN $t $ib_epoch($key)-$number [gcmd_rnd 2]]
+                    }
+                    6 {set op [list [gcmd_pick {TICK TICK PAUSE RESUME}] $t]}
+                    7 {
+                        set ib_epoch($key) [gcmd_pick {00000000000000ee 00000000000000ff}]
+                        set op [list [gcmd_pick {RECOVER RECOVER RESET}] $t $ib_epoch($key)]
+                        set ib_asked($key) {}
+                    }
+                }
+                lappend did "$key $op"
+                set shown "round $round, after: [join [lrange $did end-5 end] {; }]"
+                set fits [gcmd_apply $key {*}$op]
+                incr applied $fits
+                # nothing is applied past either end
+                if {$t > $last_clock || ($recorded && $seq >= $last_count)} {
+                    incr refused
+                    if {$fits} {fail "an operation past the end of the clock or of the request numbers was applied ($shown)"}
+                } elseif {$recorded && !$fits} {
+                    fail "a request below the last number did not fit ($shown)"
+                }
+                if {$fits && $recorded} {
+                    set ib_next($key) [expr {$seq + 1}]
+                    lappend ib_asked($key) $seq
+                }
+                set broken 0
+                foreach gate {ib:score ib:cls} {
+                    if {[catch {gcmd_check_saveable $gate} err]} {
+                        regsub {^assertion:} $err {} err
+                        lappend failures "$err ($shown)"
+                        set broken 1
+                    }
+                }
+                if {$broken} break
+            }
+        }
+        r del ib:score ib:cls
+        if {[llength $failures]} {fail [join $failures "\n"]}
+        # the loop did what it was meant to
+        assert {$applied > 200 && $refused > 20}
+    }
+
     catch {$::gcmd_internal close}
+}
+
+# The append only file is the other caller of the internal command, and one
+# that runs a command without looking at how many words it has.
+start_server [list tags {"modules external:skip needs:debug"} overrides [list loadmodule $gatemodule appendonly yes]] {
+    r config set gate.test-seed 77012
+
+    gcmd_test {_GATE.APPLY: an append only file with operations of fewer than three words is loaded to its end} {
+        # CHANGES 9: "_GATE.APPLY with fewer than three words is counted
+        # as a mismatch and replies OK (an error reply while loading an
+        # AOF can stop the server)." The file here is the server's own,
+        # with three lines more behind its back: the command with a key
+        # and nothing else, the command alone, and an ordinary write that
+        # shows the file was read to its end.
+        r del ia:aof ia:after
+        r gcreate ia:aof ALPHA 0.2 DELTA 0.2 SCORE
+        set waiting [lindex [r gpredict ia:aof SCORE 0.5] 1]
+        # (everything written so far is in the file)
+        r config set appendfsync always
+        r set ia:flushed 1
+        set digest [debug_digest_value ia:aof]
+        set before [gcmd_mismatches]
+        set fp [open [get_last_incr_aof_path r] a]
+        fconfigure $fp -translation binary
+        puts -nonewline $fp [gcmd_aof_format _GATE.APPLY ia:aof]
+        puts -nonewline $fp [gcmd_aof_format _GATE.APPLY]
+        puts -nonewline $fp [gcmd_aof_format SET ia:after 1]
+        close $fp
+        assert_equal OK [r debug loadaof]
+        assert_equal 1 [r get ia:after]
+        assert_equal [expr {$before + 2}] [gcmd_mismatches]
+        # the gate is what the file made of it before those lines
+        assert_equal gate-type [r type ia:aof]
+        assert_equal $digest [debug_digest_value ia:aof]
+        # ... a loaded gate: it starts over at its first write
+        assert_equal 0 [r glearn ia:aof $waiting CORRECT 1]
+        lassign [r gpredict ia:aof SCORE 0.5] action id
+        assert_equal ABSTAIN $action
+        assert_equal 1 [r glearn ia:aof $id CORRECT 1]
+        assert_equal [expr {$before + 2}] [gcmd_mismatches]
+        r config set appendfsync everysec
+        r del ia:aof ia:after ia:flushed
+        assert_equal PONG [r ping]
+    }
 }

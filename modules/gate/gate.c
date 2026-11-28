@@ -190,11 +190,15 @@ static long long gateNow(gate *g) {
         if (now < g->now_ms) now = g->now_ms;
     } else {
         long long elapsed = mono - g->runtime_clock;
-        now = g->now_ms + (elapsed > 0 ? elapsed : 0);
+
+        /* The top of the range is centuries away, but a gate restored
+         * from a forged payload may sit right below it: add without
+         * passing it. */
+        if (elapsed <= 0) now = g->now_ms;
+        else if (elapsed > GATE_MAX_CLOCK_MS - g->now_ms) now = GATE_MAX_CLOCK_MS;
+        else now = g->now_ms + elapsed;
     }
     g->runtime_clock = mono > 0 ? mono : 1;
-    /* The top of the range is centuries away; a gate restored from a
-     * forged payload may sit right below it. */
     return now > GATE_MAX_CLOCK_MS ? GATE_MAX_CLOCK_MS : now;
 }
 
@@ -565,13 +569,17 @@ static int GInfo_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
     const gateGeneration *serving = untrusted ? NULL : g->serving;
     const gateGeneration *candidate = untrusted ? NULL : g->candidate;
     const gateGeneration *tested = candidate ? candidate : serving;
+    /* That first write also takes a snapshot, if the model has learned
+     * enough and a snapshot number is left. */
+    int will_test = untrusted && g->generations < GATE_COUNT_MAX &&
+                    (!classifier || g->trainer.updates >= g->cfg.snapshot_examples);
 
     const char *state;
     if (!untrusted) {
         state = gateStateName(gateState(g));
     } else if (g->paused) {
         state = gateStateName(GATE_STATE_PAUSED);
-    } else if (!classifier || g->trainer.updates >= g->cfg.snapshot_examples) {
+    } else if (will_test) {
         state = gateStateName(GATE_STATE_CALIBRATING);
     } else {
         state = gateStateName(GATE_STATE_COLD);
@@ -610,8 +618,7 @@ static int GInfo_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
     RedisModule_ReplyWithLongLong(ctx, serving ? (long long)serving->gen : 0);
     RedisModule_ReplyWithCString(ctx, "candidate");
     long long candidate_number = candidate ? (long long)candidate->gen : 0;
-    if (untrusted && (!classifier || g->trainer.updates >= g->cfg.snapshot_examples))
-        candidate_number = (long long)g->generations + 1; /* taken at its first write */
+    if (will_test) candidate_number = (long long)g->generations + 1;
     RedisModule_ReplyWithLongLong(ctx, candidate_number);
     RedisModule_ReplyWithCString(ctx, "learned");
     RedisModule_ReplyWithLongLong(ctx, (long long)g->trainer.updates);
@@ -877,8 +884,10 @@ static int gateApply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
  * replication (that would only make the divergence permanent), so it is
  * logged and counted and the reply is still OK. */
 static int GApply_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    /* Too few words is one more operation that does not fit (the AOF loader
-     * does not check arity, and an error reply there can stop the server). */
+    /* Too few words is one more operation that does not fit. The command is
+     * registered without a minimum, so that Redis does not answer a short
+     * one with an arity error of its own: an error reply to an AOF or to a
+     * primary's stream can stop the server. */
     if (argc < 3 || !gateApply(ctx, argv, argc)) {
         unsigned long long n = ++gateApplyMismatches;
 
@@ -1076,7 +1085,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         gateCommand(ctx, "GPAUSE", GPause_RedisCommand, "write", "write gate", 2, rw) == REDISMODULE_ERR ||
         gateCommand(ctx, "GRESUME", GResume_RedisCommand, "write", "write gate", 2, rw) == REDISMODULE_ERR ||
         gateCommand(ctx, "GRESET", GReset_RedisCommand, "write", "write gate", 2, rw) == REDISMODULE_ERR ||
-        gateCommand(ctx, "_GATE.APPLY", GApply_RedisCommand, "write internal", NULL, -3, create) == REDISMODULE_ERR)
+        gateCommand(ctx, "_GATE.APPLY", GApply_RedisCommand, "write internal", NULL, -1, create) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     gateIncarnation = gateNewIncarnation();

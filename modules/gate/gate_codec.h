@@ -10,10 +10,12 @@
  *
  * One self-describing blob holds the complete state of a gate:
  * configuration, ledger (ids, clock, generation numbers, the pause flag,
- * the run of missing answers and whether it has left the gate blind),
- * trainer, candidate and serving generations (weights, per-region proof,
- * drift detectors), waiting requests in order (flags, frozen guesses,
- * answers, stored clues) and counters.
+ * the run of missing answers, whether it has left the gate blind, and the
+ * request number at which the last answer arrived), trainer, candidate and
+ * serving generations (weights, per-region proof, the table a candidate is
+ * compared with the serving generation by, drift detectors), waiting
+ * requests in order (flags, frozen guesses, answers, spot check numbers,
+ * stored clues) and counters.
  * It is used for RDB save/load, DUMP/RESTORE, AOF rewrite and DEBUG DIGEST.
  *
  * FORMAT RULES
@@ -26,6 +28,12 @@
  *     layout or padding.
  *   - Canonical: equal states give equal bytes, and
  *     gateEncode(gateDecode(b)) == b for every blob b that decodes.
+ *   - Closed: whatever the core does with a gate that was decoded, it
+ *     encodes into a blob that decodes again. No counter is written above
+ *     GATE_COUNT_MAX (one that is beyond is written as that limit, in a
+ *     way that keeps the counters consistent with each other) and none is
+ *     accepted above it; request numbers, snapshot numbers and the clock
+ *     never pass their limits in the core.
  *   - Not stored: runtime_tag and runtime_clock (0 after decoding), and
  *     values that are pure functions of stored ones (the threshold grid,
  *     the betting and drift increments, the bar and the policy of a
@@ -45,7 +53,8 @@
  * and the limits before allocating; every number is checked for finiteness
  * and range; label indices, bucket indices (ascending, below GATE_DIM),
  * generation numbers, the clock and the time of every request, request
- * order and flags are validated; no more waiting requests are taken than a
+ * order and flags, the drift detectors and the numbers of the spot checks
+ * are validated; no more waiting requests are taken than a
  * gate can hold (without an answer: until the gate is full; with an answer
  * that waits for its turn: GATE_MAX_WAITING); trailing bytes are an error.
  * A decoded gate passes gateConfigValidate() and gateCheckInvariants(), and

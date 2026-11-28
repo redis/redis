@@ -11,14 +11,16 @@
  *
  * Usage: sim_certify [trials [seed]]
  *
- * 'trials' (default 30000, about a minute and a quarter on one core) is
- * the number of races per scorer of table (B) and of streams per row of
- * tables (C) and (E2). Tables (A) and (E1) estimate much smaller
- * probabilities and use 5 x trials streams per row. Table (D) pushes every
- * spot check through the detector, up to 400,000 per stream when no alarm
- * comes, and uses trials / 100 streams per row for the false alarms and
- * trials / 10 for the detection delays (at least 10). Everything is
- * deterministic for a given (trials, seed).
+ * 'trials' (default 30000, about a minute and a half on one core) is the
+ * number of races per scorer of table (B) and of streams per row of tables
+ * (C) and (E2). Tables (A) and (E1) estimate much smaller probabilities and
+ * use 5 x trials streams per row. Table (D) asks every spot check of every
+ * stream through the detector: trials / 2 stretches of 4,096 spot checks
+ * per row for the false alarms in order, trials / 6 for each way of
+ * delivering the answers, trials / 30 streams per row for the detection
+ * delays and trials / 100 for the lost and the very late answers (at
+ * least 50, 50, 20 and 20). Everything is deterministic for a given
+ * (trials, seed).
  *
  * THE RULES (gate_core.h). Threshold t of a row stands for the region
  * "score >= grid[t]" and has its own betting test, fed with the teacher
@@ -52,7 +54,13 @@
  *       answers later, and how often a bad threshold is ever proven (must
  *       stay below the row's share of DELTA);
  *   (C) how many samples a good threshold needs to reach the bar;
- *   (D) false alarms and detection delay of the drift detector;
+ *   (D) the drift detector: false alarms against their bound, with the
+ *       answers in order and delivered late, in batches and in bursts;
+ *       detection delay after a long healthy period; lost answers; and
+ *       what is left of it when answers come thousands of spot checks
+ *       late. The detector this module had before (a CUSUM) is kept in
+ *       this file, NOT IN USE, to show what the change bought and what it
+ *       cost;
  *   (E) late and lost answers: that counting an outstanding answer as a
  *       wrong guess keeps (A) true whatever the teacher does, that leaving
  *       it out does not, and how many samples an outstanding answer costs.
@@ -83,14 +91,22 @@
  * request and answer by answer through gateRegionUpdate() /
  * gateRegionFlip(), and requires identical crossing times. It also draws
  * the scorers of (B) from their definition and compares them with the
- * bands the race samples from. The detector of (D) is always driven spot
- * check by spot check through gateDriftPush().
+ * bands the race samples from. The detector of (D) is always driven through
+ * gateDriftAsk() / gateDriftWrong() / gateDriftLost(), one call per spot
+ * check and per answer; the event driven loop that does it is compared
+ * with a plain one that walks an array of answers.
  *
  * The exit status is non zero if a self check fails, if a simulated false
  * proof frequency is significantly above its bound, if the unsound rule of
  * (E) fails to exceed that bound against the teacher built to break it, if
- * a sample count of (E) differs from its exact value, or if the detector's
- * mean time to a false alarm is below the alarm level.
+ * a sample count of (E) differs from its exact value, or, for the drift
+ * detector: if a block's exact false alarm probability at a risk at or
+ * below the target is above 1/A; if the simulated false alarms are
+ * significantly above that bound or disagree with the exact probabilities;
+ * if any delivery of the answers (late, in batches, in bursts) raises an
+ * alarm that the same answers in order did not raise as early; if the
+ * order within a batch changes a verdict; or if a gross failure is not
+ * stopped.
  */
 
 #include <time.h>
@@ -1105,106 +1121,960 @@ static void simTableC(uint64_t trials, uint64_t seed) {
 
 /* ------------------------------- table (D) ------------------------------- */
 
-#define SIM_DRIFT_CAP 400000    /* spot checks a stream is followed for */
+#define SIM_SUPER 4096u         /* the longest block: a detector that was quiet
+                                 * for a multiple of this many spot checks is
+                                 * as good as new */
+#define SIM_QUEUE 8192u         /* answers held back at any time, a power of two */
 
-/* Spot check at which a fresh detector alarms on an IID stream with error
- * rate p, SIM_NEVER if not within the cap. */
-static uint64_t simAlarmTime(const gateDriftBets *b, double p, uint64_t *rng) {
-    const double log_alarm = log(GATE_DRIFT_ALARM);
-    gateDrift d;
+/* --- NOT IN USE: the detector this module had before the blocks ----------
+ * A CUSUM over the answered spot checks in the order their answers arrive:
+ * each alternative keeps W <- max(W, 1) * e(E), the statistic restarts
+ * from 1 whenever it falls below 1, and the alarm fires when the average
+ * of the two reaches the alarm level. This is gateDriftPush() as it was,
+ * kept here privately, and only so that this table can show what the
+ * blocks bought and what they cost. It uses the same increments. */
+typedef struct simCusum {
+    double logw[GATE_DRIFT_ALTS];
+} simCusum;
 
-    gateDriftInit(&d);
-    while (d.n < SIM_DRIFT_CAP) {
-        if (gateDriftPush(&d, b, gate_test_uniform(rng) < p, log_alarm)) return d.n;
-    }
-    return SIM_NEVER;
+static void simCusumInit(simCusum *c) {
+    int k;
+
+    for (k = 0; k < GATE_DRIFT_ALTS; k++) c->logw[k] = 0.0;
 }
 
-/* One row of table (D): n streams at error rate p. Fills 'times' (sorted)
- * and returns the mean, with the streams that never alarmed counted at the
- * cap; '*never' receives how many those were. */
-static double simAlarmTimes(double alpha, double p, uint64_t n, uint64_t rng,
-                            uint64_t *times, uint64_t *never) {
-    gateDriftBets b;
-    double sum = 0.0;
-    uint64_t i;
+static int simCusumPush(simCusum *c, const gateDriftBets *b, int error, double log_alarm) {
+    const double *inc = error ? b->inc_err : b->inc_ok;
+    double max = -INFINITY, sum = 0.0;
+    int k;
 
-    gateDriftBetsInit(&b, alpha);
-    *never = 0;
-    for (i = 0; i < n; i++) {
-        times[i] = simAlarmTime(&b, p, &rng);
-        *never += times[i] == SIM_NEVER;
-        sum += times[i] == SIM_NEVER ? (double)SIM_DRIFT_CAP : (double)times[i];
+    for (k = 0; k < GATE_DRIFT_ALTS; k++) {
+        if (c->logw[k] < 0.0) c->logw[k] = 0.0;
+        c->logw[k] += inc[k];
+        if (c->logw[k] > max) max = c->logw[k];
     }
+    /* The average is never above the larger of the two. */
+    if (max < log_alarm) return 0;
+    for (k = 0; k < GATE_DRIFT_ALTS; k++) sum += exp(c->logw[k] - max);
+    return max + log(sum / GATE_DRIFT_ALTS) >= log_alarm;
+}
+
+/* --- the answers of a stream ---------------------------------------------
+ * Spot checks 1 .. jump disagree with probability p0, the later ones with
+ * p1, independently. An answer is lost with probability 'loss' whatever it
+ * is, or ('selective') exactly when it disagrees. The numbers of the next
+ * disagreement and of the next lost answer are drawn as geometric gaps, so
+ * a stream costs one draw per event, and two generators keep the two
+ * independent of each other and of how the stream is consumed: the same
+ * seed gives the same answers to every detector and every delivery. */
+typedef struct simSource {
+    uint64_t rng_wrong, rng_lost;
+    double log1mp[2], log1ml;
+    uint64_t jump;
+    int phase, selective;
+    uint64_t wrong, lost;   /* numbers of the next disagreement, of the next lost answer */
+} simSource;
+
+static void simSourceNextWrong(simSource *s) {
+    uint64_t next = s->wrong + simGap(s->log1mp[s->phase], &s->rng_wrong) + 1;
+
+    if (s->phase == 0 && next > s->jump) {
+        /* No disagreement up to the jump: start again from there at the
+         * new rate (the gaps have no memory). */
+        s->phase = 1;
+        next = s->jump + simGap(s->log1mp[1], &s->rng_wrong) + 1;
+    }
+    s->wrong = next;
+}
+
+static void simSourceNextLost(simSource *s) {
+    s->lost = s->log1ml < 0.0 ? s->lost + simGap(s->log1ml, &s->rng_lost) + 1 : SIM_NEVER;
+}
+
+static void simSourceInit(simSource *s, uint64_t seed, double p0, uint64_t jump, double p1,
+                          double loss, int selective) {
+    s->rng_wrong = seed;
+    s->rng_lost = seed ^ 0x5851f42d4c957f2dull;
+    s->log1mp[0] = log1p(-p0);
+    s->log1mp[1] = log1p(-p1);
+    s->log1ml = loss > 0.0 ? log1p(-loss) : 0.0;
+    s->jump = jump;
+    s->phase = jump > 0 ? 0 : 1;
+    s->selective = selective;
+    s->wrong = s->lost = 0;
+    simSourceNextWrong(s);
+    simSourceNextLost(s);
+}
+
+/* --- how the answers are delivered ---------------------------------------
+ * Right answers are not reported at all (gate_stats.h). A disagreement is
+ * reported at once, or 'n' spot checks after its own was asked, or together
+ * with the others of its batch when a multiple of 'n' spot checks have been
+ * asked, or held back until 'n' of them are in hand and then released in
+ * one burst: what an adversary would do to a statistic that restarts,
+ * since the right answers in between then come first and cost nothing. A
+ * lost answer is given up 'lost_lag' spot checks after its own was asked.
+ * Answers that are still held back when a run ends are dropped. */
+enum { SIM_AT_ONCE, SIM_LATE, SIM_BATCH, SIM_BURST };
+
+typedef struct simDelivery {
+    int how;
+    uint32_t n;
+    int newest_first;   /* the order within a batch or a burst */
+    uint32_t lost_lag;
+} simDelivery;
+
+typedef struct simOutcome {
+    uint64_t at;        /* spot checks asked when the first verdict other
+                         * than QUIET came; 0: none */
+    int verdict;
+    gateDrift end;      /* the detector when the run stopped */
+} simOutcome;
+
+static void simQueueFull(void) {
+    fprintf(stderr, "sim_certify: too many answers held back\n");
+    exit(2);
+}
+
+/* The detector of gate_stats.c on the stream 'src', through its public
+ * calls only, until its first verdict or until 'cap' spot checks were
+ * asked. Spot checks at which nothing happens are asked in a plain loop. */
+static void simRunBlocks(const gateDriftBets *b, simSource *src, const simDelivery *dl, uint64_t cap,
+                         simOutcome *out) {
+    static uint64_t held[SIM_QUEUE], given_up[SIM_QUEUE];
+    const double log_alarm = log(GATE_DRIFT_ALARM), log_lost = log(GATE_LOST_ALARM);
+    uint32_t head = 0, tail = 0, lhead = 0, ltail = 0;  /* never wrap: at most cap entries pass */
+    gateDrift d;
+    int v;
+
+    gateDriftInit(&d);
+    out->at = 0;
+    out->verdict = GATE_DRIFT_QUIET;
+    while (d.asked < cap) {
+        uint64_t stop = cap, number;
+        int wrong, lost, flush = 0;
+
+        /* The next spot check at which something happens. */
+        if (src->wrong < stop) stop = src->wrong;
+        if (src->lost < stop) stop = src->lost;
+        if (head != tail) {
+            if (dl->how == SIM_LATE && held[head % SIM_QUEUE] + dl->n < stop) stop = held[head % SIM_QUEUE] + dl->n;
+            if (dl->how == SIM_BATCH && (d.asked / dl->n + 1) * dl->n < stop) stop = (d.asked / dl->n + 1) * dl->n;
+        }
+        if (lhead != ltail && given_up[lhead % SIM_QUEUE] + dl->lost_lag < stop)
+            stop = given_up[lhead % SIM_QUEUE] + dl->lost_lag;
+        while (d.asked + 1 < stop) gateDriftAsk(&d);
+        number = gateDriftAsk(&d);
+
+        /* Its own answer. */
+        wrong = number == src->wrong;
+        lost = number == src->lost;
+        if (wrong) simSourceNextWrong(src);
+        if (lost) simSourceNextLost(src);
+        if (wrong && src->selective) lost = 1;
+        if (lost) {
+            if (ltail - lhead == SIM_QUEUE) simQueueFull();
+            given_up[ltail++ % SIM_QUEUE] = number;
+        } else if (wrong) {
+            if (tail - head == SIM_QUEUE) simQueueFull();
+            held[tail++ % SIM_QUEUE] = number;
+        }
+
+        /* What arrives now: the answers given up, then the disagreements. */
+        while (lhead != ltail && given_up[lhead % SIM_QUEUE] + dl->lost_lag <= number) {
+            v = gateDriftLost(&d, b, given_up[lhead++ % SIM_QUEUE], log_lost);
+            if (v != GATE_DRIFT_QUIET) goto verdict;
+        }
+        switch (dl->how) {
+        case SIM_AT_ONCE: flush = 1; break;
+        case SIM_LATE:
+            while (head != tail && held[head % SIM_QUEUE] + dl->n <= number) {
+                v = gateDriftWrong(&d, b, held[head++ % SIM_QUEUE], log_alarm, log_lost);
+                if (v != GATE_DRIFT_QUIET) goto verdict;
+            }
+            break;
+        case SIM_BATCH: flush = number % dl->n == 0; break;
+        default: flush = tail - head >= dl->n; break;
+        }
+        if (flush) {
+            while (head != tail) {
+                uint64_t which = dl->newest_first ? held[--tail % SIM_QUEUE] : held[head++ % SIM_QUEUE];
+
+                v = gateDriftWrong(&d, b, which, log_alarm, log_lost);
+                if (v != GATE_DRIFT_QUIET) goto verdict;
+            }
+        }
+    }
+    out->end = d;
+    return;
+verdict:
+    out->at = d.asked;
+    out->verdict = v;
+    out->end = d;
+}
+
+/* The CUSUM (not in use) on the same stream: a right answer is pushed when
+ * its spot check is asked, a disagreement when it is delivered, a lost
+ * answer never (the old detector did not see them). Spot checks up to
+ * 'from' are not pushed at all: the detector starts fresh after them.
+ * Returns the number of spot checks asked at its alarm, 0 if none. */
+static uint64_t simRunCusum(const gateDriftBets *b, simSource *src, const simDelivery *dl,
+                            uint64_t from, uint64_t cap) {
+    static uint64_t held[SIM_QUEUE];
+    const double log_alarm = log(GATE_DRIFT_ALARM);
+    uint32_t head = 0, tail = 0;
+    uint64_t number;
+    simCusum c;
+
+    simCusumInit(&c);
+    for (number = 1; number <= cap; number++) {
+        int wrong = number == src->wrong, lost = number == src->lost, flush = 0;
+
+        if (wrong) simSourceNextWrong(src);
+        if (lost) simSourceNextLost(src);
+        if (number <= from) continue;
+        if (wrong && src->selective) lost = 1;
+        if (wrong && !lost) {
+            if (tail - head == SIM_QUEUE) simQueueFull();
+            held[tail++ % SIM_QUEUE] = number;
+        } else if (!lost && simCusumPush(&c, b, 0, log_alarm)) {
+            return number;
+        }
+        switch (dl->how) {
+        case SIM_AT_ONCE: flush = 1; break;
+        case SIM_LATE:
+            while (head != tail && held[head % SIM_QUEUE] + dl->n <= number) {
+                head++;
+                if (simCusumPush(&c, b, 1, log_alarm)) return number;
+            }
+            break;
+        case SIM_BATCH: flush = number % dl->n == 0; break;
+        default: flush = tail - head >= dl->n; break;
+        }
+        if (flush) {
+            for (; head != tail; head++) {
+                if (simCusumPush(&c, b, 1, log_alarm)) return number;
+            }
+        }
+    }
+    return 0;
+}
+
+/* --- the alarm boundary of a block and its exact false alarm probability --
+ * boundary[n] is the smallest number of disagreements, among the n spot
+ * checks asked in a block so far, at which the detector says WORSE (0 if n
+ * of n are not enough). It is measured through the detector: one detector
+ * walks n upwards holding one disagreement less than the boundary, and the
+ * next one is tried on a copy. The disagreements are those of spot checks
+ * 1, 2, 3, ..., which are in blocks of 64 (512) that have ended once n is
+ * beyond 64 (512): the boundary is that of the block of 64 up to n = 64, of
+ * the block of 512 up to 512 and of the block of 4,096 beyond. All three
+ * are the same function of (asked in block, disagreements), which the unit
+ * tests check against exact arithmetic. */
+static void simDriftBoundary(const gateDriftBets *b, uint32_t *boundary) {
+    const double log_alarm = log(GATE_DRIFT_ALARM);
+    gateDrift d, probe;
+    uint32_t n, held = 0;
+
+    gateDriftInit(&d);
+    boundary[0] = 0;
+    for (n = 1; n <= SIM_SUPER; n++) {
+        gateDriftAsk(&d);
+        probe = d;
+        if (gateDriftWrong(&probe, b, held + 1, log_alarm, INFINITY) == GATE_DRIFT_ALARM_WORSE) {
+            boundary[n] = held + 1;
+            continue;
+        }
+        d = probe;
+        held++;
+        if (held == n) {
+            boundary[n] = 0;
+            continue;
+        }
+        probe = d;
+        /* One more spot check asked moves the boundary by one at most. */
+        CHECK(gateDriftWrong(&probe, b, held + 1, log_alarm, INFINITY) == GATE_DRIFT_ALARM_WORSE);
+        boundary[n] = held + 1;
+    }
+}
+
+/* Probability that a block of 'len' spot checks says WORSE when its answers
+ * disagree with probability p, independently, and arrive in order: forward
+ * recursion over the number of disagreements of the blocks that are still
+ * quiet. No randomness: this is the number the frequencies of (D1)
+ * estimate, and it is exact for the boundary the detector has. */
+static double simBlockAlarmProb(const uint32_t *boundary, uint32_t len, double p) {
+    static double alive[SIM_SUPER + 2];
+    double absorbed = 0.0;
+    uint32_t n, w, top = 0;
+
+    memset(alive, 0, sizeof(alive));
+    alive[0] = 1.0;
+    for (n = 1; n <= len; n++) {
+        for (w = top + 1; w > 0; w--) alive[w] = alive[w] * (1.0 - p) + alive[w - 1] * p;
+        alive[0] *= 1.0 - p;
+        top++;
+        while (boundary[n] != 0 && top >= boundary[n]) {
+            absorbed += alive[top];
+            alive[top] = 0.0;
+            top--;
+        }
+    }
+    return absorbed;
+}
+
+/* Wilson score interval with z standard deviations. */
+static void simWilsonZ(uint64_t x, uint64_t n, double z, double *lo, double *hi) {
+    double z2 = z * z, dn = (double)n, ph = (double)x / dn;
+    double den = 1.0 + z2 / dn;
+    double center = (ph + z2 / (2.0 * dn)) / den;
+    double half = z * sqrt(ph * (1.0 - ph) / dn + z2 / (4.0 * dn * dn)) / den;
+
+    *lo = center - half > 0.0 ? center - half : 0.0;
+    *hi = center + half < 1.0 ? center + half : 1.0;
+    if (x == 0) *lo = 0.0;
+    if (x == n) *hi = 1.0;
+}
+
+/* ------------------------------ self check 5 ----------------------------- */
+
+/* The same run as simRunBlocks(), written the slow way: the answers of the
+ * whole stream are drawn into an array first, every spot check is asked on
+ * its own, and what arrives after each one is found by looking at the
+ * array. */
+static void simRunBlocksSlow(const gateDriftBets *b, simSource *src, const simDelivery *dl, uint32_t cap,
+                             unsigned char *answer, simOutcome *out) {
+    const double log_alarm = log(GATE_DRIFT_ALARM), log_lost = log(GATE_LOST_ALARM);
+    uint32_t i, t, waiting = 0, oldest = 1;     /* disagreements not delivered yet; none before 'oldest' */
+    gateDrift d;
+    int v = GATE_DRIFT_QUIET;
+
+    /* 0 right, 1 wrong and still out, 2 lost and still out, 3 delivered. */
+    for (i = 1; i <= cap; i++) {
+        int wrong = i == src->wrong, lost = i == src->lost;
+
+        if (wrong) simSourceNextWrong(src);
+        if (lost) simSourceNextLost(src);
+        if (wrong && src->selective) lost = 1;
+        answer[i] = (unsigned char)(lost ? 2 : (wrong ? 1 : 0));
+    }
+    gateDriftInit(&d);
+    out->at = 0;
+    out->verdict = GATE_DRIFT_QUIET;
+    for (t = 1; t <= cap; t++) {
+        int flush;
+
+        gateDriftAsk(&d);
+        if (answer[t] == 1) waiting++;
+        if (t > dl->lost_lag && answer[t - dl->lost_lag] == 2) {
+            answer[t - dl->lost_lag] = 3;
+            v = gateDriftLost(&d, b, t - dl->lost_lag, log_lost);
+            if (v != GATE_DRIFT_QUIET) break;
+        }
+        if (dl->how == SIM_LATE) {
+            if (t > dl->n && answer[t - dl->n] == 1) {
+                answer[t - dl->n] = 3;
+                waiting--;
+                v = gateDriftWrong(&d, b, t - dl->n, log_alarm, log_lost);
+                if (v != GATE_DRIFT_QUIET) break;
+            }
+            continue;
+        }
+        flush = dl->how == SIM_AT_ONCE || (dl->how == SIM_BATCH && t % dl->n == 0) ||
+                (dl->how == SIM_BURST && waiting >= dl->n);
+        if (!flush) continue;
+        for (i = 0; i <= t - oldest && v == GATE_DRIFT_QUIET; i++) {
+            uint32_t which = dl->newest_first ? t - i : oldest + i;
+
+            if (answer[which] != 1) continue;
+            answer[which] = 3;
+            v = gateDriftWrong(&d, b, which, log_alarm, log_lost);
+        }
+        if (v != GATE_DRIFT_QUIET) break;
+        waiting = 0;
+        oldest = t + 1;
+    }
+    if (v != GATE_DRIFT_QUIET) {
+        out->at = d.asked;
+        out->verdict = v;
+    }
+    out->end = d;
+}
+
+static void simSelfCheckDrift(uint64_t seed) {
+    enum { CAP = 9000 };
+    static const double alphas[] = {0.05, 0.02, 0.2};
+    static const simDelivery how[] = {
+        {SIM_AT_ONCE, 0, 0, 0},  {SIM_LATE, 1, 0, 0},     {SIM_LATE, 16, 0, 3},    {SIM_LATE, 256, 0, 300},
+        {SIM_LATE, 5000, 0, 64}, {SIM_BATCH, 64, 0, 0},   {SIM_BATCH, 64, 1, 1},   {SIM_BATCH, 1024, 1, 4096},
+        {SIM_BATCH, 100, 0, 0},  {SIM_BURST, 6, 0, 0},    {SIM_BURST, 7, 1, 0},    {SIM_BURST, 40, 1, 512}
+    };
+    static const double rate[] = {0.5, 1.0, 2.0, 4.0};    /* times alpha */
+    static const double loss[] = {0.0, 0.02, 0.3, 1.0};
+    unsigned char *answer = simAlloc(CAP + 1, 1);
+    uint64_t runs = 0, different = 0, verdicts[3] = {0, 0, 0};
+    size_t h;
+    int i;
+
+    for (h = 0; h < sizeof(how) / sizeof(how[0]); h++) {
+        for (i = 0; i < 48; i++) {
+            double alpha = alphas[i % 3], p = alpha * rate[(i / 3) % 4];
+            /* A third of the runs lose answers at random, a sixth lose
+             * exactly the disagreements. */
+            double l = i % 3 == 1 ? loss[(i / 12) % 4] : 0.0;
+            int selective = i % 6 == 2;
+            uint64_t id = 0xd5000 + h * 100 + (uint64_t)i, jump = i % 2 ? 0 : 1000 + 37 * (uint64_t)i;
+            gateDriftBets b;
+            simSource s1, s2;
+            simOutcome fast, slow;
+
+            gateDriftBetsInit(&b, alpha);
+            simSourceInit(&s1, simStream(seed, id), 0.5 * alpha, jump, p, l, selective);
+            simSourceInit(&s2, simStream(seed, id), 0.5 * alpha, jump, p, l, selective);
+            simRunBlocks(&b, &s1, &how[h], CAP, &fast);
+            simRunBlocksSlow(&b, &s2, &how[h], CAP, answer, &slow);
+            runs++;
+            different += fast.at != slow.at || fast.verdict != slow.verdict ||
+                         memcmp(&fast.end, &slow.end, sizeof(fast.end)) != 0;
+            verdicts[fast.verdict == GATE_DRIFT_ALARM_WORSE ? 1
+                                                            : (fast.verdict == GATE_DRIFT_ALARM_UNCHECKED ? 2 : 0)]++;
+        }
+    }
+    free(answer);
+    printf("self check 5: %llu drift detector runs (answers in order, late, in batches, in bursts, lost)\n"
+           "              replayed spot check by spot check from an array of answers: %llu WORSE, %llu\n"
+           "              UNCHECKED, %llu quiet to the end; %llu differ from the event driven run\n",
+           (unsigned long long)runs, (unsigned long long)verdicts[1], (unsigned long long)verdicts[2],
+           (unsigned long long)verdicts[0], (unsigned long long)different);
+    CHECK_EQ_INT(different, 0);
+    CHECK(verdicts[0] > runs / 20 && verdicts[1] > runs / 20 && verdicts[2] > runs / 20);
+}
+
+/* --------------------------- table (D), continued ------------------------ */
+
+#define SIM_NALPHA 3
+static const double simDriftAlpha[SIM_NALPHA] = {0.05, 0.02, 0.2};
+
+/* Median, 90th percentile and largest of 'n' times; a time of SIM_NEVER
+ * (not within the cap) sorts last. Prints them in three columns of width
+ * 'width' ('max' is left out if 'with_max' is 0). */
+static void simPrintTimes(uint64_t *times, uint64_t n, uint64_t cap, int with_max, int width) {
+    char b1[32], b2[32], b3[32];
+
     qsort(times, n, sizeof(uint64_t), simCmpU64);
-    return sum / (double)n;
+    printf(" %*s %*s", width, simFmt(b1, sizeof(b1), simQuantile(times, n, 0.5), cap),
+           width, simFmt(b2, sizeof(b2), simQuantile(times, n, 0.9), cap));
+    if (with_max) printf(" %*s", width, simFmt(b3, sizeof(b3), times[n - 1], cap));
 }
 
 static void simTableD(uint64_t trials, uint64_t seed) {
-    static const double alphas[] = {0.05, 0.02, 0.01};
-    static const double calm[] = {0.5, 0.75, 1.0};
-    static const char *calm_names[] = {"alpha/2", "0.75 alpha", "alpha"};
-    static const double jump[] = {1.5, 2.0, 5.0, 0.0};  /* 0: half of the answers wrong */
-    static const char *jump_names[] = {"1.5 alpha", "2 alpha", "5 alpha", "0.5"};
-    const uint64_t n1 = trials / 100 < 10 ? 10 : trials / 100;
-    const uint64_t n2 = trials / 10 < 10 ? 10 : trials / 10;
+    static const simDelivery at_once = {SIM_AT_ONCE, 0, 0, 0};
+    const double level = GATE_DRIFT_ALARM;
+    const uint64_t n1 = trials / 2 < 50 ? 50 : trials / 2;            /* super blocks per row of (D1) */
+    const uint64_t n2 = trials / 6 < 50 ? 50 : trials / 6;            /* ... of (D2) */
+    const uint64_t n3 = trials / 30 < 20 ? 20 : trials / 30;          /* streams per row of (D3) */
+    const uint64_t n4 = trials / 100 < 20 ? 20 : trials / 100;        /* ... of (D4) */
+    const uint64_t n5 = trials / 200 < 20 ? 20 : trials / 200;        /* ... of (D5) */
+    const uint64_t cap3 = 100000, cap4 = 50000, cap5 = 20000;
+    static uint32_t boundary[SIM_NALPHA][SIM_SUPER + 1];
     clock_t start = clock();
-    uint64_t *times = simAlloc(n1 > n2 ? n1 : n2, sizeof(uint64_t));
-    uint64_t row = 0, never;
-    double mean, lowest = INFINITY, slowest = 0.0;
-    char b1[32], b2[32];
-    size_t a, m;
+    uint64_t *times = simAlloc(5 * (n3 > n4 ? n3 : n4), sizeof(uint64_t));
+    uint64_t blocks_per_super = 0, row = 0, i;
+    double bound_q, bound_mean, lo, hi;
+    double d1_mean[SIM_NALPHA], d1_cusum[SIM_NALPHA], d2_cusum_burst[SIM_NALPHA];
+    uint64_t d3_blocks[SIM_NALPHA][4], d3_cusum[SIM_NALPHA][4];
+    gateDriftBets bets[SIM_NALPHA];
+    char b1[32];
+    size_t a, m, s;
 
     gate_test_current = "table D";
-    printf("\n(D) DRIFT DETECTOR   likelihood ratios for 2 alpha and 4 alpha, alarm at %.0f\n"
-           "    Every stream starts from a fresh detector and is pushed spot check by spot check.\n\n"
-           "    (D1) False alarms: spot checks until the alarm on IID traffic whose risk is at or below the\n"
-           "    target. %llu streams per row, each followed for at most %d spot checks. Where some streams\n"
-           "    never alarm the mean counts them as %d and is a lower bound. The detector promises a\n"
-           "    mean of at least %.0f.\n\n",
-           GATE_DRIFT_ALARM, (unsigned long long)n1, SIM_DRIFT_CAP, SIM_DRIFT_CAP, GATE_DRIFT_ALARM);
-    printf("    %-5s  %-18s  %10s  %11s  %s %d\n", "alpha", "true risk", "median", "mean", "no alarm in",
-           SIM_DRIFT_CAP);
-    for (a = 0; a < 3; a++) {
+    /* The texts below speak of blocks of 64, 512 and 4,096. */
+    CHECK_EQ_INT(gateDriftBlocks[0], 64);
+    CHECK_EQ_INT(gateDriftBlocks[1], 512);
+    CHECK_EQ_INT(gateDriftBlocks[GATE_DRIFT_SCALES - 1], SIM_SUPER);
+    for (s = 0; s < GATE_DRIFT_SCALES; s++) {
+        CHECK(SIM_SUPER % gateDriftBlocks[s] == 0);
+        blocks_per_super += SIM_SUPER / gateDriftBlocks[s];
+    }
+    /* Every block says WORSE by mistake with probability <= 1 / level
+     * (Ville), so a super block of 4,096 spot checks, which holds
+     * 64 + 8 + 1 blocks, does with probability <= 73 / level. Super blocks
+     * are independent and a quiet one leaves a detector as good as new, so
+     * the number of spot checks to a false alarm is at least 4096 times a
+     * geometric number of quiet super blocks: mean >= 4096 (level / 73 - 1). */
+    bound_q = (double)blocks_per_super / level;
+    bound_mean = SIM_SUPER * (1.0 / bound_q - 1.0);
+    for (a = 0; a < SIM_NALPHA; a++) {
+        gateDriftBetsInit(&bets[a], simDriftAlpha[a]);
+        simDriftBoundary(&bets[a], boundary[a]);
+    }
+
+    printf("\n(D) DRIFT DETECTOR   blocks of %u, %u and %u spot checks in the order they were asked;\n"
+           "    likelihood ratios for 2 alpha and 4 alpha, averaged; WORSE at %.0f, UNCHECKED at %.0e with\n"
+           "    lost answers counted as disagreements. Driven through gateDriftAsk / gateDriftWrong /\n"
+           "    gateDriftLost, one call per spot check and per answer. 'CUSUM' is the running detector\n"
+           "    this module had before (restart at 1, alarm at %.0f): NOT IN USE, shown for comparison.\n"
+           "    In (D1) and (D2) it starts afresh with every super block, like the blocks do, which can\n"
+           "    only spare it alarms.\n\n",
+           gateDriftBlocks[0], gateDriftBlocks[1], gateDriftBlocks[2], level, GATE_LOST_ALARM, level);
+
+    /* ------------------------------ (D1) ------------------------------ */
+    printf("    (D1) FALSE ALARMS, ANSWERS IN ORDER. IID traffic whose risk is at or below the target.\n"
+           "    'P(block)' is the exact probability that one block of 64 / 512 / 4,096 spot checks says\n"
+           "    WORSE (a recursion over the detector's own alarm boundary, no sampling); the bound for\n"
+           "    every block is 1/%.0f = %.4f. The mean number of spot checks to a false alarm follows\n"
+           "    from them: at least %u (1/q - 1) with q the sum over the %llu blocks of a super block of\n"
+           "    %u spot checks, at most %u / q' with q' the chance that a block of the most likely length\n"
+           "    alarms in it. The bound for that mean is %u (%.0f/%llu - 1) = %.0f, whatever the order\n"
+           "    and the timing of the answers. 'simulated': %llu super blocks per row, each on a fresh\n"
+           "    detector and stopped at its alarm; mean = spot checks asked / alarms ('>': no alarm),\n"
+           "    with the half width of its 95%% interval (1.96 / sqrt(alarms)).\n\n",
+           level, 1.0 / level, SIM_SUPER, (unsigned long long)blocks_per_super, SIM_SUPER, SIM_SUPER,
+           SIM_SUPER, level, (unsigned long long)blocks_per_super, bound_mean, (unsigned long long)n1);
+    printf("    %-5s %-9s  %-32s  %-23s  %-27s  %s\n", "", "", "P(block says WORSE), exact",
+           "mean to a false alarm", "simulated", "CUSUM, not");
+    printf("    %-5s %-9s  %10s %10s %10s  %11s %11s  %7s %12s %6s  %12s\n", "alpha", "true risk", "64", "512",
+           "4096", "at least", "at most", "alarms", "mean", "+-", "in use: mean");
+    for (a = 0; a < SIM_NALPHA; a++) {
+        static const double mult[] = {1.0, 0.8, 0.5};
+        static const char *names[] = {"alpha", "0.8 alpha", "alpha/2"};
+
         for (m = 0; m < 3; m++) {
-            double p = alphas[a] * calm[m];
+            double alpha = simDriftAlpha[a], p = alpha * mult[m], pr[GATE_DRIFT_SCALES];
+            double q_union = 0.0, q_one = 0.0, mean, cmean;
+            uint64_t alarms = 0, used = 0, calarms = 0, cused = 0;
+            char mbuf[32], cbuf[32], ebuf[16];
 
-            mean = simAlarmTimes(alphas[a], p, n1, simStream(seed, 0xd000 + row++), times, &never);
-            printf("    %.3f  %-10s %.5f  %10s  %s%9.0f  %5.1f%%\n", alphas[a], calm_names[m], p,
-                   simFmt(b1, sizeof(b1), simQuantile(times, n1, 0.5), SIM_DRIFT_CAP), never ? ">=" : "  ",
-                   mean, 100.0 * (double)never / (double)n1);
-            /* What the detector promises, and what a run of errors can do
-             * at best: five in a row reach (2^5 + 4^5) / 2 = 528. */
-            CHECK(mean >= GATE_DRIFT_ALARM);
-            CHECK(times[0] >= 6);
-            if (m == 2 && mean < lowest) lowest = mean;
+            for (s = 0; s < GATE_DRIFT_SCALES; s++) {
+                double any;
+
+                pr[s] = simBlockAlarmProb(boundary[a], gateDriftBlocks[s], p);
+                /* THE BOUND: must hold for every block at a risk at or
+                 * below the target. */
+                CHECK(pr[s] <= 1.0 / level);
+                q_union += pr[s] * (SIM_SUPER / gateDriftBlocks[s]);
+                /* Blocks of one length are independent of each other. */
+                any = -expm1((double)(SIM_SUPER / gateDriftBlocks[s]) * log1p(-pr[s]));
+                if (any > q_one) q_one = any;
+            }
+            for (i = 0; i < n1; i++) {
+                uint64_t id = simStream(seed, 0xd10000 + (row << 32) + i);
+                simSource src;
+                simOutcome out;
+                uint64_t at;
+
+                simSourceInit(&src, id, p, 0, p, 0.0, 0);
+                simRunBlocks(&bets[a], &src, &at_once, SIM_SUPER, &out);
+                alarms += out.at != 0;
+                used += out.at ? out.at : SIM_SUPER;
+                CHECK(out.verdict != GATE_DRIFT_ALARM_UNCHECKED);   /* no answer was lost */
+                simSourceInit(&src, id, p, 0, p, 0.0, 0);
+                at = simRunCusum(&bets[a], &src, &at_once, 0, SIM_SUPER);
+                calarms += at != 0;
+                cused += at ? at : SIM_SUPER;
+            }
+            mean = alarms ? (double)used / (double)alarms : 0.0;
+            cmean = calarms ? (double)cused / (double)calarms : 0.0;
+            if (alarms) snprintf(mbuf, sizeof(mbuf), "%.0f", mean);
+            else snprintf(mbuf, sizeof(mbuf), ">%llu", (unsigned long long)used);
+            if (alarms) snprintf(ebuf, sizeof(ebuf), "%.0f%%", 100.0 * SIM_Z95 / sqrt((double)alarms));
+            else snprintf(ebuf, sizeof(ebuf), "-");
+            if (calarms) snprintf(cbuf, sizeof(cbuf), "%.0f", cmean);
+            else snprintf(cbuf, sizeof(cbuf), ">%llu", (unsigned long long)cused);
+            printf("    %.3f %-9s  %10.2e %10.2e %10.2e  %11.0f %11.0f  %7llu %12s %6s  %12s\n", alpha, names[m],
+                   pr[0], pr[1], pr[2], SIM_SUPER * (1.0 / q_union - 1.0), SIM_SUPER / q_one,
+                   (unsigned long long)alarms, mbuf, ebuf, cbuf);
+            CHECK(SIM_SUPER * (1.0 / q_union - 1.0) >= bound_mean);
+            /* THE BOUND, simulated: the share of super blocks with a false
+             * alarm is not significantly above 73 / level ... */
+            simWilson(alarms, n1, &lo, &hi);
+            CHECK(lo <= bound_q);
+            /* ... and it agrees with the exact block probabilities: between
+             * the most likely single length and the sum over all blocks
+             * (99.9% interval). */
+            simWilsonZ(alarms, n1, 3.29, &lo, &hi);
+            CHECK(lo <= q_union && hi >= q_one);
+            if (m == 0) {
+                d1_mean[a] = alarms ? mean : (double)used;
+                d1_cusum[a] = calarms ? cmean : (double)cused;
+            }
+            row++;
         }
         printf("\n");
     }
-    printf("    At risk = alpha, the worst case the promise covers, the mean is at least %.0f times the\n"
-           "    alarm level.\n\n", floor(lowest / GATE_DRIFT_ALARM));
 
-    printf("    (D2) Detection delay: spot checks from a jump of the risk to the alarm, %llu streams per\n"
-           "    row. The detector is at its restart value when the risk jumps. That is the worst case:\n"
-           "    whatever it saw before can only bring the alarm forward.\n\n", (unsigned long long)n2);
-    printf("    %-5s  %-19s %10s  %11s  %10s\n", "alpha", "risk after the jump", "median", "mean", "p90");
-    for (a = 0; a < 3; a++) {
+    /* ------------------------------ (D2) ------------------------------ */
+    printf("    (D2) THE SAME KIND OF STREAMS, DISAGREEMENTS DELIVERED LATE, IN BATCHES AND IN BURSTS. Risk\n"
+           "    = alpha (the worst case the bound covers), %llu super blocks per row, the same answers for\n"
+           "    every delivery. Right answers arrive at once (the CUSUM is told; the blocks need no\n"
+           "    telling). 'bursts': every disagreement is held back until k are in hand, then all k\n"
+           "    arrive together, k being what takes a fresh CUSUM to its alarm (and a fresh block to\n"
+           "    WORSE): the worst order for a statistic that restarts, which forgets the right answers\n"
+           "    in between. Against the blocks the worst an adversary can do is to hold nothing back:\n"
+           "    'made up' counts super blocks with an alarm that the same answers in order did not\n"
+           "    raise as early (must be 0), 'lost' those whose alarm in order did not come. Batches and\n"
+           "    bursts are delivered twice, oldest first and newest first: 'order' counts the super\n"
+           "    blocks in which that changed the verdict or its spot check or, without an alarm, the\n"
+           "    detector that was left; and the quiet super blocks that batches did not leave with the\n"
+           "    very same detector as the answers in order (must be 0).\n\n",
+           (unsigned long long)n2);
+    printf("    %-5s  %-22s  %7s %7s %7s %7s  %11s   %7s %12s\n", "", "", "blocks:", "", "", "", "mean to a",
+           "CUSUM:", "mean to a");
+    printf("    %-5s  %-22s  %7s %7s %7s %7s  %11s   %7s %12s\n", "alpha", "disagreements arrive", "alarms",
+           "made up", "lost", "order", "false alarm", "alarms", "false alarm");
+    for (a = 0; a < SIM_NALPHA; a++) {
+        enum { NHOW = 6 };
+        static const char *names[NHOW] = {"at once (in order)", "16 spot checks late", "256 spot checks late",
+                                          "in batches of 64", "in batches of 1024", "in bursts of k"};
+        simDelivery how[NHOW] = {{SIM_AT_ONCE, 0, 0, 0}, {SIM_LATE, 16, 0, 0},  {SIM_LATE, 256, 0, 0},
+                                 {SIM_BATCH, 64, 0, 0},  {SIM_BATCH, 1024, 0, 0}, {SIM_BURST, 0, 0, 0}};
+        uint64_t alarms[NHOW], used[NHOW], made_up[NHOW], lost[NHOW], order[NHOW], calarms[NHOW], cused[NHOW];
+        double alpha = simDriftAlpha[a];
+        uint32_t k = 0;
+        size_t h;
+
+        /* Disagreements in a row that take a fresh CUSUM to its alarm, and
+         * a fresh detector to WORSE: from a fresh start with nothing but
+         * disagreements the two are the same product, hence the same count
+         * (6, 6 and 7 for the three risk targets). */
+        {
+            simCusum c;
+            gateDrift d;
+            uint32_t kb = 0;
+
+            simCusumInit(&c);
+            do k++; while (k < SIM_QUEUE && !simCusumPush(&c, &bets[a], 1, log(level)));
+            gateDriftInit(&d);
+            do kb++; while (kb < SIM_QUEUE && gateDriftWrong(&d, &bets[a], gateDriftAsk(&d), log(level), INFINITY) !=
+                                                  GATE_DRIFT_ALARM_WORSE);
+            CHECK(k < SIM_QUEUE);
+            CHECK_EQ_INT(kb, k);
+        }
+        how[5].n = k;
+        memset(alarms, 0, sizeof(alarms));
+        memset(used, 0, sizeof(used));
+        memset(made_up, 0, sizeof(made_up));
+        memset(lost, 0, sizeof(lost));
+        memset(order, 0, sizeof(order));
+        memset(calarms, 0, sizeof(calarms));
+        memset(cused, 0, sizeof(cused));
+        for (i = 0; i < n2; i++) {
+            uint64_t id = simStream(seed, 0xd20000 + ((uint64_t)a << 32) + i), in_order = 0;
+            simOutcome first;
+
+            for (h = 0; h < NHOW; h++) {
+                simSource src;
+                simOutcome out;
+                uint64_t at;
+
+                simSourceInit(&src, id, alpha, 0, alpha, 0.0, 0);
+                simRunBlocks(&bets[a], &src, &how[h], SIM_SUPER, &out);
+                if (h == 0) {
+                    in_order = out.at;
+                    first = out;
+                }
+                /* Batches leave nothing behind at the end of a super block:
+                 * a quiet one ends with the very detector that the answers
+                 * in order left. */
+                if (how[h].how == SIM_BATCH && out.at == 0 && first.at == 0)
+                    order[h] += memcmp(&out.end, &first.end, sizeof(out.end)) != 0;
+                alarms[h] += out.at != 0;
+                used[h] += out.at ? out.at : SIM_SUPER;
+                made_up[h] += out.at != 0 && (in_order == 0 || out.at < in_order);
+                lost[h] += out.at == 0 && in_order != 0;
+                if (how[h].how == SIM_BATCH || how[h].how == SIM_BURST) {
+                    simDelivery reversed = how[h];
+                    simOutcome other;
+
+                    reversed.newest_first = 1;
+                    simSourceInit(&src, id, alpha, 0, alpha, 0.0, 0);
+                    simRunBlocks(&bets[a], &src, &reversed, SIM_SUPER, &other);
+                    /* The same verdict at the same spot check; and where
+                     * there is none, the same detector at the end. (An
+                     * alarm stops the delivery of its batch half way.) */
+                    order[h] += other.at != out.at || other.verdict != out.verdict ||
+                                (out.at == 0 && memcmp(&other.end, &out.end, sizeof(out.end)) != 0);
+                }
+                simSourceInit(&src, id, alpha, 0, alpha, 0.0, 0);
+                at = simRunCusum(&bets[a], &src, &how[h], 0, SIM_SUPER);
+                calarms[h] += at != 0;
+                cused[h] += at ? at : SIM_SUPER;
+            }
+        }
+        for (h = 0; h < NHOW; h++) {
+            char mbuf[32], cbuf[32], obuf[16], name[40];
+
+            if (alarms[h]) snprintf(mbuf, sizeof(mbuf), "%.0f", (double)used[h] / (double)alarms[h]);
+            else snprintf(mbuf, sizeof(mbuf), ">%llu", (unsigned long long)used[h]);
+            if (calarms[h]) snprintf(cbuf, sizeof(cbuf), "%.0f", (double)cused[h] / (double)calarms[h]);
+            else snprintf(cbuf, sizeof(cbuf), ">%llu", (unsigned long long)cused[h]);
+            if (how[h].how == SIM_BATCH || how[h].how == SIM_BURST)
+                snprintf(obuf, sizeof(obuf), "%llu", (unsigned long long)order[h]);
+            else
+                snprintf(obuf, sizeof(obuf), "-");
+            if (how[h].how == SIM_BURST) snprintf(name, sizeof(name), "in bursts of %u", k);
+            else snprintf(name, sizeof(name), "%s", names[h]);
+            printf("    %.3f  %-22s  %7llu %7llu %7llu %7s  %11s   %7llu %12s\n", alpha, name,
+                   (unsigned long long)alarms[h], (unsigned long long)made_up[h], (unsigned long long)lost[h],
+                   obuf, mbuf, (unsigned long long)calarms[h], cbuf);
+            /* No delivery makes an alarm, none depends on the order within
+             * a batch, and the bound holds for every one of them. */
+            CHECK_EQ_INT(made_up[h], 0);
+            CHECK_EQ_INT(order[h], 0);
+            CHECK(alarms[h] <= alarms[0]);
+            simWilson(alarms[h], n2, &lo, &hi);
+            CHECK(lo <= bound_q);
+        }
+        d2_cusum_burst[a] = calarms[5] ? (double)cused[5] / (double)calarms[5] : (double)cused[5];
+        printf("\n");
+    }
+
+    /* ------------------------------ (D3) ------------------------------ */
+    printf("    (D3) DETECTION DELAY AFTER A LONG HEALTHY PERIOD. %llu streams per row. The risk is alpha/2\n"
+           "    for 4096 to 8191 spot checks (so that the jump finds every block at a random place, with\n"
+           "    the right answers it has collected) and then jumps. Spot checks from the jump to WORSE:\n"
+           "    median, 90th percentile and the largest; '>%llu' = not within that many. The CUSUM (not\n"
+           "    in use) starts fresh at the jump, its worst case, and gets the answers in order.\n\n",
+           (unsigned long long)n3, (unsigned long long)cap3);
+    printf("    %-5s %-9s  %-26s  %-17s  %-17s  %-17s  %s\n", "", "risk after", "blocks, answers in order",
+           "16 late", "256 late", "batches of 64", "CUSUM (not in use)");
+    printf("    %-5s %-9s  %8s %8s %8s  %8s %8s  %8s %8s  %8s %8s  %8s %8s %8s\n", "alpha", "the jump", "median",
+           "p90", "max", "median", "p90", "median", "p90", "median", "p90", "median", "p90", "max");
+    for (a = 0; a < SIM_NALPHA; a++) {
+        static const double mult[] = {0.0, 4.0, 2.0, 1.5};  /* 0: half of the answers wrong */
+        static const char *names[] = {"0.5", "4 alpha", "2 alpha", "1.5 alpha"};
+        static const simDelivery how[4] = {{SIM_AT_ONCE, 0, 0, 0}, {SIM_LATE, 16, 0, 0}, {SIM_LATE, 256, 0, 0},
+                                           {SIM_BATCH, 64, 0, 0}};
+
         for (m = 0; m < 4; m++) {
-            double p = jump[m] > 0.0 ? alphas[a] * jump[m] : 0.5;
+            double alpha = simDriftAlpha[a], p = mult[m] > 0.0 ? alpha * mult[m] : 0.5;
+            uint64_t redrawn = 0, earlier = 0, never = 0, t;
+            size_t h;
 
-            mean = simAlarmTimes(alphas[a], p, n2, simStream(seed, 0xd800 + row++), times, &never);
-            printf("    %.3f  %-10s %.5f  %10s  %11.1f  %10s\n", alphas[a], jump_names[m], p,
-                   simFmt(b1, sizeof(b1), simQuantile(times, n2, 0.5), SIM_DRIFT_CAP), mean,
-                   simFmt(b2, sizeof(b2), simQuantile(times, n2, 0.9), SIM_DRIFT_CAP));
-            /* A risk this far above the target is always caught. */
-            CHECK_EQ_INT(never, 0);
-            CHECK(times[0] >= 6);
-            if (m == 3 && mean > slowest) slowest = mean;
+            for (i = 0, t = 0; i < n3; t++) {
+                uint64_t id = simStream(seed, 0xd30000 + (row << 32) + t);
+                uint64_t healthy = SIM_SUPER + (id >> 20) % SIM_SUPER, in_order = 0;
+                simSource src;
+                simOutcome out;
+
+                for (h = 0; h < 4; h++) {
+                    simSourceInit(&src, id, 0.5 * alpha, healthy, p, 0.0, 0);
+                    simRunBlocks(&bets[a], &src, &how[h], healthy + cap3, &out);
+                    if (h == 0) {
+                        /* A false alarm before the jump: not this table's
+                         * subject. Draw another stream. */
+                        if (out.at != 0 && out.at <= healthy) break;
+                        in_order = out.at;
+                        never += out.at == 0;
+                    }
+                    /* Late answers never bring an alarm forward. */
+                    if (out.at != 0 && (in_order == 0 || out.at < in_order)) earlier++;
+                    times[h * n3 + i] = out.at ? out.at - healthy : SIM_NEVER;
+                }
+                if (h < 4) {
+                    redrawn++;
+                    if (redrawn > n3 + 100) {   /* cannot happen at alpha/2: see (D1) */
+                        fprintf(stderr, "sim_certify: the detector alarms on healthy traffic\n");
+                        exit(1);
+                    }
+                    continue;
+                }
+                simSourceInit(&src, id, 0.5 * alpha, healthy, p, 0.0, 0);
+                {
+                    uint64_t at = simRunCusum(&bets[a], &src, &at_once, healthy, healthy + cap3);
+
+                    times[4 * n3 + i] = at ? at - healthy : SIM_NEVER;
+                }
+                i++;
+            }
+            printf("    %.3f %-9s ", alpha, names[m]);
+            simPrintTimes(times, n3, cap3, 1, 8);
+            d3_blocks[a][m] = simQuantile(times, n3, 0.5);
+            printf(" ");
+            simPrintTimes(times + n3, n3, cap3, 0, 8);
+            printf(" ");
+            simPrintTimes(times + 2 * n3, n3, cap3, 0, 8);
+            printf(" ");
+            simPrintTimes(times + 3 * n3, n3, cap3, 0, 8);
+            printf(" ");
+            simPrintTimes(times + 4 * n3, n3, cap3, 1, 8);
+            d3_cusum[a][m] = simQuantile(times + 4 * n3, n3, 0.5);
+            printf("\n");
+            CHECK_EQ_INT(earlier, 0);
+            /* A gate that gets half of its answers wrong, or four times
+             * its target, is always stopped, and soon. */
+            if (m < 2) {
+                CHECK_EQ_INT(never, 0);
+                CHECK(times[n3 - 1] <= 2 * SIM_SUPER);
+            }
+            row++;
         }
         printf("\n");
     }
-    printf("    A policy that gets half of its answers wrong is stopped after %.0f spot checks on average.\n"
-           "    The table took %.1f s.\n", ceil(slowest), simSeconds(start));
+
+    /* ------------------------------ (D4) ------------------------------ */
+    printf("    (D4) LOST ANSWERS: SPOT CHECKS UNTIL UNCHECKED. %llu streams per row on a fresh detector,\n"
+           "    followed for %llu spot checks. A lost answer is given up at once, or 300 spot checks after\n"
+           "    it was asked (the default feedback timeout of a gate that asks five spot checks a second;\n"
+           "    by then its block of 64 has ended, and often its block of 512). 'never' = share of the\n"
+           "    streams without a verdict. First, a healthy gate (risk alpha/2) that loses answers at\n"
+           "    random, whatever they are. Then answers that are lost exactly when they disagree, so that\n"
+           "    not one disagreement is ever reported and WORSE cannot come: the lost answers are all the\n"
+           "    detector has, and it takes them for disagreements.\n\n",
+           (unsigned long long)n4, (unsigned long long)cap4);
+    printf("    %-5s  %-32s  %-34s  %s\n", "", "", "given up at once", "given up 300 spot checks later");
+    printf("    %-5s  %-32s  %8s %8s %8s %7s  %8s %8s %8s %7s\n", "alpha", "answers lost", "median", "p90", "max",
+           "never", "median", "p90", "max", "never");
+    for (a = 0; a < SIM_NALPHA; a++) {
+        static const double loss[] = {0.02, 0.05, 0.1, 0.2, 0.5, 1.0};
+        static const double mult[] = {0.5, 1.0, 2.0, 4.0, 0.0};
+        static const char *names[] = {"alpha/2", "alpha", "2 alpha", "4 alpha", "0.5"};
+        double alpha = simDriftAlpha[a];
+
+        for (m = 0; m < 11; m++) {
+            int selective = m >= 6;
+            double p = !selective ? 0.5 * alpha : (mult[m - 6] > 0.0 ? alpha * mult[m - 6] : 0.5);
+            double l = selective ? 0.0 : loss[m];
+            uint64_t never[2] = {0, 0}, other = 0;
+            char name[48];
+            int lag;
+
+            for (lag = 0; lag < 2; lag++) {
+                simDelivery how = at_once;
+
+                how.lost_lag = lag ? 300 : 0;
+                for (i = 0; i < n4; i++) {
+                    simSource src;
+                    simOutcome out;
+
+                    simSourceInit(&src, simStream(seed, 0xd40000 + (row << 32) + i), p, 0, p, l, selective);
+                    simRunBlocks(&bets[a], &src, &how, cap4, &out);
+                    times[(size_t)lag * n4 + i] = out.at ? out.at : SIM_NEVER;
+                    never[lag] += out.at == 0;
+                    /* A verdict here is UNCHECKED. (With random loss the
+                     * disagreements that do arrive could say WORSE first:
+                     * a false alarm at alpha/2, see (D1).) */
+                    other += out.at != 0 && out.verdict != GATE_DRIFT_ALARM_UNCHECKED;
+                    /* Selective loss: not one disagreement was reported. */
+                    if (selective) CHECK(out.end.errors == 0 && out.verdict != GATE_DRIFT_ALARM_WORSE);
+                }
+            }
+            if (selective) snprintf(name, sizeof(name), "every disagreement, risk %s", names[m - 6]);
+            else snprintf(name, sizeof(name), "%.0f%% at random", 100.0 * l);
+            printf("    %.3f  %-32s ", alpha, name);
+            simPrintTimes(times, n4, cap4, 1, 8);
+            printf(" %6.1f%% ", 100.0 * (double)never[0] / (double)n4);
+            simPrintTimes(times + n4, n4, cap4, 1, 8);
+            printf(" %6.1f%%\n", 100.0 * (double)never[1] / (double)n4);
+            CHECK(other <= 1 + n4 / 50);
+            if (!selective && l == 1.0) {
+                /* Every answer lost, given up at once: the count of the
+                 * unit tests, 16 in a row (20 at alpha = 0.2), in every
+                 * stream. */
+                CHECK_EQ_INT(times[0], alpha > 1.0 / 7.0 ? 20 : 16);
+                CHECK_EQ_INT(times[n4 - 1], times[0]);
+            }
+            row++;
+            if (m == 5) printf("\n");
+        }
+        printf("\n");
+    }
+
+    /* ------------------------------ (D5) ------------------------------ */
+    printf("    (D5) THE LIMIT: ANSWERS THAT COME AFTER THEIR BLOCKS HAVE ENDED. An answer counts in the\n"
+           "    blocks that hold its spot check and are still open, so the later it comes the fewer blocks\n"
+           "    count it, and the spot checks asked in the meantime count as right. %llu streams per row\n"
+           "    on a fresh detector, followed for %llu spot checks, at a risk of 2 alpha and with half of\n"
+           "    the answers wrong. Left: every disagreement arrives that many spot checks late, spot\n"
+           "    checks until WORSE. Right: every disagreement is lost and given up that late, spot checks\n"
+           "    until UNCHECKED. In time, 'late' is the delay of the answers times the spot checks asked\n"
+           "    per second: with the default feedback timeout of 60 s an answer that is given up is 4096\n"
+           "    spot checks late on a key that asks 68 a second (that is 1,365 requests a second which\n"
+           "    the gate could answer, at the default AUDIT of 0.05).\n\n",
+           (unsigned long long)n5, (unsigned long long)cap5);
+    printf("    %-5s %-11s  %-35s  %s\n", "", "spot checks", "disagreements arrive late: WORSE",
+           "disagreements are lost: UNCHECKED");
+    printf("    %-5s %-11s  %17s %17s %17s %17s\n", "", "", "2 alpha", "half wrong", "2 alpha", "half wrong");
+    printf("    %-5s %-11s  %8s %8s %8s %8s %8s %8s %8s %8s\n", "alpha", "late", "median", "never", "median",
+           "never", "median", "never", "median", "never");
+    for (a = 0; a < SIM_NALPHA; a++) {
+        static const uint32_t lag[] = {64, 512, 1024, 2048, 3072, 4096};
+        double alpha = simDriftAlpha[a];
+
+        for (m = 0; m < sizeof(lag) / sizeof(lag[0]); m++) {
+            simDelivery how = {SIM_LATE, 0, 0, 0};
+            int c;
+
+            how.n = how.lost_lag = lag[m];
+            printf("    %.3f %-11u ", alpha, lag[m]);
+            for (c = 0; c < 4; c++) {
+                double p = c % 2 ? 0.5 : 2.0 * alpha;
+                uint64_t never = 0, counted = 0;
+
+                for (i = 0; i < n5; i++) {
+                    simSource src;
+                    simOutcome out;
+
+                    simSourceInit(&src, simStream(seed, 0xd50000 + (row << 32) + i), p, 0, p, 0.0, c >= 2);
+                    simRunBlocks(&bets[a], &src, &how, cap5, &out);
+                    times[i] = out.at ? out.at : SIM_NEVER;
+                    never += out.at == 0;
+                    counted += out.end.wrong[GATE_DRIFT_SCALES - 1] + out.end.lost[GATE_DRIFT_SCALES - 1];
+                    /* The verdict is the one of its side of the table. */
+                    if (out.at != 0)
+                        CHECK(out.verdict == (c >= 2 ? GATE_DRIFT_ALARM_UNCHECKED : GATE_DRIFT_ALARM_WORSE));
+                }
+                qsort(times, n5, sizeof(uint64_t), simCmpU64);
+                printf(" %8s %7.1f%%", simFmt(b1, sizeof(b1), simQuantile(times, n5, 0.5), cap5),
+                       100.0 * (double)never / (double)n5);
+                /* What the header says of an answer whose blocks have all
+                 * ended: it counts nowhere. */
+                if (lag[m] >= SIM_SUPER) {
+                    CHECK_EQ_INT(never, n5);
+                    CHECK_EQ_INT(counted, 0);
+                }
+                row++;
+            }
+            printf("\n");
+        }
+        printf("\n");
+    }
+
+    printf("    WHAT THE BLOCKS BOUGHT. At risk = alpha a false alarm comes every %.0f / %.0f / %.0f spot\n"
+           "    checks (alpha = %.2f / %.2f / %.2f) instead of every %.0f / %.0f / %.0f with the CUSUM, and\n"
+           "    no timing or order of the answers can make it come sooner. The CUSUM kept its promise only\n"
+           "    for answers that arrive in order: disagreements that arrive in bursts set it off every\n"
+           "    %.0f / %.0f / %.0f spot checks at that same risk.\n"
+           "    WHAT THEY COST. A block never restarts, so the right answers it holds have to be outweighed:\n"
+           "    after a long healthy period a doubled risk is noticed after a median of %s / ",
+           d1_mean[0], d1_mean[1], d1_mean[2], simDriftAlpha[0], simDriftAlpha[1], simDriftAlpha[2],
+           d1_cusum[0], d1_cusum[1], d1_cusum[2], d2_cusum_burst[0], d2_cusum_burst[1], d2_cusum_burst[2],
+           simFmt(b1, sizeof(b1), d3_blocks[0][2], cap3));
+    printf("%s / ", simFmt(b1, sizeof(b1), d3_blocks[1][2], cap3));
+    printf("%s spot\n    checks instead of ", simFmt(b1, sizeof(b1), d3_blocks[2][2], cap3));
+    printf("%s / ", simFmt(b1, sizeof(b1), d3_cusum[0][2], cap3));
+    printf("%s / ", simFmt(b1, sizeof(b1), d3_cusum[1][2], cap3));
+    printf("%s, and a risk of 1.5 alpha after ", simFmt(b1, sizeof(b1), d3_cusum[2][2], cap3));
+    printf("%s / ", simFmt(b1, sizeof(b1), d3_blocks[0][3], cap3));
+    printf("%s / ", simFmt(b1, sizeof(b1), d3_blocks[1][3], cap3));
+    printf("%s instead of\n    ", simFmt(b1, sizeof(b1), d3_blocks[2][3], cap3));
+    printf("%s / ", simFmt(b1, sizeof(b1), d3_cusum[0][3], cap3));
+    printf("%s / ", simFmt(b1, sizeof(b1), d3_cusum[1][3], cap3));
+    printf("%s. A gate that gets half of its answers wrong is stopped after a median of\n    ",
+           simFmt(b1, sizeof(b1), d3_cusum[2][3], cap3));
+    printf("%s / ", simFmt(b1, sizeof(b1), d3_blocks[0][0], cap3));
+    printf("%s / ", simFmt(b1, sizeof(b1), d3_blocks[1][0], cap3));
+    printf("%s spot checks (CUSUM: ", simFmt(b1, sizeof(b1), d3_blocks[2][0], cap3));
+    printf("%s / ", simFmt(b1, sizeof(b1), d3_cusum[0][0], cap3));
+    printf("%s / ", simFmt(b1, sizeof(b1), d3_cusum[1][0], cap3));
+    printf("%s). Answers that are late lose alarms, they never make\n"
+           "    one: see 'lost' in (D2) and the late columns of (D3). And answers that come, or are given\n"
+           "    up, %u or more spot checks after they were asked count in no block at all (D5): on a key\n"
+           "    that busy the detector sees neither the disagreements nor the lost answers. (The CUSUM,\n"
+           "    fed in the order of arrival, counted a late disagreement whenever it came; lost answers\n"
+           "    it never saw.)\n"
+           "    The table took %.1f s.\n",
+           simFmt(b1, sizeof(b1), d3_cusum[2][0], cap3), SIM_SUPER, simSeconds(start));
     free(times);
 }
 
@@ -1866,6 +2736,7 @@ int main(int argc, char **argv) {
     simSelfCheckRace(seed);
     simSelfCheckPopulation(seed);
     simSelfCheckLate(seed);
+    simSelfCheckDrift(seed);
 
     simTableA(trials, seed);
     simTableB(trials, seed);

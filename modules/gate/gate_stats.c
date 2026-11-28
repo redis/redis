@@ -336,17 +336,8 @@ void gateDriftInit(gateDrift *d) {
 }
 
 uint32_t gateDriftOpen(const gateDrift *d, int scale) {
-    if (d->asked == 0) return 0;
-    return (uint32_t)((d->asked - 1) % gateDriftBlocks[scale]) + 1;
-}
-
-uint64_t gateDriftAsk(gateDrift *d) {
-    int s;
-
-    /* The first spot check of a block opens it. */
-    for (s = 0; s < GATE_DRIFT_SCALES; s++)
-        if (d->asked % gateDriftBlocks[s] == 0) d->wrong[s] = d->lost[s] = 0;
-    return ++d->asked;
+    if (d->counted == 0) return 0;
+    return (uint32_t)((d->counted - 1) % gateDriftBlocks[scale]) + 1;
 }
 
 /* Log of the average over the alternatives of the block's product, with
@@ -365,13 +356,13 @@ static double gateDriftBlockStat(const gateDrift *d, const gateDriftBets *b, int
     return max + log(sum / GATE_DRIFT_ALTS);
 }
 
-double gateDriftLogStat(const gateDrift *d, const gateDriftBets *b, int with_lost) {
+double gateDriftLogStat(const gateDrift *d, const gateDriftBets *b, int with_late) {
     double best = 0.0;
     int s;
 
-    if (d->asked == 0) return 0.0;
+    if (d->counted == 0) return 0.0;
     for (s = 0; s < GATE_DRIFT_SCALES; s++) {
-        double w = (double)d->wrong[s] + (with_lost ? (double)d->lost[s] : 0.0);
+        double w = (double)d->wrong[s] + (with_late ? (double)d->late[s] : 0.0);
         double stat = gateDriftBlockStat(d, b, s, w);
 
         if (!isfinite(stat)) return NAN;
@@ -380,44 +371,69 @@ double gateDriftLogStat(const gateDrift *d, const gateDriftBets *b, int with_los
     return best;
 }
 
-/* One more spot check of the open blocks counts against the gate: as a
- * disagreement ('lost' 0) or as a lost answer ('lost' 1). */
-static int gateDriftCount(gateDrift *d, const gateDriftBets *b, uint64_t number, int lost,
-                          double log_alarm, double log_lost_alarm)
+/* What the blocks now open say. 'worse' is 0 when only the second
+ * statistic can have grown. Both tests are written as the negation of
+ * "safely below the alarm", so that a NaN statistic or alarm level fires
+ * instead of silently disabling the detector. */
+static int gateDriftVerdict(const gateDrift *d, const gateDriftBets *b, int worse,
+                            double log_alarm, double log_late_alarm)
 {
     int s, verdict = GATE_DRIFT_QUIET;
 
-    if (number == 0 || number > d->asked) return GATE_DRIFT_QUIET;
-    if (!lost) d->errors++;
     for (s = 0; s < GATE_DRIFT_SCALES; s++) {
-        uint32_t len = gateDriftBlocks[s];
         double stat;
 
-        if ((number - 1) / len != (d->asked - 1) / len) continue; /* its block has ended */
-        if (d->wrong[s] + d->lost[s] < gateDriftOpen(d, s)) {
-            if (lost) d->lost[s]++; else d->wrong[s]++;
-        }
-        /* Written as the negation of "safely below the alarm" so that a NaN
-         * statistic or alarm level fires instead of silently disabling the
-         * detector. */
-        if (!lost) {
+        if (worse) {
             stat = gateDriftBlockStat(d, b, s, (double)d->wrong[s]);
-            if (!(isfinite(stat) && stat < log_alarm)) verdict = GATE_DRIFT_ALARM_WORSE;
+            if (!(isfinite(stat) && stat < log_alarm)) return GATE_DRIFT_ALARM_WORSE;
         }
-        if (verdict != GATE_DRIFT_ALARM_WORSE) {
-            stat = gateDriftBlockStat(d, b, s, (double)d->wrong[s] + (double)d->lost[s]);
-            if (!(isfinite(stat) && stat < log_lost_alarm)) verdict = GATE_DRIFT_ALARM_UNCHECKED;
-        }
+        stat = gateDriftBlockStat(d, b, s, (double)d->wrong[s] + (double)d->late[s]);
+        if (!(isfinite(stat) && stat < log_late_alarm)) verdict = GATE_DRIFT_ALARM_UNCHECKED;
     }
     return verdict;
 }
 
-int gateDriftWrong(gateDrift *d, const gateDriftBets *b, uint64_t number, double log_alarm,
-                   double log_lost_alarm)
+int gateDriftCount(gateDrift *d, const gateDriftBets *b, int outcome, double log_alarm,
+                   double log_late_alarm, uint64_t *number)
 {
-    return gateDriftCount(d, b, number, 0, log_alarm, log_lost_alarm);
+    int s;
+
+    if (number) *number = 0;
+    if (d->counted >= GATE_COUNT_MAX) return GATE_DRIFT_QUIET; /* never in practice */
+    /* The first spot check of a block opens it. */
+    for (s = 0; s < GATE_DRIFT_SCALES; s++)
+        if (d->counted % gateDriftBlocks[s] == 0) d->wrong[s] = d->late[s] = 0;
+    d->counted++;
+    if (number) *number = d->counted;
+
+    if (outcome == GATE_DRIFT_RIGHT) return GATE_DRIFT_QUIET; /* both statistics fell */
+    if (outcome == GATE_DRIFT_LATE) {
+        for (s = 0; s < GATE_DRIFT_SCALES; s++) d->late[s]++;
+        return gateDriftVerdict(d, b, 0, log_alarm, log_late_alarm);
+    }
+    d->errors++;
+    for (s = 0; s < GATE_DRIFT_SCALES; s++) d->wrong[s]++;
+    return gateDriftVerdict(d, b, 1, log_alarm, log_late_alarm);
 }
 
-int gateDriftLost(gateDrift *d, const gateDriftBets *b, uint64_t number, double log_lost_alarm) {
-    return gateDriftCount(d, b, number, 1, INFINITY, log_lost_alarm);
+int gateDriftAnswer(gateDrift *d, const gateDriftBets *b, uint64_t number, int wrong,
+                    double log_alarm, double log_late_alarm)
+{
+    int s;
+
+    if (number == 0 || number > d->counted) return GATE_DRIFT_QUIET;
+    if (wrong && d->errors < d->counted) d->errors++;
+    for (s = 0; s < GATE_DRIFT_SCALES; s++) {
+        uint32_t len = gateDriftBlocks[s];
+
+        if ((number - 1) / len != (d->counted - 1) / len) continue; /* its block has ended */
+        if (d->late[s] == 0) continue; /* nothing to set right */
+        d->late[s]--;
+        if (wrong) d->wrong[s]++;
+    }
+    /* A right answer only lowers the second statistic. A wrong one is
+     * judged even when every block it was counted in has ended: nothing
+     * grew then, but broken increments or levels must still raise the
+     * alarm (fail closed). */
+    return wrong ? gateDriftVerdict(d, b, 1, log_alarm, log_late_alarm) : GATE_DRIFT_QUIET;
 }

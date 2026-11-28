@@ -38,10 +38,12 @@
  *
  *     alpha 0.2, target 320:  k = 0: 35   k = 1: 47   k = 2: 57   k = 3: 68
  *     alpha 0.2, target 640:  k = 0: 39   k = 1: 50   k = 2: 61   k = 3: 72
+ *                             k = 4: 82   k = 5: 92
  *     alpha 0.2, target 960:  k = 0: 41   k = 1: 52
  *     alpha 0.2, target 1920: k = 0: 44   k = 1: 56
  *     alpha 0.2, target 2880: 46     target 3840: 48     target 5760: 50
- *     alpha 0.1, target 640: 82
+ *     alpha 0.2, target 20480: 56
+ *     alpha 0.1, target 640: 82     target 960: 87
  *
  * The first one by hand: for alpha 0.2 a correct answer multiplies the four
  * bets by 1.025, 1.0625, 1.125 and 1.225. After 35 of them they hold 2.4,
@@ -49,12 +51,31 @@
  * logWealth() below evaluates the same formula in floating point and the
  * first test requires that it reproduces this table.
  *
- * The drift detector for alpha 0.2 multiplies its two statistics by 2 and
- * by 3 on a wrong spot check and by 0.75 and 0.5 on a correct one (never
- * letting them start below 1), and fires when their average reaches 1000:
- * after 7 wrong spot checks in a row ((128 + 2187) / 2 = 1157.5; 6 give
- * 396.5). It hears every spot check the moment its answer arrives, in the
- * order of arrival; proof is counted in the order of the requests.
+ * THE BUDGET of a classifier snapshot is 10 times the k = 0 column (the
+ * proof a flawless threshold needs) for its most demanding tested label,
+ * times the tested labels: 780, 880 and 960 for generation 1, 2 and 3 of
+ * two labels, 1230, 1380 and 1500 of three.
+ *
+ * THE DRIFT DETECTOR (SPEC.md section 5, gate_stats.h) numbers the spot
+ * checks of a row 1, 2, 3, ... as they are ASKED and cuts them into blocks
+ * of 64, of 512 and of 4096. For alpha 0.2 its two alternatives are error
+ * rates of 0.4 and 0.6, so a block in which n spot checks were asked and w
+ * of them are known to disagree holds
+ *
+ *     stat(n, w) = (2^w 0.75^(n - w) + 3^w 0.5^(n - w)) / 2
+ *
+ * (for alpha 0.1 and below: 2 and 4 for a disagreement). A spot check counts
+ * as right until its answer says otherwise, whenever that answer arrives.
+ * The alarm "got worse" is raised by the disagreement that takes a block to
+ * 1000: the 7th in a fresh block ((128 + 2187) / 2 = 1157.5; six give
+ * 396.5), the 8th when one more spot check was asked and is right or still
+ * unanswered (stat(8, 7) = 594.75, stat(9, 8) = 1736.25), the 9th with two
+ * such, the 11th after six right ones, the 13th after ten. The second
+ * statistic of a block counts lost answers as disagreements too and raises
+ * "cannot be checked" at 10^9: 20 in a fresh block ((2^20 + 3^20) / 2 =
+ * 1.74e9; 19 give 5.8e8), the 24th of 31 asked at once, the 25th of 32.
+ * driftStat() below is that formula; exact values come from the scratch
+ * script named in the report (rational arithmetic).
  *
  * LATE ANSWERS. When proof has moved on without an answer, the request was
  * counted as a wrong guess; when the answer arrives after all and the guess
@@ -72,11 +93,24 @@
  * give it: the gate's must never be above that.
  *
  * Usage: test_core [seed ...]. Without arguments every test runs. With
- * seeds, only the three randomized walks run, once for each seed.
+ * seeds, only the three randomized walks run, once for each seed, and say
+ * where they went; "score:seed", "classifier:seed" or "takeovers:seed"
+ * runs one of the three.
+ *
+ * WITH THE CODEC. The Makefile links this program without gate_codec.c.
+ * Built by hand with -DTEST_CORE_CODEC and gate_codec.c, every inv() also
+ * encodes the gate, decodes the bytes, requires that the copy is the gate
+ * and encodes to the same bytes, and the replica of the randomized walks is
+ * replaced now and then by a gate decoded from the primary's bytes. That is
+ * how "whatever the core did with a gate, it can be saved and loaded" is
+ * checked here; the command line is in the report.
  */
 
 #include "testutil.h"
 #include "gate_core.h"
+#ifdef TEST_CORE_CODEC
+#include "gate_codec.h"
+#endif
 
 #define T GATE_THRESHOLDS
 #define COUNTOF(a) (sizeof(a) / sizeof((a)[0]))
@@ -163,6 +197,58 @@ static void die(const char *why) {
     exit(2);
 }
 
+/* 0 while a test holds counters beyond GATE_COUNT_MAX: the encoding writes
+ * those as the limit, so what is decoded is not what was encoded. */
+static int codec_exact = 1;
+
+#ifdef TEST_CORE_CODEC
+static uint64_t fingerprint(const gate *g, int skip);
+static uint64_t codec_trips = 0, codec_calls = 0;
+
+/* The gate as bytes and back (see WITH THE CODEC in the file comment):
+ * whatever the core made of a gate must encode, decode to the same gate,
+ * and encode to the same bytes again. */
+static void roundTrip(const gate *g) {
+    unsigned char *a = NULL, *b = NULL;
+    size_t alen = 0, blen = 0;
+    char err[160] = "";
+    gate *copy;
+
+    if (fail_in >= 0) return; /* an allocation failure is being injected */
+    /* With thousands of requests waiting, on a sample of the calls. */
+    if (g->npending > 256 && (++codec_calls & 63)) return;
+    gate_test_checks++;
+    codec_trips++;
+    if (gateEncode(g, 0, &a, &alen) != GATE_OK) die("gateEncode failed");
+    copy = gateDecode(a, alen, err, sizeof(err));
+    if (copy == NULL) {
+        gate_test_failures++;
+        printf("  in %s: the gate cannot be decoded from its own encoding: %s\n",
+               gate_test_current, err);
+        gate_free(a);
+        return;
+    }
+    if (gateEncode(copy, 0, &b, &blen) != GATE_OK) die("gateEncode failed");
+    if (alen != blen || memcmp(a, b, alen) != 0) {
+        gate_test_failures++;
+        printf("  in %s: the decoded gate encodes to other bytes\n", gate_test_current);
+    }
+    if (codec_exact && fingerprint(copy, 0) != fingerprint(g, 0)) {
+        gate_test_failures++;
+        printf("  in %s: the decoded gate is not the gate that was encoded\n", gate_test_current);
+    }
+    if (!gateCheckInvariants(copy, err, sizeof(err))) {
+        gate_test_failures++;
+        printf("  in %s: decoded gate: invariant broken: %s\n", gate_test_current, err);
+    }
+    gateFree(copy);
+    gate_free(a);
+    gate_free(b);
+}
+#else
+static void roundTrip(const gate *g) { (void)g; }
+#endif
+
 static void inv(const gate *g) {
     char err[160] = "";
 
@@ -171,6 +257,7 @@ static void inv(const gate *g) {
         gate_test_failures++;
         printf("  in %s: invariant broken: %s\n", gate_test_current, err);
     }
+    roundTrip(g);
 }
 
 /* The serving / candidate generation, or a blank stand-in when the gate
@@ -179,8 +266,9 @@ static void inv(const gate *g) {
 static gateRegion blank_regions[GATE_MAX_CLASSES * T];
 static int32_t blank_policy[GATE_MAX_CLASSES]; /* set in main() */
 static gateDrift blank_drift[GATE_MAX_CLASSES];
+static uint64_t blank_paired[GATE_MAX_CLASSES * T];
 static const gateGeneration blank = {
-    .regions = blank_regions, .policy = blank_policy, .drift = blank_drift
+    .regions = blank_regions, .policy = blank_policy, .drift = blank_drift, .paired = blank_paired
 };
 
 static const gateGeneration *servingOf(const gate *g) {
@@ -236,9 +324,31 @@ static uint32_t regionsOf(const gate *g, double score) {
     return n;
 }
 
-/* Spot checks until the drift alarm when their outcomes follow 'pattern'
- * ('x' wrong, '.' right), 0 if it does not fire: the detector of
- * gate_stats.h run by itself. */
+/* Log of the statistic of a block of the drift detector in which 'n' spot
+ * checks were asked and 'w' of them count against the gate: stat(n, w) of
+ * the file comment, for any alpha (SPEC.md section 5: likelihood ratios for
+ * 2x and 4x the error rate, at most halfway to 1, averaged). */
+static double driftStat(double alpha, uint64_t n, uint64_t w) {
+    double cap = 0.5 * (1.0 + alpha), l[2], hi, lo;
+    int k;
+
+    /* The log of each likelihood ratio, then the log of their average: a
+     * block of thousands of spot checks holds numbers like 3^2000. */
+    for (k = 0; k < 2; k++) {
+        double p1 = (k ? 4.0 : 2.0) * alpha;
+
+        if (p1 > cap) p1 = cap;
+        l[k] = (double)w * log(p1 / alpha) + (double)(n - w) * log((1.0 - p1) / (1.0 - alpha));
+    }
+    hi = l[0] > l[1] ? l[0] : l[1];
+    lo = l[0] > l[1] ? l[1] : l[0];
+    return hi + log((1.0 + exp(lo - hi)) / 2.0);
+}
+
+/* Spot checks until the alarm "got worse" when they are asked one after
+ * the other and 'pattern' says what becomes of each: 'x' its answer
+ * disagrees and arrives at once, '.' it agrees, 'o' it has no answer yet.
+ * 0 if the alarm is not raised: the detector of gate_stats.h by itself. */
 static uint32_t alarmAfter(double alpha, const char *pattern) {
     gateDriftBets bets;
     gateDrift d;
@@ -246,8 +356,31 @@ static uint32_t alarmAfter(double alpha, const char *pattern) {
 
     gateDriftBetsInit(&bets, alpha);
     gateDriftInit(&d);
-    for (i = 0; pattern[i]; i++)
-        if (gateDriftPush(&d, &bets, pattern[i] == 'x', log(GATE_DRIFT_ALARM))) return i + 1;
+    for (i = 0; pattern[i]; i++) {
+        uint64_t number = gateDriftAsk(&d);
+
+        if (pattern[i] == 'x' &&
+            gateDriftWrong(&d, &bets, number, log(GATE_DRIFT_ALARM), log(GATE_LOST_ALARM)) ==
+                GATE_DRIFT_ALARM_WORSE)
+            return i + 1;
+    }
+    return 0;
+}
+
+/* The same for lost answers and the alarm "cannot be checked": every spot
+ * check of 'asked' is asked first, then their answers are given up in the
+ * order they were asked. Which one raises it; 0 if none does. */
+static uint32_t lostAlarmAfter(double alpha, uint32_t asked) {
+    gateDriftBets bets;
+    gateDrift d;
+    uint32_t i;
+
+    gateDriftBetsInit(&bets, alpha);
+    gateDriftInit(&d);
+    for (i = 0; i < asked; i++) gateDriftAsk(&d);
+    for (i = 1; i <= asked; i++)
+        if (gateDriftLost(&d, &bets, i, log(GATE_LOST_ALARM)) == GATE_DRIFT_ALARM_UNCHECKED)
+            return i;
     return 0;
 }
 
@@ -458,6 +591,63 @@ static void expectRegions(const gate *g, const gateGeneration *gen, uint32_t row
     }
 }
 
+/* What the serving generation guessed for 'n' requests. */
+typedef struct servGuess {
+    int32_t label;
+    double score;
+    uint64_t n;
+} servGuess;
+
+/* The paired counts of a generation, entry by entry, by their definition:
+ * for every row and every threshold, how many of the listed requests the
+ * serving generation's own guess put in that row at or above that
+ * threshold. A label that is never answered is counted nowhere. */
+static void expectPaired(const gate *g, const gateGeneration *gen, const servGuess *guess,
+                         size_t nguess)
+{
+    uint32_t r, t;
+    size_t i;
+
+    for (r = 0; r < g->nrows; r++) {
+        for (t = 0; t < T; t++) {
+            uint64_t n = 0;
+
+            for (i = 0; i < nguess; i++)
+                if ((uint32_t)guess[i].label == r && gateRowTested(g, r) &&
+                    g->grid[t] <= guess[i].score)
+                    n += guess[i].n;
+            CHECK_EQ_INT(gen->paired[r * T + t], n);
+        }
+    }
+}
+
+/* A drift detector in whose first block of 64 everything so far happened
+ * (the blocks of 512 and of 4096 then hold the same): spot checks asked,
+ * disagreeing answers, and of the open block the disagreements and the
+ * answers given up. */
+static void expectDrift(const gateDrift *d, uint64_t asked, uint64_t errors, uint32_t wrong,
+                        uint32_t lost)
+{
+    int s;
+
+    CHECK(asked <= 64);
+    CHECK_EQ_INT(d->asked, asked);
+    CHECK_EQ_INT(d->errors, errors);
+    for (s = 0; s < GATE_DRIFT_SCALES; s++) {
+        CHECK_EQ_INT(d->wrong[s], wrong);
+        CHECK_EQ_INT(d->lost[s], lost);
+        CHECK_EQ_INT(gateDriftOpen(d, s), asked);
+    }
+}
+
+/* The spot check number of a waiting request, all ones if it is not
+ * waiting. */
+static uint64_t spotOf(const gate *g, uint64_t seq) {
+    const gateObs *o = gateFindObservation(g, seq);
+
+    return o ? o->spot : ~(uint64_t)0;
+}
+
 /* ------------------------------ Fingerprints -----------------------------
  * A hash of everything a gate holds, to state "nothing changed" and "these
  * two gates are in the same state" in one comparison. */
@@ -509,9 +699,9 @@ static uint64_t mixGeneration(uint64_t h, const gate *g, const gateGeneration *g
     h = mixDouble(h, gen->log_threshold);
     h = mix(h, gen->samples);
     h = mix(h, gen->errors);
-    h = mix(h, gen->paired);
     h = mix(h, gen->audits);
     h = mix(h, gen->audit_errors);
+    h = mix(h, gen->missed);
     h = mix(h, gen->budget);
     for (i = 0; i < g->nrows * T; i++) {
         const gateRegion *reg = &gen->regions[i];
@@ -520,12 +710,18 @@ static uint64_t mixGeneration(uint64_t h, const gate *g, const gateGeneration *g
         h = mix(h, reg->n);
         h = mix(h, reg->errors);
         h = mix(h, reg->certified_at);
+        h = mix(h, gen->paired[i]);
     }
     for (r = 0; r < g->nrows; r++) {
+        const gateDrift *d = &gen->drift[r];
+
         h = mix(h, (uint64_t)(int64_t)gen->policy[r]);
-        for (j = 0; j < GATE_DRIFT_ALTS; j++) h = mixDouble(h, gen->drift[r].logw[j]);
-        h = mix(h, gen->drift[r].n);
-        h = mix(h, gen->drift[r].errors);
+        h = mix(h, d->asked);
+        h = mix(h, d->errors);
+        for (j = 0; j < GATE_DRIFT_SCALES; j++) {
+            h = mix(h, d->wrong[j]);
+            h = mix(h, d->lost[j]);
+        }
     }
     return mixModel(h, &gen->model, skip);
 }
@@ -543,6 +739,7 @@ static uint64_t fingerprint(const gate *g, int skip) {
     h = mix(h, g->snapshot_updates);
     h = mix(h, (uint64_t)g->paused);
     h = mix(h, g->missing_run);
+    h = mix(h, g->answer_mark);
     h = mix(h, (uint64_t)g->blind);
     h = mix(h, g->next_seq);
     h = mix(h, g->npending);
@@ -563,6 +760,7 @@ static uint64_t fingerprint(const gate *g, int skip) {
         h = mix(h, o->cand_gen);
         h = mix(h, o->serv_gen);
         h = mix(h, (uint64_t)(int64_t)o->result);
+        h = mix(h, o->spot);
         h = mix(h, o->x.n);
         for (i = 0; i < o->x.n; i++) h = mix(h, o->x.idx[i]);
         h = mixFloats(h, o->x.val, o->x.n);
@@ -631,6 +829,7 @@ static uint64_t expectBytes(const gate *g) {
         if (gens[i] == NULL) continue;
         n += sizeof(gateGeneration) + model;
         n += (uint64_t)g->nrows * T * sizeof(gateRegion);
+        n += (uint64_t)g->nrows * T * sizeof(uint64_t); /* the paired counts */
         n += (uint64_t)g->nrows * (sizeof(int32_t) + sizeof(gateDrift));
     }
     for (o = g->oldest; o; o = o->next)
@@ -647,8 +846,21 @@ TEST(expected_numbers) {
     } table[] = {
         {0.2, 320.0, 0, 35},  {0.2, 320.0, 1, 47},  {0.2, 320.0, 2, 57},  {0.2, 320.0, 3, 68},
         {0.2, 640.0, 0, 39},  {0.2, 640.0, 1, 50},  {0.2, 640.0, 2, 61},  {0.2, 640.0, 3, 72},
+        {0.2, 640.0, 4, 82},  {0.2, 640.0, 5, 92},
         {0.2, 960.0, 0, 41},  {0.2, 960.0, 1, 52},  {0.2, 1920.0, 0, 44}, {0.2, 1920.0, 1, 56},
-        {0.2, 2880.0, 0, 46}, {0.2, 3840.0, 0, 48}, {0.2, 5760.0, 0, 50}, {0.1, 640.0, 0, 82}
+        {0.2, 2880.0, 0, 46}, {0.2, 3840.0, 0, 48}, {0.2, 5760.0, 0, 50}, {0.2, 20480.0, 0, 56},
+        {0.1, 640.0, 0, 82}
+    };
+    /* Blocks of the drift detector: spot checks asked, of which count
+     * against the gate, and the statistic (file comment; alpha 0.2). */
+    static const struct {
+        uint64_t n, w;
+        double stat;
+    } blocks[] = {
+        {1, 1, 2.5},       {2, 1, 1.5},        {6, 6, 396.5},     {7, 7, 1157.5},
+        {7, 6, 206.25},    {8, 7, 594.75},     {9, 8, 1736.25},   {11, 8, 464.0625},
+        {12, 9, 1338.1875}, {6, 2, 0.9140625}, {8, 8, 3408.5},    {20, 20, 1743916488.5},
+        {19, 19, 581392877.5}
     };
     size_t i;
 
@@ -680,17 +892,77 @@ TEST(expected_numbers) {
         CHECK(!gateRegionCertifies(&reg, log(table[i].target)));
         gateRegionUpdate(&reg, &bets, 0);
         CHECK(gateRegionCertifies(&reg, log(table[i].target)));
+        /* The k = 0 column is the proof a flawless threshold needs: what
+         * the budget of a snapshot is made of. */
+        if (table[i].k == 0)
+            CHECK_EQ_INT(gateBetsFlawless(&bets, log(table[i].target)), table[i].need);
     }
+
+    /* The drift detector: the formula against the values of the file
+     * comment, and the detector against the formula. */
+    for (i = 0; i < COUNTOF(blocks); i++) {
+        gateDriftBets bets;
+        gateDrift d;
+        uint64_t j;
+
+        CHECK_NEAR(exp(driftStat(0.2, blocks[i].n, blocks[i].w)) / blocks[i].stat, 1.0, 1e-12);
+        gateDriftBetsInit(&bets, 0.2);
+        gateDriftInit(&d);
+        for (j = 1; j <= blocks[i].n; j++) CHECK_EQ_INT(gateDriftAsk(&d), j);
+        /* The last 'w' of them disagree, whatever comes of that. */
+        for (j = blocks[i].n; j > blocks[i].n - blocks[i].w; j--)
+            (void)gateDriftWrong(&d, &bets, j, INFINITY, INFINITY);
+        CHECK_NEAR(gateDriftLogStat(&d, &bets, 0), log(blocks[i].stat), 1e-12);
+        CHECK_NEAR(gateDriftLogStat(&d, &bets, 1), log(blocks[i].stat), 1e-12);
+        CHECK_EQ_INT(d.errors, blocks[i].w);
+    }
+    /* Only disagreements, from a fresh block: the 7th (1157.5, six give
+     * 396.5). For an alpha of 0.1 and below a disagreement counts 2 and 4:
+     * the 6th ((64 + 4096) / 2 = 2080, five give 528). */
     CHECK_EQ_INT(alarmAfter(0.2, "xxxxxxxxxx"), 7);
-    /* 4 wrong: 16 and 81. 3 right: 6.75 and 10.125. Then wrong again: the
-     * average passes 1000 at the fifth (216 and 2460.4), not at the fourth
-     * (108 and 820.1). */
+    CHECK_EQ_INT(alarmAfter(0.1, "xxxxxxxxxx"), 6);
+    CHECK_EQ_INT(alarmAfter(0.05, "xxxxxxxxxx"), 6);
+    CHECK_EQ_INT(alarmAfter(0.2, "xxxxxx"), 0);
+    CHECK_EQ_INT(alarmAfter(0.05, "xxxxx"), 0);
+    /* Four disagree, three agree, then five more disagree: stat(12, 9) =
+     * 1338.2, where stat(11, 8) = 464.1. */
     CHECK_EQ_INT(alarmAfter(0.2, "xxxx...xxxxxxxx"), 12);
-    /* 6 wrong: 64 and 729 (396.5). Right: 48 and 364.5. Wrong: 96 and
-     * 1093.5 (594.75). Wrong: 192 and 3280.5. */
+    /* stat(8, 7) = 594.75, stat(9, 8) = 1736.25. */
     CHECK_EQ_INT(alarmAfter(0.2, "xxxxxx.xxx"), 9);
-    /* Right answers take the statistics below 1, where they start again. */
-    CHECK_EQ_INT(alarmAfter(0.2, "......xxxxxxxxx"), 13);
+    /* No restart inside a block: spot checks that agreed first are still
+     * in it. After six of them it takes eleven (stat(17, 11) = 1566,
+     * stat(16, 10) = 552), where a fresh block takes seven. A spot check
+     * without an answer counts like one that agreed. */
+    CHECK_EQ_INT(alarmAfter(0.2, "......xxxxxxxxxxxxx"), 17);
+    CHECK_EQ_INT(alarmAfter(0.2, "ooooooxxxxxxxxxxxxx"), 17);
+    CHECK_EQ_INT(alarmAfter(0.2, "oxxxxxxxxx"), 9);
+    CHECK_EQ_INT(alarmAfter(0.2, "ooxxxxxxxxxxx"), 11);
+    /* ... and it can take until the next block of 64: after 57 that agreed,
+     * the 7 that fill the block do not get it to 1000 (128 * 0.75^57 is
+     * 1e-5), and the block of 512 would need 35. The 7th of the next block
+     * of 64 does: the 14th disagreement, spot check 71. */
+    {
+        char pattern[79];
+
+        memset(pattern, '.', 57);
+        memset(pattern + 57, 'x', 21);
+        pattern[78] = '\0';
+        CHECK_EQ_INT(alarmAfter(0.2, pattern), 71);
+        CHECK(driftStat(0.2, 64, 7) < 0.0 && driftStat(0.2, 70, 13) < 0.0);
+    }
+    /* Lost answers: 20 in a fresh block; of 31 asked at once the 24th
+     * (stat(31, 24) = 1.10e9, stat(31, 23) = 1.8e8), of 32 the 25th
+     * (stat(32, 25) = 3.3e9, stat(32, 24) = 5.5e8). Small alphas: the 16th
+     * ((2^16 + 4^16) / 2 = 2.1e9; 15 give 5.4e8). */
+    CHECK_EQ_INT(lostAlarmAfter(0.2, 20), 20);
+    CHECK_EQ_INT(lostAlarmAfter(0.2, 19), 0);
+    CHECK_EQ_INT(lostAlarmAfter(0.2, 31), 24);
+    CHECK_EQ_INT(lostAlarmAfter(0.2, 32), 25);
+    CHECK_EQ_INT(lostAlarmAfter(0.1, 16), 16);
+    CHECK_EQ_INT(lostAlarmAfter(0.05, 16), 16);
+    CHECK_EQ_INT(lostAlarmAfter(0.05, 15), 0);
+    CHECK(driftStat(0.2, 31, 24) >= log(1e9) && driftStat(0.2, 31, 23) < log(1e9));
+    CHECK(driftStat(0.2, 32, 25) >= log(1e9) && driftStat(0.2, 32, 24) < log(1e9));
     /* A flip is the difference of the two increments: after (wrong, right,
      * right, flip) a region holds what three right answers give it. */
     {
@@ -758,6 +1030,13 @@ TEST(config_defaults) {
     CHECK_EQ_INT(GATE_MAX_WAITING, 16384);  /* answers waiting for an older answer */
     CHECK_EQ_INT(GATE_MISSING_RUN, 32);     /* answers missing in a row */
     CHECK(GATE_DRIFT_ALARM == 1000.0);
+    CHECK(GATE_LOST_ALARM == 1e9);          /* ... with lost answers counted in */
+    CHECK_EQ_INT(GATE_DRIFT_SCALES, 3);
+    CHECK(gateDriftBlocks[0] == 64 && gateDriftBlocks[1] == 512 && gateDriftBlocks[2] == 4096);
+    CHECK_EQ_INT(GATE_CANDIDATE_BUDGET_FACTOR, 10);
+    CHECK(GATE_COUNT_MAX == (uint64_t)1 << 62); /* no counter or number goes beyond */
+    CHECK(GATE_MAX_CLOCK_MS == INT64_MAX - 7ll * 86400 * 1000);
+    CHECK_EQ_INT(GATE_MAX_SNAPSHOT_EXAMPLES, 1000000000);
     CHECK_EQ_INT(TIMEOUT / GATE_GRACE_DIVISOR, GRACE);
 }
 
@@ -911,6 +1190,9 @@ TEST(config_validate) {
     ACCEPTED(c.audit = 1.0);
     REFUSED(c.snapshot_examples = 0);
     ACCEPTED(c.snapshot_examples = 1);
+    ACCEPTED(c.snapshot_examples = GATE_MAX_SNAPSHOT_EXAMPLES);
+    REFUSED(c.snapshot_examples = GATE_MAX_SNAPSHOT_EXAMPLES + 1);
+    REFUSED(c.snapshot_examples = UINT32_MAX);
     REFUSED(c.feedback_timeout_ms = 0);
     REFUSED(c.feedback_timeout_ms = -5);
     REFUSED(c.feedback_timeout_ms = GATE_MAX_FEEDBACK_TIMEOUT_MS + 1);
@@ -1245,7 +1527,9 @@ TEST(score_life) {
     CHECK_EQ_INT(servingOf(g)->audits, 2);
     CHECK_EQ_INT(servingOf(g)->audit_errors, 0);
     CHECK_EQ_INT(servingOf(g)->regions[T - 1].n, 1); /* 1.0 is in every region */
-    CHECK_EQ_INT(servingOf(g)->drift[0].n, 2);
+    /* The drift detector numbered the two spot checks of answers when they
+     * were asked; neither disagreed. */
+    expectDrift(&servingOf(g)->drift[0], 2, 0, 0, 0);
     CHECK_EQ_INT(g->stats.learned, 41);
     CHECK_EQ_INT(g->npending, 0);
     CHECK_EQ_INT(servingOf(g)->policy[0], 4);
@@ -1728,10 +2012,11 @@ TEST(classifier_life) {
     CHECK(candidateOf(g)->model.w != NULL && candidateOf(g)->model.w != g->trainer.w);
     /* Two tested labels, 32 thresholds each. */
     CHECK_NEAR(candidateOf(g)->log_threshold, log(640.0), 1e-12);
-    /* For each of the two tested labels, 10 times what the most demanding
-     * one needs with its best bet: the stricter label gains log(1.1) per
-     * answer, 6.461 / 0.0953 = 67.8. */
-    CHECK_EQ_INT(candidateOf(g)->budget, 2 * 10 * 68);
+    /* For each of the two tested labels, 10 times the proof a flawless
+     * threshold of the most demanding one needs: the stricter label takes
+     * 82 correct answers to 640 (file comment). */
+    CHECK_EQ_INT(candidateOf(g)->budget, 2 * 10 * 82);
+    CHECK_EQ_INT(candidateOf(g)->missed, 0);
 
     /* A request asked before the snapshot existed is not proof for it. */
     CHECK_EQ_INT(flagsOf(g, early[3].seq), 0);
@@ -1769,6 +2054,9 @@ TEST(classifier_life) {
     CHECK(gateState(g) == GATE_STATE_CALIBRATING);
     CHECK_EQ_INT(candidateOf(g)->samples, 38 + 20);
     CHECK_EQ_INT(candidateOf(g)->errors, 0);
+    /* Of the five requests for which it guessed label2, the teacher said
+     * label0 once: that one it could have been tested on. */
+    CHECK_EQ_INT(candidateOf(g)->missed, 1);
     for (t = 0; t < T; t++) {
         CHECK_EQ_INT(candidateOf(g)->regions[0 * T + t].n, t < regionsOf(g, sa) ? 38 : 0);
         CHECK_EQ_INT(candidateOf(g)->regions[1 * T + t].n, t < regionsOf(g, sb) ? 20 : 0);
@@ -1997,6 +2285,7 @@ static void sameProof(const gate *a, const gate *b) {
     CHECK_EQ_INT(a->npending, b->npending);
     CHECK_EQ_INT(a->nanswered, b->nanswered);
     CHECK_EQ_INT(a->missing_run, b->missing_run);
+    CHECK_EQ_INT(a->answer_mark, b->answer_mark);
     CHECK_EQ_INT(a->blind, b->blind);
     CHECK_EQ_INT(a->next_seq, b->next_seq);
     CHECK_EQ_INT(a->stats.promotions, b->stats.promotions);
@@ -2012,17 +2301,26 @@ static void sameProof(const gate *a, const gate *b) {
         CHECK_EQ_INT(ga[i]->promoted_ms, gb[i]->promoted_ms);
         CHECK_EQ_INT(ga[i]->samples, gb[i]->samples);
         CHECK_EQ_INT(ga[i]->errors, gb[i]->errors);
-        CHECK_EQ_INT(ga[i]->paired, gb[i]->paired);
+        CHECK_EQ_INT(ga[i]->missed, gb[i]->missed);
         CHECK_EQ_INT(ga[i]->audits, gb[i]->audits);
         CHECK_EQ_INT(ga[i]->audit_errors, gb[i]->audit_errors);
         CHECK(memcmp(ga[i]->policy, gb[i]->policy, sizeof(int32_t) * a->nrows) == 0);
         /* Wealth, counts and the sample at which each region crossed. */
         CHECK(memcmp(ga[i]->regions, gb[i]->regions, sizeof(gateRegion) * a->nrows * T) == 0);
+        CHECK(memcmp(ga[i]->paired, gb[i]->paired, sizeof(uint64_t) * a->nrows * T) == 0);
         /* The drift detector is no proof: it hears each answer the moment
-         * it arrives. It has heard the same answers, in another order. */
+         * it arrives. But a spot check has the number it was asked under,
+         * and a block is a product: the detector holds the same counts
+         * whatever the order in which the answers came. */
         for (r = 0; r < a->nrows; r++) {
-            CHECK_EQ_INT(ga[i]->drift[r].n, gb[i]->drift[r].n);
+            int s;
+
+            CHECK_EQ_INT(ga[i]->drift[r].asked, gb[i]->drift[r].asked);
             CHECK_EQ_INT(ga[i]->drift[r].errors, gb[i]->drift[r].errors);
+            for (s = 0; s < GATE_DRIFT_SCALES; s++) {
+                CHECK_EQ_INT(ga[i]->drift[r].wrong[s], gb[i]->drift[r].wrong[s]);
+                CHECK_EQ_INT(ga[i]->drift[r].lost[s], gb[i]->drift[r].lost[s]);
+            }
         }
     }
 }
@@ -2091,9 +2389,11 @@ TEST(answer_order_does_not_matter) {
         for (k = 0; k < 3; k++)
             answerBatch(g[k], k, now + GRACE - 1, seq[k], result, lost, N, &order_rng);
         /* The lost answers time out. Whatever the order was, the proof is
-         * the same down to the last bit. (In the broken phase the drift
-         * alarm is raised by the seventh wrong spot check to arrive, which
-         * is another request in each gate; what is left is the same.) */
+         * the same down to the last bit, and so is the drift detector. (In
+         * the broken phase the alarm is raised by the disagreement that
+         * takes a block to 1000, which is another request in each gate;
+         * that it is raised does not depend on the order, and what is left
+         * is the same.) */
         now += TIMEOUT;
         for (k = 0; k < 3; k++) {
             gateMaintain(g[k], now);
@@ -2175,8 +2475,9 @@ TEST(answer_order_does_not_matter_classifier) {
         CHECK_EQ_INT(g[0]->stats.missing, g[2]->stats.missing);
     }
     /* The phases must have gone through a first snapshot, then a better
-     * one, and lost answers; a drift alarm, which depends on the order of
-     * arrival, would have made the comparison meaningless. */
+     * one, and lost answers. (No drift alarm: it wipes the live model, and
+     * what the three then learn from the answers still to come, each in its
+     * own order, is no longer the same.) */
     CHECK(g[0]->stats.promotions >= 2);
     CHECK(g[0]->stats.missing >= 1);
     for (k = 0; k < 3; k++) {
@@ -2733,6 +3034,9 @@ TEST(late_answer_both_generations) {
     size_t c;
 
     for (c = 0; c < COUNTOF(cases); c++) {
+        /* What generation 1 guessed for the one request that is proof for
+         * generation 2. */
+        static const servGuess one = {0, 0.99, 1};
         gate *g = twoGenerations(t);
         uint32_t crow = (uint32_t)cases[c].cand_label;
         uint64_t kept_serv = (uint64_t)(1 - cases[c].back_serv);
@@ -2747,21 +3051,29 @@ TEST(late_answer_both_generations) {
         late = askGuess(g, t, U_SPOT, &ev, &XA);
         CHECK(late.action == GATE_ACTION_AUDIT);
         CHECK_EQ_INT(flagsOf(g, late.seq), both);
+        /* A spot check of an answer: the first of label0, numbered now. */
+        CHECK_EQ_INT(spotOf(g, late.seq), 1);
+        expectDrift(&servingOf(g)->drift[0], 1, 0, 0, 0);
         /* Proof for generation 1 only (label1 has no threshold yet, so
          * every request for it is; 0.8 is in the regions 0..4), answered
          * at once: it waits. */
         ev = guesses(g, 1, 0.8, 1, 0.8);
         held = askGuess(g, t, U_PLAIN, &ev, &XB);
         CHECK_EQ_INT(flagsOf(g, held.seq), GATE_OBS_SERV);
+        CHECK_EQ_INT(spotOf(g, held.seq), 0); /* nothing the gate would have answered */
         CHECK_EQ_INT(answer(g, t, held.seq, 1), 1);
         CHECK_EQ_INT(servingOf(g)->samples, 39);
+        expectPaired(g, candidateOf(g), NULL, 0);
 
         /* Proof moves on: a wrong guess for both generations, for now. */
         expectDue(g, t + GRACE);
         CHECK_EQ_INT(flagsOf(g, late.seq), both | GATE_OBS_PROVISIONAL);
         CHECK_EQ_INT(candidateOf(g)->samples, 1);
         CHECK_EQ_INT(candidateOf(g)->errors, 1);
-        CHECK_EQ_INT(candidateOf(g)->paired, 1);
+        /* Generation 1 put it at label0, 0.99: thresholds 0..19 of that row. */
+        expectPaired(g, candidateOf(g), &one, 1);
+        CHECK_EQ_INT(candidateOf(g)->paired[0 * T + 19], 1);
+        CHECK_EQ_INT(candidateOf(g)->paired[0 * T + 20], 0);
         expectRegions(g, candidateOf(g), crow, 0, 3, 1, 1);
         expectRegions(g, candidateOf(g), crow, 3, T, 0, 0);
         expectRegions(g, candidateOf(g), 1 - crow, 0, T, 0, 0);
@@ -2770,7 +3082,10 @@ TEST(late_answer_both_generations) {
         expectRegions(g, servingOf(g), 0, 0, 20, 40, 1);
         expectRegions(g, servingOf(g), 1, 0, 5, 1, 0);
         CHECK_EQ_INT(servingOf(g)->audits, 0); /* not an answered spot check yet */
-        CHECK_EQ_INT(servingOf(g)->drift[0].n, 0);
+        /* To the drift detector it is a spot check like any other without
+         * its answer: right until told otherwise. */
+        expectDrift(&servingOf(g)->drift[0], 1, 0, 0, 0);
+        expectDrift(&servingOf(g)->drift[1], 0, 0, 0, 0);
 
         /* The answer arrives. */
         CHECK_EQ_INT(answer(g, t + GRACE + 50, late.seq, cases[c].result), 1);
@@ -2778,7 +3093,7 @@ TEST(late_answer_both_generations) {
         CHECK_EQ_INT(g->npending, 0);
         CHECK_EQ_INT(candidateOf(g)->samples, 1);
         CHECK_EQ_INT(candidateOf(g)->errors, kept_cand);
-        CHECK_EQ_INT(candidateOf(g)->paired, 1);
+        expectPaired(g, candidateOf(g), &one, 1); /* a count of requests: right or wrong */
         expectRegions(g, candidateOf(g), crow, 0, 3, 1, kept_cand);
         expectRegions(g, candidateOf(g), crow, 3, T, 0, 0);
         CHECK_EQ_INT(servingOf(g)->samples, 41);
@@ -2786,12 +3101,17 @@ TEST(late_answer_both_generations) {
         expectRegions(g, servingOf(g), 0, 0, 20, 40, kept_serv);
         expectRegions(g, servingOf(g), 0, 20, T, 0, 0);
         expectRegions(g, servingOf(g), 1, 0, 5, 1, 0);
-        /* Now it is an answered spot check of generation 1. */
+        /* Now it is an answered spot check of generation 1, and a
+         * disagreement of spot check 1 of label0 if generation 1 was wrong. */
         CHECK_EQ_INT(servingOf(g)->audits, 1);
         CHECK_EQ_INT(servingOf(g)->audit_errors, kept_serv);
-        CHECK_EQ_INT(servingOf(g)->drift[0].n, 1);
-        CHECK_EQ_INT(servingOf(g)->drift[0].errors, kept_serv);
-        CHECK_EQ_INT(servingOf(g)->drift[1].n, 0);
+        expectDrift(&servingOf(g)->drift[0], 1, kept_serv, (uint32_t)kept_serv, 0);
+        expectDrift(&servingOf(g)->drift[1], 0, 0, 0, 0);
+        CHECK_NEAR(gateDriftLogStat(&servingOf(g)->drift[0], &g->drift_bets[0], 0),
+                   driftStat(ALPHA, 1, kept_serv), 1e-12);
+        /* The candidate's detectors are not in use. */
+        expectDrift(&candidateOf(g)->drift[0], 0, 0, 0, 0);
+        expectDrift(&candidateOf(g)->drift[1], 0, 0, 0, 0);
         CHECK(servingOf(g)->gen == 1 && candidateOf(g)->gen == 2);
         CHECK_EQ_INT(g->trainer.updates, 5 + 39 + 2);
         CHECK_EQ_INT(g->stats.missing, 0);
@@ -2857,12 +3177,22 @@ TEST(late_answer_after_promotion) {
     CHECK_EQ_INT(servingOf(g[0])->errors, 0);
     expectRegions(g[0], servingOf(g[0]), 0, 0, 20, N, 0);
     /* It was a spot check of an answer of generation 1, which is gone: no
-     * audit of generation 2. Generation 3 never counted it. */
+     * audit of generation 2, and the number it carried is nothing to the
+     * detectors of generation 2. Generation 3 never counted it. */
     CHECK_EQ_INT(servingOf(g[0])->audits, 0);
-    CHECK_EQ_INT(servingOf(g[0])->drift[0].n, 0);
+    expectDrift(&servingOf(g[0])->drift[0], 0, 0, 0, 0);
+    expectDrift(&servingOf(g[0])->drift[1], 0, 0, 0, 0);
     CHECK(candidateOf(g[0])->samples == 0 && candidateOf(g[0])->errors == 0);
     /* The counters of the answers in their turn; the proof is dated later. */
     sameCounts(g[0], servingOf(g[0]), servingOf(g[1]), wealthTol(N));
+    /* What generation 1 guessed for the requests of generation 2 was
+     * cleared at the takeover, and neither the 13 requests after it nor the
+     * late answer are requests of a snapshot under test. */
+    for (k = 0; k < 2; k++) {
+        expectPaired(g[k], servingOf(g[k]), NULL, 0);
+        CHECK(g[k]->candidate != NULL && candidateOf(g[k])->gen == 3);
+        expectPaired(g[k], candidateOf(g[k]), NULL, 0);
+    }
     gateFree(g[0]);
     gateFree(g[1]);
 }
@@ -2877,9 +3207,9 @@ TEST(late_answer_after_budget) {
     gateEval ev;
     uint32_t i;
 
-    /* Generation 2 may consume 760 answers (two labels, 10 x 38 each: 7.560 /
-     * 0.2029 = 37.3). */
-    CHECK_EQ_INT(candidateOf(g)->budget, 760);
+    /* Generation 2 may consume 880 answers (two labels, 10 x 44 each: a
+     * flawless threshold needs 44 correct answers to reach 1920). */
+    CHECK_EQ_INT(candidateOf(g)->budget, 880);
     ev = guesses(g, 0, 0.99, 0, 0.99);
     late = askGuess(g, t, U_SPOT, &ev, &XA);
     /* Spot checks on which generation 1 is right (label0) and generation 2
@@ -2891,63 +3221,71 @@ TEST(late_answer_after_budget) {
     expectDue(g, t + GRACE);
     CHECK_EQ_INT(candidateOf(g)->samples, 2);
     CHECK_EQ_INT(candidateOf(g)->errors, 2);
-    for (i = 3; i <= 760; i++) {
+    for (i = 3; i <= 880; i++) {
         ev = guesses(g, 0, 0.99, 1, 0.6);
         r = askGuess(g, t + GRACE, U_SPOT, &ev, &XA);
         CHECK(r.action == GATE_ACTION_AUDIT);
         CHECK_EQ_INT(answer(g, t + GRACE, r.seq, 0), 1);
-        /* At its 760th answer generation 2 is dropped; generation 3
+        /* At its 880th answer generation 2 is dropped; generation 3
          * follows at once. */
-        CHECK_EQ_INT(candidateOf(g)->gen, i < 760 ? 2 : 3);
+        CHECK_EQ_INT(candidateOf(g)->gen, i < 880 ? 2 : 3);
     }
     CHECK_EQ_INT(g->stats.retired, 1);
     CHECK_EQ_INT(g->generations, 3);
     CHECK_EQ_INT(candidateOf(g)->samples, 0);
+    CHECK_EQ_INT(candidateOf(g)->budget, 960); /* 10 x 48 each to reach 3840 */
+    expectPaired(g, candidateOf(g), NULL, 0);
     /* Generation 1 served all along: the open request as a wrong guess and
-     * 759 spot checks it got right. */
+     * 879 spot checks it got right. */
     CHECK_EQ_INT(servingOf(g)->gen, 1);
-    CHECK_EQ_INT(servingOf(g)->samples, 39 + 760);
+    CHECK_EQ_INT(servingOf(g)->samples, 39 + 880);
     CHECK_EQ_INT(servingOf(g)->errors, 1);
-    CHECK_EQ_INT(servingOf(g)->audits, 759);
-    expectRegions(g, servingOf(g), 0, 0, 20, 799, 1);
+    CHECK_EQ_INT(servingOf(g)->audits, 879);
+    expectRegions(g, servingOf(g), 0, 0, 20, 919, 1);
     CHECK_EQ_INT(flagsOf(g, late.seq), both | GATE_OBS_PROVISIONAL);
+    /* 880 spot checks of label0 were numbered, none disagreed. */
+    CHECK_EQ_INT(servingOf(g)->drift[0].asked, 880);
+    CHECK_EQ_INT(servingOf(g)->drift[0].errors, 0);
+    CHECK_EQ_INT(spotOf(g, late.seq), 1);
 
     /* Its answer: label0. Generation 2 was right too, but it is gone, and
      * generation 3 never counted this request: only generation 1 takes its
      * wrong guess back. */
     CHECK_EQ_INT(answer(g, t + GRACE + 50, late.seq, 0), 1);
     CHECK_EQ_INT(servingOf(g)->errors, 0);
-    expectRegions(g, servingOf(g), 0, 0, 20, 799, 0);
-    CHECK_EQ_INT(servingOf(g)->audits, 760);
+    expectRegions(g, servingOf(g), 0, 0, 20, 919, 0);
+    CHECK_EQ_INT(servingOf(g)->audits, 880);
     CHECK_EQ_INT(servingOf(g)->audit_errors, 0);
     CHECK(candidateOf(g)->gen == 3 && candidateOf(g)->samples == 0 && candidateOf(g)->errors == 0);
     for (i = 0; i < 2 * T; i++) CHECK_EQ_INT(candidateOf(g)->regions[i].n, 0);
+    expectPaired(g, candidateOf(g), NULL, 0);
+    CHECK_EQ_INT(candidateOf(g)->missed, 0);
     CHECK_EQ_INT(g->stats.retired, 1);
     CHECK_EQ_INT(g->npending, 0);
     gateFree(g);
 
-    /* Nothing serving: the first snapshot is dropped at its 640th answer.
+    /* Nothing serving: the first snapshot is dropped at its 780th answer.
      * The late answer has no generation left to tell; the model learns
      * from it all the same. */
-    g = trainedGate(700);
-    CHECK_EQ_INT(candidateOf(g)->budget, 640);
+    g = trainedGate(800);
+    CHECK_EQ_INT(candidateOf(g)->budget, 780);
     late = askText(g, t, U_PLAIN, &XA);
     r = askText(g, t, U_PLAIN, &XA);
     CHECK_EQ_INT(answer(g, t, r.seq, 1), 1);
     expectDue(g, t + GRACE);
     CHECK_EQ_INT(candidateOf(g)->samples, 2);
-    for (i = 3; i <= 640; i++) {
+    for (i = 3; i <= 780; i++) {
         r = askText(g, t + GRACE, U_PLAIN, &XA);
         CHECK_EQ_INT(answer(g, t + GRACE, r.seq, 1), 1);
-        CHECK_EQ_INT(g->candidate != NULL, i < 640);
+        CHECK_EQ_INT(g->candidate != NULL, i < 780);
     }
     CHECK(gateState(g) == GATE_STATE_COLD);
     CHECK_EQ_INT(g->stats.retired, 1);
     CHECK_EQ_INT(flagsOf(g, late.seq), GATE_OBS_CAND | GATE_OBS_PROVISIONAL);
-    CHECK_EQ_INT(g->trainer.updates, 700 + 639);
+    CHECK_EQ_INT(g->trainer.updates, 800 + 779);
     CHECK_EQ_INT(answer(g, t + GRACE + 50, late.seq, 0), 1);
-    CHECK_EQ_INT(g->trainer.updates, 700 + 640);
-    CHECK(g->candidate == NULL && g->serving == NULL); /* 60 examples short of the next one */
+    CHECK_EQ_INT(g->trainer.updates, 800 + 780);
+    CHECK(g->candidate == NULL && g->serving == NULL); /* 20 examples short of the next one */
     CHECK_EQ_INT(g->npending, 0);
     CHECK_EQ_INT(g->stats.dropped, 0);
     CHECK_EQ_INT(g->stats.missing, 0);
@@ -2969,13 +3307,19 @@ TEST(late_answer_after_drift_alarm) {
         expectDue(g, t + GRACE);
         CHECK_EQ_INT(flagsOf(g, late.seq), spot | GATE_OBS_PROVISIONAL);
         CHECK_EQ_INT(servingOf(g)->errors, 1);
-        /* Seven wrong spot checks: the alarm. Generation 1 is gone,
-         * generation 2 is under test. The open request is proof for
-         * nothing any more, but it still has its id. */
-        for (i = 1; i <= 7; i++) {
+        /* Wrong spot checks until the alarm. The block holds two that do
+         * not disagree (the open one, which counts as right to the drift
+         * detector whatever the proof made of it, and the one that was
+         * right): the ninth disagreement (stat(11, 9) = 2604.4; eight give
+         * 892.1). Generation 1 is gone, generation 2 is under test. The
+         * open request is proof for nothing any more, but it still has its
+         * id. */
+        CHECK_NEAR(exp(driftStat(ALPHA, 11, 9)), 2604.375, 1e-9);
+        CHECK_NEAR(exp(driftStat(ALPHA, 10, 8)), 892.125, 1e-9);
+        for (i = 1; i <= 9; i++) {
             r = ask(g, t + GRACE, U_SPOT, 0.9);
             CHECK_EQ_INT(answer(g, t + GRACE, r.seq, 0), 1);
-            CHECK_EQ_INT(g->serving != NULL, i < 7);
+            CHECK_EQ_INT(g->serving != NULL, i < 9);
         }
         CHECK(g->candidate != NULL && candidateOf(g)->gen == 2);
         CHECK_EQ_INT(g->stats.revocations, 1);
@@ -2985,7 +3329,7 @@ TEST(late_answer_after_drift_alarm) {
         if (answered) {
             /* Its answer is used, and changes no proof. */
             CHECK_EQ_INT(answer(g, t + GRACE + 50, late.seq, 1), 1);
-            CHECK_EQ_INT(g->stats.learned, 35 + 1 + 7 + 1);
+            CHECK_EQ_INT(g->stats.learned, 35 + 1 + 9 + 1);
             CHECK_EQ_INT(g->stats.dropped, 0);
         } else {
             /* Without one it is forgotten when its time is up. That is not
@@ -3078,7 +3422,10 @@ TEST(late_answer_wrong) {
 
 /* The drift detector hears a spot check the moment its answer arrives. It
  * is an alarm, not proof: it does not wait for the answers of older
- * requests, and one open spot check cannot hide the failed ones behind it. */
+ * requests, and one open spot check cannot hide the failed ones behind it.
+ * What it makes of the answers does not depend on when they arrive: a spot
+ * check has the number it was asked under and counts as right until its
+ * answer says otherwise. */
 TEST(drift_hears_answers_as_they_arrive) {
     const uint32_t spot = GATE_OBS_AUDIT | GATE_OBS_WOULD_ACCEPT | GATE_OBS_SERV;
     int64_t t = T0;
@@ -3087,34 +3434,35 @@ TEST(drift_hears_answers_as_they_arrive) {
     uint32_t i;
     int right;
 
-    /* The detector by itself: six wrong spot checks leave it at (64 + 729)
-     * / 2 = 396.5 whether or not a right one came before them (the
-     * statistics restart at 1); a right one after them takes it to (48 +
-     * 364.5) / 2 = 206.25, a wrong one to the alarm. */
-    CHECK_EQ_INT(alarmAfter(ALPHA, ".xxxxxx"), 0);
-    CHECK_EQ_INT(alarmAfter(ALPHA, "xxxxxx."), 0);
-    CHECK_EQ_INT(alarmAfter(ALPHA, "xxxxxxx"), 7);
+    /* The detector by itself (file comment): with a spot check in the
+     * block that has no answer, seven disagreements leave it at stat(8, 7)
+     * = 594.75 and the eighth raises the alarm. */
+    CHECK_EQ_INT(alarmAfter(ALPHA, "oxxxxxxx"), 0);
+    CHECK_EQ_INT(alarmAfter(ALPHA, "oxxxxxxxx"), 9);
 
-    /* Six wrong spot checks behind an open one. As proof they wait for it;
-     * the detector has heard each of them. */
-    for (i = 1; i <= 6; i++) {
+    /* Seven wrong spot checks behind an open one. As proof they wait for
+     * it; the detector has heard each of them, under its number. */
+    CHECK_EQ_INT(spotOf(g, open.seq), 1);
+    for (i = 1; i <= 7; i++) {
         r = ask(g, t, U_SPOT, 0.9);
+        CHECK_EQ_INT(spotOf(g, r.seq), i + 1);
         CHECK_EQ_INT(answer(g, t, r.seq, 0), 1);
         CHECK_EQ_INT(flagsOf(g, r.seq), spot | GATE_OBS_RESOLVED);
         CHECK_EQ_INT(servingOf(g)->audits, i);
         CHECK_EQ_INT(servingOf(g)->audit_errors, i);
-        CHECK_EQ_INT(servingOf(g)->drift[0].n, i);
-        CHECK_EQ_INT(servingOf(g)->drift[0].errors, i);
+        expectDrift(&servingOf(g)->drift[0], i + 1, i, i, 0);
+        CHECK_NEAR(gateDriftLogStat(&servingOf(g)->drift[0], &g->drift_bets[0], 0),
+                   driftStat(ALPHA, i + 1, i), 1e-12);
     }
     CHECK_EQ_INT(servingOf(g)->samples, 35);
     CHECK_EQ_INT(servingOf(g)->errors, 0);
-    CHECK_EQ_INT(g->nanswered, 6);
-    CHECK_NEAR(gateDriftLogStat(&servingOf(g)->drift[0]), log(396.5), 1e-12);
+    CHECK_EQ_INT(g->nanswered, 7);
+    CHECK_NEAR(gateDriftLogStat(&servingOf(g)->drift[0], &g->drift_bets[0], 0), log(594.75), 1e-12);
     CHECK(ask(g, t, U_PLAIN, 0.9).action == GATE_ACTION_ACCEPT);
-    /* The seventh raises the alarm, with all seven still waiting for their
-     * turn as proof. Everything that waited was proof for the generation
-     * that is gone: the answered ones are done with, the open one is
-     * forgotten. */
+    /* The eighth raises the alarm (stat(9, 8) = 1736.25), with all eight
+     * still waiting for their turn as proof. Everything that waited was
+     * proof for the generation that is gone: the answered ones are done
+     * with, the open one is forgotten. */
     r = ask(g, t, U_SPOT, 0.9);
     CHECK_EQ_INT(answer(g, t, r.seq, 0), 1);
     CHECK(g->serving == NULL);
@@ -3123,13 +3471,18 @@ TEST(drift_hears_answers_as_they_arrive) {
     CHECK_EQ_INT(g->npending, 0);
     CHECK_EQ_INT(g->nanswered, 0);
     CHECK_EQ_INT(g->stats.dropped, 1);
-    CHECK_EQ_INT(g->stats.learned, 35 + 7);
+    CHECK_EQ_INT(g->stats.learned, 35 + 8);
+    CHECK_EQ_INT(g->blind, 0);
     CHECK_EQ_INT(answer(g, t, open.seq, 1), 0);
     CHECK(ask(g, t, U_PLAIN, 0.9).action == GATE_ACTION_ABSTAIN);
     gateFree(g);
 
-    /* The order of arrival, not of the requests: the late answer of a spot
-     * check that was asked before six wrong ones is heard after them. */
+    /* When an answer arrives does not matter. A spot check asked before
+     * six wrong ones is answered after them, and after proof has moved on
+     * without it. Until then the detector holds stat(7, 6) = 206.25, as if
+     * it had been right. If that is what its answer says, nothing changes.
+     * If it disagrees too, it is the seventh of seven, stat(7, 7) = 1157.5:
+     * the alarm, as if the answer had come first. */
     for (right = 0; right < 2; right++) {
         g = activeScoreGate(t);
         late = ask(g, t, U_SPOT, 0.9);
@@ -3145,22 +3498,24 @@ TEST(drift_hears_answers_as_they_arrive) {
         CHECK_EQ_INT(servingOf(g)->errors, 7);
         CHECK_EQ_INT(servingOf(g)->audits, 6);
         CHECK_EQ_INT(servingOf(g)->audit_errors, 6);
-        CHECK_EQ_INT(servingOf(g)->drift[0].n, 6);
-        CHECK_NEAR(gateDriftLogStat(&servingOf(g)->drift[0]), log(396.5), 1e-12);
+        expectDrift(&servingOf(g)->drift[0], 7, 6, 6, 0);
+        CHECK_NEAR(gateDriftLogStat(&servingOf(g)->drift[0], &g->drift_bets[0], 0), log(206.25),
+                   1e-12);
+        CHECK_NEAR(gateDriftLogStat(&servingOf(g)->drift[0], &g->drift_bets[0], 1), log(206.25),
+                   1e-12);
+        CHECK_EQ_INT(spotOf(g, late.seq), 1);
         CHECK_EQ_INT(answer(g, t + GRACE + 50, late.seq, right), 1);
         if (right) {
-            /* Heard where its request stood in line, before the six, it
-             * would have left the detector at 396.5. */
             CHECK(g->serving != NULL);
             CHECK_EQ_INT(servingOf(g)->errors, 6);
             CHECK_EQ_INT(servingOf(g)->audits, 7);
             CHECK_EQ_INT(servingOf(g)->audit_errors, 6);
-            CHECK_EQ_INT(servingOf(g)->drift[0].n, 7);
-            CHECK_EQ_INT(servingOf(g)->drift[0].errors, 6);
-            CHECK_NEAR(gateDriftLogStat(&servingOf(g)->drift[0]), log(206.25), 1e-12);
+            expectDrift(&servingOf(g)->drift[0], 7, 6, 6, 0);
+            CHECK_NEAR(gateDriftLogStat(&servingOf(g)->drift[0], &g->drift_bets[0], 0),
+                       log(206.25), 1e-12);
             CHECK_EQ_INT(g->stats.revocations, 0);
         } else {
-            /* The seventh wrong spot check. */
+            /* The seventh wrong spot check of seven. */
             CHECK(g->serving == NULL);
             CHECK_EQ_INT(g->stats.revocations, 1);
             CHECK(g->candidate != NULL && candidateOf(g)->gen == 2);
@@ -3176,12 +3531,13 @@ TEST(drift_hears_answers_as_they_arrive) {
     CHECK_EQ_INT(answer(g, t, r.seq, 0), 1);
     CHECK_EQ_INT(servingOf(g)->audits, 1);
     CHECK_EQ_INT(servingOf(g)->samples, 35);
+    expectDrift(&servingOf(g)->drift[0], 2, 1, 1, 0);
     CHECK_EQ_INT(answer(g, t, open.seq, 1), 1);
     CHECK_EQ_INT(servingOf(g)->samples, 37);
     CHECK_EQ_INT(servingOf(g)->errors, 1);
     CHECK_EQ_INT(servingOf(g)->audits, 2);
     CHECK_EQ_INT(servingOf(g)->audit_errors, 1);
-    CHECK_EQ_INT(servingOf(g)->drift[0].n, 2);
+    expectDrift(&servingOf(g)->drift[0], 2, 1, 1, 0);
     gateFree(g);
 }
 
@@ -3255,7 +3611,15 @@ TEST(late_answer_triggers_a_promotion) {
         CHECK(servingOf(g)->gen == 1 && candidateOf(g)->gen == 2);
         CHECK_EQ_INT(candidateOf(g)->samples, 44);
         CHECK_EQ_INT(candidateOf(g)->errors, 1);
-        CHECK_EQ_INT(candidateOf(g)->paired, would ? 44 : 0);
+        /* Where generation 1 put the 44: at label0, 0.99, inside its policy
+         * (it answers label0 from 0.5), or at label1, 0.8, where it has no
+         * threshold at all. */
+        {
+            servGuess where = {would ? 0 : 1, would ? 0.99 : 0.8, 44};
+
+            expectPaired(g, candidateOf(g), &where, 1);
+            CHECK_EQ_INT(candidateOf(g)->paired[(would ? 0 : 1) * T + 0], 44);
+        }
         CHECK_EQ_INT(candidateOf(g)->policy[0], -1);
         /* The late answer makes it 44 correct ones: the thresholds 0..19
          * of generation 2 are proven by it. */
@@ -3271,6 +3635,7 @@ TEST(late_answer_triggers_a_promotion) {
             CHECK_EQ_INT(servingOf(g)->policy[0], 0);
             CHECK_EQ_INT(servingOf(g)->regions[0].certified_at, 44);
             CHECK_EQ_INT(servingOf(g)->audits, 0);
+            expectPaired(g, servingOf(g), NULL, 0); /* zeroed when it took over */
             CHECK(g->candidate != NULL && candidateOf(g)->gen == 3);
         } else {
             /* Generation 1 answered the same 44: level is not more.
@@ -3310,12 +3675,15 @@ TEST(timeouts_end_once) {
     CHECK_EQ_INT(candidateOf(g)->errors, 1);
 
     /* The feedback timeout of the request proof moved on without: it was
-     * counted as a wrong guess already, now it is a missing answer. Once. */
+     * counted as a wrong guess already, now it is a missing answer. Once.
+     * An answer arrived after it was asked (that is why proof moved on):
+     * a lost answer, which is no part of a run of missing ones. */
     expectIdle(g, t + TIMEOUT - 1);
     expectDue(g, t + TIMEOUT);
     CHECK(gateFindObservation(g, passed.seq) == NULL);
     CHECK_EQ_INT(g->stats.missing, 1);
-    CHECK_EQ_INT(g->missing_run, 1);
+    CHECK_EQ_INT(g->answer_mark, 3);
+    CHECK_EQ_INT(g->missing_run, 0);
     CHECK_EQ_INT(candidateOf(g)->samples, 2);
     CHECK_EQ_INT(candidateOf(g)->errors, 1);
     expectRegions(g, candidateOf(g), 0, 0, 12, 2, 1);
@@ -3323,11 +3691,12 @@ TEST(timeouts_end_once) {
     CHECK_EQ_INT(candidateOf(g)->errors, 1);
 
     /* The feedback timeout of the head of the queue: a wrong guess and a
-     * missing answer at the same moment. Once. */
+     * missing answer at the same moment. Once. No answer has arrived since
+     * this one was asked: the first of a run. */
     expectIdle(g, t + 400 + TIMEOUT - 1);
     expectDue(g, t + 400 + TIMEOUT);
     CHECK_EQ_INT(g->stats.missing, 2);
-    CHECK_EQ_INT(g->missing_run, 2);
+    CHECK_EQ_INT(g->missing_run, 1);
     CHECK_EQ_INT(candidateOf(g)->samples, 3);
     CHECK_EQ_INT(candidateOf(g)->errors, 2);
     expectRegions(g, candidateOf(g), 0, 0, 12, 3, 2);
@@ -3397,8 +3766,9 @@ static void sameRegions(const gate *a, const gate *b) {
 
 /* A missing answer is a wrong guess to the proof, exactly: a gate whose
  * teacher never answers some requests holds, bit for bit, the regions of a
- * gate whose teacher answers them all wrong. It is nothing to the drift
- * detector, which only sees the spot checks that were answered. */
+ * gate whose teacher answers them all wrong. To the drift detector it is
+ * not a disagreement: a lost spot check is counted apart, in the statistic
+ * that says "cannot be checked", and never in the one that says "worse". */
 TEST(missing_is_an_error_for_the_proof_only) {
     gate *wrong = scoreGate(), *lost = scoreGate(), *g[2];
     gatePredictResult r[2][40];
@@ -3429,8 +3799,12 @@ TEST(missing_is_an_error_for_the_proof_only) {
     CHECK_EQ_INT(candidateOf(lost)->errors, 2);
     CHECK_EQ_INT(lost->stats.missing, 2);
     CHECK_EQ_INT(wrong->stats.missing, 0);
-    CHECK_EQ_INT(lost->missing_run, 2);
+    /* Lost answers, not the beginning of an outage: 38 answers arrived
+     * after the two requests were asked. */
+    CHECK_EQ_INT(lost->missing_run, 0);
     CHECK_EQ_INT(wrong->missing_run, 0);
+    CHECK_EQ_INT(lost->answer_mark, 41);
+    CHECK_EQ_INT(wrong->answer_mark, 41);
 
     /* With two wrong answers the proof takes 57 correct ones: 19 more. */
     for (k = 0; k < 2; k++) {
@@ -3468,25 +3842,42 @@ TEST(missing_is_an_error_for_the_proof_only) {
     CHECK_EQ_INT(servingOf(lost)->samples, 59 + 6);
     CHECK_EQ_INT(servingOf(lost)->errors, 4);
     CHECK_EQ_INT(lost->stats.missing, 4);
-    /* ...but the detector of 'lost' has seen four spot checks, all right,
-     * where that of 'wrong' has seen six, two of them wrong. */
+    /* ...but four answered spot checks, all right, where 'wrong' has six,
+     * two of them wrong. Both detectors numbered six spot checks. That of
+     * 'wrong' holds two disagreements: stat(6, 2) = 0.914 in both of its
+     * statistics. That of 'lost' holds none and two lost answers: it is at
+     * stat(6, 0) = (0.75^6 + 0.5^6) / 2 = 0.0968 for "worse" and at 0.914
+     * for "cannot be checked". */
     CHECK_EQ_INT(servingOf(wrong)->audits, 6);
     CHECK_EQ_INT(servingOf(wrong)->audit_errors, 2);
-    CHECK_EQ_INT(servingOf(wrong)->drift[0].n, 6);
-    CHECK_EQ_INT(servingOf(wrong)->drift[0].errors, 2);
+    expectDrift(&servingOf(wrong)->drift[0], 6, 2, 2, 0);
+    CHECK_NEAR(gateDriftLogStat(&servingOf(wrong)->drift[0], &wrong->drift_bets[0], 0),
+               log(0.9140625), 1e-12);
+    CHECK_NEAR(gateDriftLogStat(&servingOf(wrong)->drift[0], &wrong->drift_bets[0], 1),
+               log(0.9140625), 1e-12);
     CHECK_EQ_INT(servingOf(lost)->audits, 4);
     CHECK_EQ_INT(servingOf(lost)->audit_errors, 0);
-    CHECK_EQ_INT(servingOf(lost)->drift[0].n, 4);
-    CHECK_EQ_INT(servingOf(lost)->drift[0].errors, 0);
+    expectDrift(&servingOf(lost)->drift[0], 6, 0, 0, 2);
+    CHECK_NEAR(gateDriftLogStat(&servingOf(lost)->drift[0], &lost->drift_bets[0], 0),
+               log((0.177978515625 + 0.015625) / 2.0), 1e-12);
+    CHECK_NEAR(gateDriftLogStat(&servingOf(lost)->drift[0], &lost->drift_bets[0], 1),
+               log(0.9140625), 1e-12);
+    CHECK(wrong->blind == 0 && lost->blind == 0);
+    /* The two lost spot checks had seen answers arrive since they were
+     * asked (those of the four others): lost answers, not a run. */
+    CHECK_EQ_INT(lost->missing_run, 0);
     gateFree(wrong);
     gateFree(lost);
 }
 
 /* ----------------------------------- Blind -------------------------------
- * When 32 pieces of evidence in a row end without an answer and no answer
- * of any request is used in between, the gate cannot check itself: it
- * drops both generations, keeps its model, and takes no snapshot until an
- * answer arrives. */
+ * When 32 pieces of evidence in a row end without an answer, and no answer
+ * of any request has arrived since the first of them was asked, the gate
+ * cannot check itself: it drops both generations, keeps its model, and
+ * takes no snapshot until an answer arrives. The gate remembers the request
+ * number that was next when the last answer was used (answer_mark): a
+ * request below it has seen an answer arrive, and if it ends unanswered it
+ * is a lost answer, not part of an outage. */
 
 /* 'n' requests of a score gate that must be recorded and that nobody
  * answers, and their feedback timeout. Returns the time after it. */
@@ -3501,15 +3892,17 @@ static int64_t loseAnswers(gate *g, int64_t now, uint32_t n, double u) {
 
 TEST(blind_run) {
     gate *g = scoreGate();
-    gatePredictResult head, r;
+    gatePredictResult head, r, late;
     int64_t t = T0;
     gateEval ev;
     uint32_t i;
+    int answered;
 
     /* 31 answers missing in a row: one short. */
     t = loseAnswers(g, t, 31, U_PLAIN);
     CHECK_EQ_INT(g->stats.missing, 31);
     CHECK_EQ_INT(g->missing_run, 31);
+    CHECK_EQ_INT(g->answer_mark, 0); /* no answer has ever been used */
     CHECK_EQ_INT(g->blind, 0);
     CHECK(g->candidate != NULL && candidateOf(g)->samples == 31 && candidateOf(g)->errors == 31);
     /* An answer that is not used does not end the run... */
@@ -3517,26 +3910,37 @@ TEST(blind_run) {
     CHECK_EQ_INT(gateLearn(g, t, EPOCH + 1, 1, 1), 0);
     CHECK_EQ_INT(gateLearn(g, t, EPOCH, 1, 1), 0); /* a request whose time was up */
     CHECK_EQ_INT(g->missing_run, 31);
+    CHECK_EQ_INT(g->answer_mark, 0);
     /* ...one that is used does, at once: this one still waits for its turn
-     * behind an open request. */
+     * behind an open request. Every request asked so far has now seen an
+     * answer arrive. */
     head = ask(g, t, U_PLAIN, 0.9);
     r = ask(g, t, U_PLAIN, 0.9);
+    CHECK(head.seq == 32 && r.seq == 33);
     CHECK_EQ_INT(answer(g, t, r.seq, 1), 1);
     CHECK_EQ_INT(flagsOf(g, r.seq), GATE_OBS_CAND | GATE_OBS_RESOLVED);
     CHECK_EQ_INT(g->missing_run, 0);
-    /* The open request and 30 more: 31 in a row again. */
+    CHECK_EQ_INT(g->answer_mark, 34);
+    /* The open request and 30 more end without an answer. The open one was
+     * asked before that answer arrived: a lost answer. It is a missing
+     * answer and a wrong guess like the others, but the run is the 30. */
     t = loseAnswers(g, t, 30, U_PLAIN);
     CHECK_EQ_INT(g->stats.missing, 62);
-    CHECK_EQ_INT(g->missing_run, 31);
+    CHECK_EQ_INT(g->missing_run, 30);
     CHECK_EQ_INT(g->blind, 0);
     CHECK(g->candidate != NULL && candidateOf(g)->samples == 63 && candidateOf(g)->errors == 62);
     CHECK(gateFindObservation(g, head.seq) == NULL);
-    /* The 32nd: the gate is blind. Nothing was serving, so nothing was
-     * revoked; the generation number is not handed back. */
+    /* The 31st, and the 32nd: the gate is blind. Nothing was serving, so
+     * nothing was revoked; the generation number is not handed back. */
     t = loseAnswers(g, t, 1, U_PLAIN);
     CHECK_EQ_INT(g->stats.missing, 63);
+    CHECK_EQ_INT(g->missing_run, 31);
+    CHECK_EQ_INT(g->blind, 0);
+    t = loseAnswers(g, t, 1, U_PLAIN);
+    CHECK_EQ_INT(g->stats.missing, 64);
     CHECK_EQ_INT(g->blind, 1);
     CHECK_EQ_INT(g->missing_run, 0);
+    CHECK_EQ_INT(g->answer_mark, 34);
     CHECK(g->candidate == NULL && g->serving == NULL);
     CHECK(gateState(g) == GATE_STATE_COLD);
     CHECK_EQ_INT(g->stats.revocations, 0);
@@ -3544,27 +3948,51 @@ TEST(blind_run) {
     CHECK_EQ_INT(g->generations, 1);
     gateFree(g);
 
-    /* The run is also ended by the late answer of a request that proof has
-     * moved on without, whatever it says... */
-    g = scoreGate();
-    t = T0;
-    for (i = 0; i < 5; i++) ask(g, t, U_PLAIN, 0.9);
-    head = ask(g, t + 500, U_PLAIN, 0.9);
-    r = ask(g, t + 500, U_PLAIN, 0.9);
-    CHECK_EQ_INT(answer(g, t + 500, r.seq, 1), 1);
-    expectDue(g, t + 500 + GRACE);
-    CHECK_EQ_INT(flagsOf(g, head.seq), GATE_OBS_CAND | GATE_OBS_PROVISIONAL);
-    expectDue(g, t + TIMEOUT);
-    CHECK_EQ_INT(g->stats.missing, 5);
-    CHECK_EQ_INT(g->missing_run, 5);
-    CHECK_EQ_INT(answer(g, t + TIMEOUT + 100, head.seq, 0), 1);
-    CHECK_EQ_INT(g->missing_run, 0);
-    gateFree(g);
+    /* An answer says that the feedback path works, whichever request it is
+     * for, whenever it comes and whatever it says. Here it is the late
+     * answer of a request that proof has moved on without. 32 requests were
+     * asked before it arrived and none of them gets an answer: with it they
+     * are lost answers, and the gate goes on; without it they are a run of
+     * 32, and the gate is blind. */
+    for (answered = 0; answered < 2; answered++) {
+        g = scoreGate();
+        t = T0;
+        late = ask(g, t, U_PLAIN, 0.9);
+        r = ask(g, t, U_PLAIN, 0.9);
+        CHECK_EQ_INT(answer(g, t, r.seq, 1), 1);
+        CHECK_EQ_INT(g->answer_mark, 3);
+        for (i = 0; i < 32; i++) CHECK(ask(g, t + 1, U_PLAIN, 0.9).seq != 0);
+        expectDue(g, t + GRACE);
+        CHECK_EQ_INT(flagsOf(g, late.seq), GATE_OBS_CAND | GATE_OBS_PROVISIONAL);
+        if (answered) {
+            CHECK_EQ_INT(answer(g, t + 900, late.seq, 0), 1);
+            CHECK_EQ_INT(g->answer_mark, 35);
+        }
+        /* The time of the late request is up, if it is still there: it had
+         * seen an answer arrive (the one proof moved on for). */
+        gateMaintain(g, t + TIMEOUT);
+        inv(g);
+        CHECK_EQ_INT(g->stats.missing, answered ? 0 : 1);
+        CHECK_EQ_INT(g->missing_run, 0);
+        CHECK_EQ_INT(g->blind, 0);
+        /* The time of the 32 is up. */
+        gateMaintain(g, t + 1 + TIMEOUT);
+        inv(g);
+        CHECK_EQ_INT(g->stats.missing, answered ? 32 : 33);
+        CHECK_EQ_INT(g->missing_run, 0);
+        CHECK_EQ_INT(g->blind, !answered);
+        CHECK_EQ_INT(g->candidate != NULL, answered);
+        CHECK_EQ_INT(g->npending, 0);
+        if (answered) CHECK(candidateOf(g)->samples == 34 && candidateOf(g)->errors == 33);
+        gateFree(g);
+    }
 
-    /* ...and by the answer of a request that is no proof at all (here: a
-     * guess of generation 1 below its threshold, kept for training). */
+    /* The run is also ended by the answer of a request that is no proof at
+     * all (here: a guess of generation 1 below its threshold, kept for
+     * training). */
     g = twoGenerations(T0);
     t = T0;
+    CHECK_EQ_INT(g->answer_mark, 40); /* 39 requests, each answered at once */
     for (i = 0; i < 3; i++) {
         ev = guesses(g, 0, 0.99, 0, 0.99);
         CHECK(askGuess(g, t, U_SPOT, &ev, &XA).action == GATE_ACTION_AUDIT);
@@ -3578,25 +4006,39 @@ TEST(blind_run) {
     CHECK_EQ_INT(flagsOf(g, r.seq), 0);
     CHECK_EQ_INT(answer(g, t + TIMEOUT, r.seq, 0), 1);
     CHECK_EQ_INT(g->missing_run, 0);
+    CHECK_EQ_INT(g->answer_mark, r.seq + 1);
     gateFree(g);
 }
 
 TEST(blind_score_gate) {
     int64_t t = T0;
-    gate *g = activeScoreGate(t);
+    gate *g = scoreGate();
     gatePredictResult r, r2;
     const gateObs *o;
     uint32_t i;
 
-    /* 32 spot checks that nobody answers. The gate goes on answering until
-     * the time of the 32nd is up... */
-    for (i = 0; i < 32; i++) CHECK(ask(g, t, U_SPOT, 0.9).action == GATE_ACTION_AUDIT);
+    /* A gate that answers from the threshold 0.55: a wrong answer at 0.5
+     * leaves the four thresholds below it unproven. */
+    feed(g, t, U_PLAIN, 0.5, 0);
+    for (i = 0; i < 35; i++) feed(g, t, U_PLAIN, 0.9, 1);
+    CHECK(g->serving != NULL && servingOf(g)->policy[0] == 4);
+
+    /* 32 requests under that threshold which the draw makes proof for the
+     * thresholds below, and nobody answers them. They are not spot checks
+     * of answers: the drift detector does not number them (what lost spot
+     * checks do to it is in drift_lost_spot_checks). The gate goes on
+     * answering until the time of the 32nd is up... */
+    for (i = 0; i < 32; i++) {
+        r = ask(g, t, U_SPOT, 0.5);
+        CHECK(r.action == GATE_ACTION_ABSTAIN && r.seq != 0);
+        CHECK_EQ_INT(flagsOf(g, r.seq), GATE_OBS_AUDIT | GATE_OBS_SERV);
+        CHECK_EQ_INT(spotOf(g, r.seq), 0);
+    }
+    expectDrift(&servingOf(g)->drift[0], 0, 0, 0, 0);
     CHECK(ask(g, t + TIMEOUT - 1, U_PLAIN, 0.9).action == GATE_ACTION_ACCEPT);
     CHECK(gateState(g) == GATE_STATE_ACTIVE);
     expectDue(g, t + TIMEOUT);
-    /* ...then it is blind: it stops, and that is a revocation. The spot
-     * checks were wrong guesses to the proof and nothing to the drift
-     * detector, which would have fired at the seventh. */
+    /* ...then it is blind: it stops, and that is a revocation. */
     CHECK_EQ_INT(g->blind, 1);
     CHECK_EQ_INT(g->missing_run, 0);
     CHECK(g->serving == NULL && g->candidate == NULL);
@@ -3666,12 +4108,13 @@ TEST(blind_score_gate) {
     gateFree(g);
 }
 
-/* A run of missing spot checks must not wipe the model of a classifier:
+/* A run of missing answers must not wipe the model of a classifier:
  * missing answers say nothing about it. */
 TEST(blind_classifier) {
     int64_t t = T0;
     gate *g = trainedGate(12);
     gatePredictResult r;
+    gateEval ev;
     uint64_t weights;
     uint32_t i;
 
@@ -3681,10 +4124,17 @@ TEST(blind_classifier) {
     CHECK_EQ_INT(g->trainer.updates, 51);
     weights = mixModel(0, &g->trainer, 0);
 
-    /* 31 spot checks of answers that nobody answers. Seven wrong ones
-     * would be a drift alarm and the end of the model; missing ones are
-     * wrong guesses to the proof of both generations and nothing else. */
-    for (i = 0; i < 31; i++) CHECK(askText(g, t, U_SPOT, &XA).action == GATE_ACTION_AUDIT);
+    /* 31 requests for label1, which generation 1 does not answer yet, so
+     * that every one of them is proof for it; nobody answers them. Wrong
+     * answers would teach the model something; missing ones are wrong
+     * guesses to the proof and nothing else. (They are not spot checks of
+     * answers: see drift_lost_spot_checks for those.) */
+    for (i = 0; i < 31; i++) {
+        ev = guesses(g, 1, 0.8, 1, 0.8);
+        r = askGuess(g, t, U_PLAIN, &ev, &XB);
+        CHECK(r.action == GATE_ACTION_ABSTAIN);
+        CHECK_EQ_INT(flagsOf(g, r.seq), GATE_OBS_SERV);
+    }
     expectDue(g, t + TIMEOUT);
     CHECK(g->serving != NULL && g->candidate != NULL);
     CHECK_EQ_INT(g->stats.missing, 31);
@@ -3693,10 +4143,10 @@ TEST(blind_classifier) {
     CHECK_EQ_INT(servingOf(g)->errors, 31);
     CHECK_EQ_INT(servingOf(g)->audits, 0);
     CHECK_EQ_INT(servingOf(g)->audit_errors, 0);
-    CHECK_EQ_INT(servingOf(g)->drift[0].n, 0);
-    CHECK(gateDriftLogStat(&servingOf(g)->drift[0]) == 0.0);
-    CHECK_EQ_INT(candidateOf(g)->samples, 31);
-    CHECK_EQ_INT(candidateOf(g)->errors, 31);
+    expectDrift(&servingOf(g)->drift[0], 0, 0, 0, 0);
+    expectDrift(&servingOf(g)->drift[1], 0, 0, 0, 0);
+    CHECK(gateDriftLogStat(&servingOf(g)->drift[1], &g->drift_bets[1], 1) == 0.0);
+    CHECK_EQ_INT(candidateOf(g)->samples, 0);
     CHECK_EQ_INT(g->stats.revocations, 0);
     CHECK_EQ_INT(g->trainer.updates, 51);
     CHECK(mixModel(0, &g->trainer, 0) == weights);
@@ -3705,7 +4155,8 @@ TEST(blind_classifier) {
 
     /* The 32nd in a row: blind. Both generations go; the model stays, bit
      * for bit. */
-    CHECK(askText(g, t, U_SPOT, &XA).action == GATE_ACTION_AUDIT);
+    ev = guesses(g, 1, 0.8, 1, 0.8);
+    CHECK(askGuess(g, t, U_PLAIN, &ev, &XB).seq != 0);
     expectDue(g, t + TIMEOUT);
     t += TIMEOUT;
     CHECK_EQ_INT(g->blind, 1);
@@ -3903,17 +4354,25 @@ TEST(drift_alarm_clears_the_run) {
     gatePredictResult r;
     uint32_t i;
 
-    /* 31 spot checks that nobody answers: the gate still serves. */
-    t = loseAnswers(g, t, 31, U_SPOT);
-    CHECK(g->serving != NULL && g->missing_run == 31 && g->stats.missing == 31);
+    /* Five spot checks that nobody answers: the gate still serves, with a
+     * run of five. To the drift detector they are lost answers: for
+     * "cannot be checked" the block is at stat(5, 5) = (32 + 243) / 2. */
+    t = loseAnswers(g, t, 5, U_SPOT);
+    CHECK(g->serving != NULL && g->missing_run == 5 && g->stats.missing == 5);
     CHECK_EQ_INT(servingOf(g)->audits, 0);
-    /* Seven wrong spot checks: the alarm. (An answer that is used ends
-     * the run by itself.) */
-    for (i = 1; i <= 7; i++) {
+    expectDrift(&servingOf(g)->drift[0], 5, 0, 0, 5);
+    CHECK_NEAR(gateDriftLogStat(&servingOf(g)->drift[0], &g->drift_bets[0], 1), log(137.5), 1e-12);
+    /* Wrong spot checks until the alarm. For "worse" the five lost ones
+     * count as right: the tenth disagreement (stat(15, 10) = 1044.1; nine
+     * give 368.3). "Cannot be checked" is far: stat(15, 15) = 7.2e6. (An
+     * answer that is used ends the run by itself.) */
+    CHECK_NEAR(exp(driftStat(ALPHA, 15, 10)), 1044.140625, 1e-9);
+    CHECK_NEAR(exp(driftStat(ALPHA, 14, 9)), 368.296875, 1e-9);
+    for (i = 1; i <= 10; i++) {
         r = ask(g, t, U_SPOT, 0.9);
         CHECK_EQ_INT(answer(g, t, r.seq, 0), 1);
         CHECK_EQ_INT(g->missing_run, 0);
-        CHECK_EQ_INT(g->serving != NULL, i < 7);
+        CHECK_EQ_INT(g->serving != NULL, i < 10);
     }
     CHECK(g->candidate != NULL && candidateOf(g)->gen == 2);
     CHECK_EQ_INT(g->stats.revocations, 1);
@@ -3926,53 +4385,116 @@ TEST(drift_alarm_clears_the_run) {
     gateFree(g);
 }
 
-/* The feedback timeouts of 32 requests proof had moved on without, and of
- * a queue head behind them. The 32nd makes the gate blind and drops the
- * generation; the head is then proof for nothing: it is forgotten
- * (dropped), it is not a missing answer, and no new run of missing answers
- * starts with it. That must not depend on whether the two timeouts are
- * seen by one call of gateMaintain() or by two. */
+/* The feedback timeouts of 33 requests none of which was answered. The
+ * 32nd makes the gate blind and drops the generation; the 33rd is then
+ * proof for nothing: it is forgotten (dropped), it is not a missing answer,
+ * and no new run of missing answers starts with it. 32 missing answers,
+ * never 33: whether the last timeout is seen by the call that sees the
+ * others or by a later one, and whichever function makes those calls. */
 TEST(blind_then_queue_head) {
+    enum { MAINTAIN, PREDICT, LEARN, PAUSE, TRAIN, HOWS };
     int64_t t = T0;
-    int classifier, calls;
+    int classifier, calls, how, step;
 
     for (classifier = 0; classifier < 2; classifier++) {
         for (calls = 1; calls <= 2; calls++) {
-            gate *g = classifier ? trainedGate(12) : scoreGate();
-            gatePredictResult r;
-            uint32_t i;
+            for (how = 0; how < HOWS; how++) {
+                gatePredictResult r;
+                uint32_t i;
+                gate *g;
 
-            for (i = 0; i < 32; i++) {
-                r = classifier ? askText(g, t, U_PLAIN, &XA) : ask(g, t, U_PLAIN, 0.9);
-                CHECK(r.seq != 0);
+                if (how == TRAIN && !classifier) continue;
+                g = classifier ? trainedGate(12) : scoreGate();
+                for (i = 0; i < 32; i++) {
+                    r = classifier ? askText(g, t, U_PLAIN, &XA) : ask(g, t, U_PLAIN, 0.9);
+                    CHECK(r.seq != 0);
+                }
+                /* The 33rd: a millisecond younger when its time is to be
+                 * up in a call of its own. */
+                r = classifier ? askText(g, t + calls - 1, U_PLAIN, &XA)
+                               : ask(g, t + calls - 1, U_PLAIN, 0.9);
+                CHECK_EQ_INT(flagsOf(g, r.seq), GATE_OBS_CAND);
+                CHECK_EQ_INT(g->npending, 33);
+                CHECK_EQ_INT(g->nevidence, 33);
+                for (step = 0; step < calls; step++) {
+                    int64_t now = t + TIMEOUT + step;
+
+                    switch (how) {
+                    case MAINTAIN: gateMaintain(g, now); break;
+                    case PREDICT: /* recorded: the gate is blind by then */
+                        if (classifier) askText(g, now, U_PLAIN, &XA); else ask(g, now, U_PLAIN, 0.9);
+                        break;
+                    case LEARN: CHECK_EQ_INT(gateLearn(g, now, EPOCH, 1, 0), 0); break;
+                    case PAUSE:
+                        gatePause(g, now);
+                        gateResume(g, now);
+                        break;
+                    default: train(g, now, &XB, 1); break;
+                    }
+                    inv(g);
+                    CHECK_EQ_INT(g->blind, 1);
+                    CHECK(g->candidate == NULL && g->serving == NULL);
+                    CHECK_EQ_INT(g->stats.missing, 32);
+                    CHECK_EQ_INT(g->missing_run, 0);
+                    /* A classifier keeps the 33rd for its label until its
+                     * own time is up. */
+                    CHECK_EQ_INT(g->stats.dropped, !(classifier && calls == 2 && step == 0));
+                }
+                CHECK_EQ_INT(g->stats.dropped, 1);
+                CHECK_EQ_INT(g->npending, how == PREDICT ? calls : 0);
+                CHECK_EQ_INT(g->nevidence, 0);
+                CHECK_EQ_INT(g->stats.revocations, 0);
+                CHECK_EQ_INT(g->generations, 1);
+                CHECK_EQ_INT(answer(g, t + TIMEOUT + 2, r.seq, classifier ? 0 : 1), 0);
+                gateFree(g);
             }
-            r = classifier ? askText(g, t, U_PLAIN, &XA) : ask(g, t, U_PLAIN, 0.9);
-            CHECK_EQ_INT(answer(g, t, r.seq, classifier ? 0 : 1), 1);
-            /* The head: a millisecond younger when its time is to be up in
-             * a call of its own. */
-            r = classifier ? askText(g, t + calls - 1, U_PLAIN, &XA)
-                           : ask(g, t + calls - 1, U_PLAIN, 0.9);
-            CHECK(r.seq != 0);
-            expectDue(g, t + GRACE);
-            CHECK_EQ_INT(candidateOf(g)->samples, 33);
-            CHECK_EQ_INT(candidateOf(g)->errors, 32);
-            CHECK_EQ_INT(flagsOf(g, r.seq), GATE_OBS_CAND);
-            CHECK_EQ_INT(g->npending, 33);
-            gateMaintain(g, t + TIMEOUT);
-            inv(g);
-            if (calls == 2) {
-                CHECK_EQ_INT(g->blind, 1);
-                gateMaintain(g, t + TIMEOUT + 1);
-                inv(g);
-            }
-            CHECK_EQ_INT(g->blind, 1);
-            CHECK(g->candidate == NULL);
-            CHECK_EQ_INT(g->stats.missing, 32);
-            CHECK_EQ_INT(g->stats.dropped, 1);
-            CHECK_EQ_INT(g->missing_run, 0);
-            CHECK_EQ_INT(g->npending, 0);
-            gateFree(g);
         }
+    }
+
+    /* The same when it is the drift detector that stops the gate, at the
+     * timeout of a spot check that proof had moved on without. 24 spot
+     * checks: 22 without an answer, one answered at once (which is why
+     * proof moves on without the 22), one more without an answer, which
+     * stays at the head of the queue. The 22nd lost answer takes the block
+     * to stat(24, 22) = 3.9e9 (21 give 6.5e8): the gate cannot be checked
+     * any more. 22 missing answers, never 23, and none of them part of a
+     * run: each had seen an answer arrive. */
+    CHECK(driftStat(ALPHA, 24, 22) >= log(1e9) && driftStat(ALPHA, 24, 21) < log(1e9));
+    for (calls = 1; calls <= 2; calls++) {
+        gate *g = activeScoreGate(t);
+        gatePredictResult a, head;
+        uint32_t i;
+
+        for (i = 0; i < 22; i++) CHECK(ask(g, t, U_SPOT, 0.9).action == GATE_ACTION_AUDIT);
+        a = ask(g, t, U_SPOT, 0.9);
+        CHECK_EQ_INT(answer(g, t, a.seq, 1), 1);
+        head = ask(g, t + calls - 1, U_SPOT, 0.9);
+        CHECK_EQ_INT(spotOf(g, head.seq), 24);
+        expectDue(g, t + GRACE);
+        CHECK_EQ_INT(g->npending, 23);
+        CHECK_EQ_INT(g->nevidence, 1);
+        CHECK(g->ehead != NULL && g->ehead->seq == head.seq);
+        CHECK_EQ_INT(servingOf(g)->errors, 22);
+        CHECK_EQ_INT(servingOf(g)->audits, 1);
+        expectDrift(&servingOf(g)->drift[0], 24, 0, 0, 0);
+        gateMaintain(g, t + TIMEOUT);
+        inv(g);
+        CHECK_EQ_INT(g->blind, 1);
+        if (calls == 2) {
+            CHECK_EQ_INT(g->stats.missing, 22);
+            gateMaintain(g, t + TIMEOUT + 1);
+            inv(g);
+        }
+        CHECK_EQ_INT(g->blind, 1);
+        CHECK(g->serving == NULL && g->candidate == NULL);
+        CHECK_EQ_INT(g->stats.revocations, 1);
+        CHECK_EQ_INT(g->stats.missing, 22);
+        CHECK_EQ_INT(g->stats.dropped, 1);
+        CHECK_EQ_INT(g->missing_run, 0);
+        CHECK_EQ_INT(g->npending, 0);
+        CHECK_EQ_INT(g->generations, 1);
+        CHECK_EQ_INT(answer(g, t + TIMEOUT + 1, head.seq, 1), 0);
+        gateFree(g);
     }
 }
 
@@ -4021,18 +4543,23 @@ TEST(policy_is_lowest_proven) {
         if (gen == NULL) die("out of memory");
 
         /* An empty generation: no proof, no policy, nothing frozen. */
-        CHECK(gen->gen == 0 && gen->samples == 0 && gen->errors == 0 && gen->paired == 0 &&
+        CHECK(gen->gen == 0 && gen->samples == 0 && gen->errors == 0 && gen->missed == 0 &&
               gen->audits == 0 && gen->audit_errors == 0 && gen->budget == 0 &&
               gen->frozen_ms == 0 && gen->promoted_ms == 0 && gen->model.w == NULL);
+        CHECK(gen->paired != NULL);
         for (i = 0; i < rows * T; i++) {
             const gateRegion *reg = &gen->regions[i];
 
             CHECK(reg->n == 0 && reg->errors == 0 && reg->certified_at == 0 &&
                   gateRegionLogWealth(reg) == 0.0);
+            CHECK_EQ_INT(gen->paired[i], 0);
         }
-        for (r = 0; r < rows; r++)
-            CHECK(gen->policy[r] == -1 && gen->drift[r].n == 0 &&
-                  gateDriftLogStat(&gen->drift[r]) == 0.0);
+        for (r = 0; r < rows; r++) {
+            CHECK_EQ_INT(gen->policy[r], -1);
+            expectDrift(&gen->drift[r], 0, 0, 0, 0);
+            CHECK(gateDriftLogStat(&gen->drift[r], &g->drift_bets[r], 0) == 0.0);
+            CHECK(gateDriftLogStat(&gen->drift[r], &g->drift_bets[r], 1) == 0.0);
+        }
 
         CHECK_EQ_INT(policyOf(g, gen, 0, 0), -1);
         CHECK_EQ_INT(policyOf(g, gen, 0, B(31)), 31);
@@ -4183,7 +4710,9 @@ TEST(every_threshold_on_its_own) {
 
 /* A guess of a label that is never answered (ALWAYSDEFER) proves nothing:
  * the request is not proof for the generation that made the guess, and the
- * guess is counted nowhere. */
+ * guess is counted in no region. (What it does count as, for a candidate,
+ * is a request it could have been tested on, if the teacher's label is one
+ * the gate may answer: see missed_requests.) */
 TEST(guess_of_a_deferred_label_is_no_proof) {
     const uint32_t spot = GATE_OBS_AUDIT | GATE_OBS_WOULD_ACCEPT | GATE_OBS_SERV;
     gatePredictResult r, late, held;
@@ -4207,12 +4736,14 @@ TEST(guess_of_a_deferred_label_is_no_proof) {
     CHECK(r.action == GATE_ACTION_ABSTAIN && r.seq != 0);
     CHECK_EQ_INT(flagsOf(g, r.seq), 0);
     CHECK_EQ_INT(answer(g, t, r.seq, 2), 1);
+    CHECK_EQ_INT(candidateOf(g)->missed, 0); /* the teacher said label2 too */
     r = askGuess(g, t, U_SPOT, &ev, &XC);
     CHECK_EQ_INT(flagsOf(g, r.seq), GATE_OBS_AUDIT);
     CHECK_EQ_INT(g->nevidence, 0);
     CHECK_EQ_INT(answer(g, t, r.seq, 0), 1);
     CHECK_EQ_INT(candidateOf(g)->samples, 0);
     CHECK_EQ_INT(candidateOf(g)->errors, 0);
+    CHECK_EQ_INT(candidateOf(g)->missed, 1); /* label0: it could have been tested on this one */
     CHECK_EQ_INT(g->trainer.updates, 7);
 
     /* Generation 1 comes to answer label0 (39 correct guesses);
@@ -4235,7 +4766,8 @@ TEST(guess_of_a_deferred_label_is_no_proof) {
     CHECK_EQ_INT(answer(g, t, r.seq, 0), 1);
     CHECK_EQ_INT(servingOf(g)->samples, 40);
     CHECK_EQ_INT(candidateOf(g)->samples, 0);
-    CHECK_EQ_INT(candidateOf(g)->paired, 0);
+    expectPaired(g, candidateOf(g), NULL, 0); /* not one of its proof requests */
+    CHECK_EQ_INT(candidateOf(g)->missed, 1);
     /* The other way round: generation 1 says label2, which it never
      * answers, so this is no spot check of an answer; generation 2 says
      * label0. Proof for generation 2 only. */
@@ -4243,10 +4775,14 @@ TEST(guess_of_a_deferred_label_is_no_proof) {
     r = askGuess(g, t, U_SPOT, &ev, &XA);
     CHECK(r.action == GATE_ACTION_ABSTAIN);
     CHECK_EQ_INT(flagsOf(g, r.seq), GATE_OBS_AUDIT | GATE_OBS_CAND);
+    CHECK_EQ_INT(spotOf(g, r.seq), 0);
     CHECK_EQ_INT(answer(g, t, r.seq, 0), 1);
     CHECK_EQ_INT(servingOf(g)->samples, 40);
     CHECK_EQ_INT(servingOf(g)->audits, 1);
     CHECK_EQ_INT(candidateOf(g)->samples, 1);
+    /* Where generation 1 put that request is a label it never answers: it
+     * is counted in no row of the paired counts. */
+    expectPaired(g, candidateOf(g), NULL, 0);
     /* Without the spot check it is proof for nothing: kept for training. */
     r = askGuess(g, t, U_PLAIN, &ev, &XA);
     CHECK(r.action == GATE_ACTION_ABSTAIN && r.seq != 0);
@@ -4281,6 +4817,15 @@ TEST(guess_of_a_deferred_label_is_no_proof) {
     for (i = 0; i < T; i++)
         CHECK_EQ_INT(candidateOf(g)->regions[2 * T + i].n + servingOf(g)->regions[2 * T + i].n, 0);
     CHECK(candidateOf(g)->gen == 2 && servingOf(g)->gen == 1);
+    /* Of the two proof requests of generation 2, generation 1 put one at
+     * label0, 0.99 (the other at label2). Two spot checks for which it
+     * guessed label2 were answered label0. */
+    {
+        static const servGuess one = {0, 0.99, 1};
+
+        expectPaired(g, candidateOf(g), &one, 1);
+    }
+    CHECK_EQ_INT(candidateOf(g)->missed, 2);
     gateFree(g);
 }
 
@@ -4314,23 +4859,34 @@ TEST(bar_per_generation) {
 
     /* Classifier: tested labels times 32 thresholds. A recovery keeps the
      * model, so each one freezes the next generation at once. The budget
-     * of a candidate is, for each tested label, 10 times ceil(bar /
-     * log(1.225)). */
+     * of a candidate is, for each tested label, 10 times the proof a
+     * flawless threshold needs: the correct answers in a row that take the
+     * average of the four bets to the bar (file comment). */
     g = classGate(3, 3);
     CHECK_NEAR(gateBudgetSpentNow(g), 0.0, 0.0);
     for (i = 0; i < 3; i++) train(g, now, &XA, 0);
     CHECK_EQ_INT(candidateOf(g)->gen, 1);
     CHECK_NEAR(candidateOf(g)->log_threshold, log(2.0 * 96.0 / 0.2), 1e-12);
-    CHECK_EQ_INT(candidateOf(g)->budget, 3 * 10 * 34); /* 6.867 / 0.2029 = 33.8 */
+    CHECK_EQ_INT(candidateOf(g)->budget, 3 * 10 * 41); /* 41 to reach 960 */
     gateRecover(g, now, EPOCH2);
     CHECK_EQ_INT(candidateOf(g)->gen, 2);
     CHECK_NEAR(candidateOf(g)->log_threshold, log(6.0 * 96.0 / 0.2), 1e-12);
-    CHECK_EQ_INT(candidateOf(g)->budget, 3 * 10 * 40); /* 7.966 / 0.2029 = 39.3 */
+    CHECK_EQ_INT(candidateOf(g)->budget, 3 * 10 * 46); /* 46 to reach 2880 */
     gateRecover(g, now, EPOCH3);
     CHECK_EQ_INT(candidateOf(g)->gen, 3);
     CHECK_NEAR(candidateOf(g)->log_threshold, log(12.0 * 96.0 / 0.2), 1e-12);
-    CHECK_EQ_INT(candidateOf(g)->budget, 3 * 10 * 43); /* 8.659 / 0.2029 = 42.7 */
+    CHECK_EQ_INT(candidateOf(g)->budget, 3 * 10 * 50); /* 50 to reach 5760 */
     inv(g);
+    gateFree(g);
+
+    /* Two labels: 39 to reach 640, 44 to reach 1920, 48 to reach 3840. */
+    g = classGate(2, 3);
+    for (i = 0; i < 3; i++) train(g, now, &XA, 0);
+    CHECK_EQ_INT(candidateOf(g)->budget, 780);
+    gateRecover(g, now, EPOCH2);
+    CHECK_EQ_INT(candidateOf(g)->budget, 880);
+    gateRecover(g, now, EPOCH3);
+    CHECK_EQ_INT(candidateOf(g)->budget, 960);
     gateFree(g);
 
     /* An ALWAYSDEFER label is not tested and takes no share. */
@@ -4339,16 +4895,49 @@ TEST(bar_per_generation) {
     g = create(&cfg);
     for (i = 0; i < 3; i++) train(g, now, &XA, 0);
     CHECK_NEAR(candidateOf(g)->log_threshold, log(2.0 * 64.0 / 0.2), 1e-12);
-    CHECK_EQ_INT(candidateOf(g)->budget, 2 * 10 * 32); /* 6.461 / 0.2029 = 31.8 */
+    CHECK_EQ_INT(candidateOf(g)->budget, 2 * 10 * 39);
     gateFree(g);
+
+    /* A stricter label decides: for an error rate of 0.1 it takes 82
+     * correct answers to reach 640 (39 for 0.2), whichever label it is. */
+    classConfig(&cfg, 3, 3);
+    cfg.class_defer[0] = 1;
+    cfg.class_alpha[2] = 0.1;
+    g = create(&cfg);
+    for (i = 0; i < 3; i++) train(g, now, &XA, 0);
+    CHECK_EQ_INT(candidateOf(g)->budget, 2 * 10 * 82);
+    gateFree(g);
+    /* ... unless it is never answered. */
+    classConfig(&cfg, 3, 3);
+    cfg.class_defer[2] = 1;
+    cfg.class_alpha[2] = 0.1;
+    g = create(&cfg);
+    for (i = 0; i < 3; i++) train(g, now, &XA, 0);
+    CHECK_EQ_INT(candidateOf(g)->budget, 2 * 10 * 39);
+    gateFree(g);
+    /* With three tested labels the wealth to reach is 960: 87 correct
+     * answers for an error rate of 0.1 (41 for 0.2), and it is the first,
+     * the second or the third label that is the strict one. */
+    CHECK_EQ_INT(needCorrect(0.1, log(960.0), 0), 87);
+    for (i = 0; i < 3; i++) {
+        uint32_t k;
+
+        classConfig(&cfg, 3, 3);
+        cfg.class_alpha[i] = 0.1;
+        g = create(&cfg);
+        for (k = 0; k < 3; k++) train(g, now, &XA, 0);
+        CHECK_EQ_INT(candidateOf(g)->budget, 3 * 10 * 87);
+        gateFree(g);
+    }
 
     /* Many labels: each gets its share, so that a snapshot whose proof is
      * spread evenly over 64 labels is not dropped before any of them can
-     * finish. 64 x 32 thresholds: the wealth to reach is 20480. */
+     * finish. 64 x 32 thresholds: the wealth to reach is 20480, which
+     * takes 56 correct answers. */
     g = classGate(64, 3);
     for (i = 0; i < 3; i++) train(g, now, &XA, 0);
     CHECK_NEAR(candidateOf(g)->log_threshold, log(20480.0), 1e-12);
-    CHECK_EQ_INT(candidateOf(g)->budget, 64 * 10 * 49); /* 9.927 / 0.2029 = 48.9 */
+    CHECK_EQ_INT(candidateOf(g)->budget, 64 * 10 * 56);
     gateFree(g);
     /* One tested label of three: like a score gate's bar, one share. */
     classConfig(&cfg, 3, 3);
@@ -4356,13 +4945,16 @@ TEST(bar_per_generation) {
     g = create(&cfg);
     for (i = 0; i < 3; i++) train(g, now, &XA, 0);
     CHECK_NEAR(candidateOf(g)->log_threshold, log(320.0), 1e-12);
-    CHECK_EQ_INT(candidateOf(g)->budget, 1 * 10 * 29); /* 5.768 / 0.2029 = 28.4 */
+    CHECK_EQ_INT(candidateOf(g)->budget, 1 * 10 * 35);
     gateFree(g);
 }
 
 /* -------------------------------- Replacing ------------------------------ */
 
 TEST(replacing_needs_more_accepts) {
+    /* What generation 1 guessed for the proof requests of generation 2, as
+     * they come in below. */
+    static const servGuess seen[] = {{0, 0.99, 44}, {0, 0.99, 1}, {0, 0.6, 1}};
     gate *g = classGate(2, 5);
     gatePredictResult r, late;
     int64_t now = T0;
@@ -4370,7 +4962,7 @@ TEST(replacing_needs_more_accepts) {
     uint32_t i;
 
     for (i = 0; i < 5; i++) train(g, now, &XA, 0);
-    CHECK_EQ_INT(candidateOf(g)->budget, 2 * 10 * 32); /* 6.461 / 0.2029 = 31.8 */
+    CHECK_EQ_INT(candidateOf(g)->budget, 2 * 10 * 39); /* 39 correct answers reach 640 */
 
     /* Generation 1 guesses label0. Ten wrong guesses at 0.6 put its
      * thresholds 0 and 1 out of reach; 39 correct ones at 0.99 prove the
@@ -4395,7 +4987,8 @@ TEST(replacing_needs_more_accepts) {
      * taken in the same breath. */
     CHECK(g->candidate != NULL && candidateOf(g)->gen == 2);
     CHECK_NEAR(candidateOf(g)->log_threshold, log(1920.0), 1e-12);
-    CHECK_EQ_INT(candidateOf(g)->budget, 2 * 10 * 38); /* 7.560 / 0.2029 = 37.3 */
+    CHECK_EQ_INT(candidateOf(g)->budget, 2 * 10 * 44); /* 44 correct answers reach 1920 */
+    expectPaired(g, candidateOf(g), NULL, 0);
 
     /* 44 spot checks that both generations would answer, all correct.
      * Generation 2 now has proven thresholds of its own (from 0.5), but it
@@ -4407,7 +5000,10 @@ TEST(replacing_needs_more_accepts) {
         CHECK_EQ_INT(answer(g, now, r.seq, 0), 1);
         CHECK_EQ_INT(candidateOf(g)->policy[0], i < 44 ? -1 : 0);
     }
-    CHECK_EQ_INT(candidateOf(g)->paired, 44);
+    /* The paired counts: 44 at the thresholds 0..19 of label0 (0.99 is at
+     * or above those), and generation 1 answers label0 from threshold 2. */
+    expectPaired(g, candidateOf(g), seen, 1);
+    CHECK_EQ_INT(candidateOf(g)->paired[0 * T + 2], 44);
     CHECK_EQ_INT(candidateOf(g)->regions[0].n, 44);
     CHECK(servingOf(g)->gen == 1 && candidateOf(g)->gen == 2);
 
@@ -4416,16 +5012,21 @@ TEST(replacing_needs_more_accepts) {
     ev = guesses(g, 0, 0.99, 1, 0.7);
     r = askGuess(g, now, U_SPOT, &ev, &XA);
     CHECK_EQ_INT(answer(g, now, r.seq, 1), 1);
-    CHECK_EQ_INT(candidateOf(g)->paired, 45);
+    expectPaired(g, candidateOf(g), seen, 2);
+    CHECK_EQ_INT(candidateOf(g)->paired[0 * T + 2], 45);
     CHECK(servingOf(g)->gen == 1);
     /* One that only generation 2 would answer (0.6 is under generation
-     * 1's threshold): level. Level is not more. */
+     * 1's threshold): level. Level is not more. It is counted at the two
+     * thresholds 0.6 reaches, where generation 1 does not answer. */
     ev = guesses(g, 0, 0.6, 0, 0.99);
     r = askGuess(g, now, U_SPOT, &ev, &XA);
     CHECK(r.action == GATE_ACTION_ABSTAIN && r.seq != 0);
     CHECK_EQ_INT(answer(g, now, r.seq, 0), 1);
     CHECK_EQ_INT(candidateOf(g)->regions[0].n, 45);
-    CHECK_EQ_INT(candidateOf(g)->paired, 45);
+    expectPaired(g, candidateOf(g), seen, 3);
+    CHECK_EQ_INT(candidateOf(g)->paired[0 * T + 0], 46);
+    CHECK_EQ_INT(candidateOf(g)->paired[0 * T + 1], 46);
+    CHECK_EQ_INT(candidateOf(g)->paired[0 * T + 2], 45);
     CHECK(servingOf(g)->gen == 1 && servingOf(g)->policy[0] == 2);
     /* Another one, and a spot check that stays open: generation 1 guesses
      * label1 for it (unproven: not answered), generation 2 label0. */
@@ -4451,29 +5052,37 @@ TEST(replacing_needs_more_accepts) {
     CHECK_EQ_INT(servingOf(g)->audits, 0);
     CHECK_EQ_INT(candidateOf(g)->samples, 0);
     CHECK_EQ_INT(servingOf(g)->policy[0], 0);
-    CHECK_EQ_INT(servingOf(g)->paired, 0);
+    /* What it was compared by is done with: every count is zero again,
+     * and it has no budget to run out of. Its drift detectors start with
+     * its own first spot check. */
+    expectPaired(g, servingOf(g), NULL, 0);
     CHECK_EQ_INT(servingOf(g)->budget, 0);
+    expectDrift(&servingOf(g)->drift[0], 0, 0, 0, 0);
+    expectDrift(&servingOf(g)->drift[1], 0, 0, 0, 0);
     CHECK_EQ_INT(servingOf(g)->promoted_ms, now);
     CHECK_EQ_INT(g->stats.promotions, 2);
     CHECK(g->candidate != NULL && candidateOf(g)->gen == 3);
+    CHECK_EQ_INT(candidateOf(g)->budget, 2 * 10 * 48); /* 48 correct answers reach 3840 */
+    expectPaired(g, candidateOf(g), NULL, 0);
     gateFree(g);
 }
 
 TEST(candidate_budget) {
-    gate *g = trainedGate(700);
+    gate *g = trainedGate(900);
     gatePredictResult r, late;
     int64_t now = T0;
     uint32_t i, group;
 
     /* The snapshot says label0 for XA and the teacher says label1 every
-     * time. At 640 answers (two labels, 10 x 32 each) without a proven
-     * threshold it goes. */
-    CHECK_EQ_INT(candidateOf(g)->budget, 640);
-    for (i = 1; i < 640; i++) {
+     * time. At 780 answers (two labels, 10 x 39 each: the proof a flawless
+     * threshold needs) without a proven threshold it goes. */
+    CHECK_EQ_INT(candidateOf(g)->budget, 780);
+    for (i = 1; i < 780; i++) {
         r = askText(g, now, U_PLAIN, &XA);
         CHECK_EQ_INT(answer(g, now, r.seq, 1), 1);
     }
-    CHECK(g->candidate != NULL && candidateOf(g)->samples == 639 && candidateOf(g)->errors == 639);
+    CHECK(g->candidate != NULL && candidateOf(g)->samples == 779 && candidateOf(g)->errors == 779);
+    CHECK_EQ_INT(candidateOf(g)->missed, 0);
     r = askText(g, now, U_PLAIN, &XA);
     late = askText(g, now, U_PLAIN, &XA); /* proof for it, answered after it is gone */
     CHECK_EQ_INT(flagsOf(g, late.seq), GATE_OBS_CAND);
@@ -4489,60 +5098,65 @@ TEST(candidate_budget) {
     CHECK_EQ_INT(answer(g, now, late.seq, 1), 1);
     CHECK_EQ_INT(g->npending, 0);
 
-    /* The next snapshot comes 700 examples after the previous one: 641
-     * answers were learned since, 59 to go. */
-    CHECK_EQ_INT(g->trainer.updates, 1341);
-    for (i = 0; i < 58; i++) train(g, now, &XB, 1);
+    /* The next snapshot comes 900 examples after the previous one: 781
+     * answers were learned since, 119 to go. */
+    CHECK_EQ_INT(g->trainer.updates, 900 + 781);
+    for (i = 0; i < 118; i++) train(g, now, &XB, 1);
     CHECK(g->candidate == NULL);
     train(g, now, &XB, 1);
     CHECK(g->candidate != NULL && candidateOf(g)->gen == 2);
-    CHECK_EQ_INT(candidateOf(g)->budget, 760);
+    CHECK_EQ_INT(candidateOf(g)->budget, 880); /* 10 x 44 each */
     gateFree(g);
 
     /* With a short step the examples are already there when the budget
      * runs out, and the next snapshot replaces the dropped one at once. */
     g = trainedGate(6);
-    for (i = 1; i <= 640; i++) {
+    for (i = 1; i <= 780; i++) {
         r = askText(g, now, U_PLAIN, &XA);
         CHECK_EQ_INT(answer(g, now, r.seq, 1), 1);
-        CHECK_EQ_INT(candidateOf(g)->gen, i < 640 ? 1 : 2);
+        CHECK_EQ_INT(candidateOf(g)->gen, i < 780 ? 1 : 2);
     }
     CHECK_EQ_INT(g->stats.retired, 1);
     CHECK_EQ_INT(candidateOf(g)->samples, 0);
+    CHECK_EQ_INT(candidateOf(g)->missed, 0);
     gateFree(g);
 
-    /* Lost answers use the budget up like wrong ones. Twenty rounds of one
-     * wrong answer and 31 lost ones (32 lost ones in a row would make the
-     * gate blind instead): 639 answers leave the snapshot in place, the
-     * 640th, a missing one, is its last. Only 20 examples were learned
-     * meanwhile, so no new snapshot follows. */
-    g = trainedGate(700);
-    for (group = 1; group <= 20; group++) {
+    /* Lost answers use the budget up like wrong ones. 24 rounds of one
+     * wrong answer and 31 lost ones (32 lost ones in a row with no answer
+     * in between would make the gate blind instead) are 768; a 25th round
+     * of one wrong answer and eleven lost ones makes it 780. 779 leave the
+     * snapshot in place; the 780th, a missing one, is its last. Only 25
+     * examples were learned meanwhile, so no new snapshot follows. */
+    g = trainedGate(900);
+    for (group = 1; group <= 25; group++) {
+        const uint32_t lose = group < 25 ? 31 : 11;
+
         r = askText(g, now, U_PLAIN, &XA);
         CHECK_EQ_INT(answer(g, now, r.seq, 1), 1);
         /* The very last request is asked a millisecond later. */
-        for (i = 1; i <= 31; i++)
-            CHECK(askText(g, now + (group == 20 && i == 31), U_PLAIN, &XA).seq != 0);
+        for (i = 1; i <= lose; i++)
+            CHECK(askText(g, now + (group == 25 && i == lose), U_PLAIN, &XA).seq != 0);
         now += TIMEOUT;
         gateMaintain(g, now);
         inv(g);
         CHECK_EQ_INT(g->blind, 0);
-        if (group < 20) {
+        if (group < 25) {
             CHECK_EQ_INT(candidateOf(g)->samples, 32 * group);
             CHECK_EQ_INT(g->stats.missing, 31 * group);
             CHECK_EQ_INT(g->missing_run, 31);
         }
     }
-    CHECK(g->candidate != NULL && candidateOf(g)->samples == 639 && candidateOf(g)->errors == 639);
-    CHECK_EQ_INT(g->stats.missing, 619);
+    CHECK(g->candidate != NULL && candidateOf(g)->samples == 779 && candidateOf(g)->errors == 779);
+    CHECK_EQ_INT(g->stats.missing, 24 * 31 + 10);
+    CHECK_EQ_INT(g->missing_run, 10);
     CHECK_EQ_INT(g->stats.retired, 0);
     gateMaintain(g, now + 1);
     inv(g);
     CHECK(g->candidate == NULL);
     CHECK_EQ_INT(g->stats.retired, 1);
-    CHECK_EQ_INT(g->stats.missing, 620);
+    CHECK_EQ_INT(g->stats.missing, 24 * 31 + 11);
     CHECK_EQ_INT(g->blind, 0);
-    CHECK_EQ_INT(g->trainer.updates, 720);
+    CHECK_EQ_INT(g->trainer.updates, 925);
     CHECK(gateState(g) == GATE_STATE_COLD);
     gateFree(g);
 }
@@ -4555,6 +5169,7 @@ TEST(score_candidate_has_no_budget) {
     for (i = 0; i < 2000; i++) feed(g, T0, U_PLAIN, 1.0, 0);
     CHECK(g->candidate != NULL && candidateOf(g)->gen == 1);
     CHECK_EQ_INT(candidateOf(g)->samples, 2000);
+    CHECK_EQ_INT(candidateOf(g)->missed, 0); /* a score gate has no label to miss */
     CHECK_EQ_INT(g->stats.retired, 0);
     CHECK(gateState(g) == GATE_STATE_CALIBRATING);
     gateFree(g);
@@ -4566,28 +5181,31 @@ TEST(drift_score) {
     static const struct {
         const char *pattern; /* 'x' a wrong spot check, '.' a right one */
         uint32_t alarm;
-    } cases[] = {{"xxxx...xxxxx", 12}, {"xxxxxx.xx", 9}, {"......xxxxxxx", 13}};
+    } cases[] = {{"xxxxxxx", 7}, {"xxxx...xxxxx", 12}, {"xxxxxx.xx", 9}, {"......xxxxxxxxxxx", 17}};
     int64_t now = T0;
     gate *g = activeScoreGate(now);
     gatePredictResult r, waiting;
     uint32_t i;
     size_t c;
 
-    /* Seven wrong spot checks in a row (file comment): the gate answers
-     * until the seventh arrives. */
-    CHECK_EQ_INT(alarmAfter(ALPHA, "xxxxxxx"), 7);
+    /* Wrong spot checks in a row: the gate answers until the alarm. Each
+     * wrong answer is for the request before the newest, so the spot check
+     * asked last never has its answer yet and counts as right: the eighth
+     * disagreement (stat(9, 8) = 1736.25; seven of eight give 594.75). */
+    CHECK_EQ_INT(alarmAfter(ALPHA, "oxxxxxxxx"), 9);
     waiting = ask(g, now, U_SPOT, 0.9);
-    for (i = 1; i <= 7; i++) {
-        /* The oldest spot check stays open; each wrong answer is for the
-         * request before the newest, so six are applied before the last. */
+    for (i = 1; i <= 8; i++) {
         r = waiting;
         waiting = ask(g, now, U_SPOT, 0.9);
         CHECK(waiting.action == GATE_ACTION_AUDIT);
+        CHECK_EQ_INT(spotOf(g, r.seq), i);
+        CHECK_EQ_INT(spotOf(g, waiting.seq), i + 1);
         CHECK_EQ_INT(answer(g, now, r.seq, 0), 1);
-        if (i < 7) {
+        if (i < 8) {
             CHECK(gateState(g) == GATE_STATE_ACTIVE);
             CHECK_EQ_INT(servingOf(g)->audits, i);
             CHECK_EQ_INT(servingOf(g)->audit_errors, i);
+            expectDrift(&servingOf(g)->drift[0], i + 1, i, i, 0);
             CHECK(ask(g, now, U_PLAIN, 0.9).action == GATE_ACTION_ACCEPT);
         }
     }
@@ -4609,10 +5227,13 @@ TEST(drift_score) {
     CHECK_EQ_INT(g->stats.dropped, 1);
     gateFree(g);
 
-    /* Other histories, each on a fresh gate; the step at which the alarm
-     * fires is derived by hand in expected_numbers. Correct spot checks in
-     * between delay it; a clean past does not. */
+    /* Other histories, each on a fresh gate, every spot check answered at
+     * once; the step at which the alarm is raised is derived by hand in
+     * expected_numbers. Correct spot checks delay it, whether they come in
+     * between or before: a block does not start over. */
     for (c = 0; c < COUNTOF(cases); c++) {
+        uint32_t wrong = 0;
+
         g = activeScoreGate(now);
         CHECK_EQ_INT(alarmAfter(ALPHA, cases[c].pattern), cases[c].alarm);
         CHECK_EQ_INT(strlen(cases[c].pattern), cases[c].alarm);
@@ -4620,8 +5241,17 @@ TEST(drift_score) {
             r = ask(g, now, U_SPOT, 0.9);
             CHECK_EQ_INT(answer(g, now, r.seq, cases[c].pattern[i - 1] == '.'), 1);
             CHECK((g->serving != NULL) == (i < cases[c].alarm));
+            wrong += cases[c].pattern[i - 1] == 'x';
+            if (g->serving == NULL) continue;
+            expectDrift(&servingOf(g)->drift[0], i, wrong, wrong, 0);
+            CHECK_NEAR(gateDriftLogStat(&servingOf(g)->drift[0], &g->drift_bets[0], 0),
+                       driftStat(ALPHA, i, wrong), 1e-12);
+            CHECK(driftStat(ALPHA, i, wrong) < log(1000.0));
         }
+        CHECK(driftStat(ALPHA, cases[c].alarm, wrong) >= log(1000.0));
         CHECK_EQ_INT(g->stats.revocations, 1);
+        CHECK_EQ_INT(g->blind, 0);
+        CHECK(g->candidate != NULL && candidateOf(g)->gen == 2);
         gateFree(g);
     }
     /* Only spot checks of answers count. Wrong proof from below the
@@ -4635,7 +5265,8 @@ TEST(drift_score) {
         CHECK(r.action == GATE_ACTION_ABSTAIN);
         CHECK_EQ_INT(answer(g, now, r.seq, 0), 1);
     }
-    CHECK(g->serving != NULL && servingOf(g)->audits == 0 && servingOf(g)->drift[0].n == 0);
+    CHECK(g->serving != NULL && servingOf(g)->audits == 0);
+    expectDrift(&servingOf(g)->drift[0], 0, 0, 0, 0);
     CHECK_EQ_INT(servingOf(g)->errors, 51);
     gateFree(g);
 }
@@ -4662,7 +5293,9 @@ TEST(drift_classifier) {
         CHECK_EQ_INT(answer(g, now, r.seq, 0), 1);
     }
     CHECK(g->serving != NULL);
-    CHECK(servingOf(g)->drift[1].errors == 6 && servingOf(g)->drift[0].n == 0);
+    expectDrift(&servingOf(g)->drift[1], 6, 6, 6, 0);
+    expectDrift(&servingOf(g)->drift[0], 0, 0, 0, 0);
+    CHECK_NEAR(gateDriftLogStat(&servingOf(g)->drift[1], &g->drift_bets[1], 0), log(396.5), 1e-12);
     /* The teacher starts calling XA label1. */
     for (i = 1; i <= 7; i++) {
         r = askText(g, now, U_SPOT, &XA);
@@ -4689,6 +5322,1743 @@ TEST(drift_classifier) {
     }
     CHECK(g->candidate != NULL && candidateOf(g)->gen == 3);
     CHECK_EQ_INT(g->generations, 3);
+    gateFree(g);
+}
+
+/* --------------------------- The rules of the final round ------------------
+ * CHANGES.md section 9, item by item. Every number is derived in the file
+ * comment or next to its use. */
+
+/* PROMOTION compares like with like. A candidate takes over when its policy
+ * answers more of its own proof requests than the policy the serving
+ * generation has NOW answers of those same requests. The gate keeps, for
+ * each proof request of the candidate, where the serving generation's own
+ * guess put it (the paired counts: per row and threshold). Before, it kept
+ * one number, what the serving generation would have answered when each
+ * request was asked, and a serving generation whose thresholds had moved
+ * down since was replaced by a candidate that answers less. */
+TEST(promotion_like_with_like) {
+    /* What generation 1 guessed for the proof requests of generation 2, by
+     * the steps below. */
+    static const servGuess seen[] = {
+        {0, 0.6, 10}, {0, 0.99, 3}, {0, 0.6, 30}, {0, 0.6, 11}, {1, 0.8, 10}
+    };
+    gate *g = classGate(2, 5);
+    gatePredictResult r;
+    int64_t now = T0;
+    gateEval ev;
+    uint32_t i, t;
+
+    for (i = 0; i < 5; i++) train(g, now, &XA, 0);
+    /* Generation 1: four wrong guesses at 0.6 (the thresholds 0 and 1 of
+     * label0), then 39 correct ones at 0.99 (the thresholds 0..19). The
+     * thresholds 2..19 are proven by the 39th. To pay for four wrong
+     * answers, 0 and 1 need 82 correct ones (file comment) and have 39.
+     * Generation 1 answers label0 from threshold 2 (0.665). */
+    CHECK_EQ_INT(needCorrect(ALPHA, log(640.0), 4), 82);
+    for (i = 0; i < 4; i++) {
+        ev = guesses(g, -1, 0.0, 0, 0.6);
+        r = askGuess(g, now, U_PLAIN, &ev, &XA);
+        CHECK_EQ_INT(answer(g, now, r.seq, 1), 1);
+    }
+    for (i = 0; i < 39; i++) {
+        ev = guesses(g, -1, 0.0, 0, 0.99);
+        r = askGuess(g, now, U_PLAIN, &ev, &XA);
+        CHECK_EQ_INT(answer(g, now, r.seq, 0), 1);
+    }
+    CHECK(g->serving != NULL && servingOf(g)->gen == 1 && servingOf(g)->policy[0] == 2);
+    CHECK(g->candidate != NULL && candidateOf(g)->gen == 2);
+    expectRegions(g, servingOf(g), 0, 0, 2, 43, 4);
+    expectPaired(g, candidateOf(g), NULL, 0);
+
+    /* Step 1. Ten spot checks that generation 1 does not answer (label0 at
+     * 0.6 is under its threshold) and gets right; generation 2 says label1
+     * and is wrong. */
+    for (i = 0; i < 10; i++) {
+        ev = guesses(g, 0, 0.6, 1, 0.7);
+        r = askGuess(g, now, U_SPOT, &ev, &XA);
+        CHECK(r.action == GATE_ACTION_ABSTAIN);
+        CHECK_EQ_INT(flagsOf(g, r.seq), GATE_OBS_AUDIT | GATE_OBS_SERV | GATE_OBS_CAND);
+        CHECK_EQ_INT(answer(g, now, r.seq, 0), 1);
+    }
+    expectPaired(g, candidateOf(g), seen, 1);
+    /* Step 2. Three that both answer (label0 at 0.99) and get right. */
+    for (i = 0; i < 3; i++) {
+        ev = guesses(g, 0, 0.99, 0, 0.99);
+        r = askGuess(g, now, U_SPOT, &ev, &XA);
+        CHECK(r.action == GATE_ACTION_AUDIT);
+        CHECK_EQ_INT(answer(g, now, r.seq, 0), 1);
+    }
+    expectPaired(g, candidateOf(g), seen, 2);
+    /* Step 3. Thirty for which generation 1 says label0 at 0.6 and
+     * generation 2 label0 at 0.99, both right. With the 30th the thresholds
+     * 0 and 1 of generation 1 have their 82 correct answers (39 + 10 + 3 +
+     * 30): from now on it answers label0 from 0.5. */
+    for (i = 1; i <= 30; i++) {
+        ev = guesses(g, 0, 0.6, 0, 0.99);
+        r = askGuess(g, now, U_SPOT, &ev, &XA);
+        CHECK(r.action == GATE_ACTION_ABSTAIN);
+        CHECK_EQ_INT(answer(g, now, r.seq, 0), 1);
+        CHECK_EQ_INT(servingOf(g)->policy[0], i < 30 ? 2 : 0);
+    }
+    expectRegions(g, servingOf(g), 0, 0, 2, 86, 4);
+    CHECK_EQ_INT(servingOf(g)->regions[0].certified_at, 86);
+    CHECK_EQ_INT(servingOf(g)->regions[1].certified_at, 86);
+    expectPaired(g, candidateOf(g), seen, 3);
+    CHECK_EQ_INT(candidateOf(g)->regions[0].n, 33);
+    CHECK_EQ_INT(candidateOf(g)->policy[0], -1);
+
+    /* Step 4. Eleven more of the same; generation 1 answers them now (they
+     * are spot checks of answers). With the eleventh generation 2 has its
+     * 44 correct answers for label0: thresholds of its own, from 0.5. */
+    for (i = 1; i <= 11; i++) {
+        ev = guesses(g, 0, 0.6, 0, 0.99);
+        r = askGuess(g, now, U_SPOT, &ev, &XA);
+        CHECK(r.action == GATE_ACTION_AUDIT);
+        CHECK_EQ_INT(answer(g, now, r.seq, 0), 1);
+        CHECK_EQ_INT(candidateOf(g)->policy[0], i < 11 ? -1 : 0);
+        CHECK_EQ_INT(servingOf(g)->gen, 1);
+    }
+    /* Of its 54 proof requests generation 2 answers 44 (those for which it
+     * said label0). Generation 1, with the policy it has now, answers all
+     * 54: where it put each of them is in the paired counts, entry by
+     * entry. 44 is not more than 54: no takeover. (Counted when each
+     * request was asked, generation 1 answered 14 of them, the three of
+     * step 2 and these eleven, and a candidate that answers less would
+     * have replaced it.) */
+    expectPaired(g, candidateOf(g), seen, 4);
+    for (t = 0; t < T; t++) {
+        CHECK_EQ_INT(candidateOf(g)->paired[0 * T + t], t < 2 ? 54 : (t < 20 ? 3 : 0));
+        CHECK_EQ_INT(candidateOf(g)->paired[1 * T + t], 0);
+    }
+    CHECK_EQ_INT(candidateOf(g)->samples, 54);
+    CHECK_EQ_INT(candidateOf(g)->regions[0].n, 44);
+    CHECK(servingOf(g)->gen == 1 && candidateOf(g)->gen == 2);
+    CHECK_EQ_INT(g->stats.promotions, 1);
+
+    /* Step 5. Requests that only generation 2 answers: generation 1 says
+     * label1, for which it has no threshold. Ten of them make it 54 against
+     * 54: level is not more. The eleventh is one more, and generation 2
+     * takes over. */
+    for (i = 1; i <= 11; i++) {
+        if (i == 11) {
+            expectPaired(g, candidateOf(g), seen, 5);
+            CHECK_EQ_INT(candidateOf(g)->paired[1 * T + 4], 10); /* 0.8: thresholds 0..4 */
+            CHECK_EQ_INT(candidateOf(g)->paired[1 * T + 5], 0);
+            CHECK_EQ_INT(candidateOf(g)->regions[0].n, 54);
+        }
+        ev = guesses(g, 1, 0.8, 0, 0.99);
+        r = askGuess(g, now, U_SPOT, &ev, &XA);
+        CHECK(r.action == GATE_ACTION_ABSTAIN);
+        CHECK_EQ_INT(answer(g, now, r.seq, 0), 1);
+        CHECK_EQ_INT(servingOf(g)->gen, i < 11 ? 1 : 2);
+    }
+    CHECK_EQ_INT(g->stats.promotions, 2);
+    CHECK_EQ_INT(servingOf(g)->samples, 65);
+    CHECK_EQ_INT(servingOf(g)->regions[0].n, 55);
+    CHECK_EQ_INT(servingOf(g)->policy[0], 0);
+    /* The counts are zero again: they were about a generation that is gone. */
+    expectPaired(g, servingOf(g), NULL, 0);
+    CHECK_EQ_INT(servingOf(g)->budget, 0);
+    CHECK(g->candidate != NULL && candidateOf(g)->gen == 3);
+    expectPaired(g, candidateOf(g), NULL, 0);
+    gateFree(g);
+}
+
+/* The comparison is over all labels the serving generation answers: what
+ * it answers of the candidate's proof requests with one label counts like
+ * what it answers with another. */
+TEST(promotion_counts_every_label) {
+    static const servGuess seen[] = {{0, 0.99, 44}, {1, 0.9, 5}, {0, 0.4, 6}};
+    int64_t now = T0;
+    gate *g = twoGenerations(now);
+    gatePredictResult r;
+    gateEval ev;
+    uint32_t i;
+
+    /* Generation 1 gets a threshold for label1 as well (39 correct answers
+     * at 0.99; not spot checks, so nothing for generation 2). */
+    for (i = 0; i < 39; i++) {
+        ev = guesses(g, 1, 0.99, 1, 0.99);
+        r = askGuess(g, now, U_PLAIN, &ev, &XB);
+        CHECK_EQ_INT(flagsOf(g, r.seq), GATE_OBS_SERV);
+        CHECK_EQ_INT(answer(g, now, r.seq, 1), 1);
+    }
+    CHECK(servingOf(g)->gen == 1 && servingOf(g)->policy[0] == 0 && servingOf(g)->policy[1] == 0);
+    CHECK(candidateOf(g)->gen == 2 && candidateOf(g)->samples == 0);
+    /* 44 spot checks both answer with label0: generation 2 has thresholds
+     * for label0 with the 44th, and answers 44 of 44 like generation 1. */
+    for (i = 0; i < 44; i++) {
+        ev = guesses(g, 0, 0.99, 0, 0.99);
+        r = askGuess(g, now, U_SPOT, &ev, &XA);
+        CHECK_EQ_INT(answer(g, now, r.seq, 0), 1);
+    }
+    CHECK(candidateOf(g)->policy[0] == 0 && candidateOf(g)->policy[1] == -1);
+    /* Five that both give label1, at 0.9: generation 1 answers them,
+     * generation 2 has no threshold for label1. 44 against 49. */
+    for (i = 0; i < 5; i++) {
+        ev = guesses(g, 1, 0.9, 1, 0.9);
+        r = askGuess(g, now, U_SPOT, &ev, &XB);
+        CHECK(r.action == GATE_ACTION_AUDIT);
+        CHECK_EQ_INT(answer(g, now, r.seq, 1), 1);
+    }
+    expectPaired(g, candidateOf(g), seen, 2);
+    CHECK_EQ_INT(candidateOf(g)->paired[0 * T + 0], 44);
+    CHECK_EQ_INT(candidateOf(g)->paired[1 * T + 0], 5);
+    CHECK_EQ_INT(servingOf(g)->gen, 1);
+    /* Requests that only generation 2 answers (generation 1 says label0 at
+     * 0.4, under every threshold). Five make it 49 against 49; the sixth is
+     * one more. (Against the 44 of label0 alone, the first would do.) */
+    for (i = 1; i <= 6; i++) {
+        ev = guesses(g, 0, 0.4, 0, 0.99);
+        r = askGuess(g, now, U_SPOT, &ev, &XA);
+        CHECK(r.action == GATE_ACTION_ABSTAIN);
+        if (i == 6) {
+            expectPaired(g, candidateOf(g), seen, 2); /* 0.4 is counted nowhere */
+            CHECK_EQ_INT(candidateOf(g)->regions[0].n, 49);
+        }
+        CHECK_EQ_INT(answer(g, now, r.seq, 0), 1);
+        CHECK_EQ_INT(servingOf(g)->gen, i < 6 ? 1 : 2);
+    }
+    CHECK_EQ_INT(g->stats.promotions, 2);
+    CHECK_EQ_INT(servingOf(g)->regions[0].n, 50);
+    CHECK_EQ_INT(servingOf(g)->samples, 55);
+    expectPaired(g, servingOf(g), NULL, 0);
+    gateFree(g);
+}
+
+/* One answer can be proof for both generations. The comparison is with the
+ * policy the serving generation has NOW: the answer counts for it as it
+ * counts for the candidate, and then the two are compared. Here the answer
+ * that completes the candidate's proof is also the one that lets the
+ * serving generation answer every one of the candidate's proof requests.
+ * (The header does not say in so many words which of the two comes first.
+ * Counted for the candidate only, a snapshot that answers 44 of its 53
+ * requests replaces one that answers all 53 from this very answer on:
+ * what the paired counts are there to prevent.) */
+TEST(promotion_counts_the_answer_for_both) {
+    static const servGuess seen[] = {{0, 0.6, 53}};
+    int late;
+
+    /* late = 0: every answer in its turn. late = 1: the answer of the
+     * first of the 44 requests arrives when proof has moved on without it,
+     * and is the one that completes both proofs when it is set right. */
+    for (late = 0; late < 2; late++) {
+        gate *g = classGate(2, 5);
+        gatePredictResult r, first;
+        int64_t now = T0;
+        gateEval ev;
+        uint32_t i;
+
+        for (i = 0; i < 5; i++) train(g, now, &XA, 0);
+        /* Generation 1: five wrong guesses at 0.6 (the thresholds 0 and 1
+         * of label0), then 39 correct ones at 0.99. It answers label0 from
+         * threshold 2; to pay for five wrong answers the thresholds 0 and 1
+         * need 92 correct ones (file comment) and have 39. */
+        CHECK_EQ_INT(needCorrect(ALPHA, log(640.0), 5), 92);
+        for (i = 0; i < 5; i++) {
+            ev = guesses(g, -1, 0.0, 0, 0.6);
+            r = askGuess(g, now, U_PLAIN, &ev, &XA);
+            CHECK_EQ_INT(answer(g, now, r.seq, 1), 1);
+        }
+        for (i = 0; i < 39; i++) {
+            ev = guesses(g, -1, 0.0, 0, 0.99);
+            r = askGuess(g, now, U_PLAIN, &ev, &XA);
+            CHECK_EQ_INT(answer(g, now, r.seq, 0), 1);
+        }
+        CHECK(g->serving != NULL && servingOf(g)->gen == 1 && servingOf(g)->policy[0] == 2);
+        CHECK(g->candidate != NULL && candidateOf(g)->gen == 2);
+        /* Nine spot checks: generation 1 says label0 at 0.6 (under its
+         * threshold) and is right, generation 2 says label1 and is wrong. */
+        for (i = 0; i < 9; i++) {
+            ev = guesses(g, 0, 0.6, 1, 0.7);
+            r = askGuess(g, now, U_SPOT, &ev, &XA);
+            CHECK_EQ_INT(answer(g, now, r.seq, 0), 1);
+        }
+        /* 44 more: generation 1 the same, generation 2 label0 at 0.99, both
+         * right. The 44th is the 92nd correct answer of generation 1 at the
+         * thresholds 0 and 1 (39 + 9 + 44) and the 44th of generation 2,
+         * which needs 44 to reach 1920. Generation 2 answers 44 of its 53
+         * proof requests. Generation 1, which answered none of them until
+         * now, answers all 53 from here on: it stays. */
+        memset(&first, 0, sizeof(first));
+        for (i = 1; i <= 44; i++) {
+            ev = guesses(g, 0, 0.6, 0, 0.99);
+            r = askGuess(g, now, U_SPOT, &ev, &XA);
+            CHECK(r.action == GATE_ACTION_ABSTAIN);
+            if (late && i == 1) {
+                first = r;
+                continue;
+            }
+            CHECK_EQ_INT(answer(g, now, r.seq, 0), 1);
+            CHECK(g->serving != NULL);
+            if (g->serving == NULL) break;
+            CHECK_EQ_INT(servingOf(g)->gen, 1);
+            if (servingOf(g)->gen != 1) break;
+            CHECK_EQ_INT(servingOf(g)->policy[0], !late && i == 44 ? 0 : 2);
+        }
+        if (late) {
+            /* Proof moves on without the first: a wrong guess of both, for
+             * now. 43 correct answers after one wrong one prove nothing for
+             * generation 2 (it would take 56), and generation 1 has six
+             * wrong ones against 91. Its answer sets both right at once. */
+            expectDue(g, now + GRACE);
+            CHECK(servingOf(g)->gen == 1 && servingOf(g)->policy[0] == 2);
+            CHECK(g->candidate != NULL && candidateOf(g)->gen == 2 && candidateOf(g)->policy[0] == -1);
+            expectRegions(g, servingOf(g), 0, 0, 2, 97, 6);
+            CHECK_EQ_INT(answer(g, now + GRACE + 50, first.seq, 0), 1);
+            CHECK(g->serving != NULL);
+            if (g->serving != NULL) {
+                CHECK_EQ_INT(servingOf(g)->gen, 1);
+                if (servingOf(g)->gen == 1) CHECK_EQ_INT(servingOf(g)->policy[0], 0);
+            }
+        }
+        CHECK_EQ_INT(g->stats.promotions, 1);
+        if (g->serving != NULL && servingOf(g)->gen == 1 && g->candidate != NULL) {
+            expectRegions(g, servingOf(g), 0, 0, 2, 97, 5);
+            CHECK_EQ_INT(servingOf(g)->regions[0].certified_at, 97);
+            CHECK(candidateOf(g)->gen == 2 && candidateOf(g)->policy[0] == 0);
+            CHECK(candidateOf(g)->samples == 53 && candidateOf(g)->regions[0].n == 44);
+            expectPaired(g, candidateOf(g), seen, 1);
+        }
+        gateFree(g);
+    }
+}
+
+/* BLIND: the run of missing answers is counted over requests in the order
+ * they were asked. A request that ends unanswered is part of an outage only
+ * if no answer of any request has arrived since it was asked; otherwise it
+ * is a lost answer (a missing answer and a wrong guess all the same). */
+TEST(lost_answers_are_not_an_outage) {
+    gatePredictResult r;
+    int64_t t = T0;
+    uint32_t i;
+    int k;
+    gate *g;
+
+    /* Requests given up together after a lull, with answers in between. 50
+     * requests at one moment: number 11 and number 31 are answered at once,
+     * nobody answers the others. Then nothing happens for five times the
+     * feedback timeout, and the time of all 48 is up in one call. Those
+     * asked before the last answer arrived have seen an answer arrive: 29
+     * lost answers. The 19 asked after it are a run of 19. (Counted from
+     * the last answer, whatever was asked before it, the 48 were a run and
+     * the 32nd made the gate blind.) */
+    g = scoreGate();
+    memset(&r, 0, sizeof(r));
+    for (i = 1; i <= 50; i++) {
+        r = ask(g, t, U_PLAIN, 0.9);
+        CHECK_EQ_INT(r.seq, i);
+        if (i == 11 || i == 31) CHECK_EQ_INT(answer(g, t, r.seq, 1), 1);
+    }
+    CHECK_EQ_INT(g->answer_mark, 32);
+    CHECK_EQ_INT(g->nanswered, 2);
+    gateMaintain(g, t + 5 * TIMEOUT);
+    inv(g);
+    CHECK_EQ_INT(g->stats.missing, 48);
+    CHECK_EQ_INT(g->missing_run, 19);
+    CHECK_EQ_INT(g->blind, 0);
+    CHECK(g->candidate != NULL && candidateOf(g)->gen == 1);
+    CHECK(candidateOf(g)->samples == 50 && candidateOf(g)->errors == 48);
+    CHECK_EQ_INT(g->npending, 0);
+    /* The run goes on from there: twelve more make 31, the 13th is the
+     * 32nd. */
+    t = loseAnswers(g, t + 5 * TIMEOUT, 12, U_PLAIN);
+    CHECK_EQ_INT(g->missing_run, 31);
+    CHECK_EQ_INT(g->blind, 0);
+    t = loseAnswers(g, t, 1, U_PLAIN);
+    CHECK_EQ_INT(g->blind, 1);
+    CHECK_EQ_INT(g->stats.missing, 61);
+    gateFree(g);
+
+    /* A burst asked at one instant and lost: 100 requests in the same
+     * millisecond, no answer for any of them. k = 0: no other request is
+     * answered either. That is an outage: the 32nd makes the gate blind,
+     * and the 68 behind it are proof for nothing any more. k = 1, 2: ten
+     * milliseconds later one more request is asked and answered. Then the
+     * hundred are lost answers, all of them, whether their time is up while
+     * they are still in the queue (1) or after proof has moved on without
+     * them (2). */
+    for (k = 0; k < 3; k++) {
+        g = scoreGate();
+        t = T0;
+        for (i = 0; i < 100; i++) CHECK(ask(g, t, U_PLAIN, 0.9).seq != 0);
+        if (k) {
+            r = ask(g, t + 10, U_PLAIN, 0.9);
+            CHECK_EQ_INT(answer(g, t + 10, r.seq, 1), 1);
+        }
+        if (k == 2) {
+            expectDue(g, t + GRACE);
+            CHECK_EQ_INT(flagsOf(g, 1), GATE_OBS_CAND | GATE_OBS_PROVISIONAL);
+            CHECK_EQ_INT(flagsOf(g, 100), GATE_OBS_CAND | GATE_OBS_PROVISIONAL);
+            CHECK_EQ_INT(g->nevidence, 0);
+        }
+        gateMaintain(g, t + TIMEOUT);
+        inv(g);
+        if (k) {
+            CHECK_EQ_INT(g->stats.missing, 100);
+            CHECK_EQ_INT(g->missing_run, 0);
+            CHECK_EQ_INT(g->blind, 0);
+            CHECK(g->candidate != NULL && candidateOf(g)->samples == 101 &&
+                  candidateOf(g)->errors == 100);
+            CHECK_EQ_INT(g->stats.dropped, 0);
+        } else {
+            CHECK_EQ_INT(g->stats.missing, 32);
+            CHECK_EQ_INT(g->blind, 1);
+            CHECK_EQ_INT(g->stats.dropped, 68);
+            CHECK(g->candidate == NULL);
+        }
+        CHECK_EQ_INT(g->npending, 0);
+        gateFree(g);
+    }
+
+    /* A real outage that begins after an answer. Five requests are lost,
+     * the sixth is answered, and from then on nothing is, one request a
+     * millisecond. The five are lost answers. The requests asked after the
+     * answer are a run from the first: the 32nd of them, request 38, ends
+     * it. */
+    g = scoreGate();
+    t = T0;
+    for (i = 1; i <= 6; i++) r = ask(g, t, U_PLAIN, 0.9);
+    CHECK_EQ_INT(answer(g, t, r.seq, 1), 1);
+    for (i = 7; i <= 38; i++) CHECK_EQ_INT(ask(g, t + i, U_PLAIN, 0.9).seq, i);
+    gateMaintain(g, t + TIMEOUT);
+    inv(g);
+    CHECK_EQ_INT(g->stats.missing, 5);
+    CHECK_EQ_INT(g->missing_run, 0);
+    for (i = 7; i <= 38; i++) {
+        gateMaintain(g, t + i + TIMEOUT);
+        inv(g);
+        CHECK_EQ_INT(g->stats.missing, 5 + (i - 6));
+        CHECK_EQ_INT(g->blind, i == 38);
+        CHECK_EQ_INT(g->missing_run, i < 38 ? i - 6 : 0);
+    }
+    CHECK(g->candidate == NULL && g->generations == 1);
+    gateFree(g);
+
+    /* A partial outage: 19 answers in 20 are lost for four seconds of one
+     * request a millisecond (of every hundred requests the first five are
+     * answered, at once). 95 lost answers in a row, forty times over, and
+     * never an outage: by the time one of them is given up, a second
+     * later, answers have arrived. The gate goes on testing the snapshot
+     * it has and uses no snapshot number. (Counted from the last answer,
+     * every hundred held a run of 95: the gate went blind forty times and
+     * each time the next answer cost a snapshot number.) */
+    g = scoreGate();
+    t = T0;
+    for (i = 0; i < 4005; i++) {
+        r = ask(g, t + i, U_PLAIN, 0.9);
+        if (r.seq == 0) break;
+        if (i % 100 < 5) CHECK_EQ_INT(answer(g, t + i, r.seq, 1), 1);
+        if (g->blind || g->missing_run || g->generations != 1) break;
+    }
+    CHECK_EQ_INT(i, 4005);
+    gateMaintain(g, t + 4004 + TIMEOUT);
+    inv(g);
+    CHECK_EQ_INT(g->stats.missing, 3800);
+    CHECK_EQ_INT(g->stats.learned, 205);
+    CHECK_EQ_INT(g->missing_run, 0);
+    CHECK_EQ_INT(g->blind, 0);
+    CHECK_EQ_INT(g->generations, 1);
+    CHECK(g->candidate != NULL && candidateOf(g)->gen == 1);
+    CHECK(candidateOf(g)->samples == 4005 && candidateOf(g)->errors == 3800);
+    CHECK_EQ_INT(g->stats.full, 0);
+    CHECK_EQ_INT(g->stats.revocations, 0);
+    gateFree(g);
+
+    /* The mark is a request number, and request numbers go on through a
+     * reset and a recovery: what is asked after one has seen no answer,
+     * whatever was answered before. 32 such requests without an answer are
+     * an outage like any other. */
+    for (k = 0; k < 2; k++) {
+        g = scoreGate();
+        t = T0;
+        feed(g, t, U_PLAIN, 0.9, 1);
+        for (i = 0; i < 3; i++) CHECK(ask(g, t, U_PLAIN, 0.9).seq != 0);
+        CHECK_EQ_INT(g->answer_mark, 2);
+        if (k) gateReset(g, t, EPOCH2); else gateRecover(g, t, EPOCH2);
+        inv(g);
+        CHECK_EQ_INT(g->next_seq, 5);
+        CHECK(g->answer_mark <= g->next_seq);
+        t = loseAnswers(g, t, 31, U_PLAIN);
+        CHECK_EQ_INT(g->missing_run, 31);
+        CHECK_EQ_INT(g->blind, 0);
+        t = loseAnswers(g, t, 1, U_PLAIN);
+        CHECK_EQ_INT(g->blind, 1);
+        CHECK(g->candidate == NULL);
+        gateFree(g);
+    }
+}
+
+/* THE BUDGET of a snapshot is used up by its proof and by the requests it
+ * could have been tested on had it not guessed a label that is never
+ * answered: asked of it while it was the candidate, at a moment when its
+ * requests are proof (nothing serving, or a spot check), answered, and
+ * with a teacher's label that is one the gate may answer. */
+TEST(missed_requests) {
+    gatePredictResult r, early, late, open;
+    gateConfig cfg;
+    int64_t t = T0;
+    gateEval ev;
+    uint32_t i;
+    int last;
+    gate *g;
+
+    classConfig(&cfg, 3, 5);
+    cfg.class_defer[2] = 1;
+    g = create(&cfg);
+    /* Asked before there is a snapshot: nothing to do with any. */
+    early = askText(g, t, U_PLAIN, &XA);
+    for (i = 0; i < 5; i++) train(g, t, &XA, 0);
+    CHECK(g->candidate != NULL && candidateOf(g)->gen == 1);
+    CHECK_EQ_INT(candidateOf(g)->budget, 780);
+    CHECK_EQ_INT(answer(g, t, early.seq, 0), 1);
+    CHECK_EQ_INT(candidateOf(g)->missed, 0);
+
+    /* Nothing serves: every request would be proof for generation 1,
+     * whatever the draw. It says label2. */
+    ev = guesses(g, -1, 0.0, 2, 0.9);
+    r = askGuess(g, t, U_PLAIN, &ev, &XA);
+    CHECK_EQ_INT(answer(g, t, r.seq, 0), 1); /* label0: it could have been tested on this one */
+    CHECK_EQ_INT(candidateOf(g)->missed, 1);
+    r = askGuess(g, t, U_SPOT, &ev, &XA);
+    CHECK_EQ_INT(answer(g, t, r.seq, 1), 1); /* label1 */
+    CHECK_EQ_INT(candidateOf(g)->missed, 2);
+    CHECK_EQ_INT(answer(g, t, r.seq, 1), 0); /* an answer is used once */
+    CHECK_EQ_INT(gateLearn(g, t, EPOCH, g->next_seq, 0), 0);
+    CHECK_EQ_INT(candidateOf(g)->missed, 2);
+    r = askGuess(g, t, U_PLAIN, &ev, &XC);
+    CHECK_EQ_INT(answer(g, t, r.seq, 2), 1); /* label2: nothing the gate may answer */
+    CHECK_EQ_INT(candidateOf(g)->missed, 2);
+    /* A guess of a label that is answered is proof, right or wrong. */
+    ev = guesses(g, -1, 0.0, 0, 0.9);
+    r = askGuess(g, t, U_PLAIN, &ev, &XA);
+    CHECK_EQ_INT(answer(g, t, r.seq, 1), 1);
+    CHECK(candidateOf(g)->missed == 2 && candidateOf(g)->samples == 1 &&
+          candidateOf(g)->errors == 1);
+    /* No answer: nothing is known about the request. (It was kept for its
+     * label only: forgotten, not a missing answer.) */
+    ev = guesses(g, -1, 0.0, 2, 0.9);
+    open = askGuess(g, t, U_PLAIN, &ev, &XA);
+    gateMaintain(g, t + TIMEOUT);
+    inv(g);
+    CHECK(gateFindObservation(g, open.seq) == NULL);
+    CHECK(candidateOf(g)->missed == 2 && g->stats.missing == 0 && g->stats.dropped == 1);
+    t += TIMEOUT;
+
+    /* Generation 1 comes to serve: 39 correct guesses of label0 at 0.99
+     * (its one wrong guess at 0.9 leaves the thresholds 0..9 behind: it
+     * answers from threshold 10, 0.918). Generation 2 is under test, and
+     * its proof is the spot checks now: only those can be missed. */
+    for (i = 0; i < 39; i++) {
+        ev = guesses(g, -1, 0.0, 0, 0.99);
+        r = askGuess(g, t, U_PLAIN, &ev, &XA);
+        CHECK_EQ_INT(answer(g, t, r.seq, 0), 1);
+    }
+    CHECK(g->serving != NULL && servingOf(g)->gen == 1 && servingOf(g)->policy[0] == 10);
+    CHECK(g->candidate != NULL && candidateOf(g)->gen == 2);
+    CHECK_EQ_INT(candidateOf(g)->budget, 880);
+    CHECK_EQ_INT(candidateOf(g)->missed, 0);
+    /* Not a spot check: both say label2 (kept for training only). */
+    ev = guesses(g, 2, 0.9, 2, 0.9);
+    r = askGuess(g, t, U_PLAIN, &ev, &XA);
+    CHECK_EQ_INT(flagsOf(g, r.seq), 0);
+    CHECK_EQ_INT(answer(g, t, r.seq, 0), 1);
+    CHECK_EQ_INT(candidateOf(g)->missed, 0);
+    /* Not a spot check either, though proof for generation 1 (it says
+     * label1, which it does not answer yet). */
+    ev = guesses(g, 1, 0.8, 2, 0.9);
+    r = askGuess(g, t, U_PLAIN, &ev, &XA);
+    CHECK_EQ_INT(flagsOf(g, r.seq), GATE_OBS_SERV);
+    CHECK_EQ_INT(answer(g, t, r.seq, 0), 1);
+    CHECK_EQ_INT(candidateOf(g)->missed, 0);
+    /* Spot checks: of something generation 1 does not answer, */
+    ev = guesses(g, 2, 0.9, 2, 0.9);
+    r = askGuess(g, t, U_SPOT, &ev, &XA);
+    CHECK_EQ_INT(flagsOf(g, r.seq), GATE_OBS_AUDIT);
+    CHECK_EQ_INT(answer(g, t, r.seq, 0), 1);
+    CHECK_EQ_INT(candidateOf(g)->missed, 1);
+    /* ... of an answer of generation 1, */
+    ev = guesses(g, 0, 0.99, 2, 0.9);
+    r = askGuess(g, t, U_SPOT, &ev, &XA);
+    CHECK(r.action == GATE_ACTION_AUDIT);
+    CHECK_EQ_INT(answer(g, t, r.seq, 1), 1);
+    CHECK_EQ_INT(candidateOf(g)->missed, 2);
+    /* ... and one the teacher calls label2: not missed. */
+    r = askGuess(g, t, U_SPOT, &ev, &XA);
+    CHECK_EQ_INT(answer(g, t, r.seq, 2), 1);
+    CHECK_EQ_INT(candidateOf(g)->missed, 2);
+    CHECK(candidateOf(g)->samples == 0 && g->serving != NULL);
+
+    /* A late answer counts when it arrives, once: proof for generation 1
+     * had moved on without this spot check. */
+    late = askGuess(g, t, U_SPOT, &ev, &XA);
+    ev = guesses(g, 0, 0.99, 0, 0.99);
+    r = askGuess(g, t, U_SPOT, &ev, &XA);
+    CHECK_EQ_INT(answer(g, t, r.seq, 0), 1);
+    expectDue(g, t + GRACE);
+    CHECK_EQ_INT(flagsOf(g, late.seq) & GATE_OBS_PROVISIONAL, GATE_OBS_PROVISIONAL);
+    CHECK_EQ_INT(candidateOf(g)->missed, 2);
+    CHECK_EQ_INT(answer(g, t + GRACE + 1, late.seq, 0), 1);
+    CHECK_EQ_INT(candidateOf(g)->missed, 3);
+    CHECK_EQ_INT(candidateOf(g)->samples, 1);
+
+    /* Asked of generation 2 while it was under test, answered when it
+     * serves: it is no candidate any more, and generation 3 was never
+     * asked. (Generation 2 takes over with 44 correct spot checks, 43 of
+     * them for requests that generation 1 does not answer.) */
+    ev = guesses(g, 2, 0.9, 2, 0.9);
+    open = askGuess(g, t + GRACE + 1, U_SPOT, &ev, &XA);
+    for (i = 0; i < 43; i++) {
+        ev = guesses(g, 1, 0.8, 0, 0.99);
+        r = askGuess(g, t + GRACE + 1, U_SPOT, &ev, &XA);
+        CHECK_EQ_INT(answer(g, t + GRACE + 1, r.seq, 0), 1);
+    }
+    CHECK(servingOf(g)->gen == 2 && g->candidate != NULL && candidateOf(g)->gen == 3);
+    CHECK_EQ_INT(answer(g, t + GRACE + 1, open.seq, 0), 1);
+    CHECK_EQ_INT(candidateOf(g)->missed, 0);
+    CHECK_EQ_INT(g->stats.retired, 0);
+    gateFree(g);
+
+    /* The snapshot that only knows a label that is never answered. Twelve
+     * examples, all label2: the frozen model says label2 to everything. It
+     * can prove nothing; before, it was never dropped either, and the gate
+     * tested it for ever. Now every answer that says label0 counts: at the
+     * 780th (10 x 39 for each of the two labels that are answered) it
+     * goes, and the next snapshot, of a model that has learned from those
+     * answers, is tried at once. */
+    classConfig(&cfg, 3, 12);
+    cfg.class_defer[2] = 1;
+    g = create(&cfg);
+    t = T0;
+    for (i = 0; i < 12; i++) train(g, t, &XC, 2);
+    CHECK(g->candidate != NULL && candidateOf(g)->gen == 1);
+    CHECK_EQ_INT(candidateOf(g)->budget, 780);
+    CHECK_EQ_INT(gateModelPredict(&candidateOf(g)->model, &XA, NULL, NULL), 2);
+    for (i = 1; i <= 780; i++) {
+        r = askText(g, t, (i & 1) ? U_PLAIN : U_SPOT, &XA);
+        CHECK(r.action == GATE_ACTION_ABSTAIN && r.seq != 0);
+        CHECK_EQ_INT(flagsOf(g, r.seq) & GATE_OBS_EVIDENCE, 0);
+        CHECK_EQ_INT(answer(g, t, r.seq, 0), 1);
+        CHECK_EQ_INT(candidateOf(g)->gen, i < 780 ? 1 : 2);
+        if (i < 780) CHECK(candidateOf(g)->missed == i && candidateOf(g)->samples == 0);
+    }
+    CHECK_EQ_INT(g->stats.retired, 1);
+    CHECK_EQ_INT(g->generations, 2);
+    CHECK(candidateOf(g)->budget == 880 && candidateOf(g)->missed == 0 &&
+          candidateOf(g)->samples == 0);
+    CHECK_EQ_INT(candidateOf(g)->model.updates, 12 + 780);
+    /* That one has learned what XA is: 44 correct answers, and the gate
+     * answers. */
+    CHECK_EQ_INT(gateModelPredict(&candidateOf(g)->model, &XA, NULL, NULL), 0);
+    for (i = 1; i <= 44; i++) {
+        feedText(g, t, U_PLAIN, &XA, 0);
+        CHECK_EQ_INT(g->serving != NULL, i == 44);
+    }
+    r = askText(g, t, U_PLAIN, &XA);
+    CHECK(r.action == GATE_ACTION_ACCEPT && r.label == 0);
+    gateFree(g);
+
+    /* Proof and missed requests add up: 700 wrong guesses of a label that
+     * is answered and 79 missed requests leave the snapshot in place; one
+     * more of either kind is its last. */
+    for (last = 0; last < 2; last++) {
+        classConfig(&cfg, 3, 5);
+        cfg.class_defer[2] = 1;
+        g = create(&cfg);
+        for (i = 0; i < 5; i++) train(g, t, &XA, 0);
+        for (i = 0; i < 779; i++) {
+            ev = guesses(g, -1, 0.0, i < 700 ? 0 : 2, 0.9);
+            r = askGuess(g, t, U_PLAIN, &ev, &XA);
+            CHECK_EQ_INT(answer(g, t, r.seq, 1), 1);
+        }
+        CHECK(candidateOf(g)->gen == 1 && candidateOf(g)->samples == 700 &&
+              candidateOf(g)->missed == 79);
+        CHECK_EQ_INT(g->stats.retired, 0);
+        ev = guesses(g, -1, 0.0, last ? 0 : 2, 0.9);
+        r = askGuess(g, t, U_PLAIN, &ev, &XA);
+        CHECK_EQ_INT(answer(g, t, r.seq, 1), 1);
+        CHECK_EQ_INT(candidateOf(g)->gen, 2);
+        CHECK_EQ_INT(g->stats.retired, 1);
+        gateFree(g);
+    }
+}
+
+/* LIMITS. No request number, snapshot number or clock value goes beyond
+ * its limit (GATE_COUNT_MAX, GATE_MAX_CLOCK_MS): the gate stops handing
+ * them out. Only a payload can put a gate right at a limit; here the
+ * fields are set as such a payload would leave them. (Built with the
+ * codec, every inv() and every request below also takes the gate through
+ * its encoding and back.) */
+TEST(limits) {
+    const int64_t top = GATE_MAX_CLOCK_MS;
+    gatePredictResult r, r1, r2;
+    gateConfig cfg;
+    gateSparse x;
+    gateEval ev;
+    uint64_t before;
+    char err[128];
+    uint32_t i, need;
+    gate *g;
+
+    /* Request numbers. Two are left. */
+    g = scoreGate();
+    g->next_seq = GATE_COUNT_MAX - 2;
+    inv(g);
+    CHECK(!gateFull(g));
+    r1 = ask(g, T0, U_PLAIN, 0.9);
+    r2 = ask(g, T0, U_SPOT, 0.9);
+    CHECK(r1.seq == GATE_COUNT_MAX - 2 && r2.seq == GATE_COUNT_MAX - 1);
+    CHECK(g->next_seq == GATE_COUNT_MAX);
+    /* Out of numbers: full, to every request, as if 4096 were waiting. */
+    CHECK(gateFull(g));
+    CHECK_EQ_INT(gateUnanswered(g), 2);
+    before = fingerprint(g, SKIP_REQUESTS);
+    for (i = 0; i < 3; i++) {
+        r = ask(g, T0, i ? U_SPOT : U_PLAIN, 0.9);
+        CHECK(r.action == GATE_ACTION_ABSTAIN && r.seq == 0);
+    }
+    CHECK(fingerprint(g, SKIP_REQUESTS) == before);
+    CHECK_EQ_INT(g->stats.full, 3);
+    CHECK(g->next_seq == GATE_COUNT_MAX && g->npending == 2);
+    /* The requests that got a number are answered as ever. */
+    CHECK_EQ_INT(answer(g, T0, r2.seq, 1), 1);
+    CHECK(g->answer_mark == GATE_COUNT_MAX);
+    CHECK_EQ_INT(answer(g, T0, r1.seq, 1), 1);
+    CHECK_EQ_INT(candidateOf(g)->samples, 2);
+    CHECK_EQ_INT(gateLearn(g, T0, EPOCH, GATE_COUNT_MAX, 1), 0);
+    CHECK(gateFull(g) && g->npending == 0);
+    /* Numbers are not handed out twice, whatever is forgotten. */
+    gateRecover(g, T0, EPOCH2);
+    inv(g);
+    CHECK(g->next_seq == GATE_COUNT_MAX && gateFull(g));
+    gateReset(g, T0, EPOCH3);
+    inv(g);
+    CHECK(g->next_seq == GATE_COUNT_MAX && gateFull(g));
+    CHECK(ask(g, T0, U_PLAIN, 0.9).seq == 0);
+    gateFree(g);
+    /* A classifier: no clues are wanted, none are taken. GADD needs no
+     * number. */
+    g = trainedGate(12);
+    g->next_seq = GATE_COUNT_MAX;
+    inv(g);
+    gateMaintain(g, T0);
+    CHECK(gateEvaluateFor(g, &XA, 0.0, U_PLAIN, &ev) == GATE_OK);
+    CHECK_EQ_INT(gatePredictNeedsFeatures(g, U_PLAIN, &ev), 0);
+    if (gateSparseCopy(&x, &XA) != GATE_OK) die("out of memory");
+    CHECK(gatePredict(g, T0, U_PLAIN, &ev, &x, &r) == GATE_OK);
+    CHECK(r.action == GATE_ACTION_ABSTAIN && r.seq == 0 && x.n == 1 && x.idx != NULL);
+    gateSparseFree(&x);
+    CHECK(g->npending == 0 && g->next_seq == GATE_COUNT_MAX && g->stats.full == 1);
+    train(g, T0, &XA, 0);
+    CHECK_EQ_INT(g->trainer.updates, 13);
+    gateFree(g);
+
+    /* Snapshot numbers. One is left: it is tested and promoted like any
+     * other. Its bar is log(2^62 (2^62 + 1)) + log(32 / 0.2), which is 124
+     * log 2 + log 160 to the last digit of a double: 456 correct answers. */
+    g = scoreGate();
+    g->generations = GATE_COUNT_MAX - 1;
+    inv(g);
+    gateRecover(g, T0, EPOCH2);
+    inv(g);
+    CHECK(g->generations == GATE_COUNT_MAX);
+    CHECK(g->candidate != NULL && candidateOf(g)->gen == GATE_COUNT_MAX);
+    CHECK_NEAR(candidateOf(g)->log_threshold, 124.0 * log(2.0) + log(160.0), 1e-9);
+    need = needCorrect(ALPHA, 124.0 * log(2.0) + log(160.0), 0);
+    CHECK_EQ_INT(need, 456);
+    for (i = 1; i <= need; i++) {
+        feed(g, T0, U_PLAIN, 0.9, 1);
+        CHECK_EQ_INT(g->serving != NULL, i == need);
+    }
+    CHECK(servingOf(g)->gen == GATE_COUNT_MAX && g->candidate == NULL);
+    CHECK(ask(g, T0, U_PLAIN, 0.9).action == GATE_ACTION_ACCEPT);
+    /* No snapshot is taken after it: not when one would be due, */
+    gateRecover(g, T0, EPOCH3);
+    inv(g);
+    CHECK(g->candidate == NULL && g->serving == NULL && g->generations == GATE_COUNT_MAX);
+    CHECK(gateState(g) == GATE_STATE_COLD);
+    CHECK_EQ_INT(gateMaintenanceDue(g, T0 + 5), 0);
+    expectIdle(g, T0 + 5);
+    /* ... and a score gate with nothing to test records nothing. */
+    r = ask(g, T0 + 5, U_SPOT, 0.9);
+    CHECK(r.action == GATE_ACTION_ABSTAIN && r.seq == 0);
+    gateReset(g, T0 + 5, EPOCH);
+    inv(g);
+    CHECK(g->candidate == NULL && g->generations == GATE_COUNT_MAX);
+    gateFree(g);
+    /* A classifier goes on learning, and that is all. */
+    g = classGate(2, 3);
+    g->generations = GATE_COUNT_MAX;
+    for (i = 0; i < 10; i++) train(g, T0, &XA, 0);
+    CHECK(g->candidate == NULL && g->generations == GATE_COUNT_MAX && g->trainer.updates == 10);
+    CHECK_EQ_INT(gateMaintenanceDue(g, T0), 0);
+    feedText(g, T0, U_PLAIN, &XA, 0);
+    CHECK_EQ_INT(g->trainer.updates, 11);
+    CHECK(gateState(g) == GATE_STATE_COLD);
+    gateFree(g);
+
+    /* The clock. Whatever a caller hands in, the gate holds a value between
+     * 0 and GATE_MAX_CLOCK_MS: when it is created, */
+    baseConfig(&cfg);
+    if (gateConfigValidate(&cfg, err, sizeof(err)) != GATE_OK) die(err);
+    g = gateCreate(&cfg, LINEAGE, EPOCH, INT64_MAX);
+    if (g == NULL) die("gateCreate failed");
+    CHECK(g->created_ms == top && g->now_ms == top && candidateOf(g)->frozen_ms == top);
+    inv(g);
+    gateFree(g);
+    g = gateCreate(&cfg, LINEAGE, EPOCH, INT64_MIN);
+    if (g == NULL) die("gateCreate failed");
+    gateConfigFree(&cfg);
+    CHECK(g->created_ms == 0 && g->now_ms == 0 && candidateOf(g)->frozen_ms == 0);
+    inv(g);
+    /* ... by every function that takes one, */
+    r1 = ask(g, -5, U_PLAIN, 0.9);
+    CHECK(r1.seq != 0 && gateFindObservation(g, r1.seq)->created_ms == 0);
+    CHECK_EQ_INT(g->now_ms, 0);
+    /* (from the first moment to beyond the last in one step: the request
+     * asked at 0 is as old as a request gets, and its time is up) */
+    CHECK_EQ_INT(gateMaintenanceDue(g, INT64_MAX), 1);
+    CHECK_EQ_INT(gateMaintenanceDue(g, top - 1), 1);
+    CHECK_EQ_INT(gateMaintenanceDue(g, TIMEOUT - 1), 0);
+    gateMaintain(g, INT64_MAX);
+    inv(g);
+    CHECK_EQ_INT(g->now_ms, top);
+    CHECK_EQ_INT(g->stats.missing, 1);
+    r1 = ask(g, INT64_MAX, U_PLAIN, 0.9);
+    CHECK(r1.seq != 0 && gateFindObservation(g, r1.seq)->created_ms == top);
+    CHECK_EQ_INT(gateMaintenanceDue(g, INT64_MAX), 0);
+    CHECK_EQ_INT(gateMaintenanceDue(g, INT64_MIN), 0);
+    CHECK_EQ_INT(answer(g, INT64_MAX, r1.seq, 1), 1);
+    CHECK_EQ_INT(gateLearn(g, INT64_MIN, EPOCH, r1.seq, 1), 0);
+    gatePause(g, INT64_MAX);
+    gateResume(g, INT64_MIN);
+    CHECK_EQ_INT(g->now_ms, top);
+    /* ... and by the two that set it. */
+    gateRecover(g, INT64_MAX, EPOCH2);
+    inv(g);
+    CHECK(g->now_ms == top && candidateOf(g)->frozen_ms == top);
+    gateReset(g, INT64_MIN, EPOCH3);
+    inv(g);
+    CHECK(g->now_ms == 0 && candidateOf(g)->frozen_ms == 0);
+    gateReset(g, top + 1, EPOCH);
+    inv(g);
+    CHECK(g->now_ms == top && candidateOf(g)->gen == 4);
+    /* A promotion at the last moment (generation 4: 47 correct answers
+     * reach 3200). */
+    for (i = 1; i <= 47; i++) {
+        feed(g, INT64_MAX, U_PLAIN, 0.9, 1);
+        CHECK_EQ_INT(g->serving != NULL, i == 47);
+    }
+    CHECK_EQ_INT(servingOf(g)->promoted_ms, top);
+    gateFree(g);
+    g = classGate(2, 3);
+    train(g, INT64_MAX, &XA, 0);
+    CHECK_EQ_INT(g->now_ms, top);
+    train(g, INT64_MIN, &XA, 0);
+    train(g, INT64_MAX, &XA, 0);
+    CHECK(g->candidate != NULL && candidateOf(g)->frozen_ms == top);
+    inv(g);
+    gateFree(g);
+}
+
+/* The other counters are not stopped by the core: the encoding writes one
+ * that is beyond the limit as the limit, and whatever the core made of a
+ * gate that decoded must decode again. Every counter of a gate that
+ * answers is put where a payload may hold it, at GATE_COUNT_MAX, and the
+ * gate goes on. In the build of the Makefile this checks the invariants;
+ * with the codec, inv() checks what the sentence above says. */
+TEST(counters_at_their_limit) {
+    const uint64_t top = GATE_COUNT_MAX;
+    int64_t t = T0;
+    gatePredictResult r;
+    gateGeneration *gen;
+    gateCounters *st;
+    gateEval ev;
+    uint32_t i;
+    gate *g;
+    int kind;
+
+    codec_exact = 0;
+    for (kind = 0; kind < 2; kind++) {
+        g = kind ? twoGenerations(t) : activeScoreGate(t);
+        st = &g->stats;
+        /* Requests are replies: ACCEPT, AUDIT or ABSTAIN. */
+        st->accepted = top / 2;
+        st->audited = st->abstained = top / 4;
+        st->requests = top;
+        st->full = top / 4;
+        st->observations = st->learned = st->ignored = st->missing = st->dropped = top;
+        st->promotions = st->revocations = st->retired = top;
+        gen = g->serving;
+        gen->samples = gen->audits = gen->audit_errors = gen->missed = top;
+        gen->errors = top / 2;
+        for (i = 0; i < g->nrows * T; i++) {
+            if (gen->regions[i].n == 0) continue;
+            gen->regions[i].n = top;
+            gen->regions[i].errors = top / 2;
+        }
+        gen->drift[0].asked = gen->drift[0].errors = top;
+        if (kind) {
+            g->trainer.updates = g->snapshot_updates = top;
+            gen = g->candidate;
+            gen->samples = gen->errors = gen->missed = top;
+            for (i = 0; i < T; i++) gen->paired[i] = top;
+            for (i = 0; i < T; i++) gen->regions[i].n = gen->regions[i].errors = top;
+        }
+        inv(g);
+
+        /* An answer of its own, a spot check that agrees, one that
+         * disagrees, one that is lost, a request it does not answer, an
+         * answer nobody asked for. */
+        if (kind) {
+            ev = guesses(g, 0, 0.99, 0, 0.99);
+            r = askGuess(g, t, U_PLAIN, &ev, &XA);
+            CHECK(r.action == GATE_ACTION_ACCEPT);
+            for (i = 0; i < 3; i++) {
+                r = askGuess(g, t, U_SPOT, &ev, &XA);
+                CHECK(r.action == GATE_ACTION_AUDIT);
+                CHECK(spotOf(g, r.seq) == top + 1 + i);
+                if (i < 2) CHECK_EQ_INT(answer(g, t, r.seq, (int32_t)i), 1);
+            }
+            ev = guesses(g, 1, 0.8, 1, 0.8);
+            r = askGuess(g, t, U_PLAIN, &ev, &XB);
+            CHECK(r.action == GATE_ACTION_ABSTAIN && r.seq != 0);
+            train(g, t, &XB, 1);
+        } else {
+            CHECK(ask(g, t, U_PLAIN, 0.9).action == GATE_ACTION_ACCEPT);
+            for (i = 0; i < 3; i++) {
+                r = ask(g, t, U_SPOT, 0.9);
+                CHECK(r.action == GATE_ACTION_AUDIT);
+                CHECK(spotOf(g, r.seq) == top + 1 + i);
+                if (i < 2) CHECK_EQ_INT(answer(g, t, r.seq, (int32_t)(1 - i)), 1);
+            }
+        }
+        CHECK_EQ_INT(gateLearn(g, t, EPOCH, 1, 0), 0);
+        inv(g);
+        gateMaintain(g, t + TIMEOUT);
+        inv(g);
+        /* It counted on. */
+        CHECK(st->requests > top && st->learned > top && st->ignored > top && st->missing > top);
+        CHECK(g->serving != NULL && g->serving->drift[0].asked == top + 3);
+        CHECK(g->serving->samples > top && g->serving->audits > top);
+        gateFree(g);
+    }
+    codec_exact = 1;
+}
+
+/* gateMaintain(). What a gate decoded from a payload may hold, and the core
+ * never leaves behind: a request at the head of the queue that is proof for
+ * a generation that is gone. When its time is up it is forgotten: it is not
+ * a missing answer and not the beginning of a run. */
+TEST(dead_queue_head_is_dropped) {
+    gateConfig cfg;
+    gateObs *o[2];
+    int i, classifier;
+    gate *g;
+
+    for (classifier = 0; classifier < 2; classifier++) {
+        if (classifier) classConfig(&cfg, 2, 12); else baseConfig(&cfg);
+        if (gateConfigValidate(&cfg, NULL, 0) != GATE_OK) die("invalid config");
+        g = gateAllocate(&cfg);
+        if (g == NULL) die("out of memory");
+        gateConfigFree(&cfg);
+        g->epoch = EPOCH;
+        g->created_ms = T0;
+        g->now_ms = T0 + 1;
+        g->generations = 1; /* there was a generation 1 */
+        for (i = 0; i < 2; i++) {
+            o[i] = gateObsAllocate();
+            if (o[i] == NULL) die("out of memory");
+            o[i]->seq = (uint64_t)i + 1;
+            o[i]->created_ms = T0 + i;
+            o[i]->flags = GATE_OBS_CAND;
+            o[i]->cand_gen = 1;
+            o[i]->cand_label = classifier ? 0 : -1;
+            o[i]->cand_score = 0.9;
+            if (classifier && gateSparseCopy(&o[i]->x, &XA) != GATE_OK) die("out of memory");
+        }
+        g->next_seq = 3;
+        gateObsLink(g, o[0]);
+        gateObsLink(g, o[1]);
+        inv(g);
+        CHECK_EQ_INT(g->nevidence, 2);
+        /* The time of the first is up, not yet that of the second. */
+        CHECK_EQ_INT(gateMaintenanceDue(g, T0 + TIMEOUT), 1);
+        gateMaintain(g, T0 + TIMEOUT);
+        inv(g);
+        CHECK_EQ_INT(g->stats.missing, 0);
+        CHECK_EQ_INT(g->missing_run, 0);
+        CHECK_EQ_INT(g->blind, 0);
+        CHECK_EQ_INT(g->nevidence, 0);
+        if (classifier) {
+            /* The second is kept for its label. */
+            CHECK_EQ_INT(g->stats.dropped, 1);
+            CHECK_EQ_INT(g->npending, 1);
+            CHECK_EQ_INT(flagsOf(g, 2), 0);
+            CHECK_EQ_INT(answer(g, T0 + TIMEOUT, 2, 0), 1);
+            CHECK_EQ_INT(g->trainer.updates, 1);
+        } else {
+            /* A score gate has no use for the second, and starts its next
+             * test, which neither was asked of. */
+            CHECK_EQ_INT(g->stats.dropped, 2);
+            CHECK(g->candidate != NULL && candidateOf(g)->gen == 2 && candidateOf(g)->samples == 0);
+        }
+        CHECK_EQ_INT(g->npending, 0);
+        gateFree(g);
+    }
+}
+
+/* ----------------------------- The drift detector ------------------------
+ * gate_stats.h has the detector; these are the gate's part: which request
+ * is a spot check, the number it gets and when, what is reported under
+ * that number and when, and what the gate does with each verdict. */
+
+/* Spot checks are numbered per label, in the order they are asked. */
+TEST(drift_spot_numbers) {
+    const uint32_t spot = GATE_OBS_AUDIT | GATE_OBS_WOULD_ACCEPT | GATE_OBS_SERV;
+    gate *g = trainedGate(12);
+    gatePredictResult a[4], b[3], r;
+    int64_t now = T0;
+    gateEval ev;
+    uint32_t i;
+
+    for (i = 0; i < 39; i++) feedText(g, now, U_PLAIN, &XA, 0);
+    for (i = 0; i < 39; i++) feedText(g, now, U_PLAIN, &XB, 1);
+    CHECK(servingOf(g)->gen == 1 && servingOf(g)->policy[0] == 0 && servingOf(g)->policy[1] == 0);
+    /* While label1 had no threshold its requests were proof, but not spot
+     * checks of answers: nothing was numbered. */
+    expectDrift(&servingOf(g)->drift[0], 0, 0, 0, 0);
+    expectDrift(&servingOf(g)->drift[1], 0, 0, 0, 0);
+    /* A number is handed out when a spot check is asked, each label
+     * counting for itself; a request the gate answers gets none. */
+    a[0] = askText(g, now, U_SPOT, &XA);
+    b[0] = askText(g, now, U_SPOT, &XB);
+    CHECK(askText(g, now, U_PLAIN, &XA).action == GATE_ACTION_ACCEPT);
+    a[1] = askText(g, now, U_SPOT, &XA);
+    a[2] = askText(g, now, U_SPOT, &XA);
+    b[1] = askText(g, now, U_SPOT, &XB);
+    CHECK(askText(g, now, U_PLAIN, &XB).action == GATE_ACTION_ACCEPT);
+    a[3] = askText(g, now, U_SPOT, &XA);
+    b[2] = askText(g, now, U_SPOT, &XB);
+    for (i = 0; i < 4; i++) {
+        CHECK_EQ_INT(flagsOf(g, a[i].seq) & spot, spot);
+        CHECK_EQ_INT(spotOf(g, a[i].seq), i + 1);
+    }
+    for (i = 0; i < 3; i++) CHECK_EQ_INT(spotOf(g, b[i].seq), i + 1);
+    /* Nor does a spot check of something the gate would not have answered
+     * (a guess made up for the purpose: label0 at 0.4, under 0.5). */
+    ev = guesses(g, 0, 0.4, 0, 0.4);
+    r = askGuess(g, now, U_SPOT, &ev, &XA);
+    CHECK(r.action == GATE_ACTION_ABSTAIN);
+    CHECK_EQ_INT(flagsOf(g, r.seq) & spot, GATE_OBS_AUDIT | GATE_OBS_SERV);
+    CHECK_EQ_INT(spotOf(g, r.seq), 0);
+    expectDrift(&servingOf(g)->drift[0], 4, 0, 0, 0);
+    expectDrift(&servingOf(g)->drift[1], 3, 0, 0, 0);
+    /* An answer that disagrees is reported the moment it arrives, under
+     * the number of its spot check, to the detector of its label: the
+     * second of label1 first, then the fourth and the first of label0. */
+    CHECK_EQ_INT(answer(g, now, b[1].seq, 0), 1);
+    expectDrift(&servingOf(g)->drift[1], 3, 1, 1, 0);
+    expectDrift(&servingOf(g)->drift[0], 4, 0, 0, 0);
+    CHECK_EQ_INT(answer(g, now, a[3].seq, 1), 1);
+    CHECK_EQ_INT(answer(g, now, a[0].seq, 1), 1);
+    expectDrift(&servingOf(g)->drift[0], 4, 2, 2, 0);
+    expectDrift(&servingOf(g)->drift[1], 3, 1, 1, 0);
+    /* Answers that agree are not reported at all. */
+    CHECK_EQ_INT(answer(g, now, a[1].seq, 0), 1);
+    CHECK_EQ_INT(answer(g, now, b[0].seq, 1), 1);
+    expectDrift(&servingOf(g)->drift[0], 4, 2, 2, 0);
+    expectDrift(&servingOf(g)->drift[1], 3, 1, 1, 0);
+    CHECK_EQ_INT(servingOf(g)->audits, 5);
+    CHECK_EQ_INT(servingOf(g)->audit_errors, 3);
+    /* stat(4, 2) = 2.25 and stat(3, 1) = 0.9375. */
+    CHECK_NEAR(gateDriftLogStat(&servingOf(g)->drift[0], &g->drift_bets[0], 0), log(2.25), 1e-12);
+    CHECK_NEAR(gateDriftLogStat(&servingOf(g)->drift[1], &g->drift_bets[1], 0), log(0.9375), 1e-12);
+    /* A spot check that is given up is reported like that too, to the
+     * detector of its label: the third of label0 and the third of label1
+     * never get an answer. (Proof moves on without the first of the two
+     * after the grace period. The made-up request is given up with them:
+     * it was no spot check and is lost to the proof only.) */
+    expectDue(g, now + GRACE);
+    CHECK_EQ_INT(flagsOf(g, a[2].seq) & GATE_OBS_PROVISIONAL, GATE_OBS_PROVISIONAL);
+    expectDue(g, now + TIMEOUT);
+    CHECK_EQ_INT(g->npending, 0);
+    CHECK_EQ_INT(g->stats.missing, 3);
+    CHECK_EQ_INT(g->missing_run, 0); /* answers arrived after each was asked */
+    expectDrift(&servingOf(g)->drift[0], 4, 2, 2, 1);
+    expectDrift(&servingOf(g)->drift[1], 3, 1, 1, 1);
+    /* With the lost one counted as a disagreement: stat(4, 3) = 9.75 and
+     * stat(3, 2) = 3.75. */
+    CHECK_NEAR(gateDriftLogStat(&servingOf(g)->drift[0], &g->drift_bets[0], 1), log(9.75), 1e-12);
+    CHECK_NEAR(gateDriftLogStat(&servingOf(g)->drift[1], &g->drift_bets[1], 1), log(3.75), 1e-12);
+    CHECK_EQ_INT(servingOf(g)->audits, 5);
+    gateFree(g);
+}
+
+/* Twelve spot checks are asked; then their answers arrive, in one order or
+ * another, the second half of them later, when proof has moved on without
+ * what is still unanswered. Eight disagree: the block is at stat(12, 8) =
+ * 245.5 in the end whatever the order was, and the alarm is never raised.
+ * (A detector that follows the answers as they come and starts over when
+ * it falls, like the one before, fires at seven disagreements in a row:
+ * every order that brings seven of the eight before an agreement.) Nine
+ * disagree: stat(12, 9) = 1338.2, and the alarm is raised by the ninth
+ * disagreement to arrive, whichever that is. */
+TEST(drift_order_and_batches) {
+    enum { N = 12, ORDERS = 7 };
+    static const int disagree[N] = {1, 1, 0, 1, 1, 1, 0, 1, 1, 0, 1, 1}; /* nine */
+    uint64_t rng = 20261128;
+    int nine, order;
+
+    CHECK_NEAR(exp(driftStat(ALPHA, 12, 8)), 245.53125, 1e-9);
+    for (nine = 0; nine < 2; nine++) {
+        for (order = 0; order < ORDERS; order++) {
+            gate *g = activeScoreGate(T0);
+            uint32_t idx[N], i, j, n = 0, wrong = 0;
+            int64_t now = T0;
+            uint64_t seq[N];
+
+            for (i = 0; i < N; i++) {
+                seq[i] = ask(g, T0, U_SPOT, 0.9).seq;
+                CHECK_EQ_INT(spotOf(g, seq[i]), i + 1);
+            }
+            switch (order) {
+            case 0: /* as they were asked */
+                for (i = 0; i < N; i++) idx[i] = i;
+                break;
+            case 1: /* the newest first */
+                for (i = 0; i < N; i++) idx[i] = N - 1 - i;
+                break;
+            case 2: /* every disagreement first */
+            case 3: /* every agreement first */
+                for (j = 0; j < 2; j++)
+                    for (i = 0; i < N; i++)
+                        if (disagree[i] == (order == 2 ? !j : (int)j)) idx[n++] = i;
+                break;
+            default: /* any order */
+                for (i = 0; i < N; i++) idx[i] = i;
+                for (i = N - 1; i > 0; i--) {
+                    uint32_t k = (uint32_t)(gate_test_rand64(&rng) % (i + 1)), tmp = idx[i];
+
+                    idx[i] = idx[k];
+                    idx[k] = tmp;
+                }
+                break;
+            }
+            for (i = 0; i < N; i++) {
+                uint32_t k = idx[i];
+                /* With eight, the last spot check agrees. */
+                int wrong_one = disagree[k] && (nine || k != N - 1);
+
+                if (i == N / 2) now = T0 + GRACE + 10; /* the second batch */
+                CHECK_EQ_INT(gateLearn(g, now, EPOCH, seq[k], !wrong_one), 1);
+                inv(g);
+                wrong += (uint32_t)wrong_one;
+                CHECK_EQ_INT(g->serving == NULL, wrong == 9);
+                if (g->serving == NULL) break;
+                expectDrift(&servingOf(g)->drift[0], N, wrong, wrong, 0);
+            }
+            CHECK_EQ_INT(g->stats.revocations, nine);
+            if (nine) {
+                CHECK(g->candidate != NULL && candidateOf(g)->gen == 2);
+                CHECK_EQ_INT(g->blind, 0);
+            } else {
+                CHECK_NEAR(gateDriftLogStat(&servingOf(g)->drift[0], &g->drift_bets[0], 0),
+                           log(245.53125), 1e-12);
+                CHECK(servingOf(g)->audits == N && servingOf(g)->audit_errors == 8);
+                /* The proof holds the twelve as well, whenever it got them. */
+                CHECK(servingOf(g)->samples == 35 + N && servingOf(g)->errors == 8);
+                CHECK_EQ_INT(g->npending, 0);
+            }
+            gateFree(g);
+        }
+    }
+}
+
+/* A disagreement that arrives after the block of 64 its spot check was
+ * asked in has ended counts in the blocks of 512 and of 4096, which are
+ * still open, and not in the block of 64 that is open now. And a spot
+ * check that proof has moved on without is, to the detector, a spot check
+ * without an answer like any other. */
+TEST(drift_block_ended) {
+    const uint32_t spot = GATE_OBS_AUDIT | GATE_OBS_WOULD_ACCEPT | GATE_OBS_SERV;
+    int64_t t = T0;
+    gate *g = activeScoreGate(t);
+    gatePredictResult first[3], r;
+    const gateDrift *d;
+    uint32_t i;
+
+    /* Spot checks 1, 2 and 3 get no answer for now. 64 more are asked and
+     * answered right: number 67 is the third of the second block of 64. */
+    for (i = 0; i < 3; i++) first[i] = ask(g, t, U_SPOT, 0.9);
+    for (i = 4; i <= 67; i++) {
+        r = ask(g, t, U_SPOT, 0.9);
+        CHECK_EQ_INT(spotOf(g, r.seq), i);
+        CHECK_EQ_INT(answer(g, t, r.seq, 1), 1);
+    }
+    d = &servingOf(g)->drift[0];
+    CHECK(d->asked == 67 && d->errors == 0);
+    CHECK(gateDriftOpen(d, 0) == 3 && gateDriftOpen(d, 1) == 67 && gateDriftOpen(d, 2) == 67);
+    /* Proof moves on without the three: wrong guesses to the proof,
+     * nothing to the detector. */
+    expectDue(g, t + GRACE);
+    for (i = 0; i < 3; i++) CHECK_EQ_INT(flagsOf(g, first[i].seq), spot | GATE_OBS_PROVISIONAL);
+    CHECK(servingOf(g)->samples == 35 + 67 && servingOf(g)->errors == 3);
+    CHECK(d->errors == 0 && d->wrong[0] + d->wrong[1] + d->wrong[2] == 0 &&
+          d->lost[0] + d->lost[1] + d->lost[2] == 0);
+    /* The answer of number 1 arrives and disagrees. Its block of 64 has
+     * ended: it is counted in the two longer ones only. */
+    CHECK_EQ_INT(answer(g, t + GRACE, first[0].seq, 0), 1);
+    CHECK(g->serving != NULL);
+    CHECK(d->asked == 67 && d->errors == 1);
+    CHECK(d->wrong[0] == 0 && d->wrong[1] == 1 && d->wrong[2] == 1);
+    CHECK_EQ_INT(servingOf(g)->errors, 3); /* what the proof had counted it as */
+    CHECK_EQ_INT(servingOf(g)->audit_errors, 1);
+    /* The answer of number 2 agrees: the proof takes its wrong guess back,
+     * the detector hears nothing. */
+    CHECK_EQ_INT(answer(g, t + GRACE, first[1].seq, 1), 1);
+    CHECK_EQ_INT(servingOf(g)->errors, 2);
+    CHECK(d->errors == 1 && d->wrong[0] == 0 && d->wrong[1] == 1 && d->wrong[2] == 1);
+    CHECK_EQ_INT(servingOf(g)->audits, 64 + 2);
+    /* The open block of 64 holds three spot checks that agreed (65, 66 and
+     * 67): with those it takes nine disagreements (stat(12, 9) = 1338.2;
+     * stat(11, 8) = 464.1). The late one is not among them: eight more do
+     * not raise the alarm, the ninth does. (Had it been counted in this
+     * block, the eighth would have: stat(11, 9) = 2604.4.) The block of
+     * 512 is nowhere near: 2^10 0.75^66 is 6e-6. */
+    for (i = 1; i <= 9; i++) {
+        r = ask(g, t + GRACE, U_SPOT, 0.9);
+        CHECK_EQ_INT(spotOf(g, r.seq), 67 + i);
+        CHECK_EQ_INT(answer(g, t + GRACE, r.seq, 0), 1);
+        CHECK_EQ_INT(g->serving != NULL, i < 9);
+        if (g->serving == NULL) break;
+        CHECK(d->wrong[0] == i && d->wrong[1] == i + 1 && d->wrong[2] == i + 1);
+        CHECK_EQ_INT(gateDriftOpen(d, 0), 3 + i);
+        CHECK_NEAR(gateDriftLogStat(d, &g->drift_bets[0], 0), driftStat(ALPHA, 3 + i, i), 1e-12);
+    }
+    CHECK_EQ_INT(i, 9);
+    CHECK_EQ_INT(g->stats.revocations, 1);
+    /* Number 3 never had an answer. Proof had moved on without it, so it
+     * still has its id; its answer is used and changes nothing. */
+    CHECK_EQ_INT(g->npending, 1);
+    CHECK_EQ_INT(answer(g, t + GRACE, first[2].seq, 0), 1);
+    CHECK(g->candidate != NULL && candidateOf(g)->gen == 2 && candidateOf(g)->samples == 0);
+    CHECK_EQ_INT(g->npending, 0);
+    gateFree(g);
+}
+
+/* The blocks themselves. A block of 64 begins with the spot checks number
+ * 1, 65, 129, ..., a block of 512 with 1, 513, ..., a block of 4096 with 1
+ * and 4097. What a block has counted is forgotten when the next block of
+ * its length begins, not a spot check sooner, and the longer blocks keep
+ * what they have.
+ *
+ * Then three sequences of answers, each of which only one of the three
+ * lengths sees (exact arithmetic, by the rule of SPEC.md section 5):
+ *   - 30 spot checks agree, the following disagree: the 24th of those
+ *     stops the gate (spot check 54: stat(54, 24) = 1629.6, stat(53, 23) =
+ *     792.9). With blocks of 32 it would be the 9th: a fresh block begins
+ *     at number 33.
+ *   - 256 agree, then two of every five disagree ("x.x.."): no block of 64
+ *     gets to 1000, and the block of 512 that holds the 256 never will. The
+ *     one that begins at 513 does, at number 584 (72 asked, 29 of them
+ *     wrong: 1142.8). Blocks of 256 would be there at 324, and without the
+ *     512 it takes until 1027.
+ *   - 30 of every 101 disagree, evenly spread: too few for any block of 64
+ *     or 512, which end before they amount to anything. The block of 4096
+ *     is at 1003.0 with number 2084 (619 wrong). */
+TEST(drift_blocks) {
+    static char pattern[4097];
+    gatePredictResult lost[3], r;
+    const gateDrift *d;
+    int64_t t = T0;
+    gate *g = activeScoreGate(t);
+    uint32_t i, n = 0;
+
+    /* Spot checks 1 to 64: number 5 and number 9 disagree, 12, 20 and 33
+     * get no answer, the others agree. */
+    for (i = 1; i <= 64; i++) {
+        r = ask(g, t, U_SPOT, 0.9);
+        CHECK_EQ_INT(spotOf(g, r.seq), i);
+        if (i == 12 || i == 20 || i == 33) lost[n++] = r;
+        else CHECK_EQ_INT(answer(g, t, r.seq, !(i == 5 || i == 9)), 1);
+    }
+    expectDue(g, t + GRACE);
+    for (i = 0; i < 3; i++)
+        CHECK_EQ_INT(flagsOf(g, lost[i].seq) & GATE_OBS_PROVISIONAL, GATE_OBS_PROVISIONAL);
+    expectDue(g, t + TIMEOUT);
+    t += TIMEOUT;
+    CHECK(g->serving != NULL && g->npending == 0);
+    CHECK_EQ_INT(g->stats.missing, 3);
+    CHECK_EQ_INT(g->missing_run, 0);
+    d = &servingOf(g)->drift[0];
+    expectDrift(d, 64, 2, 2, 3);
+    CHECK(servingOf(g)->samples == 35 + 64 && servingOf(g)->errors == 5);
+    /* Number 65 opens the second block of 64. */
+    feed(g, t, U_SPOT, 0.9, 1);
+    CHECK(d->asked == 65 && d->errors == 2);
+    CHECK(d->wrong[0] == 0 && d->lost[0] == 0 && gateDriftOpen(d, 0) == 1);
+    CHECK(d->wrong[1] == 2 && d->lost[1] == 3 && gateDriftOpen(d, 1) == 65);
+    CHECK(d->wrong[2] == 2 && d->lost[2] == 3 && gateDriftOpen(d, 2) == 65);
+    CHECK_NEAR(gateDriftLogStat(d, &g->drift_bets[0], 0), log(0.625), 1e-12); /* stat(1, 0) */
+    /* 512 closes the first block of 512, 513 opens the second. */
+    for (i = 66; i <= 512; i++) feed(g, t, U_SPOT, 0.9, 1);
+    CHECK(d->asked == 512 && gateDriftOpen(d, 0) == 64);
+    CHECK(d->wrong[1] == 2 && d->lost[1] == 3 && gateDriftOpen(d, 1) == 512);
+    feed(g, t, U_SPOT, 0.9, 1);
+    CHECK(d->wrong[0] == 0 && d->lost[0] == 0 && gateDriftOpen(d, 0) == 1);
+    CHECK(d->wrong[1] == 0 && d->lost[1] == 0 && gateDriftOpen(d, 1) == 1);
+    CHECK(d->wrong[2] == 2 && d->lost[2] == 3 && gateDriftOpen(d, 2) == 513);
+    /* And 4097 the second block of 4096. */
+    for (i = 514; i <= 4096; i++) feed(g, t, U_SPOT, 0.9, 1);
+    CHECK(d->asked == 4096 && gateDriftOpen(d, 0) == 64 && gateDriftOpen(d, 1) == 512);
+    CHECK(d->wrong[2] == 2 && d->lost[2] == 3 && gateDriftOpen(d, 2) == 4096);
+    feed(g, t, U_SPOT, 0.9, 1);
+    CHECK(d->asked == 4097 && d->errors == 2);
+    for (i = 0; i < GATE_DRIFT_SCALES; i++)
+        CHECK(d->wrong[i] == 0 && d->lost[i] == 0 && gateDriftOpen(d, (int)i) == 1);
+    CHECK(g->serving != NULL && servingOf(g)->audits == 4097 - 3);
+    CHECK_EQ_INT(servingOf(g)->audit_errors, 2);
+    gateFree(g);
+
+    /* 30 spot checks that agree, then disagreements: the 24th. */
+    t = T0;
+    g = activeScoreGate(t);
+    for (i = 0; i < 30; i++) feed(g, t, U_SPOT, 0.9, 1);
+    for (i = 1; i <= 24; i++) {
+        r = ask(g, t, U_SPOT, 0.9);
+        CHECK_EQ_INT(spotOf(g, r.seq), 30 + i);
+        CHECK_EQ_INT(answer(g, t, r.seq, 0), 1);
+        CHECK_EQ_INT(g->serving != NULL, i < 24);
+        if (g->serving == NULL) break;
+        CHECK_NEAR(gateDriftLogStat(&servingOf(g)->drift[0], &g->drift_bets[0], 0),
+                   driftStat(ALPHA, 30 + i, i), 1e-12);
+    }
+    CHECK_EQ_INT(i, 24);
+    CHECK_EQ_INT(g->stats.revocations, 1);
+    CHECK(driftStat(ALPHA, 54, 24) >= log(1000.0) && driftStat(ALPHA, 53, 23) < log(1000.0));
+    gateFree(g);
+
+    /* The three sequences, to the detector by itself. */
+    memset(pattern, '.', 30);
+    memset(pattern + 30, 'x', 60);
+    pattern[90] = '\0';
+    CHECK_EQ_INT(alarmAfter(ALPHA, pattern), 54);
+    memset(pattern, '.', 256);
+    for (i = 256; i < 1256; i++) pattern[i] = "x.x.."[(i - 256) % 5];
+    pattern[1256] = '\0';
+    CHECK_EQ_INT(alarmAfter(ALPHA, pattern), 584);
+    for (i = 1; i <= 4096; i++)
+        pattern[i - 1] = (i * 30) / 101 != ((i - 1) * 30) / 101 ? 'x' : '.';
+    pattern[4096] = '\0';
+    CHECK_EQ_INT(alarmAfter(ALPHA, pattern), 2084);
+    CHECK(driftStat(ALPHA, 2084, 619) >= log(1000.0) && driftStat(ALPHA, 2084, 618) < log(1000.0));
+    CHECK(driftStat(ALPHA, 72, 29) >= log(1000.0) && driftStat(ALPHA, 72, 28) < log(1000.0));
+}
+
+/* A spot check whose answer is given up is not a disagreement, but it may
+ * hide one. The detector counts lost answers next to the disagreements,
+ * and when the two together would mean "worse" at the level 1e9 the gate
+ * can no longer be checked: it stops like a gate whose answers have
+ * stopped (both snapshots dropped, the model kept, no snapshot until an
+ * answer arrives). */
+TEST(drift_lost_spot_checks) {
+    int64_t t = T0;
+    gate *g = trainedGate(12);
+    gatePredictResult r;
+    uint64_t weights;
+    uint32_t i;
+
+    /* A classifier that answers label0, with a second snapshot under test. */
+    for (i = 0; i < 39; i++) feedText(g, t, U_PLAIN, &XA, 0);
+    CHECK(servingOf(g)->gen == 1 && candidateOf(g)->gen == 2);
+    CHECK_EQ_INT(g->trainer.updates, 51);
+    weights = mixModel(0, &g->trainer, 0);
+    /* 19 spot checks of its answers that nobody answers: lost. For "cannot
+     * be checked" the block is at stat(19, 19) = 5.8e8, under 1e9. For
+     * "worse" it is at 0.75^19 or so: nobody disagreed. The gate goes on
+     * answering. */
+    for (i = 0; i < 19; i++) CHECK(askText(g, t, U_SPOT, &XA).action == GATE_ACTION_AUDIT);
+    expectDue(g, t + TIMEOUT);
+    t += TIMEOUT;
+    CHECK(g->serving != NULL && g->candidate != NULL && g->blind == 0);
+    CHECK_EQ_INT(g->stats.missing, 19);
+    CHECK_EQ_INT(g->missing_run, 19);
+    expectDrift(&servingOf(g)->drift[0], 19, 0, 0, 19);
+    CHECK_NEAR(gateDriftLogStat(&servingOf(g)->drift[0], &g->drift_bets[0], 1), log(581392877.5),
+               1e-12);
+    CHECK(gateDriftLogStat(&servingOf(g)->drift[0], &g->drift_bets[0], 0) < log(0.01));
+    CHECK_EQ_INT(servingOf(g)->audits, 0);
+    CHECK(servingOf(g)->samples == 39 + 19 && servingOf(g)->errors == 19);
+    CHECK(askText(g, t, U_PLAIN, &XA).action == GATE_ACTION_ACCEPT);
+    /* The twentieth: stat(20, 20) = 1.74e9. The gate cannot rule out any
+     * more that it got worse, and stops: both snapshots go. Lost answers
+     * say nothing about the model: it stays, bit for bit, and is frozen
+     * again when an answer arrives. (It is not the run of missing answers
+     * that stopped the gate: that is at 20 of 32.) */
+    CHECK(askText(g, t, U_SPOT, &XA).action == GATE_ACTION_AUDIT);
+    expectDue(g, t + TIMEOUT);
+    t += TIMEOUT;
+    CHECK_EQ_INT(g->blind, 1);
+    CHECK(g->serving == NULL && g->candidate == NULL);
+    CHECK(gateState(g) == GATE_STATE_COLD);
+    CHECK_EQ_INT(g->stats.revocations, 1);
+    CHECK_EQ_INT(g->stats.missing, 20);
+    CHECK_EQ_INT(g->missing_run, 0);
+    CHECK_EQ_INT(g->generations, 2);
+    CHECK_EQ_INT(g->trainer.updates, 51);
+    CHECK(mixModel(0, &g->trainer, 0) == weights);
+    CHECK_EQ_INT(g->snapshot_updates, 0);
+    expectIdle(g, t + 5);
+    r = askText(g, t + 5, U_PLAIN, &XA);
+    CHECK(r.action == GATE_ACTION_ABSTAIN && r.seq != 0);
+    CHECK_EQ_INT(answer(g, t + 5, r.seq, 0), 1);
+    CHECK(g->blind == 0 && g->candidate != NULL && candidateOf(g)->gen == 3);
+    CHECK_EQ_INT(candidateOf(g)->model.updates, 52);
+    gateFree(g);
+
+    /* After spot checks that agreed it takes more lost ones: three that
+     * agreed and 22 lost ones (stat(25, 22) = 1.96e9; 21 give 3.3e8). */
+    CHECK(driftStat(ALPHA, 25, 22) >= log(1e9) && driftStat(ALPHA, 25, 21) < log(1e9));
+    t = T0;
+    g = activeScoreGate(t);
+    for (i = 0; i < 3; i++) feed(g, t, U_SPOT, 0.9, 1);
+    for (i = 0; i < 21; i++) CHECK(ask(g, t, U_SPOT, 0.9).action == GATE_ACTION_AUDIT);
+    CHECK(ask(g, t + 1, U_SPOT, 0.9).action == GATE_ACTION_AUDIT);
+    expectDue(g, t + TIMEOUT);
+    CHECK(g->serving != NULL && g->blind == 0);
+    expectDrift(&servingOf(g)->drift[0], 25, 0, 0, 21);
+    CHECK_EQ_INT(g->missing_run, 21);
+    expectDue(g, t + TIMEOUT + 1);
+    CHECK(g->serving == NULL && g->candidate == NULL && g->blind == 1);
+    CHECK_EQ_INT(g->stats.revocations, 1);
+    CHECK_EQ_INT(g->stats.missing, 22);
+    CHECK_EQ_INT(g->generations, 1); /* a blind score gate does not start its next test */
+    gateFree(g);
+
+    /* Lost answers and disagreements together. Ten lost spot checks
+     * (stat(10, 10) = 30036.5), then wrong ones. For "worse" the lost ones
+     * count as right: after nine disagreements the block is at stat(19, 9)
+     * = 24.0, after ten at 57.7, far from 1000. For "cannot be checked"
+     * they count like the disagreements: the tenth makes it stat(20, 20) =
+     * 1.74e9. That verdict is raised by an answer, and it is not "worse":
+     * what the model has learned stays (61 examples: the alarm that says
+     * "worse" would have left none), no snapshot is under test, and the
+     * next answer lets the gate start again. */
+    t = T0;
+    g = trainedGate(12);
+    for (i = 0; i < 39; i++) feedText(g, t, U_PLAIN, &XA, 0);
+    for (i = 0; i < 10; i++) CHECK(askText(g, t, U_SPOT, &XA).action == GATE_ACTION_AUDIT);
+    expectDue(g, t + TIMEOUT);
+    t += TIMEOUT;
+    expectDrift(&servingOf(g)->drift[0], 10, 0, 0, 10);
+    CHECK_NEAR(gateDriftLogStat(&servingOf(g)->drift[0], &g->drift_bets[0], 1), log(30036.5), 1e-12);
+    for (i = 1; i <= 10; i++) {
+        r = askText(g, t, U_SPOT, &XA);
+        CHECK(r.action == GATE_ACTION_AUDIT);
+        CHECK_EQ_INT(answer(g, t, r.seq, 1), 1);
+        CHECK_EQ_INT(g->serving != NULL, i < 10);
+        if (g->serving == NULL) break;
+        expectDrift(&servingOf(g)->drift[0], 10 + i, i, i, 10);
+        CHECK_NEAR(gateDriftLogStat(&servingOf(g)->drift[0], &g->drift_bets[0], 0),
+                   driftStat(ALPHA, 10 + i, i), 1e-12);
+    }
+    CHECK_EQ_INT(i, 10);
+    CHECK_NEAR(exp(driftStat(ALPHA, 19, 9)), 98415.0 / 4096.0, 1e-9);
+    CHECK_EQ_INT(g->stats.revocations, 1);
+    CHECK(g->serving == NULL && g->candidate == NULL);
+    CHECK_EQ_INT(g->blind, 1);
+    CHECK_EQ_INT(g->missing_run, 0);
+    CHECK_EQ_INT(g->generations, 2);
+    CHECK_EQ_INT(g->trainer.updates, 51 + 10);
+    CHECK_EQ_INT(g->snapshot_updates, 0);
+    feedText(g, t, U_PLAIN, &XA, 0);
+    CHECK(g->blind == 0 && g->candidate != NULL && candidateOf(g)->gen == 3);
+    CHECK_EQ_INT(candidateOf(g)->model.updates, 62);
+    gateFree(g);
+}
+
+/* A paused gate answers nothing and keeps checking itself: what it would
+ * have answered is spot checked, numbered and counted as before, and both
+ * alarms stop it for when it is resumed. */
+TEST(drift_paused_gate) {
+    int64_t t = T0;
+    gate *g = activeScoreGate(t);
+    gatePredictResult r;
+    uint32_t i;
+
+    gatePause(g, t);
+    /* What would be an ACCEPT: nothing is recorded, nothing numbered. */
+    r = ask(g, t, U_PLAIN, 0.9);
+    CHECK(r.action == GATE_ACTION_ABSTAIN && r.seq == 0);
+    for (i = 1; i <= 7; i++) {
+        r = ask(g, t, U_SPOT, 0.9);
+        CHECK(r.action == GATE_ACTION_ABSTAIN && r.seq != 0);
+        CHECK_EQ_INT(spotOf(g, r.seq), i);
+        CHECK_EQ_INT(answer(g, t, r.seq, 0), 1);
+        CHECK_EQ_INT(g->serving != NULL, i < 7);
+        if (g->serving) expectDrift(&servingOf(g)->drift[0], i, i, i, 0);
+    }
+    CHECK(gateState(g) == GATE_STATE_PAUSED);
+    CHECK_EQ_INT(g->stats.revocations, 1);
+    CHECK(g->candidate != NULL && candidateOf(g)->gen == 2);
+    CHECK(g->stats.audited == 0 && g->stats.accepted == 0);
+    gateResume(g, t);
+    CHECK(gateState(g) == GATE_STATE_CALIBRATING);
+    gateFree(g);
+
+    /* Lost spot checks of a paused gate: the twentieth. */
+    g = activeScoreGate(t);
+    gatePause(g, t);
+    (void)loseAnswers(g, t, 20, U_SPOT);
+    CHECK(g->blind == 1 && g->serving == NULL && g->candidate == NULL);
+    CHECK(gateState(g) == GATE_STATE_PAUSED);
+    CHECK_EQ_INT(g->stats.missing, 20);
+    CHECK_EQ_INT(g->stats.revocations, 1);
+    gateResume(g, t + TIMEOUT);
+    CHECK(gateState(g) == GATE_STATE_COLD);
+    gateFree(g);
+}
+
+/* The number of a spot check belongs to the detector that handed it out:
+ * to one label of one generation. When that generation is replaced while
+ * spot checks are outstanding, their answers, and their loss, are nothing
+ * to the detectors of the generation that serves now, which hands out the
+ * same numbers again. */
+TEST(drift_generation_replaced) {
+    const uint32_t both = GATE_OBS_AUDIT | GATE_OBS_WOULD_ACCEPT | GATE_OBS_SERV | GATE_OBS_CAND;
+    int64_t t = T0;
+    gate *g = twoGenerations(t);
+    gatePredictResult old[4], r;
+    gateEval ev;
+    uint32_t i;
+
+    /* Four spot checks of answers of generation 1 (label0 at 0.99) that
+     * get no answer for now: the numbers 1 to 4 of its label0. Generation
+     * 2 says label1 for them. */
+    for (i = 0; i < 4; i++) {
+        ev = guesses(g, 0, 0.99, 1, 0.6);
+        old[i] = askGuess(g, t, U_SPOT, &ev, &XA);
+        CHECK_EQ_INT(flagsOf(g, old[i].seq), both);
+        CHECK_EQ_INT(spotOf(g, old[i].seq), i + 1);
+    }
+    /* 44 spot checks that only generation 2 would answer, all right: they
+     * wait behind the four. */
+    for (i = 0; i < 44; i++) {
+        ev = guesses(g, 1, 0.8, 0, 0.99);
+        r = askGuess(g, t, U_SPOT, &ev, &XA);
+        CHECK_EQ_INT(spotOf(g, r.seq), 0);
+        CHECK_EQ_INT(answer(g, t, r.seq, 0), 1);
+    }
+    CHECK_EQ_INT(candidateOf(g)->samples, 0);
+    expectDrift(&servingOf(g)->drift[0], 4, 0, 0, 0);
+    /* Proof moves on without the four, the 44 are applied, and generation
+     * 2 takes over: it answers 44 of its requests, generation 1 four of
+     * them. Generation 3 follows under test. */
+    expectDue(g, t + GRACE);
+    CHECK(servingOf(g)->gen == 2 && g->candidate != NULL && candidateOf(g)->gen == 3);
+    CHECK_EQ_INT(servingOf(g)->samples, 48);
+    CHECK_EQ_INT(servingOf(g)->errors, 4);
+    for (i = 0; i < 4; i++) {
+        CHECK_EQ_INT(flagsOf(g, old[i].seq), both | GATE_OBS_PROVISIONAL);
+        CHECK_EQ_INT(spotOf(g, old[i].seq), i + 1);
+    }
+    /* The detectors of generation 2 start from nothing. */
+    expectDrift(&servingOf(g)->drift[0], 0, 0, 0, 0);
+    expectDrift(&servingOf(g)->drift[1], 0, 0, 0, 0);
+    /* Generation 2 has spot checks of its own: five, all right. The
+     * numbers 1 to 5 of its label0. */
+    for (i = 1; i <= 5; i++) {
+        ev = guesses(g, 0, 0.99, 0, 0.99);
+        r = askGuess(g, t + GRACE, U_SPOT, &ev, &XA);
+        CHECK(r.action == GATE_ACTION_AUDIT);
+        CHECK_EQ_INT(spotOf(g, r.seq), i);
+        CHECK_EQ_INT(answer(g, t + GRACE, r.seq, 0), 1);
+    }
+    expectDrift(&servingOf(g)->drift[0], 5, 0, 0, 0);
+    CHECK_EQ_INT(servingOf(g)->audits, 5);
+    /* Now the answers of three of the old spot checks arrive, and they
+     * disagree with what generation 1 said: label1. They carry the numbers
+     * 1, 2 and 3 of a detector that is gone: nothing to the one that
+     * generation 2 runs under the same numbers. To generation 2 they are
+     * proof that it guessed right (it said label1): it takes three wrong
+     * guesses back. */
+    for (i = 0; i < 3; i++) CHECK_EQ_INT(answer(g, t + GRACE + 1, old[i].seq, 1), 1);
+    expectDrift(&servingOf(g)->drift[0], 5, 0, 0, 0);
+    expectDrift(&servingOf(g)->drift[1], 0, 0, 0, 0);
+    CHECK(servingOf(g)->audits == 5 && servingOf(g)->audit_errors == 0);
+    CHECK_EQ_INT(servingOf(g)->errors, 1);
+    CHECK(g->serving != NULL && g->stats.revocations == 0);
+    /* The fourth never gets one: a missing answer for the proof of
+     * generation 2, not a lost spot check of it. */
+    expectDue(g, t + TIMEOUT);
+    CHECK_EQ_INT(g->stats.missing, 1);
+    CHECK_EQ_INT(g->missing_run, 0);
+    expectDrift(&servingOf(g)->drift[0], 5, 0, 0, 0);
+    CHECK(servingOf(g)->gen == 2 && servingOf(g)->errors == 1);
+    gateFree(g);
+}
+
+/* ROBUSTNESS. A score gate has no labels and keeps no clues: a guess that
+ * carries a label is refused, and clues that come with a request stay with
+ * the caller. */
+TEST(score_gate_refuses_labels_and_clues) {
+    gatePredictResult r;
+    const gateObs *o;
+    gateEval ev, bad;
+    uint64_t before;
+    gateSparse x;
+    int64_t t;
+    uint32_t i;
+    int kind;
+    gate *g;
+
+    /* A gate under test, one that answers, one that is blind. */
+    for (kind = 0; kind < 3; kind++) {
+        t = T0;
+        g = kind == 1 ? activeScoreGate(t) : scoreGate();
+        if (kind == 2) {
+            t = loseAnswers(g, t, 32, U_PLAIN);
+            CHECK_EQ_INT(g->blind, 1);
+        }
+        gateMaintain(g, t);
+        CHECK(gateEvaluate(g, NULL, 0.9, &ev) == GATE_OK);
+        CHECK(ev.serving.label == -1 && ev.candidate.label == -1);
+        before = fingerprint(g, 0);
+        /* A label on either guess, whether there is such a generation or
+         * not, whatever the draw. */
+        for (i = 0; i < 6; i++) {
+            static const int32_t labels[3] = {0, 63, -2};
+
+            bad = ev;
+            if (i & 1) bad.serving.label = labels[i / 2]; else bad.candidate.label = labels[i / 2];
+            CHECK(gatePredict(g, t, U_SPOT, &bad, NULL, &r) == GATE_ERR);
+            CHECK(r.seq == 0);
+            CHECK(gatePredict(g, t, U_PLAIN, &bad, NULL, &r) == GATE_ERR);
+            CHECK_EQ_INT(gatePredictNeedsFeatures(g, U_SPOT, &bad), 0);
+        }
+        CHECK(fingerprint(g, 0) == before);
+        inv(g);
+        /* Clues handed in with a request are not taken: the request is
+         * recorded without them. */
+        CHECK_EQ_INT(gatePredictNeedsFeatures(g, U_SPOT, &ev), 0);
+        if (gateSparseCopy(&x, &XA) != GATE_OK) die("out of memory");
+        CHECK(gatePredict(g, t, U_SPOT, &ev, &x, &r) == GATE_OK);
+        CHECK(r.seq != 0);
+        CHECK(x.n == 1 && x.idx != NULL && x.val != NULL);
+        o = gateFindObservation(g, r.seq);
+        CHECK(o != NULL && o->x.n == 0 && o->x.idx == NULL && o->x.val == NULL);
+        CHECK_EQ_INT(g->pending_bytes, GATE_OBS_BYTES(0));
+        CHECK_EQ_INT(gateMemoryUsage(g), expectBytes(g));
+        inv(g);
+        gateSparseFree(&x);
+        CHECK_EQ_INT(answer(g, t, r.seq, 1), 1);
+        gateFree(g);
+    }
+}
+
+/* A score that is not a number. The module checks the range of every score
+ * before the core sees it and the header says nothing about one that is
+ * not finite, so this states the cautious reading only: the request is
+ * either refused, and then nothing has changed, or it is a request that
+ * lies above no threshold. It is never answered, not even by a gate that
+ * answers everything, and its answer is proof for no threshold. (The
+ * encoding has no place for such a number: a gate that has recorded one
+ * cannot be decoded again until the request is gone. That is why this test
+ * checks the invariants itself and leaves the round trip of the scratch
+ * build out. See the report.) */
+TEST(score_that_is_not_a_number) {
+    static const double bad[] = {NAN, -INFINITY}, us[] = {U_SPOT, U_PLAIN};
+    uint64_t before, seen[GATE_THRESHOLDS];
+    const gateGeneration *gen;
+    gatePredictResult r;
+    char err[160];
+    gateEval ev;
+    uint32_t t;
+    int kind, i, j, rc;
+    gate *g;
+
+    for (kind = 0; kind < 2; kind++) {
+        for (i = 0; i < 2; i++) {
+            for (j = 0; j < 2; j++) {
+                g = kind ? activeScoreGate(T0) : scoreGate();
+                gen = kind ? servingOf(g) : candidateOf(g);
+                for (t = 0; t < T; t++) seen[t] = gen->regions[t].n;
+                gateMaintain(g, T0);
+                before = fingerprint(g, 0);
+                r.action = GATE_ACTION_ABSTAIN;
+                r.seq = 0;
+                rc = gateEvaluateFor(g, NULL, bad[i], us[j], &ev);
+                if (rc == GATE_OK) rc = gatePredict(g, T0, us[j], &ev, NULL, &r);
+                if (rc != GATE_OK) {
+                    CHECK(fingerprint(g, 0) == before);
+                } else {
+                    CHECK_EQ_INT(r.action, GATE_ACTION_ABSTAIN);
+                    CHECK_EQ_INT(r.label, -1);
+                    if (r.seq != 0) {
+                        CHECK(spotOf(g, r.seq) == 0); /* no spot check of an answer */
+                        CHECK_EQ_INT(gateLearn(g, T0, g->epoch, r.seq, 1), 1);
+                    }
+                    gen = kind ? servingOf(g) : candidateOf(g);
+                    CHECK(gen != NULL && gen->gen == 1);
+                    for (t = 0; t < T; t++) CHECK_EQ_INT(gen->regions[t].n, seen[t]);
+                }
+                err[0] = '\0';
+                CHECK(gateCheckInvariants(g, err, sizeof(err)));
+                CHECK_EQ_STR(err, "");
+                gateFree(g);
+            }
+        }
+    }
+}
+
+/* gateCheckInvariants() knows the fields of the final round: a gate in
+ * which one of them is out of line is refused, with a reason. */
+TEST(invariants_of_the_new_fields) {
+    int64_t t = T0;
+    gate *g = twoGenerations(t);
+    gatePredictResult r;
+    char err[160];
+    gateEval ev;
+    uint32_t i;
+
+#define OUT_OF_LINE(change, back) do { \
+    change; \
+    err[0] = '\0'; \
+    CHECK(!gateCheckInvariants(g, err, sizeof(err))); \
+    CHECK(err[0] != '\0'); \
+    back; \
+    CHECK(gateCheckInvariants(g, err, sizeof(err))); \
+} while (0)
+
+    /* Three proof requests of the candidate that generation 1 put at
+     * label0, 0.99: the thresholds 0..19 hold three. */
+    for (i = 0; i < 3; i++) {
+        ev = guesses(g, 0, 0.99, 0, 0.99);
+        r = askGuess(g, t, U_SPOT, &ev, &XA);
+        CHECK_EQ_INT(answer(g, t, r.seq, 0), 1);
+    }
+    CHECK(candidateOf(g)->samples == 3 && candidateOf(g)->paired[19] == 3);
+    OUT_OF_LINE(g->answer_mark = g->next_seq + 1, g->answer_mark = g->next_seq);
+    OUT_OF_LINE(g->missing_run = GATE_MISSING_RUN, g->missing_run = 0);
+    g->missing_run = GATE_MISSING_RUN - 1; /* one short of the alarm is a run like any other */
+    CHECK(gateCheckInvariants(g, err, sizeof(err)));
+    g->missing_run = 0;
+    /* More requests than it was tested on; */
+    OUT_OF_LINE(g->candidate->paired[0] = 4, g->candidate->paired[0] = 3);
+    /* not nested: more at a higher threshold than at the one below it, */
+    OUT_OF_LINE(g->candidate->paired[10] = 2, g->candidate->paired[10] = 3);
+    /* ... in whichever row. */
+    OUT_OF_LINE(g->candidate->paired[1 * T + 31] = 1, g->candidate->paired[1 * T + 31] = 0);
+    /* Fewer at a higher threshold is what the counts are for. */
+    g->candidate->paired[19] = 1;
+    CHECK(gateCheckInvariants(g, err, sizeof(err)));
+    g->candidate->paired[19] = 3;
+    OUT_OF_LINE(g->serving->paired[0] = servingOf(g)->samples + 1, g->serving->paired[0] = 0);
+    OUT_OF_LINE(g->blind = 1, g->blind = 0);
+#undef OUT_OF_LINE
+    inv(g);
     gateFree(g);
 }
 
@@ -5539,18 +7909,25 @@ TEST(maintenance_due) {
 }
 
 /* ------------------------------- A tiny ALPHA ----------------------------
- * A candidate may consume, for each tested label, 10 x ceil(bar / log(1 +
- * 0.9 alpha / (1 - alpha))) answers. For a tiny alpha that is more than a
- * counter can hold: the budget saturates (such a snapshot never runs out)
- * instead of wrapping around to some small number. */
+ * A candidate may consume, for each tested label, 10 times the correct
+ * answers a flawless threshold needs. For a tiny alpha a correct answer
+ * multiplies a bet by 1 + c alpha / (1 - alpha), that is exp(c alpha) for
+ * all a double can tell, so n of them reach the bar 640 when
+ *
+ *     (e^0.1X + e^0.25X + e^0.5X + e^0.9X) / 4 = 640,  X = n alpha:
+ *
+ * X = 8.680921243 (bisection, 60 digits, in the scratch script), and the
+ * budget of two labels is 20 X / alpha. For an alpha of 1e-18 that is more
+ * than a counter may hold (2^62 = 4.6e18): the budget saturates there (such
+ * a snapshot never runs out) instead of wrapping around to a small number. */
 TEST(tiny_alpha) {
     static const struct {
         double alpha;
         int saturates;
     } cases[] = {
-        {1e-9, 0},                   /* 1.4e11 answers */
-        {1e-15, 0},                  /* 1.4e17 */
-        {1e-18, 1},                  /* 1.4e20: more than 2^64 */
+        {1e-9, 0},                   /* 1.74e11 answers */
+        {1e-15, 0},                  /* 1.74e17 */
+        {1e-18, 1},                  /* 1.74e20: more than 2^62 */
         {1e-100, 1},
         {1e-300, 1},
         {4.9406564584124654e-324, 1} /* the smallest double there is */
@@ -5577,14 +7954,15 @@ TEST(tiny_alpha) {
         CHECK_NEAR(candidateOf(g)->log_threshold, log(640.0), 1e-12);
         budget = candidateOf(g)->budget;
         if (cases[c].saturates) {
-            CHECK(budget == UINT64_MAX);
+            CHECK(budget == GATE_COUNT_MAX);
         } else {
-            /* log(1 + x) is x for an x this small: 20 log(640) / (0.9 alpha),
-             * give or take the rounding of a number of 17 digits. */
-            double expect = 20.0 * log(640.0) / (0.9 * alpha);
+            /* 20 X / alpha, give or take the rounding of a number of 17
+             * digits and the terms of order alpha that were left out. */
+            double expect = 20.0 * 8.680921243071954 / alpha;
 
-            CHECK(budget < UINT64_MAX && budget > 0);
+            CHECK(budget < GATE_COUNT_MAX && budget > 0);
             CHECK_NEAR((double)budget / expect, 1.0, 1e-8);
+            CHECK_EQ_INT(budget % 20, 0); /* a whole number of answers, 10 times, for two labels */
         }
         /* Such a gate works; it just never proves anything in a lifetime,
          * and its snapshot is not dropped for it. */
@@ -5609,14 +7987,15 @@ TEST(tiny_alpha) {
     cfg.class_alpha[1] = 1e-30;
     g = create(&cfg);
     for (i = 0; i < 3; i++) train(g, now, &XA, 0);
-    CHECK(candidateOf(g)->budget == UINT64_MAX);
+    CHECK(candidateOf(g)->budget == GATE_COUNT_MAX);
+    inv(g);
     gateFree(g);
     classConfig(&cfg, 3, 3);
     cfg.class_alpha[1] = 1e-30;
     cfg.class_defer[1] = 1;
     g = create(&cfg);
     for (i = 0; i < 3; i++) train(g, now, &XA, 0);
-    CHECK_EQ_INT(candidateOf(g)->budget, 2 * 10 * 32);
+    CHECK_EQ_INT(candidateOf(g)->budget, 2 * 10 * 39);
     gateFree(g);
 
     /* A score gate has no budget whatever its alpha. */
@@ -5641,17 +8020,19 @@ TEST(memory_usage) {
     uint32_t i;
 
     /* Score gate: the struct, one row of increments, the index, and one
-     * generation of 32 regions. */
+     * generation of 32 regions, each with its paired count. */
     g = scoreGate();
     base = sizeof(gate) + sizeof(gateBets) + sizeof(gateDriftBets) +
            GATE_TABLE_SIZE * sizeof(gateObs *);
-    CHECK_EQ_INT(expectBytes(g), base + sizeof(gateGeneration) + T * sizeof(gateRegion) +
+    CHECK_EQ_INT(expectBytes(g), base + sizeof(gateGeneration) +
+                                     T * (sizeof(gateRegion) + sizeof(uint64_t)) +
                                      sizeof(int32_t) + sizeof(gateDrift));
     CHECK_EQ_INT(gateMemoryUsage(g), expectBytes(g));
     CHECK_EQ_INT(gateFreeEffort(g), 2);
     for (i = 0; i < 10; i++) ask(g, now, U_PLAIN, 0.9);
     CHECK_EQ_INT(gateMemoryUsage(g), expectBytes(g));
-    CHECK_EQ_INT(gateMemoryUsage(g) - base - sizeof(gateGeneration) - T * sizeof(gateRegion) -
+    CHECK_EQ_INT(gateMemoryUsage(g) - base - sizeof(gateGeneration) -
+                 T * (sizeof(gateRegion) + sizeof(uint64_t)) -
                  sizeof(int32_t) - sizeof(gateDrift), 10 * sizeof(gateObs));
     CHECK_EQ_INT(gateFreeEffort(g), 12);
     gateFree(g);
@@ -5951,10 +8332,18 @@ TEST(allocation_failures) {
  * The rules in the comment at the top of gate_core.h, written a second time
  * the slow and obvious way: one array of waiting requests in request order,
  * every question answered by a linear scan, generations held by value. It
- * shares with the gate only the betting and drift arithmetic of gate_stats
- * (tested on its own) and the threshold grid (checked in "grids" above).
- * The model does not have the classifier's weights: guesses are inputs to
- * both, and of the live model it only counts the examples.
+ * shares with the gate only the betting arithmetic of gate_stats (tested on
+ * its own) and the threshold grid (checked in "grids" above). The model
+ * does not have the classifier's weights: guesses are inputs to both, and
+ * of the live model it only counts the examples.
+ *
+ * Three things the gate keeps as counters the model keeps as lists, and
+ * answers by counting: what the serving generation guessed for each proof
+ * request of the candidate (the gate: the paired counts), what became of
+ * each spot check of each row in the order they were asked (the gate: the
+ * drift detectors; the model has no detector, it multiplies the block out
+ * with driftStat() every time), and the proof a flawless threshold needs
+ * (the gate: gateBetsFlawless(); the model: needCorrect()).
  *
  * It also knows what a gate cannot: the answer the teacher has for every
  * request, whether it arrives or not. Next to the regions of a generation
@@ -5968,6 +8357,11 @@ TEST(allocation_failures) {
 #define MODEL_REQS (GATE_MAX_PENDING + GATE_MAX_WAITING + 64) /* more cannot wait */
 #define MODEL_SLACK 1e-9 /* rounding allowed between the two wealths */
 
+/* What became of a spot check, as far as the drift detector is concerned:
+ * nothing yet or an answer that agreed (all the same to it), an answer that
+ * disagreed, no answer for good. */
+enum { SPOT_FINE, SPOT_WRONG, SPOT_LOST };
+
 typedef struct modelGen {
     uint64_t gen; /* 0: there is no such generation */
     double bar;
@@ -5975,8 +8369,12 @@ typedef struct modelGen {
     gateRegion truth[MODEL_ROWS][T]; /* with the teacher's answers */
     int reached[MODEL_ROWS][T];      /* ... that wealth has been at the bar */
     int32_t policy[MODEL_ROWS];
-    gateDrift drift[MODEL_ROWS];
-    uint64_t samples, errors, paired, audits, audit_errors, budget;
+    uint64_t samples, errors, audits, audit_errors, missed, budget;
+    uint64_t asked[MODEL_ROWS];      /* spot checks numbered while it serves */
+    uint64_t disagreed[MODEL_ROWS];  /* ... whose answer disagreed */
+    uint64_t would;                  /* candidate: proof requests the serving
+                                      * generation would have answered when
+                                      * they were asked (the rule that was) */
 } modelGen;
 
 typedef struct modelReq {
@@ -5989,8 +8387,15 @@ typedef struct modelReq {
     int32_t cand_label, serv_label, result;
     int32_t truth;      /* what the teacher says, whether it arrives or not */
     double cand_score, serv_score;
+    uint64_t spot;      /* its number as a spot check of its row; 0: it is none */
     uint32_t nnz;       /* clues still stored with it */
 } modelReq;
+
+/* Where the serving generation put a proof request of the candidate. */
+typedef struct modelPair {
+    int32_t label;
+    double score;
+} modelPair;
 
 typedef struct model {
     const gateConfig *cfg;
@@ -5998,19 +8403,27 @@ typedef struct model {
     uint32_t rows;
     double grid[T];
     gateBets bets[MODEL_ROWS];
-    gateDriftBets drift_bets[MODEL_ROWS];
     int64_t now;
     uint64_t epoch, generations, next_seq;
     uint64_t updates, snapshot_updates; /* examples the live model learned */
     int paused, blind;
     uint32_t missing_run;
+    uint64_t answer_mark; /* the next request number when an answer was last used */
     modelGen cand, serv;
     modelReq *base, *req; /* waiting requests, oldest first: req[0..n-1] */
     uint32_t n, answered; /* ... of which answered */
     uint64_t nnz;         /* clues stored with them, in all */
+    modelPair *pairs;     /* the candidate's proof requests, see modelPair */
+    uint32_t npairs, pairs_cap;
+    uint8_t *spots[MODEL_ROWS]; /* the serving generation's spot checks: SPOT_* */
+    uint64_t spots_cap[MODEL_ROWS];
     gateCounters st;
     /* Where the walk went. */
     uint64_t passes, limit_passes, taken_back, late_answers, late_missing, blinds;
+    uint64_t lost_answers; /* missing answers that were no part of a run */
+    uint64_t worse, unchecked, unchecked_by_answer, late_reports, numbered;
+    uint64_t missed, missed_out; /* requests counted as missed; snapshots dropped with some */
+    uint64_t held_back;          /* takeovers the rule that was would have made */
 } model;
 
 static int modelTested(const model *m, uint32_t row) {
@@ -6031,14 +8444,13 @@ static int64_t modelGrace(const model *m) {
 static void modelSnapshot(model *m) {
     modelGen *c = &m->cand;
     uint32_t r, t, tested = 0;
-    double need = 0.0;
+    uint64_t need = 0;
 
     memset(c, 0, sizeof(*c));
     c->gen = ++m->generations;
     for (r = 0; r < m->rows; r++) {
         tested += (uint32_t)modelTested(m, r);
         c->policy[r] = -1;
-        gateDriftInit(&c->drift[r]);
         for (t = 0; t < T; t++) {
             gateRegionInit(&c->reg[r][t]);
             gateRegionInit(&c->truth[r][t]);
@@ -6046,15 +8458,15 @@ static void modelSnapshot(model *m) {
     }
     c->bar = barOf(c->gen, tested, m->cfg->delta);
     /* A classifier snapshot may use, for each tested label, 10 times the
-     * answers a flawless region of its most demanding label needs with the
-     * boldest bet. More than a counter holds means: as many as it likes. */
+     * correct answers in a row that take a threshold of its most demanding
+     * label to the bar. */
     for (r = 0; m->classifier && r < m->rows; r++) {
-        double a = modelAlpha(m, r), n = ceil(c->bar / log(1.0 + 0.9 * a / (1.0 - a)));
+        uint64_t n = modelTested(m, r) ? needCorrect(modelAlpha(m, r), c->bar, 0) : 0;
 
-        if (modelTested(m, r) && n > need) need = n;
+        if (n > need) need = n;
     }
-    need *= 10.0 * tested;
-    c->budget = need >= 9e18 ? UINT64_MAX : (uint64_t)need;
+    c->budget = need * 10 * tested;
+    m->npairs = 0;
     m->snapshot_updates = m->updates;
 }
 
@@ -6120,6 +8532,14 @@ static int modelAnswers(const model *m, const modelGen *gen) {
     return 0;
 }
 
+/* Would a generation answer a guess, with the policy it has now? */
+static int modelInPolicy(const model *m, const modelGen *gen, int32_t label, double score) {
+    uint32_t row = m->classifier ? (uint32_t)label : 0;
+    int32_t t = gen->policy[row];
+
+    return modelTested(m, row) && t >= 0 && score >= m->grid[t];
+}
+
 /* Proof requests of a generation that its policy would answer. */
 static uint64_t modelInside(const model *m, const modelGen *gen) {
     uint64_t n = 0;
@@ -6127,6 +8547,18 @@ static uint64_t modelInside(const model *m, const modelGen *gen) {
 
     for (r = 0; r < m->rows; r++)
         if (gen->policy[r] >= 0) n += gen->reg[r][gen->policy[r]].n;
+    return n;
+}
+
+/* Of the candidate's proof requests, those the serving generation would
+ * answer with the policy it has now: each judged by the guess the serving
+ * generation recorded for it. */
+static uint64_t modelPaired(const model *m) {
+    uint64_t n = 0;
+    uint32_t i;
+
+    for (i = 0; i < m->npairs; i++)
+        n += (uint64_t)modelInPolicy(m, &m->serv, m->pairs[i].label, m->pairs[i].score);
     return n;
 }
 
@@ -6139,15 +8571,23 @@ static void modelServingGone(model *m) {
 static void modelConsider(model *m) {
     modelGen *c = &m->cand;
 
-    if (modelAnswers(m, c) && (m->serv.gen == 0 || modelInside(m, c) > c->paired)) {
-        m->serv = *c;
-        m->serv.paired = 0;
+    if (modelAnswers(m, c) && (m->serv.gen == 0 || modelInside(m, c) > modelPaired(m))) {
+        m->serv = *c; /* with no spot check numbered yet */
         m->serv.budget = 0;
+        m->serv.would = 0;
+        m->npairs = 0;
         c->gen = 0;
         m->st.promotions++;
         modelServingGone(m);
-    } else if (c->budget && c->samples >= c->budget) {
+        return;
+    }
+    /* What the rule was before: it counted what the serving generation
+     * would have answered when each request was asked. */
+    if (modelAnswers(m, c) && modelInside(m, c) > c->would) m->held_back++;
+    if (c->budget && c->samples + c->missed >= c->budget) {
+        m->missed_out += c->missed != 0;
         c->gen = 0;
+        m->npairs = 0;
         m->st.retired++;
     }
 }
@@ -6168,21 +8608,39 @@ static void modelCount(model *m, const modelReq *q, int err_cand, int err_serv) 
     int true_cand, true_serv;
 
     modelErrors(m, q, q->truth, &true_cand, &true_serv);
+    /* For the serving generation first: the candidate is compared with the
+     * policy the serving one has now, this request included. */
+    if (q->serv && m->serv.gen == q->serv_gen)
+        modelFeed(m, &m->serv, q->serv_label, q->serv_score, err_serv, true_serv);
     if (q->cand && m->cand.gen == q->cand_gen) {
         modelFeed(m, &m->cand, q->cand_label, q->cand_score, err_cand, true_cand);
-        if (q->would && m->serv.gen == q->serv_gen) m->cand.paired++;
+        /* One more proof request of the candidate. If a generation served
+         * when it was asked, and still does: what did that one guess? */
+        if (m->serv.gen && m->serv.gen == q->serv_gen) {
+            if (m->npairs == m->pairs_cap) {
+                m->pairs_cap = m->pairs_cap ? 2 * m->pairs_cap : 1024;
+                m->pairs = realloc(m->pairs, sizeof(modelPair) * m->pairs_cap);
+                if (m->pairs == NULL) die("out of memory");
+            }
+            m->pairs[m->npairs].label = q->serv_label;
+            m->pairs[m->npairs++].score = q->serv_score;
+            m->cand.would += (uint64_t)q->would;
+        }
         modelConsider(m);
     } else if (q->cand && m->serv.gen == q->cand_gen) {
         /* Asked of the candidate, which serves by now. */
         modelFeed(m, &m->serv, q->cand_label, q->cand_score, err_cand, true_cand);
     }
-    if (q->serv && m->serv.gen == q->serv_gen)
-        modelFeed(m, &m->serv, q->serv_label, q->serv_score, err_serv, true_serv);
 }
 
 /* The answer of a request that was counted as a wrong guess has arrived:
  * the same generations take it back where their guess was right. */
 static void modelUncount(model *m, const modelReq *q, int err_cand, int err_serv) {
+    /* The serving generation first, as when the request was counted. */
+    if (q->serv && m->serv.gen == q->serv_gen && !err_serv) {
+        modelTakeBack(m, &m->serv, q->serv_label, q->serv_score);
+        m->taken_back++;
+    }
     if (q->cand && m->cand.gen == q->cand_gen) {
         if (!err_cand) {
             modelTakeBack(m, &m->cand, q->cand_label, q->cand_score);
@@ -6195,27 +8653,27 @@ static void modelUncount(model *m, const modelReq *q, int err_cand, int err_serv
             m->taken_back++;
         }
     }
-    if (q->serv && m->serv.gen == q->serv_gen && !err_serv) {
-        modelTakeBack(m, &m->serv, q->serv_label, q->serv_score);
-        m->taken_back++;
-    }
 }
 
-/* The drift detector fired: everything goes, the model included. */
+/* The drift detector says "worse": everything goes, the model included. */
 static void modelDrift(model *m) {
     m->serv.gen = m->cand.gen = 0;
+    m->npairs = 0;
     if (m->classifier) m->updates = 0;
     m->snapshot_updates = 0;
     m->st.revocations++;
     m->missing_run = 0;
+    m->worse++;
     modelServingGone(m);
 }
 
-/* 32 answers missing in a row: the proof goes, the model stays, and no
+/* The gate cannot check itself (32 answers missing in a row, or lost spot
+ * checks that may hide anything): the proof goes, the model stays, and no
  * snapshot is taken until an answer arrives. */
 static void modelBlind(model *m) {
     if (m->serv.gen) m->st.revocations++;
     m->serv.gen = m->cand.gen = 0;
+    m->npairs = 0;
     m->snapshot_updates = 0;
     m->blind = 1;
     m->missing_run = 0;
@@ -6223,23 +8681,109 @@ static void modelBlind(model *m) {
     modelServingGone(m);
 }
 
+/* A spot check of the serving generation is asked: the next number of its
+ * row. Nothing has become of it yet. */
+static uint64_t modelSpotAsk(model *m, uint32_t row) {
+    uint64_t n = m->serv.asked[row];
+
+    if (n == m->spots_cap[row]) {
+        m->spots_cap[row] = n ? 2 * n : 256;
+        m->spots[row] = realloc(m->spots[row], m->spots_cap[row]);
+        if (m->spots[row] == NULL) die("out of memory");
+    }
+    m->spots[row][n] = SPOT_FINE;
+    m->numbered++;
+    return ++m->serv.asked[row];
+}
+
+/* The spot checks of a row are cut into blocks of 'len' in the order they
+ * were asked. Of the block the last one asked is in: how many were asked,
+ * and how many count against the gate, with the lost ones or without. */
+static void modelBlock(const model *m, uint32_t row, uint64_t len, int with_lost, uint64_t *n,
+                       uint64_t *against)
+{
+    uint64_t asked = m->serv.asked[row], first, i;
+
+    *n = *against = 0;
+    if (asked == 0) return;
+    first = (asked - 1) / len * len;
+    *n = asked - first;
+    for (i = first; i < asked; i++) {
+        uint8_t what = m->spots[row][i];
+
+        *against += what == SPOT_WRONG || (with_lost && what == SPOT_LOST);
+    }
+}
+
+/* The answer of spot check 'number' of a row disagreed (SPOT_WRONG) or was
+ * given up (SPOT_LOST). What the blocks of 64, 512 and 4096 that it is in
+ * make of it, if they are still the open ones: "worse" when one holds
+ * disagreements enough for 1000, else "cannot be checked" when one holds
+ * disagreements and lost answers enough for 1e9. */
+static int modelSpotReport(model *m, uint32_t row, uint64_t number, int what) {
+    static const uint64_t lens[3] = {64, 512, 4096};
+    const double alpha = modelAlpha(m, row);
+    uint64_t asked = m->serv.asked[row], n, against;
+    int s, worse = 0, unchecked = 0;
+
+    m->spots[row][number - 1] = (uint8_t)what;
+    if (what == SPOT_WRONG) m->serv.disagreed[row]++;
+    for (s = 0; s < 3; s++) {
+        if ((number - 1) / lens[s] != (asked - 1) / lens[s]) {
+            m->late_reports++; /* its block has ended */
+            continue;
+        }
+        if (what == SPOT_WRONG) {
+            modelBlock(m, row, lens[s], 0, &n, &against);
+            worse |= driftStat(alpha, n, against) >= log(1000.0);
+        }
+        modelBlock(m, row, lens[s], 1, &n, &against);
+        unchecked |= driftStat(alpha, n, against) >= log(1e9);
+    }
+    return worse ? GATE_DRIFT_ALARM_WORSE
+                 : (unchecked ? GATE_DRIFT_ALARM_UNCHECKED : GATE_DRIFT_QUIET);
+}
+
 /* What a request ends as. A missing answer, when its time is up; or an
  * answer, which the drift detector hears the moment it arrives if it is a
  * spot check of an answer of the generation that serves. */
 static void modelOutcome(model *m, const modelReq *q, int missing, int err_serv) {
+    int spot = q->spot != 0 && q->serv && m->serv.gen == q->serv_gen;
+    uint32_t row = m->classifier && spot ? (uint32_t)q->serv_label : 0;
+
     if (missing) {
         m->st.missing++;
-        if (++m->missing_run >= 32) modelBlind(m);
+        /* Part of an outage only if no answer of any request has arrived
+         * since it was asked. Else an answer that got lost. */
+        if (q->seq >= m->answer_mark) {
+            if (++m->missing_run >= 32) {
+                modelBlind(m);
+                return;
+            }
+        } else {
+            m->lost_answers++;
+        }
+        if (spot && modelSpotReport(m, row, q->spot, SPOT_LOST) == GATE_DRIFT_ALARM_UNCHECKED) {
+            m->unchecked++;
+            modelBlind(m);
+        }
         return;
     }
-    if (q->serv && m->serv.gen == q->serv_gen && q->would && q->audit) {
-        modelGen *s = &m->serv;
-        uint32_t row = m->classifier ? (uint32_t)q->serv_label : 0;
+    if (spot) {
+        m->serv.audits++;
+        if (err_serv) {
+            int verdict;
 
-        s->audits++;
-        s->audit_errors += (uint64_t)err_serv;
-        if (gateDriftPush(&s->drift[row], &m->drift_bets[row], err_serv, log(1000.0)))
-            modelDrift(m);
+            m->serv.audit_errors++;
+            verdict = modelSpotReport(m, row, q->spot, SPOT_WRONG);
+            if (verdict == GATE_DRIFT_ALARM_WORSE) {
+                modelDrift(m);
+            } else if (verdict == GATE_DRIFT_ALARM_UNCHECKED) {
+                m->unchecked++;
+                m->unchecked_by_answer++;
+                modelBlind(m);
+            }
+        }
     }
 }
 
@@ -6337,7 +8881,9 @@ static void modelMaintain(model *m, int64_t now) {
                 m->st.dropped++;
             }
         } else if (q.cand || q.serv) {
-            /* The head of the queue: a wrong guess and a missing answer. */
+            /* The head of the queue: a wrong guess and a missing answer.
+             * (It is proof for something: what is not was taken out of
+             * the queue the moment its generations went.) */
             modelCount(m, &q, 1, 1);
             modelOutcome(m, &q, 1, 1);
         } else {
@@ -6353,13 +8899,8 @@ static void modelMaintain(model *m, int64_t now) {
 /* Is the serving generation going to answer this request by itself? (The
  * model has been maintained.) Nobody needs the candidate's guess then. */
 static int modelWouldAnswer(const model *m, double u, const gateEval *ev) {
-    uint32_t row;
-    int32_t t;
-
     if (m->serv.gen == 0 || m->paused || u < m->cfg->audit) return 0;
-    row = m->classifier ? (uint32_t)ev->serving.label : 0;
-    t = m->serv.policy[row];
-    return modelTested(m, row) && t >= 0 && ev->serving.score >= m->grid[t];
+    return modelInPolicy(m, &m->serv, ev->serving.label, ev->serving.score);
 }
 
 static void modelPredict(model *m, int64_t now, double u, const gateEval *ev, uint32_t nnz,
@@ -6385,12 +8926,9 @@ static void modelPredict(model *m, int64_t now, double u, const gateEval *ev, ui
     }
     if (m->serv.gen) {
         uint32_t row = m->classifier ? (uint32_t)ev->serving.label : 0;
-        int32_t t = m->serv.policy[row];
 
-        if (modelTested(m, row)) {
-            would = t >= 0 && ev->serving.score >= m->grid[t];
-            serv = t < 0 || audit;
-        }
+        would = modelInPolicy(m, &m->serv, ev->serving.label, ev->serving.score);
+        if (modelTested(m, row)) serv = m->serv.policy[row] < 0 || audit;
         if (m->st.window < GATE_COVERAGE_WINDOW) m->st.window++;
         m->st.coverage += ((double)would - m->st.coverage) / (double)m->st.window;
     }
@@ -6430,6 +8968,9 @@ static void modelPredict(model *m, int64_t now, double u, const gateEval *ev, ui
         q->serv_gen = m->serv.gen;
         q->serv_label = ev->serving.label;
         q->serv_score = ev->serving.score;
+        /* A spot check of an answer (paused or not): the drift detector of
+         * its row numbers it now. */
+        if (would && audit) q->spot = modelSpotAsk(m, m->classifier ? (uint32_t)q->serv_label : 0);
     }
     if (m->cand.gen) {
         q->cand_gen = m->cand.gen;
@@ -6459,9 +9000,22 @@ static int modelLearn(model *m, int64_t now, uint64_t epoch, uint64_t seq, int32
     m->nnz -= q->nnz;
     q->nnz = 0;
     m->st.learned++;
-    /* Answers arrive. */
+    /* Answers arrive: every request asked so far has seen one. */
     m->blind = 0;
     m->missing_run = 0;
+    m->answer_mark = m->next_seq;
+    /* A request the candidate could have been tested on (asked of it, at a
+     * moment when its requests are proof: nothing serving, or a spot
+     * check), had it not guessed a label that is never answered, when the
+     * teacher's label is one that is: it uses up the budget like proof. */
+    if (m->classifier && m->cand.gen && q->cand_gen == m->cand.gen &&
+        (q->serv_gen == 0 || q->audit) && !modelTested(m, (uint32_t)q->cand_label) &&
+        modelTested(m, (uint32_t)result))
+    {
+        m->cand.missed++;
+        m->missed++;
+        modelConsider(m);
+    }
     if (q->cand || q->serv) {
         /* The drift detector hears it now, whatever its place in line. An
          * alarm drops the generations it was proof for. */
@@ -6496,13 +9050,15 @@ static void modelPause(model *m, int64_t now, int paused) {
 }
 
 /* GRESET ('everything') or recovery. Nothing that carries a time is left:
- * the clock is the one they are given. */
+ * the clock is the one they are given. Request numbers go on, and so does
+ * the mark that is one of them. */
 static void modelForget(model *m, int64_t now, uint64_t epoch, int everything) {
     m->now = now;
     m->req = m->base;
     m->n = m->answered = 0;
     m->nnz = 0;
     m->cand.gen = m->serv.gen = 0;
+    m->npairs = 0;
     m->snapshot_updates = 0;
     m->epoch = epoch;
     m->blind = 0;
@@ -6523,10 +9079,7 @@ static void modelInit(model *m, const gateConfig *cfg, const gate *g) {
     m->classifier = cfg->kind == GATE_KIND_CLASSIFIER;
     m->rows = m->classifier ? cfg->nclasses : 1;
     memcpy(m->grid, g->grid, sizeof(m->grid));
-    for (r = 0; r < m->rows; r++) {
-        gateBetsInit(&m->bets[r], modelAlpha(m, r));
-        gateDriftBetsInit(&m->drift_bets[r], modelAlpha(m, r));
-    }
+    for (r = 0; r < m->rows; r++) gateBetsInit(&m->bets[r], modelAlpha(m, r));
     m->now = g->created_ms;
     m->epoch = g->epoch;
     m->next_seq = 1;
@@ -6536,11 +9089,25 @@ static void modelInit(model *m, const gateConfig *cfg, const gate *g) {
     modelSettle(m);
 }
 
+static void modelFree(model *m) {
+    uint32_t r;
+
+    free(m->base);
+    free(m->pairs);
+    for (r = 0; r < MODEL_ROWS; r++) free(m->spots[r]);
+}
+
 #define DIFF(same, what) do { if (!(same)) return what; } while (0)
 
-static const char *modelDiffGen(const model *m, const modelGen *x, const gateGeneration *gen) {
-    uint32_t r, t;
-    int j;
+/* 'serving': the generation is the one that serves. Then its drift
+ * detectors are in use, and it has no paired counts; for the candidate it
+ * is the other way round. */
+static const char *modelDiffGen(const model *m, const modelGen *x, const gateGeneration *gen,
+                                int serving)
+{
+    uint64_t reach[MODEL_ROWS][T + 1];
+    uint32_t r, t, i;
+    int j, s;
 
     DIFF((x->gen != 0) == (gen != NULL), "a generation exists in one only");
     if (gen == NULL) return NULL;
@@ -6548,13 +9115,48 @@ static const char *modelDiffGen(const model *m, const modelGen *x, const gateGen
     DIFF(fabs(gen->log_threshold - x->bar) <= 1e-12, "bar");
     DIFF(gen->samples == x->samples, "samples");
     DIFF(gen->errors == x->errors, "errors");
-    DIFF(gen->paired == x->paired, "paired");
     DIFF(gen->audits == x->audits, "audits");
     DIFF(gen->audit_errors == x->audit_errors, "audit errors");
+    DIFF(gen->missed == x->missed, "missed requests");
     DIFF(gen->budget == x->budget, "budget");
+    /* The paired counts by their definition: for each row and threshold,
+     * the proof requests of the candidate that the serving generation's
+     * guess put in that row at or above that threshold. reach[r][k]:
+     * those whose score reaches exactly k thresholds of row r. */
+    memset(reach, 0, sizeof(reach));
+    for (i = 0; !serving && i < m->npairs; i++) {
+        uint32_t row = m->classifier ? (uint32_t)m->pairs[i].label : 0, k = 0;
+
+        if (!modelTested(m, row)) continue;
+        for (t = 0; t < T; t++) k += m->grid[t] <= m->pairs[i].score;
+        reach[row][k]++;
+    }
     for (r = 0; r < m->rows; r++) {
+        uint64_t at_or_above = 0;
+
+        for (t = T; t-- > 0;) {
+            at_or_above += reach[r][t + 1];
+            DIFF(gen->paired[r * T + t] == at_or_above, "paired counts");
+        }
+    }
+    for (r = 0; r < m->rows; r++) {
+        const gateDrift *d = &gen->drift[r];
+
         DIFF(gen->policy[r] == x->policy[r], "policy");
-        DIFF(memcmp(&gen->drift[r], &x->drift[r], sizeof(gateDrift)) == 0, "drift detector");
+        /* The drift detector against the list of spot checks. */
+        DIFF(d->asked == (serving ? x->asked[r] : 0), "spot checks numbered");
+        DIFF(d->errors == (serving ? x->disagreed[r] : 0), "spot checks that disagreed");
+        for (s = 0; s < GATE_DRIFT_SCALES; s++) {
+            uint64_t n = 0, wrong = 0, both = 0;
+
+            if (serving) {
+                modelBlock(m, r, gateDriftBlocks[s], 0, &n, &wrong);
+                modelBlock(m, r, gateDriftBlocks[s], 1, &n, &both);
+            }
+            DIFF(gateDriftOpen(d, s) == n, "open block of the drift detector");
+            DIFF(d->wrong[s] == wrong, "disagreements of the open block");
+            DIFF(d->lost[s] == both - wrong, "lost answers of the open block");
+        }
         for (t = 0; t < T; t++) {
             const gateRegion *reg = &gen->regions[r * T + t], *truth = &x->truth[r][t];
 
@@ -6591,12 +9193,13 @@ static const char *modelDiff(const model *m, const gate *g, int requests) {
     DIFF(g->paused == m->paused, "pause");
     DIFF(g->blind == m->blind, "blind");
     DIFF(g->missing_run == m->missing_run, "run of missing answers");
+    DIFF(g->answer_mark == m->answer_mark, "answer mark");
     DIFF(g->generations == m->generations, "ledger");
     DIFF(g->next_seq == m->next_seq, "next id");
     DIFF(!m->classifier || g->trainer.updates == m->updates, "examples learned");
     DIFF(g->snapshot_updates == m->snapshot_updates, "examples at the last snapshot");
-    if ((d = modelDiffGen(m, &m->cand, g->candidate)) != NULL) return d;
-    if ((d = modelDiffGen(m, &m->serv, g->serving)) != NULL) return d;
+    if ((d = modelDiffGen(m, &m->cand, g->candidate, 0)) != NULL) return d;
+    if ((d = modelDiffGen(m, &m->serv, g->serving, 1)) != NULL) return d;
     DIFF(g->npending == m->n, "number of waiting requests");
     DIFF(g->nanswered == m->answered, "number of answers waiting for their turn");
     DIFF(gateUnanswered(g) == m->n - m->answered, "number of unanswered requests");
@@ -6617,7 +9220,12 @@ static const char *modelDiff(const model *m, const gate *g, int requests) {
         DIFF(o->cand_gen == q->cand_gen && o->serv_gen == q->serv_gen, "request generations");
         DIFF(o->cand_label == q->cand_label && o->serv_label == q->serv_label, "recorded labels");
         DIFF(o->cand_score == q->cand_score && o->serv_score == q->serv_score, "recorded scores");
+        DIFF(o->spot == q->spot, "spot check number");
         DIFF(o->x.n == q->nnz, "stored clues");
+        /* Proof moves on only when an answer waits behind a request: a
+         * request it moved on without has seen an answer arrive. */
+        DIFF(!q->provisional || q->seq < m->answer_mark,
+             "proof moved on without a request that has seen no answer arrive");
         o = o->next;
     }
     if (requests) {
@@ -6653,7 +9261,10 @@ static const char *modelDiff(const model *m, const gate *g, int requests) {
  *
  * The teacher answers like a real one: mostly at once, sometimes out of
  * order, sometimes after proof has moved on, sometimes too late, sometimes
- * never; and now and then not at all for a while. */
+ * never; and now and then not at all for a while (an outage), or for most
+ * requests (a partial outage). For a while it holds its answers back and
+ * sends them in one batch, in any order; for a while it sends no answer
+ * that says "wrong". */
 
 #define SOAK_IDS 32768 /* answers that may be on their way */
 #define SOAK_GENS 1024 /* snapshots whose weights are remembered */
@@ -6676,12 +9287,18 @@ typedef struct soak {
     soakId *ids;
     uint32_t nids;
     soakId asked;       /* the request recorded last */
+    int asked_wrong;    /* ... the guess of the generation in charge was wrong */
     soakId last;        /* an id that was answered already */
     uint32_t burst;     /* requests left in a burst during which no time passes */
     uint32_t broken;    /* operations left during which guesses are coin flips */
     uint32_t lossy;     /* ... during which one answer in ten gets lost */
     uint32_t slow;      /* ... during which the teacher is slow */
     uint32_t outage;    /* ... during which no answer gets through */
+    uint32_t partial;   /* ... during which 19 answers in 20 get lost */
+    uint32_t selective; /* ... during which no answer that says "wrong" is sent */
+    uint32_t batch;     /* ... during which answers are held back for one batch */
+    int64_t batch_due;  /* when that batch arrives */
+    uint32_t flush;     /* answers of a batch that arrive now, one after the other */
     int huge;           /* the burst carries the largest clue vectors */
     gateSparse big;
     int failed;
@@ -6693,7 +9310,8 @@ typedef struct soak {
     uint64_t passes, limit_passes, taken_back, late_answers, late_missing, too_late;
     uint64_t blinds, blind_asks, seen_again, outages;
     uint64_t left_out;     /* requests answered without the candidate's guess */
-    uint64_t dead_missing; /* see soakCheck() */
+    uint64_t lost_answers, worse, unchecked, unchecked_by_answer, late_reports, numbered;
+    uint64_t missed, missed_out, held_back, batches, batched, withheld, resyncs;
 } soak;
 
 static uint32_t soakRand(soak *s, uint32_t n) {
@@ -6722,6 +9340,28 @@ static int soakWalk(soak *s) {
     return s->g->pending_bytes <= 32768 || soakRand(s, 32) == 0;
 }
 
+#ifdef TEST_CORE_CODEC
+/* The replica is thrown away and loaded from the primary's bytes, like a
+ * replica that synchronizes anew: from there on it must stay in step. */
+static void soakResync(soak *s) {
+    unsigned char *buf = NULL;
+    size_t len = 0;
+    char err[160] = "";
+    gate *copy;
+
+    if (gateEncode(s->g, 0, &buf, &len) != GATE_OK) die("gateEncode failed");
+    copy = gateDecode(buf, len, err, sizeof(err));
+    gate_free(buf);
+    if (copy == NULL) {
+        soakFail(s, "resync", err);
+        return;
+    }
+    gateFree(s->replica);
+    s->replica = copy;
+    s->resyncs++;
+}
+#endif
+
 /* After every operation. */
 static void soakCheck(soak *s, const char *what) {
     const gate *g = s->g;
@@ -6731,22 +9371,10 @@ static void soakCheck(soak *s, const char *what) {
     int skip = SKIP_CLOCK | SKIP_REQUESTS | ((s->op & 255) ? SKIP_WEIGHTS : 0);
     int i;
 
-    /* One difference is counted and then followed instead of ending the
-     * walk at its first occurrence, because it is the subject of a test of
-     * its own (blind_then_queue_head) and would otherwise hide everything
-     * after it: the gate has just gone blind and, in the same call, counted
-     * a queue head that was proof for nothing any more as a missing answer
-     * (the model: forgotten, dropped). soakRun() fails if it happened. */
-    if (g->blind && g->missing_run == s->m.missing_run + 1 &&
-        g->stats.missing == s->m.st.missing + 1 && g->stats.dropped + 1 == s->m.st.dropped)
-    {
-        s->dead_missing++;
-        s->m.missing_run++;
-        s->m.st.missing++;
-        s->m.st.dropped--;
-    }
     d = modelDiff(&s->m, g, walk);
     if (d) soakFail(s, what, d);
+    if (g->answer_mark > g->next_seq)
+        soakFail(s, what, "an answer was used after a request that has not been asked");
     if (g->blind && !s->was_blind) s->blinds++;
     if (!g->blind && s->was_blind) s->seen_again++;
     s->was_blind = g->blind;
@@ -6770,6 +9398,10 @@ static void soakCheck(soak *s, const char *what) {
         if (gateMemoryUsage(g) != expectBytes(g)) soakFail(s, what, "memory usage");
         if (fingerprint(g, skip) != fingerprint(s->replica, skip))
             soakFail(s, what, "replica differs from primary");
+#ifdef TEST_CORE_CODEC
+        if ((s->op & 7) == 0) roundTrip(g);
+        if (s->op % 499 == 498) soakResync(s);
+#endif
     }
     /* A snapshot is frozen: under its number the weights never change. */
     for (i = 0; s->classifier && (s->op & 63) == 0 && i < 2; i++) {
@@ -6927,8 +9559,18 @@ static void soakTeacher(soak *s) {
     uint32_t kind = soakRand(s, 1000), late;
 
     if (s->outage) return;                        /* the feedback path is down */
+    if (s->partial && soakRand(s, 20)) return;    /* ... or nearly */
+    if (s->selective && s->asked_wrong) {         /* a "wrong" that is never sent */
+        s->withheld++;
+        return;
+    }
     if (s->lossy && soakRand(s, 10) == 0) return; /* never gets its answer */
     if (s->burst && soakRand(s, 4)) return;       /* nor do most of a burst */
+    if (s->batch) {                               /* held back for the batch */
+        s->batched++;
+        soakSend(s, s->batch_due);
+        return;
+    }
     if (s->slow) kind = 600 + kind * 4 / 10;
     if (kind < 930) late = soakRand(s, 6);                  /* at once */
     else if (kind < 970) late = 6 + soakRand(s, GRACE - 6); /* inside GRACE */
@@ -7052,18 +9694,32 @@ static int soakPredict(soak *s, double u) {
          * told nothing else, not even that maintenance was due: it does its
          * own. It takes the primary's request number over; here it must
          * have arrived at the same one by itself. */
+        uint64_t before_seq = s->replica->next_seq;
+
         if (s->classifier && gateSparseCopy(&mine, &x) != GATE_OK) die("out of memory");
-        if (s->replica->next_seq != res.seq)
+        if (before_seq != res.seq)
             soakFail(s, "predict", "replica counts its requests differently");
+        /* What the module checks before it takes the number over: one
+         * that was not used yet and that a gate may hand out. */
+        if (res.seq < before_seq || res.seq >= GATE_COUNT_MAX)
+            soakFail(s, "predict", "a request number a replica refuses");
         s->replica->next_seq = res.seq;
         if (gatePredict(s->replica, eff, u, &ev, s->classifier ? &mine : NULL, &rres) != GATE_OK ||
             rres.seq != res.seq || rres.action != res.action)
+        {
             soakFail(s, "predict", "replica replied differently");
+            if (rres.seq == 0) s->replica->next_seq = before_seq; /* nothing took the number */
+        }
         gateSparseFree(&mine);
         s->asked.epoch = g->epoch;
         s->asked.seq = res.seq;
         s->asked.due = s->now;
         s->asked.truth = truth;
+        /* Would the teacher's answer say "wrong" to the generation in
+         * charge (the one that serves, else the one under test)? */
+        if (!s->classifier) s->asked_wrong = !truth;
+        else if (full.has_serving) s->asked_wrong = full.serving.label != truth;
+        else s->asked_wrong = full.has_candidate && full.candidate.label != truth;
         s->blind_asks += (uint64_t)before.blind;
     } else {
         soakTick(s, eff, due);
@@ -7087,6 +9743,7 @@ static int soakPredict(soak *s, double u) {
 static void soakLearn(soak *s, const soakId *id, const char *what) {
     int64_t wall = soakWall(s), eff = soakEffective(s, wall);
     int32_t truth = id->truth;
+    uint64_t mark = s->g->answer_mark, alarms;
     soakBefore before;
     uint32_t i;
     int used;
@@ -7097,28 +9754,50 @@ static void soakLearn(soak *s, const soakId *id, const char *what) {
     for (i = 0; id->epoch == s->m.epoch && i < s->m.n; i++)
         if (s->m.req[i].seq == id->seq) truth = s->m.req[i].truth;
     soakNote(s, &before);
+    alarms = s->m.unchecked_by_answer;
     used = gateLearn(s->g, wall, id->epoch, id->seq, truth);
     if (used != modelLearn(&s->m, wall, id->epoch, id->seq, truth))
         soakFail(s, what, "gateLearn differs from the model");
     if (gateLearn(s->replica, eff, id->epoch, id->seq, truth) != used)
         soakFail(s, what, "replica used the answer differently");
-    if (used && (s->g->blind || s->g->missing_run))
-        soakFail(s, what, "blind, or a run of missing answers, after an answer that was used");
+    if (used && s->g->missing_run)
+        soakFail(s, what, "a run of missing answers after an answer that was used");
+    if (used && s->g->answer_mark != s->g->next_seq)
+        soakFail(s, what, "an answer was used and the mark is not at the next request");
+    /* An answer that is used makes a blind gate see. The one exception:
+     * the answer was the disagreement by which the drift detector found
+     * that the gate cannot be checked. */
+    if (used && s->g->blind && s->m.unchecked_by_answer == alarms)
+        soakFail(s, what, "blind after an answer that was used");
     if (!used && (s->g->blind != before.blind && !s->g->blind))
         soakFail(s, what, "an answer that was not used made the gate see");
+    if (!used && s->g->answer_mark != mark)
+        soakFail(s, what, "an answer that was not used moved the mark");
     soakTally(s, &before);
     soakCheck(s, what);
 }
 
-/* The answer that is due first arrives. Returns 0 if none is due. */
-static int soakAnswer(soak *s) {
-    uint32_t i, best = s->nids;
+/* An answer that is due arrives: the one that is due first or, with 'any',
+ * any one of them (a client that collects answers and passes them on in
+ * whatever order). Returns 0 if none is due. */
+static int soakAnswer(soak *s, int any) {
+    uint32_t i, best = s->nids, ndue = 0, pick;
     int used;
 
-    for (i = 0; i < s->nids; i++)
-        if (s->ids[i].due <= s->now && (best == s->nids || s->ids[i].due < s->ids[best].due))
-            best = i;
+    for (i = 0; i < s->nids; i++) {
+        if (s->ids[i].due > s->now) continue;
+        ndue++;
+        if (best == s->nids || s->ids[i].due < s->ids[best].due) best = i;
+    }
     if (best == s->nids) return 0;
+    if (any) {
+        pick = soakRand(s, ndue);
+        for (i = 0; i < s->nids; i++) {
+            if (s->ids[i].due > s->now) continue;
+            if (pick-- == 0) break;
+        }
+        best = i;
+    }
     s->last = s->ids[best];
     s->ids[best] = s->ids[--s->nids];
     used = (int)s->g->stats.learned;
@@ -7213,7 +9892,28 @@ static void soakWaitingLimit(soak *s) {
 static void soakOutage(soak *s) {
     s->outage = 2000 + soakRand(s, 2000);
     s->nids = 0;
+    s->batch = 0;
+    s->batch_due = 0;
+    s->flush = 0;
     s->outages++;
+}
+
+/* For a while the teacher holds its answers back and then sends them all
+ * at one moment, in any order. */
+static void soakBatch(soak *s, uint32_t ops) {
+    if (s->batch || s->batch_due || s->flush) return;
+    s->batch = ops;
+    s->batch_due = s->now + 2 * (int64_t)ops + soakRand(s, 100);
+}
+
+/* Everything that waits runs out of time at once. */
+static void soakJump(soak *s) {
+    int due;
+
+    s->now += TIMEOUT + soakRand(s, 50);
+    due = soakMaintain(s, s->now);
+    soakTick(s, s->g->now_ms, due);
+    soakCheck(s, "timeout");
 }
 
 static void soakStep(soak *s) {
@@ -7232,18 +9932,37 @@ static void soakStep(soak *s) {
     if (s->lossy) s->lossy--;
     if (s->slow) s->slow--;
     if (s->outage) s->outage--;
+    if (s->partial) s->partial--;
+    if (s->selective) s->selective--;
+    if (s->batch) s->batch--;
     if (s->burst) {
         /* No answer arrives and no time passes: the gate fills up. */
         s->burst--;
         if (soakPredict(s, U_SPOT)) soakTeacher(s);
         return;
     }
+    if (s->flush) {
+        /* A batch arrives: one answer after the other at the same moment,
+         * in any order, and nothing in between. */
+        s->flush--;
+        if (!soakAnswer(s, 1)) s->flush = 0;
+        return;
+    }
     s->huge = 0;
     s->now += soakRand(s, 3);
+    if (s->batch_due && s->now >= s->batch_due) {
+        uint32_t i;
+
+        for (i = 0; i < s->nids; i++) s->flush += s->ids[i].due <= s->now;
+        s->batch = 0;
+        s->batch_due = 0;
+        s->batches++;
+    }
     if (dice < 40000) {
         if (soakPredict(s, u)) soakTeacher(s);
     } else if (dice < 85000) {
-        if (!soakAnswer(s) && soakPredict(s, u)) soakTeacher(s);
+        /* Mostly the answer that is due first; now and then another. */
+        if (!soakAnswer(s, soakRand(s, 4) == 0) && soakPredict(s, u)) soakTeacher(s);
     } else if (dice < 88000) {
         soakStrayAnswer(s);
     } else if (dice < 93000 && s->classifier) {
@@ -7265,12 +9984,7 @@ static void soakStep(soak *s) {
     } else if (dice < 98560) {
         soakAdmin(s, 3);
     } else if (dice < 98610) {
-        int due;
-
-        s->now += TIMEOUT + soakRand(s, 50); /* everything waiting times out */
-        due = soakMaintain(s, s->now);
-        soakTick(s, s->g->now_ms, due);
-        soakCheck(s, "timeout");
+        soakJump(s);
     } else if (dice < 98630) {
         s->broken = 800;
     } else if (dice < 98660) {
@@ -7284,6 +9998,12 @@ static void soakStep(soak *s) {
         s->slow = 1500;
     } else if (dice < 98687) {
         soakOutage(s);
+    } else if (dice < 98702) {
+        soakBatch(s, 100 + soakRand(s, 200));
+    } else if (dice < 98708) {
+        s->selective = 1500;
+    } else if (dice < 98712) {
+        s->partial = 1500;
     } else {
         if (soakPredict(s, u)) soakTeacher(s);
     }
@@ -7294,8 +10014,8 @@ static void soakStep(soak *s) {
 static void soakRun(soak *s, int kind, uint64_t seed, uint32_t ops) {
     int classifier = kind != 0;
     char err[128];
-    uint32_t i;
-    int waited = 0, outage = 0;
+    uint32_t i, hidden = 0;
+    int waited = 0, outage = 0, batched = 0;
 
     memset(s, 0, sizeof(*s));
     s->classifier = classifier;
@@ -7330,23 +10050,33 @@ static void soakRun(soak *s, int kind, uint64_t seed, uint32_t ops) {
     for (s->op = 0; s->op < ops && !s->failed; s->op++) {
         soakStep(s);
         if (s->huge && s->burst == 0) s->huge = 0;
-        /* Once in every walk, wherever it is by then: an outage, and more
-         * answers than may wait. */
+        /* Once in every walk, wherever it is by then: an outage; a teacher
+         * that goes wrong and hides it (no answer that says "wrong" for a
+         * while, then the time of everything that waits is up); more
+         * answers than may wait; a batch with disagreements in it. */
         if (!outage && s->op >= ops / 4) {
             soakOutage(s);
             outage = 1;
+        }
+        if (!hidden && s->op >= ops / 8 * 3 && s->burst == 0 && s->outage == 0 && s->g->serving) {
+            s->selective = s->broken = 400;
+            hidden = s->op + 400;
+        }
+        if (hidden > 1 && s->op == hidden) {
+            soakJump(s);
+            hidden = 1;
         }
         if (!waited && s->op >= ops / 2 && s->burst == 0 && (s->g->candidate || s->g->serving)) {
             soakWaitingLimit(s);
             waited = 1;
         }
+        if (!batched && s->op >= ops / 8 * 5 && s->burst == 0 && s->outage == 0 && s->g->serving) {
+            soakBatch(s, 150);
+            s->broken = 60;
+            batched = 1;
+        }
     }
     CHECK(!s->failed);
-    if (s->dead_missing)
-        printf("  in %s: %llu times a request that was proof for nothing ended as a missing "
-               "answer (see blind_then_queue_head)\n",
-               gate_test_current, (unsigned long long)s->dead_missing);
-    CHECK_EQ_INT(s->dead_missing, 0);
     /* The replica holds what the primary holds, at the end too. */
     CHECK(fingerprint(s->g, SKIP_CLOCK | SKIP_REQUESTS) ==
           fingerprint(s->replica, SKIP_CLOCK | SKIP_REQUESTS));
@@ -7355,11 +10085,20 @@ static void soakRun(soak *s, int kind, uint64_t seed, uint32_t ops) {
     s->taken_back = s->m.taken_back;
     s->late_answers = s->m.late_answers;
     s->late_missing = s->m.late_missing;
+    s->lost_answers = s->m.lost_answers;
+    s->worse = s->m.worse;
+    s->unchecked = s->m.unchecked;
+    s->unchecked_by_answer = s->m.unchecked_by_answer;
+    s->late_reports = s->m.late_reports;
+    s->numbered = s->m.numbered;
+    s->missed = s->m.missed;
+    s->missed_out = s->m.missed_out;
+    s->held_back = s->m.held_back;
 
     gateFree(s->g);
     gateFree(s->replica);
     gateConfigFree(&s->cfg);
-    free(s->m.base);
+    modelFree(&s->m);
     free(s->ids);
     free(s->big.idx);
     free(s->big.val);
@@ -7393,7 +10132,19 @@ static void soakAdd(soak *sum, const soak *s) {
     sum->seen_again += s->seen_again;
     sum->outages += s->outages;
     sum->left_out += s->left_out;
-    sum->dead_missing += s->dead_missing;
+    sum->lost_answers += s->lost_answers;
+    sum->worse += s->worse;
+    sum->unchecked += s->unchecked;
+    sum->unchecked_by_answer += s->unchecked_by_answer;
+    sum->late_reports += s->late_reports;
+    sum->numbered += s->numbered;
+    sum->missed += s->missed;
+    sum->missed_out += s->missed_out;
+    sum->held_back += s->held_back;
+    sum->batches += s->batches;
+    sum->batched += s->batched;
+    sum->withheld += s->withheld;
+    sum->resyncs += s->resyncs;
 }
 
 static const char *const soak_names[3] = {"soak_score", "soak_classifier", "soak_takeovers"};
@@ -7410,32 +10161,43 @@ static void soakSeeds(int kind, const uint64_t *seeds, size_t n, soak *sum, int 
         soakAdd(sum, &s);
         if (!print) continue;
         printf("  %s seed %llu: %s. accept %llu (%llu without the candidate's guess) audit %llu "
-               "promoted %llu (took over %llu) revoked "
-               "%llu retired %llu; moved on %llu (limit %llu), taken back %llu, late answers "
+               "promoted %llu (took over %llu, held back %llu) revoked "
+               "%llu retired %llu (%llu with missed requests, %llu missed); moved on %llu (limit "
+               "%llu), taken back %llu, late answers "
                "%llu, too late %llu, missing after moving on %llu; blind %llu (asked %llu, saw "
-               "again %llu), outages %llu; full %llu (bytes %llu), not kept %llu, ticks %llu, "
+               "again %llu), outages %llu; spot checks %llu, alarms: worse %llu, unchecked %llu "
+               "(%llu by an answer), reports after their block %llu, lost answers outside a run "
+               "%llu; batches %llu (%llu answers), withheld %llu; full %llu (bytes %llu), not "
+               "kept %llu, ticks %llu, "
                "thresholds moved down %llu, resets %llu, recoveries %llu, missing %llu, dropped "
-               "%llu\n",
+               "%llu, resyncs %llu\n",
                soak_names[kind], (unsigned long long)seeds[i], s.failed ? "FAILED" : "ok",
                (unsigned long long)s.accepts, (unsigned long long)s.left_out,
                (unsigned long long)s.audits,
                (unsigned long long)s.promotions, (unsigned long long)s.takeovers,
+               (unsigned long long)s.held_back,
                (unsigned long long)s.revocations, (unsigned long long)s.retired,
+               (unsigned long long)s.missed_out, (unsigned long long)s.missed,
                (unsigned long long)s.passes, (unsigned long long)s.limit_passes,
                (unsigned long long)s.taken_back, (unsigned long long)s.late_answers,
                (unsigned long long)s.too_late, (unsigned long long)s.late_missing,
                (unsigned long long)s.blinds, (unsigned long long)s.blind_asks,
                (unsigned long long)s.seen_again, (unsigned long long)s.outages,
+               (unsigned long long)s.numbered, (unsigned long long)s.worse,
+               (unsigned long long)s.unchecked, (unsigned long long)s.unchecked_by_answer,
+               (unsigned long long)s.late_reports, (unsigned long long)s.lost_answers,
+               (unsigned long long)s.batches, (unsigned long long)s.batched,
+               (unsigned long long)s.withheld,
                (unsigned long long)s.full, (unsigned long long)s.full_bytes,
                (unsigned long long)s.untrained, (unsigned long long)s.maintained,
                (unsigned long long)s.moved_down, (unsigned long long)s.resets,
                (unsigned long long)s.recoveries, (unsigned long long)s.missing,
-               (unsigned long long)s.dropped);
+               (unsigned long long)s.dropped, (unsigned long long)s.resyncs);
     }
 }
 
 TEST(soak_score) {
-    static const uint64_t seeds[] = {4, 6};
+    static const uint64_t seeds[] = {6, 10};
     static soak sum;
 
     soakSeeds(0, seeds, COUNTOF(seeds), &sum, 0);
@@ -7454,10 +10216,18 @@ TEST(soak_score) {
     CHECK(sum.too_late >= 50 && sum.late_missing >= 50);
     CHECK(sum.limit_passes >= 1);
     CHECK(sum.outages >= 2 && sum.blinds >= 2 && sum.blind_asks >= 100 && sum.seen_again >= 2);
+    /* The drift detector: spot checks numbered, both alarms (the second
+     * one also raised by an answer), disagreements and lost answers
+     * reported after their block of 64 had ended. Missing answers that
+     * were no part of a run. Answers in batches; "wrong" withheld. */
+    CHECK(sum.numbered >= 1000 && sum.worse >= 2 && sum.unchecked >= 2);
+    CHECK(sum.unchecked_by_answer >= 1 && sum.late_reports >= 50);
+    CHECK(sum.lost_answers >= 1000);
+    CHECK(sum.batches >= 5 && sum.batched >= 500 && sum.withheld >= 500);
 }
 
 TEST(soak_classifier) {
-    static const uint64_t seeds[] = {8, 17, 20};
+    static const uint64_t seeds[] = {9, 19, 23};
     static soak sum;
 
     soakSeeds(1, seeds, COUNTOF(seeds), &sum, 0);
@@ -7474,18 +10244,29 @@ TEST(soak_classifier) {
     CHECK(sum.too_late >= 20 && sum.late_missing >= 20);
     CHECK(sum.blinds >= 1 && sum.blind_asks >= 20 && sum.seen_again >= 1);
     CHECK(sum.left_out >= 100); /* answered without asking the candidate */
+    /* Requests a snapshot could have been tested on, and snapshots that
+     * were dropped with some; a takeover, and takeovers that only the
+     * rule that was would have made; both drift alarms. */
+    CHECK(sum.missed >= 1000 && sum.missed_out >= 3);
+    CHECK(sum.takeovers >= 1 && sum.held_back >= 1);
+    CHECK(sum.numbered >= 1000 && sum.worse >= 1 && sum.unchecked >= 1);
+    CHECK(sum.unchecked_by_answer >= 1 && sum.late_reports >= 50);
+    CHECK(sum.lost_answers >= 1000 && sum.batches >= 5 && sum.withheld >= 500);
 }
 
 TEST(soak_takeovers) {
-    static const uint64_t seeds[] = {4, 14};
+    static const uint64_t seeds[] = {14, 18, 23};
     static soak sum;
 
     soakSeeds(2, seeds, COUNTOF(seeds), &sum, 0);
     CHECK(sum.promotions >= 10);
     CHECK(sum.takeovers >= 3); /* a candidate replacing a serving generation */
+    CHECK(sum.held_back >= 1); /* ... and one that did not, by what the serving one answers now */
     CHECK(sum.revocations >= 1);
     CHECK(sum.passes >= 200 && sum.taken_back >= 50);
     CHECK(sum.left_out >= 100);
+    CHECK(sum.missed >= 1000 && sum.missed_out >= 1);
+    CHECK(sum.unchecked >= 1 && sum.late_reports >= 50);
 }
 
 int main(int argc, char **argv) {
@@ -7495,14 +10276,21 @@ int main(int argc, char **argv) {
     for (r = 0; r < GATE_MAX_CLASSES; r++) blank_policy[r] = -99;
 
     if (argc > 1) {
-        /* Extra seeds for the randomized walks. */
+        /* Extra seeds for the randomized walks: "17" runs the three walks
+         * with seed 17, "score:17", "classifier:17" or "takeovers:17" one. */
         int a, kind;
 
         for (a = 1; a < argc; a++) {
-            uint64_t seed = strtoull(argv[a], NULL, 10);
+            const char *arg = argv[a], *colon = strchr(arg, ':');
+            uint64_t seed = strtoull(colon ? colon + 1 : arg, NULL, 10);
             static soak sum;
 
             for (kind = 0; kind < 3; kind++) {
+                const char *name = soak_names[kind] + 5; /* without "soak_" */
+
+                if (colon && (strlen(name) != (size_t)(colon - arg) ||
+                              strncmp(arg, name, strlen(name)) != 0))
+                    continue;
                 gate_test_current = soak_names[kind];
                 soakSeeds(kind, &seed, 1, &sum, 1);
                 gate_test_checks++;
@@ -7571,6 +10359,24 @@ int main(int argc, char **argv) {
     RUN_LEAKFREE(score_candidate_has_no_budget);
     RUN_LEAKFREE(drift_score);
     RUN_LEAKFREE(drift_classifier);
+    RUN_LEAKFREE(promotion_like_with_like);
+    RUN_LEAKFREE(promotion_counts_every_label);
+    RUN_LEAKFREE(promotion_counts_the_answer_for_both);
+    RUN_LEAKFREE(lost_answers_are_not_an_outage);
+    RUN_LEAKFREE(missed_requests);
+    RUN_LEAKFREE(limits);
+    RUN_LEAKFREE(counters_at_their_limit);
+    RUN_LEAKFREE(dead_queue_head_is_dropped);
+    RUN_LEAKFREE(drift_spot_numbers);
+    RUN_LEAKFREE(drift_order_and_batches);
+    RUN_LEAKFREE(drift_block_ended);
+    RUN_LEAKFREE(drift_blocks);
+    RUN_LEAKFREE(drift_lost_spot_checks);
+    RUN_LEAKFREE(drift_paused_gate);
+    RUN_LEAKFREE(drift_generation_replaced);
+    RUN_LEAKFREE(score_gate_refuses_labels_and_clues);
+    RUN_LEAKFREE(score_that_is_not_a_number);
+    RUN_LEAKFREE(invariants_of_the_new_fields);
     RUN_LEAKFREE(full_gate);
     RUN_LEAKFREE(full_counts_unanswered);
     RUN_LEAKFREE(training_only_limit);

@@ -37,7 +37,7 @@
  *               (classifier only), R * GATE_THRESHOLDS x region (4 x f64
  *               log wealth, u64 n, errors, certified_at),
  *               R * GATE_THRESHOLDS x u64 paired, R x drift detector
- *               (u64 asked, u64 errors, 3 x u32 wrong, 3 x u32 lost)
+ *               (u64 counted, u64 errors, 3 x u32 wrong, 3 x u32 late)
  *   request     u64 seq, i64 created_ms, u32 flags, i32 cand_label,
  *               i32 serv_label, f64 cand_score, f64 serv_score,
  *               u64 cand_gen, u64 serv_gen, i32 result, u64 spot, u32 n,
@@ -48,7 +48,12 @@
  * number or the clock past its limit (it stops handing them out), and every
  * other counter is simply written as the limit once it is beyond: so
  * whatever the core makes of a gate that decoded, it can be encoded and
- * decoded again.
+ * decoded again. Cutting a counter down must not break what the decoder
+ * asks of it together with others. Counters that are compared stay in
+ * order when both are cut at the same limit. Two cases need more: the four
+ * request counters must add up, so the three kinds of reply are cut down
+ * in turn to what is left of the limit; and a drift detector is written
+ * with no more disagreements than spot checks.
  *
  * The flags of a request are the GATE_OBS_* bits of gate_core.h: 1 audit,
  * 2 would-accept, 4 proof for the candidate, 8 proof for the serving
@@ -80,11 +85,16 @@
  * of older proof): the core copes with all of those, and whoever restores
  * a blob it does not trust drops the proof anyway (gateRecover).
  *
- * One such way is left, and the decoder cannot close it on its own: a bound
- * has an edge. A blob may put a bounded counter, or the clock, exactly at
- * its bound. The core does not stop counting there, and takes a clock
- * beyond its range if it is handed one; what is encoded after that is
- * refused. (No gate gets there by counting or by the passing of time.)
+ * CLOSED. Whatever blob decodes, and whatever the core then does with the
+ * gate, the result encodes into a blob that decodes, and that one encodes
+ * to the same bytes: also with a counter, a request number, a snapshot
+ * number or the clock at its limit. Every rule above must hold again
+ * after anything the core can do, which is why two of them look ahead: a
+ * request cannot be proof for the candidate through a guess of a label
+ * that is never answered (the core would count it in the candidate's
+ * paired table and not in its samples), and the number a spot check was
+ * counted under is checked against the detector of the candidate too if
+ * that is the generation the request names (it may come to serve).
  */
 
 #include <math.h>
@@ -254,10 +264,11 @@ static void gateWriteGeneration(gateWriter *w, const gate *g, const gateGenerati
     for (uint32_t row = 0; row < g->nrows; row++) {
         const gateDrift *d = &gen->drift[row];
 
-        gateWriteCount(w, d->asked);
-        gateWriteCount(w, d->errors);
+        gateWriteCount(w, d->counted);
+        /* Never more disagreements than spot checks: see COUNTERS. */
+        gateWriteCount(w, d->errors > d->counted ? d->counted : d->errors);
         for (int s = 0; s < GATE_DRIFT_SCALES; s++) gateWriteU32(w, d->wrong[s]);
-        for (int s = 0; s < GATE_DRIFT_SCALES; s++) gateWriteU32(w, d->lost[s]);
+        for (int s = 0; s < GATE_DRIFT_SCALES; s++) gateWriteU32(w, d->late[s]);
     }
 }
 
@@ -291,6 +302,14 @@ int gateEncode(const gate *g, int for_digest, unsigned char **buf, size_t *len) 
         s.requests = s.accepted = s.audited = s.abstained = s.full = s.window = 0;
         s.coverage = 0.0;
     }
+    /* The requests are the sum of the three kinds of reply, and must still
+     * be once they are beyond the limit and written as the limit: each
+     * kind is cut down to what the ones before it leave of the limit.
+     * (Below the limit this changes nothing.) */
+    if (s.accepted > GATE_COUNT_MAX) s.accepted = GATE_COUNT_MAX;
+    if (s.audited > GATE_COUNT_MAX - s.accepted) s.audited = GATE_COUNT_MAX - s.accepted;
+    if (s.abstained > GATE_COUNT_MAX - s.accepted - s.audited)
+        s.abstained = GATE_COUNT_MAX - s.accepted - s.audited;
 
     gateWriteBytes(&w, "GATE", 4);
     gateWriteU16(&w, GATE_CODEC_VERSION);
@@ -562,17 +581,17 @@ static gateGeneration *gateReadGeneration(gateReader *r, const gate *g) {
     for (uint32_t row = 0; row < g->nrows; row++) {
         gateDrift *d = &gen->drift[row];
 
-        d->asked = gateReadCount(r);
+        d->counted = gateReadCount(r);
         d->errors = gateReadCount(r);
         for (int s = 0; s < GATE_DRIFT_SCALES; s++) d->wrong[s] = gateReadU32(r);
         for (int s = 0; s < GATE_DRIFT_SCALES; s++) {
-            d->lost[s] = gateReadU32(r);
-            /* Disagreements and lost answers of the block now open: no
+            d->late[s] = gateReadU32(r);
+            /* Disagreements and missing answers of the block now open: no
              * more than it holds. */
-            if ((uint64_t)d->wrong[s] + d->lost[s] > gateDriftOpen(d, s))
+            if ((uint64_t)d->wrong[s] + d->late[s] > gateDriftOpen(d, s))
                 gateReadFail(r, "invalid drift detector");
         }
-        if (d->errors > d->asked) gateReadFail(r, "invalid drift detector");
+        if (d->errors > d->counted) gateReadFail(r, "invalid drift detector");
         gateGenerationRefreshPolicy(g, gen, row);
     }
     gen->log_threshold = gateBar(g, gen->gen);
@@ -650,23 +669,44 @@ static void gateReadObs(gateReader *r, const gate *g, gateObs *o) {
     if (!gateGuessValid(g, o->cand_gen, o->cand_label) ||
         !gateGuessValid(g, o->serv_gen, o->serv_label))
         gateReadFail(r, "invalid request guess");
+    /* A guess of a label that is never answered proves nothing: the core
+     * never flags one as proof for the candidate, and counts on that (it
+     * would enter such a request in the candidate's paired table without
+     * counting it as a sample, and the table must stay within the
+     * samples). The serving side needs no such rule. */
+    if (!r->failed && (o->flags & GATE_OBS_CAND) && o->cand_gen != 0 &&
+        g->cfg.kind == GATE_KIND_CLASSIFIER && !gateRowTested(g, (uint32_t)o->cand_label))
+        gateReadFail(r, "invalid request guess");
     answered = (o->flags & GATE_OBS_RESOLVED) != 0;
     if (answered ? (o->result < 0 || o->result >= answers) : o->result != -1)
         gateReadFail(r, "invalid request answer");
-    /* A spot check was one when it was asked (the proof flag may have been
-     * dropped since), and its number was handed out by the detector of its
-     * row if that generation is still the one serving. */
+    /* Only a spot check that proof has moved on without carries a number:
+     * the one the drift detector of its row counted it under, if the
+     * generation it names is still there (the one that serves, or the
+     * candidate, which may come to serve with the detectors the blob gives
+     * it). */
     if (o->spot != 0) {
-        const uint32_t spot_flags = GATE_OBS_AUDIT | GATE_OBS_WOULD_ACCEPT;
+        const uint32_t spot_flags = GATE_OBS_AUDIT | GATE_OBS_WOULD_ACCEPT | GATE_OBS_SERV |
+                                    GATE_OBS_PROVISIONAL;
+        const gateGeneration *gen = NULL;
 
+        if (g->serving && g->serving->gen == o->serv_gen) gen = g->serving;
+        else if (g->candidate && g->candidate->gen == o->serv_gen) gen = g->candidate;
         if ((o->flags & spot_flags) != spot_flags || o->serv_gen == 0) {
             gateReadFail(r, "invalid spot check");
-        } else if (!r->failed && g->serving && g->serving->gen == o->serv_gen) {
+        } else if (!r->failed && gen != NULL) {
             uint32_t row = g->cfg.kind == GATE_KIND_CLASSIFIER ? (uint32_t)o->serv_label : 0;
 
-            if (o->spot > g->serving->drift[row].asked) gateReadFail(r, "invalid spot check");
+            if (o->spot > gen->drift[row].counted) gateReadFail(r, "invalid spot check");
         }
     }
+}
+
+/* 1 if the gate has no room for another waiting request: what gateFull()
+ * says, but for the request numbers. A gate that has handed out its last
+ * number is full for good, and still holds the requests it recorded. */
+static int gateNoRoom(const gate *g) {
+    return gateUnanswered(g) >= GATE_MAX_PENDING || g->pending_bytes >= GATE_MAX_PENDING_BYTES;
 }
 
 static void gateReadPending(gateReader *r, gate *g) {
@@ -676,11 +716,11 @@ static void gateReadPending(gateReader *r, gate *g) {
     for (uint32_t i = 0; i < count && !r->failed; i++) {
         gateObs *o;
 
-        /* The core records a request only while the gate is not full, so
-         * none follows the one that filled it, however many of the older
-         * ones have been answered since. With the limit below this is also
+        /* The core records a request only while the gate has room, so none
+         * follows the one that filled it, however many of the older ones
+         * have been answered since. With the limit below this is also
          * what bounds the memory a blob can make us allocate. */
-        if (gateFull(g)) {
+        if (gateNoRoom(g)) {
             gateReadFail(r, "too many waiting requests");
             return;
         }

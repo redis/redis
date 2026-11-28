@@ -1206,11 +1206,14 @@ TEST(create_server_values) {
     CHECK(gateParseCreate(a.v, a.n, 1, 1, &cfg, g_err, sizeof(g_err)) == GATE_OK);
     CHECK(cfg.snapshot_examples == 1 && cfg.feedback_timeout_ms == 1);
     gateConfigFree(&cfg);
-    /* The largest of each: any uint32, and 7 days in milliseconds. */
-    CHECK(gateParseCreate(a.v, a.n, UINT32_MAX, 604800000, &cfg, g_err, sizeof(g_err)) == GATE_OK);
-    CHECK(cfg.snapshot_examples == UINT32_MAX && cfg.feedback_timeout_ms == 604800000);
+    /* The largest of each: a billion examples (GATE_MAX_SNAPSHOT_EXAMPLES,
+     * the limit of gate.snapshot-examples), and 7 days in milliseconds. */
+    CHECK(gateParseCreate(a.v, a.n, 1000000000u, 604800000, &cfg, g_err, sizeof(g_err)) == GATE_OK);
+    CHECK(cfg.snapshot_examples == 1000000000u && cfg.feedback_timeout_ms == 604800000);
     gateConfigFree(&cfg);
 
+    CHECK(refused(gateParseCreate(a.v, a.n, 1000000001u, 60000, &cfg, g_err, sizeof(g_err)), &cfg));
+    CHECK(refused(gateParseCreate(a.v, a.n, UINT32_MAX, 60000, &cfg, g_err, sizeof(g_err)), &cfg));
     CHECK(refused(gateParseCreate(a.v, a.n, 0, 60000, &cfg, g_err, sizeof(g_err)), &cfg));
     CHECK(refused(gateParseCreate(a.v, a.n, 1000, 0, &cfg, g_err, sizeof(g_err)), &cfg));
     CHECK(refused(gateParseCreate(a.v, a.n, 1000, -60000, &cfg, g_err, sizeof(g_err)), &cfg));

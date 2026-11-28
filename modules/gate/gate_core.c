@@ -619,10 +619,68 @@ static void gateObsErrors(const gate *g, const gateObs *o, int *err_cand, int *e
     }
 }
 
-/* Count a request as proof, in its turn. */
-static void gateProofApply(gate *g, const gateObs *o, int err_cand, int err_serv) {
-    gateGeneration *c = gateProofCand(g, o);
+/* A recorded request is a spot check if the gate would have answered it
+ * and asked the teacher all the same. */
+static int gateObsSpot(const gateObs *o) {
+    const uint32_t spot = GATE_OBS_SERV | GATE_OBS_WOULD_ACCEPT | GATE_OBS_AUDIT;
 
+    return (o->flags & spot) == spot;
+}
+
+/* What the drift detector of a row has to say: see DRIFT in gate_core.h. */
+static void gateSpotVerdict(gate *g, int verdict) {
+    if (verdict == GATE_DRIFT_ALARM_WORSE) gateDriftAlarm(g);
+    else if (verdict == GATE_DRIFT_ALARM_UNCHECKED) gateBlindAlarm(g);
+}
+
+/* Hand a spot check of the serving generation 's' to the drift detector
+ * of its row: its turn has come. Without an answer ('late') it keeps the
+ * number it is counted under, for gateSpotAnswer(). */
+static void gateSpotCount(gate *g, gateGeneration *s, gateObs *o, int late, int err_serv) {
+    uint32_t row = gateIsClassifier(g) ? (uint32_t)o->serv_label : 0;
+    uint64_t number = 0;
+    int verdict;
+
+    if (!late) {
+        s->audits++;
+        if (err_serv) s->audit_errors++;
+    }
+    verdict = gateDriftCount(&s->drift[row], &g->drift_bets[row],
+                             late ? GATE_DRIFT_LATE : err_serv ? GATE_DRIFT_WRONG : GATE_DRIFT_RIGHT,
+                             log(GATE_DRIFT_ALARM), log(GATE_LOST_ALARM), &number);
+    o->spot = late ? number : 0;
+    gateSpotVerdict(g, verdict); /* may drop both generations */
+}
+
+/* The answer of a spot check that was counted without one has arrived. */
+static void gateSpotAnswer(gate *g, const gateObs *o, int err_serv) {
+    gateGeneration *s = gateProofServ(g, o);
+
+    if (s == NULL || o->spot == 0) return;
+    uint32_t row = gateIsClassifier(g) ? (uint32_t)o->serv_label : 0;
+
+    s->audits++;
+    if (err_serv) s->audit_errors++;
+    gateSpotVerdict(g, gateDriftAnswer(&s->drift[row], &g->drift_bets[row], o->spot, err_serv,
+                                       log(GATE_DRIFT_ALARM), log(GATE_LOST_ALARM)));
+}
+
+/* Count a request as proof, in its turn. 'late' says that its answer is
+ * not in (both guesses then count as wrong).
+ *
+ * The serving generation comes first. Its thresholds may move down with
+ * this very answer, and the candidate is compared with what the serving
+ * generation answers now; and if the request is a spot check that sets
+ * off an alarm, there is no candidate left to consider. */
+static void gateProofApply(gate *g, gateObs *o, int err_cand, int err_serv, int late) {
+    gateGeneration *s = gateProofServ(g, o);
+
+    if (s) {
+        gateGenerationApply(g, s, o->serv_label, o->serv_score, err_serv);
+        if (gateObsSpot(o)) gateSpotCount(g, s, o, late, err_serv);
+    }
+    /* Looked up only now: an alarm just above drops both generations. */
+    gateGeneration *c = gateProofCand(g, o);
     if (c) {
         gateGenerationApply(g, c, o->cand_label, o->cand_score, err_cand);
         if (c == g->candidate) {
@@ -639,69 +697,35 @@ static void gateProofApply(gate *g, const gateObs *o, int err_cand, int err_serv
             gateConsiderCandidate(g); /* may promote or drop it */
         }
     }
-    /* Looked up only now: a promotion just above replaces the generation
-     * the serving guess belonged to. */
-    gateGeneration *s = gateProofServ(g, o);
-    if (s) gateGenerationApply(g, s, o->serv_label, o->serv_score, err_serv);
 }
 
 /* The answer of a request that proof had moved on without (it was counted
- * as an error) has arrived: set right the guesses that were correct. The
- * generations are looked up exactly as gateProofApply() did, so an error is
+ * as an error) has arrived: set right the guesses that were correct, and
+ * tell the drift detector if the request was a spot check. The generations
+ * are looked up as gateProofApply() did, in the same order, so an error is
  * only taken back where it was counted. */
 static void gateProofFlip(gate *g, const gateObs *o, int err_cand, int err_serv) {
-    gateGeneration *c = gateProofCand(g, o);
+    gateGeneration *s = gateProofServ(g, o);
 
+    if (s && !err_serv) gateGenerationFlip(g, s, o->serv_label, o->serv_score);
+    gateSpotAnswer(g, o, err_serv); /* may drop both generations */
+    gateGeneration *c = gateProofCand(g, o);
     if (c && !err_cand) {
         gateGenerationFlip(g, c, o->cand_label, o->cand_score);
         if (c == g->candidate) gateConsiderCandidate(g);
     }
-    gateGeneration *s = gateProofServ(g, o);
-    if (s && !err_serv) gateGenerationFlip(g, s, o->serv_label, o->serv_score);
 }
 
-/* The final outcome of a piece of evidence is known: answered ('missing'
- * 0, 'err_serv' says whether the serving guess was wrong) or given up for
- * good ('missing' 1). */
-static void gateOutcome(gate *g, const gateObs *o, int missing, int err_serv) {
-    gateGeneration *s = gateProofServ(g, o);
-
-    if (missing) {
-        g->stats.missing++;
-        /* An outage is a run of requests that end unanswered while no
-         * answer arrives at all. A request that has seen an answer arrive
-         * since it was asked (of a newer request, or of any other) is a
-         * lost answer, whenever it is given up. */
-        if (o->seq >= g->answer_mark && ++g->missing_run >= GATE_MISSING_RUN) {
-            gateBlindAlarm(g);
-            return;
-        }
-        /* A lost spot check may hide a disagreement: the drift detector
-         * keeps count (see DRIFT in gate_core.h). */
-        if (s && o->spot) {
-            uint32_t row = gateIsClassifier(g) ? (uint32_t)o->serv_label : 0;
-
-            if (gateDriftLost(&s->drift[row], &g->drift_bets[row], o->spot,
-                              log(GATE_LOST_ALARM)) == GATE_DRIFT_ALARM_UNCHECKED)
-                gateBlindAlarm(g);
-        }
-        return;
-    }
-    /* An answered spot check of accepted traffic. A disagreement is
-     * reported to the drift detector under the number the spot check got
-     * when it was asked. (A missing answer is not a disagreement.) */
-    if (s && o->spot) {
-        uint32_t row = gateIsClassifier(g) ? (uint32_t)o->serv_label : 0;
-
-        s->audits++;
-        if (err_serv) {
-            s->audit_errors++;
-            int verdict = gateDriftWrong(&s->drift[row], &g->drift_bets[row], o->spot,
-                                         log(GATE_DRIFT_ALARM), log(GATE_LOST_ALARM));
-            if (verdict == GATE_DRIFT_ALARM_WORSE) gateDriftAlarm(g);
-            else if (verdict == GATE_DRIFT_ALARM_UNCHECKED) gateBlindAlarm(g);
-        }
-    }
+/* A piece of evidence is given up for good: its answer never arrived. The
+ * drift detector is not told: a spot check without an answer was counted
+ * as one when its turn came. */
+static void gateMissing(gate *g, const gateObs *o) {
+    g->stats.missing++;
+    /* An outage is a run of requests that end unanswered while no answer
+     * arrives at all. A request that has seen an answer arrive since it
+     * was asked (of a newer request, or of any other) is a lost answer,
+     * whenever it is given up. */
+    if (o->seq >= g->answer_mark && ++g->missing_run >= GATE_MISSING_RUN) gateBlindAlarm(g);
 }
 
 /* Apply answered evidence in request order, as far as possible. */
@@ -730,7 +754,7 @@ static void gateDrain(gate *g) {
         gateEvidencePop(g);
         gateObsUnlink(g, h);
         gateObsErrors(g, h, &err_cand, &err_serv);
-        gateProofApply(g, h, err_cand, err_serv);
+        gateProofApply(g, h, err_cand, err_serv, 0);
         gateObsRelease(h);
     }
 }
@@ -764,7 +788,7 @@ static void gatePass(gate *g) {
         gateObs *h = gateEvidencePop(g);
 
         h->flags |= GATE_OBS_PROVISIONAL;
-        gateProofApply(g, h, 1, 1);
+        gateProofApply(g, h, 1, 1, 1);
         gateDrain(g);
     }
 }
@@ -840,7 +864,7 @@ void gateMaintain(gate *g, int64_t now_ms) {
             int live = gateObsLive(g, o);
 
             gateObsUnlink(g, o);
-            if (live) gateOutcome(g, o, 1, 1); else g->stats.dropped++;
+            if (live) gateMissing(g, o); else g->stats.dropped++;
             gateObsRelease(o);
             gateDrain(g); /* an alarm may have left dead requests in the queue */
         } else if (o->flags & GATE_OBS_EVIDENCE) {
@@ -853,8 +877,8 @@ void gateMaintain(gate *g, int64_t now_ms) {
             gateEvidencePop(g);
             gateObsUnlink(g, o);
             if (live) {
-                gateProofApply(g, o, 1, 1);
-                gateOutcome(g, o, 1, 1);
+                gateProofApply(g, o, 1, 1, 1);
+                gateMissing(g, o);
             } else {
                 g->stats.dropped++;
             }
@@ -967,6 +991,9 @@ static int gatePlanRequest(const gate *g, double u, const gateEval *ev, gatePlan
 
     if (g->serving) {
         if (!ev->has_serving) return GATE_ERR;
+        /* A score that is not a number: the caller's mistake, refused here
+         * because a request recorded with one could not be saved. */
+        if (!isfinite(ev->serving.score)) return GATE_ERR;
         int32_t label = ev->serving.label;
         if (classifier && (label < 0 || (uint32_t)label >= g->nrows)) return GATE_ERR;
         uint32_t row = classifier ? (uint32_t)label : 0;
@@ -992,6 +1019,7 @@ static int gatePlanRequest(const gate *g, double u, const gateEval *ev, gatePlan
     }
     if (g->candidate) {
         if (!ev->has_candidate) return GATE_ERR;
+        if (!isfinite(ev->candidate.score)) return GATE_ERR;
         if (classifier &&
             (ev->candidate.label < 0 || (uint32_t)ev->candidate.label >= g->nrows))
             return GATE_ERR;
@@ -1068,14 +1096,6 @@ int gatePredict(gate *g, int64_t now_ms, double u, const gateEval *ev,
         o->serv_gen = g->serving->gen;
         o->serv_label = ev->serving.label;
         o->serv_score = ev->serving.score;
-        /* A spot check of accepted traffic gets its number in the drift
-         * detector of its row now, when it is asked. */
-        if ((p.flags & GATE_OBS_SERV) && (p.flags & GATE_OBS_WOULD_ACCEPT) &&
-            (p.flags & GATE_OBS_AUDIT))
-        {
-            uint32_t row = gateIsClassifier(g) ? (uint32_t)ev->serving.label : 0;
-            o->spot = gateDriftAsk(&g->serving->drift[row]);
-        }
     }
     if (g->candidate) {
         o->cand_gen = g->candidate->gen;
@@ -1141,14 +1161,7 @@ int gateLearn(gate *g, int64_t now_ms, uint64_t epoch, uint64_t seq, int32_t res
     }
 
     int err_cand = 0, err_serv = 0;
-    if (o->flags & GATE_OBS_EVIDENCE) {
-        gateObsErrors(g, o, &err_cand, &err_serv);
-        /* The drift detector hears of a spot check the moment its answer
-         * arrives: it is an alarm, not proof, and must not wait for the
-         * answers of older requests. An alarm drops the generations this
-         * request was proof for; what follows then finds nothing to do. */
-        if (gateObsLive(g, o)) gateOutcome(g, o, 0, err_serv);
-    }
+    if (o->flags & GATE_OBS_EVIDENCE) gateObsErrors(g, o, &err_cand, &err_serv);
     if (o->flags & GATE_OBS_PROVISIONAL) {
         /* Proof moved on without this answer: set it right. */
         gateObsUnlink(g, o);
@@ -1297,6 +1310,8 @@ int gateCheckInvariants(const gate *g, char *err, size_t errlen) {
             GATE_INV_FAIL("request counted as an error is not unanswered evidence");
         if ((o->flags & GATE_OBS_RESOLVED) && o->x.n != 0)
             GATE_INV_FAIL("answered request still stores clues");
+        if (o->spot != 0 && !((o->flags & GATE_OBS_PROVISIONAL) && gateObsSpot(o)))
+            GATE_INV_FAIL("spot check number on a request that was not counted as one");
         if (o->flags & GATE_OBS_RESOLVED) na++;
         last = o->seq;
         bytes += GATE_OBS_BYTES(o->x.n);

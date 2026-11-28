@@ -227,9 +227,10 @@ answer arrives. An answer that has not arrived after the feedback timeout
 (one minute) is lost: the request stays a wrong guess and its id is
 forgotten. That is the cautious reading. While a threshold is being proven,
 a lost answer costs proof (about `2.5 / ALPHA` more requests each), and
-answers lost as often as `ALPHA` allows errors stop proof altogether. If
-your teacher often needs more than a few seconds, raise
-`gate.feedback-timeout`.
+answers lost as often as `ALPHA` allows errors stop proof altogether. A
+classifier gate leaves such a debt behind with its next snapshot; a score
+gate carries it until it is paid, or until `GRESET`. If your teacher often
+needs more than a few seconds, raise `gate.feedback-timeout`.
 
 **No answers at all.** When 32 requests in a row end without an answer and
 no answer of any request has arrived since the first of them was asked, the
@@ -243,12 +244,15 @@ spot-checked requests than the current one. A classifier snapshot that has
 not taken over after a generous amount of proof is dropped and the next one
 is tried.
 
-**Getting worse.** Spot checks feed a drift detector tuned to the error
-target. Its verdict does not depend on the order or the timing of the
-answers. When it fires the gate stops answering at once, forgets its model,
-and starts over by itself. A spot check whose answer is lost may hide a
-disagreement: when so many are lost that the gate can no longer rule that
-out, it stops answering, keeps its model, and proves itself again.
+**Getting worse.** Spot checks also feed a drift detector tuned to the
+error target. It takes them in the order they were asked, as proof does, so
+the order in which their answers arrive does not matter. When it fires the
+gate stops answering at once, forgets its model, and starts over by itself.
+A spot check whose turn comes without an answer may hide a disagreement.
+When so many are missing that the gate can no longer rule that out (16 in a
+row at `ALPHA 0.05`, more among right ones), it stops answering, keeps its
+model, and proves itself again. A gate that answers therefore needs the
+answers of clearly more than `1 - ALPHA` of its spot checks.
 
 **Budget.** Snapshot number g may use `DELTA / (g (g + 1))` of the lifetime
 budget, split evenly over the thresholds it tests. These shares add up to at
@@ -281,8 +285,8 @@ not told counts against it, never for it.
 
 It does not hold for traffic unlike what the gate has seen, for one user or
 one request, or across a restart or failover that lost writes. The drift
-detector is an alarm, not a proof, and it only sees the spot checks that
-were answered. Bursts of near-identical requests and retries weaken the
+detector is an alarm, not a proof: it sees spot checks only, and it speaks
+after the fact. Bursts of near-identical requests and retries weaken the
 independence the proof relies on.
 
 ## 5. Fixed choices
@@ -295,11 +299,11 @@ independence the proof relies on.
 | proven | when that wealth reaches `32 x labels x g (g + 1) / DELTA` for snapshot g (labels: those the gate may answer; 1 for a score gate) |
 | learning rate | 0.1 |
 | first snapshot / next snapshot | 1,000 examples (`gate.snapshot-examples`) |
-| snapshot dropped | after 10 times the proof a flawless threshold needs, per label, without taking over (classifier); requests it left to the teacher although their label is one the gate may answer count like proof |
+| snapshot dropped | after 10 times the proof a flawless threshold of the strictest label needs, times the number of labels the gate may answer, without taking over (classifier); requests it left to the teacher although their label is one the gate may answer count like proof |
 | feedback timeout | 1 minute (`gate.feedback-timeout`, milliseconds); proof moves on without a late answer after a quarter of it, or as soon as 16,384 newer answers wait |
 | waiting requests | 4,096 (3,072 while they are only wanted as training examples; 16 MiB of stored clues) |
 | answers missing in a row before the gate stops | 32 |
-| drift detector | likelihood ratios for 2x and 4x the error rate (at most halfway to 1), averaged, over blocks of 64, 512 and 4,096 spot checks in the order they were asked; a spot check counts as right until its answer says otherwise; alarm at 1,000, and at 10^9 with lost answers counted as disagreements |
+| drift detector | likelihood ratios for 2x and 4x the error rate (at most halfway to 1), averaged, over blocks of 64, 512 and 4,096 spot checks taken in the order they were asked, each when proof gets to it; alarm at 1,000, and at 10^9 with the spot checks that had no answer then counted as disagreements (an answer that still arrives while its block lasts is counted for what it is) |
 
 The two names in parentheses are server configuration values, read when a
 gate is created.
@@ -310,9 +314,10 @@ tested on its own, which reaches a first proven threshold sooner (far
 sooner for a model that is rarely very sure) and ends with one to three
 points less coverage. The reference uses a running likelihood-ratio
 detector (e-CUSUM), which is sound when answers arrive in order; here the
-detector works on blocks of spot checks in the order they were asked, so
-that answers arriving late or in batches cannot set it off. Lost answers
-are not part of the reference design.
+detector takes the spot checks in the order they were asked, in blocks, so
+that answers arriving late or in batches cannot set it off and a late
+answer can still be counted. Lost answers are not part of the reference
+design.
 
 ## 6. Left out on purpose
 

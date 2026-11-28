@@ -102,19 +102,21 @@
  * ever.
  *
  * DRIFT. Each serving row runs a drift detector over its spot checks of
- * accepted traffic (gate_stats.h). A spot check gets its number when it is
- * asked and counts as right until a disagreeing answer arrives, which is
- * reported the moment it arrives. The detector does not depend on the
- * order or the timing of the answers. An alarm drops the serving
- * generation and the candidate and (classifier) wipes the trainer: the
- * gate starts over.
+ * accepted traffic (gate_stats.h). A spot check is handed to the detector
+ * when it is applied as proof: so in the order the requests were asked,
+ * whatever the order of their answers, as right or wrong if its answer is
+ * in, and without an answer if proof has moved on without it or its time
+ * is up. An alarm drops the serving generation and the candidate and
+ * (classifier) wipes the trainer: the gate starts over.
  *
- * A spot check whose answer is given up is not a disagreement, but it may
- * hide one. The detector counts lost answers next to the disagreements and
- * raises a second alarm, at the much higher level GATE_LOST_ALARM, when
- * the two together would mean the row got worse: the gate can no longer
- * be checked. That alarm is handled like BLIND (both generations dropped,
- * the trainer kept).
+ * A spot check that is counted without an answer is not a disagreement,
+ * but it may hide one. The detector counts those next to the
+ * disagreements and raises a second alarm, at the much higher level
+ * GATE_LOST_ALARM, when the two together would mean the row got worse: the
+ * gate can no longer be checked. That alarm is handled like BLIND (both
+ * generations dropped, the trainer kept). If the answer arrives after all
+ * the detector is told (gateObs.spot is the number the spot check was
+ * counted under).
  *
  * FULL. A gate that already holds GATE_MAX_PENDING unanswered requests (or
  * GATE_MAX_PENDING_BYTES of stored clues) answers ABSTAIN to everything
@@ -252,8 +254,9 @@ typedef struct gateObs {
     uint64_t serv_gen;   /* 0 = nothing serving when asked */
     int32_t result;      /* answer: label index (classifier) or 0/1 correct
                           * (score); -1 while unanswered */
-    uint64_t spot;       /* its number as a spot check of the serving
-                          * generation's row (drift detector); 0 if none */
+    uint64_t spot;       /* a spot check that the drift detector of its
+                          * row counted without an answer: its number
+                          * there (PROVISIONAL only); else 0 */
     gateSparse x;        /* clues kept for training; freed once trained */
     struct gateObs *prev, *next; /* every waiting request, ascending seq */
     struct gateObs *enext;       /* evidence not applied yet, ascending seq */

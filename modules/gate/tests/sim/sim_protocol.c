@@ -10,9 +10,10 @@
  *
  * Usage: sim_protocol [runs [seed]]
  *
- * 'runs' (default 400, about a minute and a quarter of CPU) is the number
- * of gates simulated for every row of every table. Everything is
- * deterministic for a given (runs, seed).
+ * 'runs' (default 400, about a minute and a half of CPU) is the number of
+ * gates simulated for every row of the tables (A) to (G); (H) and (I)
+ * simulate half as many, the classifier tables (J) a quarter and (K) an
+ * eighth. Everything is deterministic for a given (runs, seed).
  *
  * Where sim_certify studies the betting test alone, this program drives
  * real gates through gateMaintain() / gateEvaluateFor() / gatePredict() /
@@ -27,14 +28,28 @@
  *       risk falls with the score, and how wrong its answers are;
  *   (C) drift: wrong answers given between the moment a scorer breaks and
  *       the moment the gate stops, with a prompt teacher, a slow one, one
- *       that loses answers, and one that holds back every "wrong";
+ *       that loses answers, and one that holds back every "wrong" (the
+ *       gate stops all the same: it can no longer be checked);
  *   (D) what lost answers cost, at three request rates;
  *   (E) what a slow teacher costs: answers in order, out of order, and
  *       with a heavy tail;
  *   (F) a feedback outage: how long the gate goes on answering, that it
  *       stops, that it comes back, and what it costs in snapshots;
  *   (G) a classifier gate on a problem it can learn, on pure noise, and
- *       through an outage.
+ *       through an outage;
+ *   (H) a healthy gate whose teacher sends its disagreements in batches:
+ *       how often the gate stops by mistake, next to how often the running
+ *       detector of the previous round would have (that detector is kept
+ *       in this file for the comparison only: it is not in use);
+ *   (I) a partial outage, most answers lost and some not: that the gate
+ *       stops answering, and how many snapshot numbers it uses up;
+ *   (J) takeovers: the share of requests a classifier gate can answer just
+ *       before and just after a newer snapshot replaces the one in charge,
+ *       next to the takeovers the rule of the previous round would have
+ *       made (replayed here, not in use);
+ *   (K) classifier gates with many labels, and with a label that is never
+ *       answered (ALWAYSDEFER), also when at first it is the only label
+ *       the teacher uses.
  *
  * A SCORER is a distribution of scores and, for each score, the probability
  * that the cheap result disagrees with the teacher. Scores are uniform on
@@ -57,8 +72,10 @@
  * non zero if a consistency check fails: gates that answered at a threshold
  * worse than alpha significantly more often than delta allows, an error
  * rate among the answers above alpha, a broken scorer that was not stopped
- * although the teacher said so, a gate that went on answering through a
- * long outage or used up snapshot numbers during one.
+ * although the teacher said so (or hid it), a gate that went on answering
+ * through a long outage or used up snapshot numbers during one, a healthy
+ * gate stopped by answers that came in batches, a takeover after which the
+ * gate answers less, an answer with a label that is never to be answered.
  */
 
 #include <time.h>
@@ -218,7 +235,9 @@ static void simTruthOf(const simWorld *w, double alpha, simTruth *tr) {
 /* -------------------------------- teachers -------------------------------
  * When the answer to a request arrives. */
 
-enum { SIM_PROMPT, SIM_FIXED, SIM_UNIFORM, SIM_PARETO, SIM_WRONG_LATE, SIM_WRONG_NEVER };
+enum {
+    SIM_PROMPT, SIM_FIXED, SIM_UNIFORM, SIM_PARETO, SIM_WRONG_LATE, SIM_WRONG_NEVER, SIM_WRONG_BATCH
+};
 
 typedef struct simTeacher {
     int kind;       /* PROMPT: at once.
@@ -227,7 +246,10 @@ typedef struct simTeacher {
                      * PARETO: at least 'lo' ms later, with a heavy tail:
                      *   P(later than x) = (lo / x)^1.5.
                      * WRONG_LATE: "right" at once, "wrong" 'lo' ms later.
-                     * WRONG_NEVER: "right" at once, "wrong" never. */
+                     * WRONG_NEVER: "right" at once, "wrong" never.
+                     * WRONG_BATCH: "right" at once; every "wrong" of a
+                     *   period of 'lo' ms at the end of that period, all
+                     *   of them together. */
     int64_t lo, hi;
     double loss;    /* on top of that, the share of answers never sent */
 } simTeacher;
@@ -287,6 +309,8 @@ typedef struct simSetup {
                              * answer arrives; 0: no outage */
     int64_t tick_ms;        /* time between two requests */
     uint64_t horizon;       /* requests per run */
+    double partial;         /* the outage is partial: this share of the
+                             * answers is lost during it; 0: all of them */
 } simSetup;
 
 typedef struct simResult {
@@ -310,7 +334,125 @@ typedef struct simResult {
     uint64_t end_generations;           /* ... from its beginning to the end of the run */
     int out_blind;                      /* the gate saw that it was blind */
     int model_kept;                     /* (G): the model after it had learned no less */
+    /* What the rules of the previous round would have done (see simShadow). */
+    uint64_t was_stops;                 /* stops by its drift detector (an estimate) */
+    int was_cusum_stopped;              /* its drift detector would have stopped the gate */
+    int was_run_stopped;                /* its rule for missing answers would have */
+    int was_sooner;                     /* (C): its drift detector before this gate's stop */
+    uint64_t was_saved;                 /* ... by so many requests */
+    uint64_t flip_spots;                /* (C): spot checks asked since the scorer broke */
+    /* (J), (K): classifiers. */
+    uint64_t takeovers, takeover_drops; /* ... after which the gate answers less */
+    uint64_t takeover_missed;           /* takeovers its rule calls for that it did not make */
+    double worst_drop;                  /* the largest loss of fresh requests at one */
+    double cover_before, cover_after;   /* summed over the takeovers: fresh requests */
+    double proof_before, proof_after;   /* ... its own proof requests */
+    uint64_t old_takeovers;             /* ... the previous rule would have made, the gate not */
+    double old_before, old_after;       /* ... fresh requests answered, summed */
+    uint64_t grow_requests, grow_accepted; /* the first 1000 requests with new words */
+    uint64_t deferred_accepts;          /* answers with a label that is never answered */
+    uint64_t retired, labels_answered;  /* snapshots dropped; labels with a threshold at the end */
 } simResult;
+
+/* ------------------------- the rules of the previous round ----------------
+ * Kept for comparison only: NOT IN USE by the gate. Two things the previous
+ * round did differently are replayed here on what the gate of this round
+ * goes through, to show what the change was for.
+ *
+ * Its drift detector followed the answers of the spot checks in the order
+ * they ARRIVED: two likelihood ratios (2x and 4x the error rate) that start
+ * over at 1 whenever they fall below it, alarm when their average reaches
+ * 1000 (e-CUSUM). A handful of disagreements that arrive together set it
+ * off.
+ *
+ * Its rule for "answers missing in a row" counted every missing answer
+ * since the last answer that was used, whenever the missing one had been
+ * asked. 32 made the gate drop its proof.
+ *
+ * Up to the first stop by one of the two the gate of the previous round
+ * went through exactly what this one goes through (as long as this one
+ * does not stop by itself), so "would have stopped" is exact: 'cusum_stopped'
+ * and 'run_stopped'. What came after a stop cannot be replayed without the
+ * old gate: 'stops' goes on listening to this gate's spot checks, after
+ * looking away for as many requests as the gate needed for its first
+ * ACCEPT (the time a stopped gate spends proving itself again), and is an
+ * estimate. */
+typedef struct simShadow {
+    double inc_ok[2], inc_err[2], logw[2];
+    uint64_t gen;       /* the serving generation the statistics belong to */
+    uint64_t off_until; /* request number at which the replay looks again */
+    uint64_t stops;
+    uint64_t missing, learned; /* counters of the gate, as last seen */
+    uint32_t run;
+    int diverged;       /* this gate stopped by itself, or the replay did */
+    int cusum_stopped, run_stopped;
+    uint64_t watch;     /* request number from which the next stop by the
+                         * drift detector is noted; 0: not watching */
+    uint64_t watched;   /* ... the request number of that stop; 0: none */
+} simShadow;
+
+static void simShadowInit(simShadow *sh, double alpha) {
+    int k;
+
+    memset(sh, 0, sizeof(*sh));
+    for (k = 0; k < 2; k++) {
+        double p1 = (k ? 4.0 : 2.0) * alpha, cap = 0.5 * (1.0 + alpha);
+
+        if (p1 > cap) p1 = cap;
+        sh->inc_err[k] = log(p1 / alpha);
+        sh->inc_ok[k] = log((1.0 - p1) / (1.0 - alpha));
+    }
+}
+
+/* An answered spot check of generation 'gen', as the previous detector
+ * heard it. 'request': how many requests the gate has seen; 'again': how
+ * many it took to its first ACCEPT. */
+static void simShadowSpot(simShadow *sh, uint64_t gen, int error, uint64_t request, uint64_t again) {
+    double hi, lo;
+    int k;
+
+    if (request < sh->off_until) return;
+    if (gen != sh->gen) {
+        sh->gen = gen;
+        sh->logw[0] = sh->logw[1] = 0.0;
+    }
+    for (k = 0; k < 2; k++) {
+        if (sh->logw[k] < 0.0) sh->logw[k] = 0.0;
+        sh->logw[k] += error ? sh->inc_err[k] : sh->inc_ok[k];
+    }
+    hi = sh->logw[0] > sh->logw[1] ? sh->logw[0] : sh->logw[1];
+    lo = sh->logw[0] > sh->logw[1] ? sh->logw[1] : sh->logw[0];
+    if (hi + log((1.0 + exp(lo - hi)) / 2.0) >= log(GATE_DRIFT_ALARM)) {
+        if (sh->watch && !sh->diverged && request >= sh->watch && sh->watched == 0)
+            sh->watched = request;
+        if (!sh->diverged) sh->cusum_stopped = 1;
+        sh->diverged = 1;
+        sh->stops++;
+        sh->logw[0] = sh->logw[1] = 0.0;
+        sh->off_until = request + again;
+    }
+}
+
+/* After every call into the gate: the answers that went missing in it and
+ * the answers it used, as the previous rule counted them. (In one call the
+ * missing ones come first: maintenance runs before the answer is looked
+ * at.) */
+static void simShadowRun(simShadow *sh, const gate *g) {
+    uint64_t missing = g->stats.missing - sh->missing, learned = g->stats.learned - sh->learned;
+
+    sh->missing = g->stats.missing;
+    sh->learned = g->stats.learned;
+    if (!sh->diverged) {
+        sh->run += (uint32_t)(missing < GATE_MISSING_RUN ? missing : GATE_MISSING_RUN);
+        if (sh->run >= GATE_MISSING_RUN) sh->run_stopped = sh->diverged = 1;
+        if (learned > 0) sh->run = 0;
+        /* (A stop of this gate in the same call did not come first: its
+         * own rule for answers missing in a row counts fewer of them, and a
+         * stop for another reason comes with or after the last answer that
+         * went missing in the call.) */
+        if (g->stats.revocations > 0) sh->diverged = 1;
+    }
+}
 
 static void simFinish(gate *g, simResult *res) {
     res->full = g->stats.full;
@@ -332,12 +474,25 @@ static void simWatch(const gate *g, const simSetup *su, int healthy, simResult *
 }
 
 /* GLEARN. */
-static void simLearn(gate *g, int64_t now, uint64_t seq, int32_t result, simResult *res) {
+static void simLearn(gate *g, int64_t now, uint64_t seq, int32_t result, simResult *res,
+                     simShadow *sh)
+{
     const gateObs *o = gateFindObservation(g, seq);
     int moved_on = o != NULL && (o->flags & GATE_OBS_PROVISIONAL) != 0;
+    /* A spot check of an answer of the generation that serves. */
+    int spot = o != NULL && o->spot != 0 && (o->flags & GATE_OBS_SERV) && g->serving &&
+               g->serving->gen == o->serv_gen;
+    uint64_t gen = spot ? g->serving->gen : 0;
 
-    if (!gateLearn(g, now, g->epoch, seq, result)) res->refused++;
-    else if (moved_on) res->late++;
+    if (!gateLearn(g, now, g->epoch, seq, result)) {
+        res->refused++;
+    } else {
+        if (moved_on) res->late++;
+        if (spot)
+            simShadowSpot(sh, gen, !result, res->requests,
+                          res->first_accept == SIM_NEVER ? res->requests : res->first_accept);
+    }
+    simShadowRun(sh, g);
 }
 
 /* When the answer to a request asked at 'now' arrives; -1: never. An
@@ -361,6 +516,9 @@ static int64_t simArrival(const simTeacher *te, uint64_t *rng, int64_t now, int 
     case SIM_WRONG_NEVER:
         if (wrong) return -1;
         break;
+    case SIM_WRONG_BATCH:
+        if (wrong) late = (double)(te->lo - now % te->lo);
+        break;
     default: break;
     }
     if (late >= (double)SIM_TIMEOUT) {
@@ -377,12 +535,14 @@ static void simScoreRun(const simSetup *su, uint64_t seed, simResult *res) {
     simHeap heap = {NULL, 0, 0};
     uint64_t rng = seed, revoked_before = 0, gens_before = 0, i;
     gateConfig cfg;
+    simShadow sh;
     char err[128];
     gate *g;
 
     memset(res, 0, sizeof(*res));
     res->first_accept = res->out_stop = res->out_back = SIM_NEVER;
     res->model_kept = 1;
+    simShadowInit(&sh, su->alpha);
     gateConfigInit(&cfg);
     cfg.alpha = su->alpha;
     cfg.delta = SIM_DELTA;
@@ -405,14 +565,17 @@ static void simScoreRun(const simSetup *su, uint64_t seed, simResult *res) {
         while (heap.n && heap.a[0].due <= now) {
             simAnswer a = simHeapPop(&heap);
 
-            simLearn(g, a.due, a.seq, a.result, res);
+            simLearn(g, a.due, a.seq, a.result, res, &sh);
             simWatch(g, su, w == su->world, res);
         }
         gateMaintain(g, now);
+        simShadowRun(&sh, g);
         if ((su->broken || su->outage) && i == SIM_FLIP) {
             res->active_at_flip = g->serving != NULL;
             revoked_before = g->stats.revocations;
             gens_before = g->generations;
+            /* Exact only if the two gates have gone through the same so far. */
+            if (su->broken && !sh.diverged) sh.watch = i + 1;
         }
         if (su->outage && i == out_to) res->out_generations = g->generations - gens_before;
         simDraw(w, &rng, &score, &wrong);
@@ -420,9 +583,11 @@ static void simScoreRun(const simSetup *su, uint64_t seed, simResult *res) {
         if (gateEvaluateFor(g, NULL, score, u, &ev) != GATE_OK ||
             gatePredict(g, now, u, &ev, NULL, &r) != GATE_OK)
             simDie("gatePredict failed");
+        simShadowRun(&sh, g);
         res->requests++;
         if (g->serving) res->active++;
 
+        if (r.action == GATE_ACTION_AUDIT && su->broken && i >= SIM_FLIP) res->flip_spots++;
         if (r.action == GATE_ACTION_ACCEPT) {
             res->accepted++;
             res->wrong += (uint64_t)wrong;
@@ -433,10 +598,13 @@ static void simScoreRun(const simSetup *su, uint64_t seed, simResult *res) {
             if (su->outage && i >= out_to && res->out_back == SIM_NEVER) res->out_back = i - out_to + 1;
         } else if (r.seq != 0) {
             due = simArrival(&su->teacher, &rng, now, wrong, res);
-            /* During an outage nothing arrives, whenever it was asked. */
-            if (su->outage && due >= down_from && due < down_to) due = -1;
+            /* During an outage nothing arrives, whenever it was asked; or,
+             * if it is a partial one, only this share is lost. */
+            if (su->outage && due >= down_from && due < down_to &&
+                (su->partial == 0.0 || gate_test_uniform(&rng) < su->partial))
+                due = -1;
             if (due == now) {
-                simLearn(g, now, r.seq, !wrong, res);
+                simLearn(g, now, r.seq, !wrong, res, &sh);
             } else if (due > now) {
                 simAnswer a;
 
@@ -458,6 +626,18 @@ static void simScoreRun(const simSetup *su, uint64_t seed, simResult *res) {
     if (su->outage) {
         res->stopped = g->stats.revocations > revoked_before;
         res->end_generations = g->generations - gens_before;
+    }
+    res->was_stops = sh.stops;
+    res->was_cusum_stopped = sh.cusum_stopped;
+    res->was_run_stopped = sh.run_stopped;
+    if (su->broken && sh.watched) {
+        /* Requests from the break to the stop of each of the two; this
+         * gate's is the end of the run if it has not stopped. */
+        uint64_t was = sh.watched - SIM_FLIP;
+        uint64_t now = res->stopped ? res->flip_requests : su->horizon - SIM_FLIP;
+
+        res->was_sooner = was < now;
+        res->was_saved = was < now ? now - was : 0;
     }
     free(heap.a);
     simFinish(g, res);
@@ -599,6 +779,12 @@ typedef struct simRow {
     uint64_t full, revocations, missing, late, refused, guesses, guesses_wrong;
     uint64_t active_at_flip, stopped;
     uint64_t out_stopped, out_blind, out_generations, end_generations, model_lost;
+    uint64_t was_stops, was_cusum_stopped, was_run_stopped;
+    uint64_t was_sooner, unstopped_spots;
+    uint64_t *was_saved;  /* per run in which the previous detector was sooner */
+    uint64_t takeovers, takeover_drops, takeover_missed, deferred_accepts, retired, labels_answered;
+    double cover_before, cover_after, proof_before, proof_after, old_before, old_after, worst_drop;
+    uint64_t most_generations, old_takeovers, grow_requests, grow_accepted;
     uint64_t *first;      /* per run */
     uint64_t *flip_wrong; /* per run that was answering at SIM_FLIP: */
     uint64_t *flip_requests;
@@ -615,6 +801,7 @@ static void simRowInit(simRow *row, uint64_t runs) {
     row->out_stop = simAlloc(runs, sizeof(uint64_t));
     row->out_accepted = simAlloc(runs, sizeof(uint64_t));
     row->out_back = simAlloc(runs, sizeof(uint64_t));
+    row->was_saved = simAlloc(runs, sizeof(uint64_t));
     row->threshold = simAlloc(runs, sizeof(double));
 }
 
@@ -645,12 +832,35 @@ static void simRowAdd(simRow *row, const simResult *res) {
         row->out_accepted[k] = res->out_accepted;
         row->out_back[k] = res->out_back;
         row->stopped += (uint64_t)res->stopped;
+        if (res->was_sooner) row->was_saved[row->was_sooner++] = res->was_saved;
+        if (!res->stopped && res->flip_spots > row->unstopped_spots)
+            row->unstopped_spots = res->flip_spots;
         row->out_stopped += res->out_stop != SIM_NEVER;
         row->out_blind += (uint64_t)res->out_blind;
     }
     if (res->out_generations > row->out_generations) row->out_generations = res->out_generations;
     row->end_generations += res->end_generations;
     row->model_lost += !res->model_kept;
+    row->was_stops += res->was_stops;
+    row->was_cusum_stopped += (uint64_t)res->was_cusum_stopped;
+    row->was_run_stopped += (uint64_t)res->was_run_stopped;
+    row->takeovers += res->takeovers;
+    row->takeover_drops += res->takeover_drops;
+    row->takeover_missed += res->takeover_missed;
+    row->cover_before += res->cover_before;
+    row->cover_after += res->cover_after;
+    row->proof_before += res->proof_before;
+    row->proof_after += res->proof_after;
+    if (res->worst_drop > row->worst_drop) row->worst_drop = res->worst_drop;
+    row->old_takeovers += res->old_takeovers;
+    row->old_before += res->old_before;
+    row->old_after += res->old_after;
+    row->grow_requests += res->grow_requests;
+    row->grow_accepted += res->grow_accepted;
+    if (res->end_generations > row->most_generations) row->most_generations = res->end_generations;
+    row->deferred_accepts += res->deferred_accepts;
+    row->retired += res->retired;
+    row->labels_answered += res->labels_answered;
 }
 
 /* Sort what the row's quantiles are read from. */
@@ -661,6 +871,7 @@ static void simRowClose(simRow *row) {
     qsort(row->out_stop, row->active_at_flip, sizeof(uint64_t), simCmpU64);
     qsort(row->out_accepted, row->active_at_flip, sizeof(uint64_t), simCmpU64);
     qsort(row->out_back, row->active_at_flip, sizeof(uint64_t), simCmpU64);
+    qsort(row->was_saved, row->was_sooner, sizeof(uint64_t), simCmpU64);
     qsort(row->threshold, row->nthreshold, sizeof(double), simCmpDouble);
 }
 
@@ -671,6 +882,7 @@ static void simRowFree(simRow *row) {
     free(row->out_stop);
     free(row->out_accepted);
     free(row->out_back);
+    free(row->was_saved);
     free(row->threshold);
 }
 
@@ -863,14 +1075,18 @@ static void simSafety(uint64_t runs, uint64_t seed) {
                simPer(row.late, runs), simPer(row.revocations, runs));
         CHECK(lo <= SIM_DELTA);
         CHECK(row.accepted > 0 && (double)row.wrong <= 0.1 * (double)row.accepted);
+        /* The scorer is as good at the end as at the beginning: a gate
+         * that stops was stopped by the timing of its answers. */
+        CHECK(row.revocations * 20 <= runs);
         simRowFree(&row);
     }
     printf("\n    With none of these teachers do gates answer where they should not more often than delta\n"
-           "    allows. The one that never sends \"wrong\" keeps them from answering much at all: half of\n"
-           "    this scorer's requests then never get an answer, and when a snapshot is promoted the hundreds\n"
-           "    of them still waiting run out of time one after the other while answers have become rare\n"
-           "    (only spot checks are asked for now). 32 in a row without an answer in between look like an\n"
-           "    outage, and the gate stops. See (D).\n"
+           "    allows, and none of them makes a gate stop. Requests whose answer never comes are wrong\n"
+           "    guesses to the proof, which is what the teacher that never sends \"wrong\" withholds. They are\n"
+           "    no outage: other answers keep arriving after each of them was asked. And the spot checks\n"
+           "    that teacher withholds from a gate that answers are the few on which the gate was wrong\n"
+           "    (the share above): too few for it to conclude that it cannot be checked. (C) has a scorer\n"
+           "    for which they are not few.\n"
            "    The table took %.1f s.\n", simSeconds(start));
 }
 
@@ -949,21 +1165,34 @@ static void simDrift(uint64_t runs, uint64_t seed) {
         int64_t tick_ms;
         simTeacher teacher;
         const char *traffic, *name;
-        int must_stop;
+        uint32_t spots; /* a gate that is told must have stopped before it
+                         * has asked this many spot checks since the break;
+                         * 0: it is not told (the last three rows) */
     } rows[] = {
-        {0.05, 1000, {SIM_PROMPT, 0, 0, 0.0}, "1 request/s", "every answer at once", 1},
-        {0.20, 1000, {SIM_PROMPT, 0, 0, 0.0}, "1 request/s", "every answer at once", 1},
-        {0.05, 1000, {SIM_PROMPT, 0, 0, 0.01}, "1 request/s", "1% of the answers lost", 1},
-        {0.05, 1000, {SIM_PROMPT, 0, 0, 0.05}, "1 request/s", "5% of the answers lost", 1},
-        {0.05, 50, {SIM_PROMPT, 0, 0, 0.0}, "20 requests/s", "every answer at once", 1},
-        {0.05, 50, {SIM_PROMPT, 0, 0, 0.05}, "20 requests/s", "5% of the answers lost", 1},
-        {0.05, 50, {SIM_FIXED, 10000, 0, 0.0}, "20 requests/s", "every answer after 10 s", 1},
-        {0.05, 50, {SIM_PARETO, 3000, 0, 0.0}, "20 requests/s", "heavy tail, at least 3 s", 1},
-        {0.05, 50, {SIM_WRONG_LATE, SIM_A_LATE, 0, 0.0}, "20 requests/s", "\"wrong\" 45 s late", 1},
-        {0.05, 50, {SIM_WRONG_NEVER, 0, 0, 0.0}, "20 requests/s", "\"wrong\" never sent", 0}
+        /* A block of 64 spot checks of a scorer that is wrong half of the
+         * time gets to 1000 long before it ends (4^w (2/3)^(n - w) / 2 with
+         * w = n / 2 is there at n = 16). The block that is open at the
+         * break may hold too many spot checks that agreed; the next one
+         * does not: 63 + 64 spot checks at the most, a few more when the
+         * answers take some seconds. When "wrong" takes 45 seconds (30 spot
+         * checks at this rate) the blocks of 64 are of little use and it is
+         * the next block of 512. */
+        {0.05, 1000, {SIM_PROMPT, 0, 0, 0.0}, "1 request/s", "every answer at once", 128},
+        {0.20, 1000, {SIM_PROMPT, 0, 0, 0.0}, "1 request/s", "every answer at once", 128},
+        {0.05, 1000, {SIM_PROMPT, 0, 0, 0.01}, "1 request/s", "1% of the answers lost", 128},
+        {0.05, 1000, {SIM_PROMPT, 0, 0, 0.05}, "1 request/s", "5% of the answers lost", 128},
+        {0.05, 50, {SIM_PROMPT, 0, 0, 0.0}, "20 requests/s", "every answer at once", 128},
+        {0.05, 50, {SIM_PROMPT, 0, 0, 0.05}, "20 requests/s", "5% of the answers lost", 128},
+        {0.05, 50, {SIM_FIXED, 10000, 0, 0.0}, "20 requests/s", "every answer after 10 s", 160},
+        {0.05, 50, {SIM_PARETO, 3000, 0, 0.0}, "20 requests/s", "heavy tail, at least 3 s", 160},
+        {0.05, 50, {SIM_WRONG_LATE, SIM_A_LATE, 0, 0.0}, "20 requests/s", "\"wrong\" 45 s late", 640},
+        {0.05, 50, {SIM_WRONG_NEVER, 0, 0, 0.0}, "20 requests/s", "\"wrong\" never sent", 0},
+        {0.05, 1000, {SIM_WRONG_NEVER, 0, 0, 0.0}, "1 request/s", "\"wrong\" never sent", 0},
+        {0.20, 1000, {SIM_WRONG_NEVER, 0, 0, 0.0}, "1 request/s", "\"wrong\" never sent", 0}
     };
     clock_t start = clock();
-    char b[6][32];
+    uint64_t sooner = 0, gates = 0;
+    char b[7][32];
     simTruth tr;
     size_t r;
 
@@ -972,12 +1201,17 @@ static void simDrift(uint64_t runs, uint64_t seed) {
     printf("\n(C) DRIFT: A HEALTHY GATE WHOSE SCORER BREAKS\n"
            "    Scorer 'steep', alpha = 0.10, delta = %.2f. From request %u on, every score is wrong half\n"
            "    of the time. Counted from there until the gate stops: the wrong answers it gave, and the\n"
-           "    requests that went by. Gates that were not answering at the break are left out.\n\n",
-           SIM_DELTA, SIM_FLIP);
-    printf("    %-5s  %-13s  %-24s  %5s  %7s  %-24s  %-24s\n", "audit", "traffic", "teacher", "gates",
-           "stopped", "wrong answers given", "requests until the stop");
-    printf("    %-5s  %-13s  %-24s  %5s  %7s  %7s %7s %7s   %7s %7s %7s\n", "", "", "", "", "", "median",
-           "p90", "max", "median", "p90", "max");
+           "    requests that went by ('never': still answering at the end of the run, %u requests after\n"
+           "    the break). Gates that were not answering at the break are left out. 'previous detector':\n"
+           "    the gates in which the drift detector of the previous round, which followed the answers\n"
+           "    as they arrived and started over whenever it fell, would have fired before this gate\n"
+           "    stopped, and how many requests sooner (the median over those gates). Replayed in this\n"
+           "    program, NOT IN USE; exact, because up to that moment the two gates go through the same.\n\n",
+           SIM_DELTA, SIM_FLIP, SIM_HORIZON - SIM_FLIP);
+    printf("    %-5s  %-13s  %-24s  %5s  %7s  %-24s  %-24s  %-22s\n", "audit", "traffic", "teacher", "gates",
+           "stopped", "wrong answers given", "requests until the stop", "previous detector (not");
+    printf("    %-5s  %-13s  %-24s  %5s  %7s  %7s %7s %7s   %7s %7s %7s  %-22s\n", "", "", "", "", "", "median",
+           "p90", "max", "median", "p90", "max", "in use): sooner in, by");
     for (r = 0; r < sizeof(rows) / sizeof(rows[0]); r++) {
         simSetup su = {0.1, rows[r].audit, &simUseful[1], &tr, &broken, rows[r].teacher, 0,
                        rows[r].tick_ms, SIM_HORIZON};
@@ -988,27 +1222,55 @@ static void simDrift(uint64_t runs, uint64_t seed) {
         simScoreRow(&su, runs, seed, 300 + r, &row);
         n = row.active_at_flip;
         CHECK(n * 2 > runs);
-        if (rows[r].must_stop) CHECK(row.stopped == n);
+        /* Told, a gate must stop. It does not start over inside a block, so
+         * it may have to wait for the next one: a gate that is still
+         * answering at the end of the run must not have had the spot checks
+         * for that (see 'spots' above). */
+        if (rows[r].spots) CHECK(row.unstopped_spots < rows[r].spots);
+        /* Told or not, nearly every gate stops within the 10000 requests
+         * that are left (all but one in twenty, and one). */
+        CHECK((n - row.stopped) * 20 <= n + 20);
+        if (r == 10) printf("\n");
         if (n) {
-            printf("    %.2f   %-13s  %-24s  %5llu  %7llu  %7s %7s %7s   %7s %7s %7s\n", rows[r].audit,
-                   rows[r].traffic, rows[r].name, (unsigned long long)n,
+            printf("    %.2f   %-13s  %-24s  %5llu  %7llu  %7s %7s %7s   %7s %7s %7s  %5llu  %7s\n",
+                   rows[r].audit, rows[r].traffic, rows[r].name, (unsigned long long)n,
                    (unsigned long long)row.stopped,
                    simFmt(b[0], 32, simQuantile(row.flip_wrong, n, 0.5)),
                    simFmt(b[1], 32, simQuantile(row.flip_wrong, n, 0.9)),
                    simFmt(b[2], 32, row.flip_wrong[n - 1]),
                    simFmt(b[3], 32, simQuantile(row.flip_requests, n, 0.5)),
                    simFmt(b[4], 32, simQuantile(row.flip_requests, n, 0.9)),
-                   simFmt(b[5], 32, row.flip_requests[n - 1]));
+                   simFmt(b[5], 32, row.flip_requests[n - 1]), (unsigned long long)row.was_sooner,
+                   row.was_sooner ? simFmt(b[6], 32, simQuantile(row.was_saved, row.was_sooner, 0.5))
+                                  : "-");
         }
+        sooner += row.was_sooner;
+        gates += n;
         simRowFree(&row);
     }
-    printf("\n    The drift detector hears every spot check the moment its answer arrives, whatever older\n"
-           "    answers are still out. A lost answer therefore delays the alarm only by being one spot check\n"
-           "    fewer, and a slow teacher by its own slowness (10 seconds are 200 requests at twenty per\n"
-           "    second, 45 seconds are 900). The detector only hears answers: a teacher who never sends\n"
-           "    \"wrong\" is not heard at all, the spot checks it does answer end every run of missing ones,\n"
-           "    and such a gate goes on answering to the end of the run ('never'), wrong half of the time.\n"
-           "    The table took %.1f s.\n", simSeconds(start));
+    printf("\n    The drift detector hears of a disagreement the moment its answer arrives, whatever older\n"
+           "    answers are still out, and counts it in the blocks its spot check was asked in. It does\n"
+           "    not start over inside a block: the spot checks that agreed before the break count against\n"
+           "    the alarm until the block of 64 they are in has ended. A gate that answers little asks few\n"
+           "    spot checks and can wait for that longer than this run lasts (with other seeds a few of\n"
+           "    the gates that lose 5%% of their answers are still answering at the end; what is checked\n"
+           "    is that no such gate has asked 128 spot checks since the break). A disagreement that\n"
+           "    arrives when its block of 64 has ended counts in the blocks of 512 and 4096 only: 45\n"
+           "    seconds are 30 spot checks here, and a gate whose teacher is that slow to say \"wrong\"\n"
+           "    mostly waits for a block of 512 to begin. That is what the blocks cost: the detector of\n"
+           "    the previous round was sooner in %llu of these %llu gates. What they are for is in (H).\n"
+           "    A teacher who never sends \"wrong\" is not heard at all. But the gate\n"
+           "    keeps count of the spot checks whose answers it had to give up, and when a block of them\n"
+           "    holds so many that an error rate above the target can no longer be ruled out, it stops as\n"
+           "    well (and keeps its model: a lost answer says nothing about that). It is slower: a lost\n"
+           "    answer is known to be lost after a minute, every spot check asked meanwhile counts as\n"
+           "    right, and \"cannot be ruled out\" is held to a far higher level than \"got worse\". The\n"
+           "    last three rows are what a selective loss of the disagreeing answers costs: until the stop\n"
+           "    the gate goes on answering, wrong half of the time. At twenty requests per second the\n"
+           "    minute is some 40 spot checks long: a block of 64 has ended before most of its lost\n"
+           "    answers are known, and a gate can take the 10000 requests of this run and more to stop.\n"
+           "    The table took %.1f s.\n", (unsigned long long)sooner, (unsigned long long)gates,
+           simSeconds(start));
 }
 
 /* --------------------------------- (D) ---------------------------------- */
@@ -1031,7 +1293,7 @@ static void simLostFeedback(uint64_t runs, uint64_t seed) {
     } low[] = {{0.05, 0.1, "10%"}, {0.05, 0.15, "15%"}, {0.01, 0.1, "10%"}, {0.01, 0.15, "15%"}};
     clock_t start = clock();
     char b1[32], b2[32], b3[32];
-    uint64_t slow_first[3] = {0, 0, 0};
+    uint64_t slow_first[3] = {0, 0, 0}, was_stops = 0;
     simTruth tr, tr2;
     size_t r;
 
@@ -1082,9 +1344,9 @@ static void simLostFeedback(uint64_t runs, uint64_t seed) {
         simRowFree(&row);
     }
     printf("\n    'time ACTIVE' is the share of requests asked while a generation was answering. 'stops' are\n"
-           "    the times a gate stopped answering, by drift alarm or because 32 answers in a row were\n"
-           "    missing; 'counted as wrong' the answers per gate that never came: wrong guesses to the proof,\n"
-           "    nothing to the drift detector. What a lost answer costs before the first ACCEPT is the wait:\n"
+           "    the times a gate stopped answering, for whatever reason (the scorer does not get worse\n"
+           "    here: each one would be a mistake); 'counted as wrong' the answers per gate that never came:\n"
+           "    wrong guesses to the proof. What a lost answer costs before the first ACCEPT is the wait:\n"
            "    while a request without its answer is younger than 15 seconds the proof behind it waits, so\n"
            "    at a high request rate the first ACCEPT comes about 15 seconds of requests later, however few\n"
            "    answers are lost. After that only spot checks need answers. A share of lost answers above\n"
@@ -1094,10 +1356,10 @@ static void simLostFeedback(uint64_t runs, uint64_t seed) {
      * stop for another reason. */
     simTruthOf(&simUseful[1], 0.2, &tr2);
     printf("    The same scorer with alpha = 0.20, twenty requests per second:\n\n");
-    printf("    %-5s  %-7s  %-8s  %-13s  %-8s  %-8s  %-8s\n", "audit", "answers", "time", "first ACCEPT",
-           "share", "stops", "counted");
-    printf("    %-5s  %-7s  %-8s  %6s %6s  %-8s  %-8s  %-8s\n", "", "lost", "ACTIVE", "median", "p90",
-           "answered", "per gate", "as wrong");
+    printf("    %-5s  %-7s  %-8s  %-13s  %-8s  %-8s  %-8s  %-22s\n", "audit", "answers", "time",
+           "first ACCEPT", "share", "stops", "counted", "previous rule (not in");
+    printf("    %-5s  %-7s  %-8s  %6s %6s  %-8s  %-8s  %-8s  %-22s\n", "", "lost", "ACTIVE", "median", "p90",
+           "answered", "per gate", "as wrong", "use): gates stopped");
     for (r = 0; r < sizeof(low) / sizeof(low[0]); r++) {
         simSetup su = {0.2, low[r].audit, &simUseful[1], &tr2, NULL, {SIM_PROMPT, 0, 0, 0.0}, 0, 50,
                        SIM_HORIZON};
@@ -1105,20 +1367,31 @@ static void simLostFeedback(uint64_t runs, uint64_t seed) {
 
         su.teacher.loss = low[r].loss;
         simScoreRow(&su, runs, seed, 450 + r, &row);
-        printf("    %.2f   %-7s  %6.1f%%   %6s %6s  %7.1f%%  %8.2f  %8.1f\n", low[r].audit, low[r].lost,
+        printf("    %.2f   %-7s  %6.1f%%   %6s %6s  %7.1f%%  %8.2f  %8.1f  %5llu of %llu\n", low[r].audit, low[r].lost,
                simPct(row.active, row.requests),
                simFmt(b1, sizeof(b1), simQuantile(row.first, runs, 0.5)),
                simFmt(b2, sizeof(b2), simQuantile(row.first, runs, 0.9)),
                simPct(row.accepted, row.requests), simPer(row.revocations, runs),
-               simPer(row.missing, runs));
+               simPer(row.missing, runs), (unsigned long long)row.was_run_stopped,
+               (unsigned long long)runs);
         CHECK((double)row.wrong <= 0.2 * (double)row.accepted);
+        /* Lost answers below the error target are neither an outage nor a
+         * reason to think the gate cannot be checked. */
+        CHECK(row.revocations * 20 <= runs);
+        was_stops += row.was_run_stopped;
         simRowFree(&row);
     }
-    printf("\n    The scorer does not drift here: these stops are gates that took a run of missing answers for\n"
-           "    an outage. While a snapshot is tested every request needs its answer, afterwards only the spot\n"
-           "    checks do. Right after a promotion the lost answers of the last minute (180 of them at 15%%)\n"
-           "    run out of time one by one while answers have become rare: with 1%% spot checks, 32 in a row\n"
-           "    without an answer in between happen, the gate stops, and it has to prove itself again.\n"
+    /* The rule of the previous round did stop gates here. */
+    CHECK(was_stops * 4 >= runs);
+    printf("\n    The scorer does not get worse here and no gate should stop. 'previous rule': the gates that\n"
+           "    the rule of the previous round for answers missing in a row would have stopped (replayed in\n"
+           "    this program up to its first stop; it is not in use). It counted every answer that went\n"
+           "    missing since the last answer that was used. While a snapshot is tested every request needs\n"
+           "    its answer, afterwards only the spot checks do: right after a promotion the lost answers of\n"
+           "    the last minute (180 of them at 15%%) run out of time one by one while answers have become\n"
+           "    rare, 32 in a row happened, and the gate took them for an outage and had to prove itself\n"
+           "    again. Now a request that has seen an answer arrive since it was asked is a lost answer,\n"
+           "    whenever it is given up.\n"
            "    The table took %.1f s.\n", simSeconds(start));
 }
 
@@ -1259,10 +1532,13 @@ static void simOutage(uint64_t runs, uint64_t seed) {
         simRowFree(&row);
     }
     printf("\n    A gate cannot tell an outage from a slow teacher until the answers it asked for have been\n"
-           "    missing for a minute, and it takes 32 of them in a row before it stops: at 5%% spot checks\n"
-           "    that is about 640 requests plus the minute. Until then it goes on answering unchecked\n"
-           "    ('answers meanwhile', the median over the gates). An outage shorter than that costs wealth\n"
-           "    (every spot check of the outage is a wrong guess to the proof) and nothing else. A gate that\n"
+           "    missing for a minute. It stops when 32 of them in a row have had no answer and none has\n"
+           "    arrived for any request since the first was asked, or sooner, when the spot checks it had\n"
+           "    to give up are so many that it can no longer rule out that they hide wrong answers (16 in a\n"
+           "    row in a fresh block at this alpha). At 5%% spot checks that is some 500\n"
+           "    requests plus the minute. Until then it goes on answering unchecked ('answers meanwhile',\n"
+           "    the median over the gates). An outage shorter than that costs wealth (every spot check of\n"
+           "    the outage is a wrong guess to the proof) and nothing else. A gate that\n"
            "    stopped keeps what it has and takes no snapshot until an answer arrives: 'in outage' is the\n"
            "    largest number of snapshot numbers any gate used during the outage, 'by the end' the mean\n"
            "    from its beginning to the end of the run. 'answering again after' counts requests from the\n"
@@ -1360,6 +1636,613 @@ static void simClassifier(uint64_t runs, uint64_t seed) {
            "    The table took %.1f s.\n", simSeconds(start));
 }
 
+/* --------------------------------- (H) ---------------------------------- */
+
+static void simBatches(uint64_t runs, uint64_t seed) {
+    static const struct {
+        double audit;
+        simTeacher teacher;
+        const char *name;
+        int batches;
+    } rows[] = {
+        {0.05, {SIM_PROMPT, 0, 0, 0.0}, "at once, like every answer", 0},
+        {0.05, {SIM_WRONG_BATCH, 30000, 0, 0.0}, "together, every 30 seconds", 1},
+        {0.25, {SIM_PROMPT, 0, 0, 0.0}, "at once, like every answer", 0},
+        {0.25, {SIM_WRONG_BATCH, 30000, 0, 0.0}, "together, every 30 seconds", 1},
+        {0.50, {SIM_WRONG_BATCH, 30000, 0, 0.0}, "together, every 30 seconds", 1},
+        {0.50, {SIM_WRONG_BATCH, 45000, 0, 0.0}, "together, every 45 seconds", 1}
+    };
+    clock_t start = clock();
+    uint64_t was = 0, now = 0;
+    simTruth tr;
+    size_t r;
+
+    gate_test_current = "table H";
+    simTruthOf(&simUseful[1], 0.1, &tr);
+    printf("\n(H) DISAGREEMENTS THAT ARRIVE IN BATCHES: A HEALTHY GATE MUST NOT BE STOPPED\n"
+           "    Scorer 'steep', alpha = 0.10, delta = %.2f, twenty requests per second, %u requests per\n"
+           "    gate. The scorer never gets worse. The teacher answers at once when it agrees with the\n"
+           "    cheap result; its disagreements arrive as the row says. 'this gate': times per gate that\n"
+           "    a gate which was answering stopped. 'previous detector': what the drift detector of the\n"
+           "    previous round would have done with the same spot checks in the order their answers\n"
+           "    arrived (two running likelihood ratios that start over when they fall; replayed in this\n"
+           "    program, NOT IN USE). 'gates stopped' is exact. 'stops per gate' is an estimate: what a\n"
+           "    gate does after a stop cannot be replayed, so the replay looks away for as long as the\n"
+           "    gate took to its first ACCEPT and then listens again.\n\n", SIM_DELTA, SIM_HORIZON);
+    printf("    %-5s  %-27s  %5s  %8s  %-13s  %-9s  %-30s\n", "audit", "disagreements arrive", "gates",
+           "answered", "wrong among", "this gate", "previous detector (not in use)");
+    printf("    %-5s  %-27s  %5s  %8s  %-13s  %-9s  %-14s %-15s\n", "", "", "", "", "the answered", "stops",
+           "stops per gate", "gates stopped");
+    for (r = 0; r < sizeof(rows) / sizeof(rows[0]); r++) {
+        simSetup su = {0.1, rows[r].audit, &simUseful[1], &tr, NULL, rows[r].teacher, 0, 50, SIM_HORIZON};
+        simRow row;
+
+        simScoreRow(&su, runs, seed, 800 + r, &row);
+        printf("    %.2f   %-27s  %5llu  %7.1f%%  %5.2f%% of 10%%  %9.2f  %14.2f %6llu of %llu\n",
+               rows[r].audit, rows[r].name, (unsigned long long)runs,
+               simPct(row.accepted, row.requests), simPct(row.wrong, row.accepted),
+               simPer(row.revocations, runs), simPer(row.was_stops, runs),
+               (unsigned long long)row.was_cusum_stopped, (unsigned long long)runs);
+        CHECK((double)row.wrong <= 0.1 * (double)row.accepted);
+        /* Blocks of spot checks in the order they were asked: each raises a
+         * false alarm with probability 1/1000 at most, and a gate asks a
+         * hundred blocks' worth of them here at the very most. */
+        CHECK(row.revocations * 10 <= runs);
+        if (rows[r].batches && rows[r].audit >= 0.25) {
+            /* What the change was for: the running detector took batches of
+             * disagreements for drift, in (nearly) every gate. */
+            CHECK(row.was_cusum_stopped * 10 >= runs * 9);
+            was += row.was_stops;
+            now += row.revocations;
+        }
+        simRowFree(&row);
+    }
+    CHECK(was >= 3 * runs && was >= 20 * now);
+    printf("\n    With 5%% spot checks half a minute seldom holds more than two or three disagreements, and\n"
+           "    the previous detector stops a gate now and then. With more spot checks they come to half\n"
+           "    a dozen and more, one after the other: to a detector that follows the answers as they\n"
+           "    arrive that is what a broken scorer looks like, batch after batch. The gate numbers its\n"
+           "    spot checks when they are asked and takes each block of them as a whole, so that the\n"
+           "    order and the timing of the answers change nothing.\n"
+           "    The table took %.1f s.\n", simSeconds(start));
+}
+
+/* --------------------------------- (I) ---------------------------------- */
+
+static void simPartial(uint64_t runs, uint64_t seed) {
+    static const struct {
+        int64_t tick_ms;
+        double loss;
+        const char *traffic, *lost;
+        double most; /* snapshot numbers a gate may use, on average */
+    } rows[] = {
+        /* One for the test the gate starts when it has stopped, and one for
+         * every outage inside the partial one: a stretch without any answer
+         * that lasts as long as 32 requests and the minute the last of them
+         * waits, 91 requests at one per second and 1231 at twenty. After the
+         * stop every request asks for its answer, so about 9000 (1 - loss)
+         * answers each begin such a stretch with probability loss^91:
+         * 0.06 of them at 90% and 4.2 at 95%, none otherwise. 'most' is one
+         * and twice that, and a quarter for the chance of a few hundred
+         * gates. */
+        {1000, 0.50, "1 request/s", "50%", 1.25},  {1000, 0.90, "1 request/s", "90%", 1.4},
+        {1000, 0.95, "1 request/s", "95%", 9.7},   {50, 0.50, "20 requests/s", "50%", 1.25},
+        {50, 0.90, "20 requests/s", "90%", 1.25},  {50, 0.95, "20 requests/s", "95%", 1.25}
+    };
+    const uint64_t length = SIM_HORIZON - SIM_FLIP;
+    clock_t start = clock();
+    char b[2][32];
+    simTruth tr;
+    size_t r;
+
+    gate_test_current = "table I";
+    simTruthOf(&simUseful[1], 0.1, &tr);
+    printf("\n(I) A PARTIAL OUTAGE: MOST ANSWERS ARE LOST, SOME STILL ARRIVE\n"
+           "    Scorer 'steep', alpha = 0.10, delta = %.2f, audit = 0.05, %u requests per gate. From\n"
+           "    request %u to the end the given share of the answers is lost, whichever they are. Gates\n"
+           "    that were not answering then are left out of the columns about stopping. 'snapshot\n"
+           "    numbers': used from the beginning of the partial outage to the end of the run, per gate\n"
+           "    (the mean, and the gate that used the most).\n\n", SIM_DELTA, SIM_HORIZON, SIM_FLIP);
+    printf("    %-14s  %-7s  %-5s  %-9s  %-7s  %-13s  %-9s  %-16s  %-8s\n", "traffic", "answers", "gates",
+           "answering", "stopped", "stopped after", "answers", "snapshot numbers", "wrong");
+    printf("    %-14s  %-7s  %-5s  %-9s  %-7s  %-13s  %-9s  %7s %8s  %-8s\n", "", "lost", "", "at start", "",
+           "requests", "meanwhile", "mean", "most", "answered");
+    for (r = 0; r < sizeof(rows) / sizeof(rows[0]); r++) {
+        simSetup su = {0.1, 0.05, &simUseful[1], &tr, NULL, {SIM_PROMPT, 0, 0, 0.0}, 0, rows[r].tick_ms,
+                       SIM_HORIZON, 0.0};
+        uint64_t n, nstop;
+        simRow row;
+
+        su.outage = length;
+        su.partial = rows[r].loss;
+        if (r == 3) printf("\n");
+        simScoreRow(&su, runs, seed, 900 + r, &row);
+        n = row.active_at_flip;
+        nstop = row.out_stopped;
+        printf("    %-14s  %-7s  %5llu  %9llu  %7llu  %13s  %9s  %7.2f %8llu  %7.2f%%\n", rows[r].traffic,
+               rows[r].lost, (unsigned long long)runs, (unsigned long long)n, (unsigned long long)nstop,
+               nstop ? simFmt(b[0], 32, simQuantile(row.out_stop, nstop, 0.5)) : "never",
+               n ? simFmt(b[1], 32, simQuantile(row.out_accepted, n, 0.5)) : "-",
+               simPer(row.end_generations, runs), (unsigned long long)row.most_generations,
+               simPct(row.wrong, row.accepted));
+        CHECK(n * 2 > runs);
+        /* A gate that loses half of its spot checks or more cannot check
+         * itself: every one of them stops answering. */
+        CHECK(nstop == n);
+        /* It does not take the lost answers for one outage after another. */
+        CHECK(simPer(row.end_generations, runs) <= rows[r].most);
+        CHECK((double)row.wrong <= 0.1 * (double)row.accepted);
+        simRowFree(&row);
+    }
+    printf("\n    The gate stops by itself: the spot checks it had to give up are more than it can explain\n"
+           "    away ('stopped after', the median; it answers unchecked until then, 'answers meanwhile').\n"
+           "    It keeps its scorer's proof no longer and starts one new test when the next answer\n"
+           "    arrives. That test cannot succeed while every other answer or more is missing, each of\n"
+           "    them a wrong guess, and it costs one snapshot number. Lost answers between answers that\n"
+           "    arrive are no outage, however many there are. A stretch with no answer at all that lasts\n"
+           "    as long as 32 requests and the minute they wait is one, inside the partial outage, and\n"
+           "    costs another snapshot number: at one request per second and 95%% that happens a few\n"
+           "    times in 10000 requests, at twenty per second never.\n"
+           "    The table took %.1f s.\n", simSeconds(start));
+}
+
+/* ------------------------- (J), (K): more classifiers ---------------------
+ * 'labels' topics of 16 words each (8 of them in use from the start) and 32
+ * words that speak for none; a request has four words, each one a word of
+ * its topic with probability 0.55, of another topic with 0.10, a neutral
+ * one with 0.35. The teacher's label is the topic. */
+
+#define SIM_MAX_LABELS 16
+#define SIM_PROBES 256
+
+typedef struct simLabels {
+    uint32_t labels;     /* K */
+    int defer;           /* the label that is never answered; -1: none */
+    double defer_share;  /* share of the requests whose topic it is */
+    uint64_t escalate;   /* the teacher calls the first so many requests that
+                          * label, whatever their topic */
+    double alpha, audit;
+    uint32_t snapshot;   /* examples between snapshots; 0: the default */
+    uint64_t grow;       /* from this request on every other topic word is
+                          * one of the 8 that were not in use; 0: never */
+} simLabels;
+
+static void simCluesOf(uint64_t *rng, uint32_t topic, uint32_t labels, int grown, uint32_t *idx,
+                       float *val, gateSparse *x)
+{
+    uint32_t words[SIM_WORDS], i, j, n = 0;
+
+    for (i = 0; i < SIM_WORDS; i++) {
+        double r = gate_test_uniform(rng);
+        uint32_t pick = (uint32_t)(gate_test_rand64(rng) % 8);
+
+        if (grown && (gate_test_rand64(rng) & 1)) pick += 8;
+        if (r < 0.55) {
+            words[i] = topic * 16 + pick;
+        } else if (r < 0.65) {
+            uint32_t other = (uint32_t)(gate_test_rand64(rng) % (labels - 1));
+
+            words[i] = (other >= topic ? other + 1 : other) * 16 + pick;
+        } else {
+            words[i] = labels * 16 + (uint32_t)(gate_test_rand64(rng) % 32);
+        }
+    }
+    for (i = 1; i < SIM_WORDS; i++) {
+        uint32_t w = words[i];
+
+        for (j = i; j > 0 && words[j - 1] > w; j--) words[j] = words[j - 1];
+        words[j] = w;
+    }
+    for (i = 0; i < SIM_WORDS; i++) {
+        if (n && idx[n - 1] == words[i] * 23 + 11) {
+            val[n - 1] += 1.0f;
+        } else {
+            idx[n] = words[i] * 23 + 11;
+            val[n++] = 1.0f;
+        }
+    }
+    x->n = n;
+    x->idx = idx;
+    x->val = val;
+}
+
+static uint32_t simTopic(const simLabels *su, uint64_t *rng) {
+    uint32_t other;
+
+    if (su->defer < 0) return (uint32_t)(gate_test_rand64(rng) % su->labels);
+    if (gate_test_uniform(rng) < su->defer_share) return (uint32_t)su->defer;
+    other = (uint32_t)(gate_test_rand64(rng) % (su->labels - 1));
+    return other >= (uint32_t)su->defer ? other + 1 : other;
+}
+
+/* Would a model with this policy answer the request by itself? */
+static int simAnswers(const gate *g, const int32_t *policy, int32_t label, double score) {
+    return label >= 0 && gateRowTested(g, (uint32_t)label) && policy[label] >= 0 &&
+           score >= g->grid[policy[label]];
+}
+
+/* The share of SIM_PROBES requests the gate has not seen, drawn like the
+ * requests of the moment, that each of two snapshots answers by itself. */
+static void simProbe(const gate *g, const simLabels *su, uint64_t *rng, int grown,
+                     const gateModel *m1, const int32_t *policy1, const gateModel *m2,
+                     const int32_t *policy2, double *share1, double *share2)
+{
+    uint32_t idx[SIM_WORDS], k, n1 = 0, n2 = 0;
+    float val[SIM_WORDS];
+    gateSparse x;
+    double score;
+    int32_t guess;
+
+    for (k = 0; k < SIM_PROBES; k++) {
+        simCluesOf(rng, simTopic(su, rng), su->labels, grown, idx, val, &x);
+        guess = gateModelPredict(m1, &x, NULL, &score);
+        n1 += (uint32_t)simAnswers(g, policy1, guess, score);
+        guess = gateModelPredict(m2, &x, NULL, &score);
+        n2 += (uint32_t)simAnswers(g, policy2, guess, score);
+    }
+    *share1 = (double)n1 / SIM_PROBES;
+    *share2 = (double)n2 / SIM_PROBES;
+}
+
+/* A proof request of the snapshot under test, asked while another one was
+ * in charge: what each of the two guessed, and whether the one in charge
+ * would have answered it then. */
+typedef struct simPair {
+    int32_t serv_label, cand_label;
+    double serv_score, cand_score;
+    int would;
+} simPair;
+
+/* One classifier gate for SIM_HORIZON requests, one per second, every
+ * answer at once.
+ *
+ * At every takeover: of the proof requests of the snapshot that takes over,
+ * how many it answers and how many the one it replaces answered with the
+ * policy it had (counted here, from the guesses recorded with the
+ * requests); and the share of fresh requests that each of the two answers.
+ *
+ * NOT IN USE, for comparison: the rule of the previous round let a snapshot
+ * take over as soon as it answered more of its proof requests than the one
+ * in charge WOULD HAVE ANSWERED WHEN EACH WAS ASKED. The first moment at
+ * which that holds for a snapshot while the gate's rule says no is counted,
+ * with what the two answer of fresh requests at that moment. */
+static void simLabelsRun(const simLabels *su, uint64_t seed, simResult *res) {
+    char names[SIM_MAX_LABELS][8];
+    const char *ptrs[SIM_MAX_LABELS];
+    size_t lens[SIM_MAX_LABELS];
+    int32_t was_policy[SIM_MAX_LABELS];
+    uint64_t rng = seed, probe_rng = simStream(seed, 7777), was_gen = 0, cur_gen = 0, old_in = 0, i;
+    simPair *pairs = NULL;
+    uint32_t npairs = 0, cap = 0, k;
+    int old_fired = 0;
+    gateModel was_model;
+    gateConfig cfg;
+    char err[128];
+    gate *g;
+
+    memset(res, 0, sizeof(*res));
+    memset(&was_model, 0, sizeof(was_model));
+    res->first_accept = res->out_stop = res->out_back = SIM_NEVER;
+    res->model_kept = 1;
+    gateConfigInit(&cfg);
+    cfg.kind = GATE_KIND_CLASSIFIER;
+    cfg.alpha = su->alpha;
+    cfg.delta = SIM_DELTA;
+    cfg.audit = su->audit;
+    if (su->snapshot) cfg.snapshot_examples = su->snapshot;
+    for (k = 0; k < su->labels; k++) {
+        lens[k] = (size_t)snprintf(names[k], sizeof(names[k]), "l%u", k);
+        ptrs[k] = names[k];
+    }
+    if (gateConfigSetClasses(&cfg, ptrs, lens, su->labels) != GATE_OK) simDie("out of memory");
+    if (su->defer >= 0) cfg.class_defer[su->defer] = 1;
+    if (gateConfigValidate(&cfg, err, sizeof(err)) != GATE_OK) simDie(err);
+    g = gateCreate(&cfg, gate_test_rand64(&rng), gate_test_rand64(&rng), 0);
+    if (g == NULL) simDie("out of memory");
+    gateConfigFree(&cfg);
+
+    for (i = 0; i < SIM_HORIZON; i++) {
+        int64_t now = (int64_t)i * 1000;
+        int grown = su->grow && i >= su->grow;
+        uint32_t topic = simTopic(su, &rng);
+        int32_t label = su->defer >= 0 && i < su->escalate ? su->defer : (int32_t)topic;
+        uint32_t idx[SIM_WORDS];
+        float val[SIM_WORDS];
+        gateSparse x, owned = {0, NULL, NULL};
+        gatePredictResult r;
+        uint64_t promotions;
+        const gateObs *o;
+        gateEval ev;
+        double u;
+
+        simCluesOf(&rng, topic, su->labels, grown, idx, val, &x);
+        u = gate_test_uniform(&rng);
+        gateMaintain(g, now);
+        if (gateEvaluateFor(g, &x, 0.0, u, &ev) != GATE_OK) simDie("gateEvaluateFor failed");
+        if (gatePredictNeedsFeatures(g, u, &ev) && gateSparseCopy(&owned, &x) != GATE_OK)
+            simDie("out of memory");
+        if (gatePredict(g, now, u, &ev, owned.n ? &owned : NULL, &r) != GATE_OK)
+            simDie("gatePredict failed");
+        gateSparseFree(&owned);
+        res->requests++;
+        if (g->serving) res->active++;
+        if (su->grow && i >= su->grow && i < su->grow + 1000) {
+            res->grow_requests++;
+            res->grow_accepted += r.action == GATE_ACTION_ACCEPT;
+        }
+        if (r.action == GATE_ACTION_ACCEPT) {
+            res->accepted++;
+            res->wrong += r.label != label;
+            res->deferred_accepts += r.label == su->defer;
+            if (res->first_accept == SIM_NEVER) res->first_accept = i + 1;
+            if (i + SIM_TAIL >= SIM_HORIZON) res->tail_accepted++;
+            continue;
+        }
+        if (r.seq == 0) continue;
+        /* Proof for the snapshot under test while another one is in charge:
+         * remember what the two guessed. */
+        o = gateFindObservation(g, r.seq);
+        if (o && (o->flags & GATE_OBS_CAND) && o->serv_gen != 0) {
+            if (o->cand_gen != cur_gen) { /* the first one of this snapshot */
+                cur_gen = o->cand_gen;
+                npairs = 0;
+                old_in = 0;
+                old_fired = 0;
+            }
+            if (npairs == cap) {
+                cap = cap ? 2 * cap : 256;
+                pairs = realloc(pairs, sizeof(simPair) * cap);
+                if (pairs == NULL) simDie("out of memory");
+            }
+            pairs[npairs].serv_label = o->serv_label;
+            pairs[npairs].serv_score = o->serv_score;
+            pairs[npairs].cand_label = o->cand_label;
+            pairs[npairs].cand_score = o->cand_score;
+            pairs[npairs].would = (o->flags & GATE_OBS_WOULD_ACCEPT) != 0;
+            old_in += (uint64_t)pairs[npairs++].would;
+        }
+        /* The snapshot in charge before the answer, and its policy. */
+        promotions = g->stats.promotions;
+        if (g->serving && g->serving->gen != was_gen) {
+            gateModelFree(&was_model);
+            if (gateModelCopy(&was_model, &g->serving->model) != GATE_OK) simDie("out of memory");
+        }
+        was_gen = g->serving ? g->serving->gen : 0;
+        if (g->serving) memcpy(was_policy, g->serving->policy, sizeof(int32_t) * g->nrows);
+        if (!gateLearn(g, now, g->epoch, r.seq, label)) res->refused++;
+
+        if (g->stats.promotions > promotions && was_gen != 0 && g->serving != NULL) {
+            /* A takeover. */
+            uint64_t now_in = 0, was_in = 0;
+            double before, after;
+
+            /* (A snapshot that takes over without a proof request to show
+             * for it counts as one that answers less.) */
+            if (g->serving->gen != cur_gen) npairs = 0;
+            for (k = 0; k < npairs; k++) {
+                now_in += (uint64_t)simAnswers(g, g->serving->policy, pairs[k].cand_label,
+                                               pairs[k].cand_score);
+                was_in += (uint64_t)simAnswers(g, was_policy, pairs[k].serv_label, pairs[k].serv_score);
+            }
+            simProbe(g, su, &probe_rng, grown, &was_model, was_policy, &g->serving->model,
+                     g->serving->policy, &before, &after);
+            res->takeovers++;
+            /* The rule: more of its own proof requests than the one it
+             * replaces answers of them (with the thresholds it had when the
+             * answer arrived that made the newer one take over). */
+            res->takeover_drops += now_in <= was_in;
+            res->proof_before += npairs ? (double)was_in / (double)npairs : 0.0;
+            res->proof_after += npairs ? (double)now_in / (double)npairs : 0.0;
+            res->cover_before += before;
+            res->cover_after += after;
+            if (before - after > res->worst_drop) res->worst_drop = before - after;
+        } else if (!old_fired && g->serving && g->candidate && g->serving->gen == was_gen &&
+                   g->candidate->gen == cur_gen) {
+            /* The previous rule (not in use). */
+            const gateGeneration *c = g->candidate;
+            uint64_t now_in = 0, was_in = 0;
+            double before, after;
+
+            for (k = 0; k < g->nrows; k++)
+                if (c->policy[k] >= 0) now_in += c->regions[k * GATE_THRESHOLDS + c->policy[k]].n;
+            if (now_in > old_in) {
+                old_fired = 1;
+                for (k = 0; k < npairs; k++)
+                    was_in += (uint64_t)simAnswers(g, g->serving->policy, pairs[k].serv_label,
+                                                   pairs[k].serv_score);
+                if (now_in > was_in) {
+                    /* The gate's own rule calls for this takeover. */
+                    res->takeover_missed++;
+                } else {
+                    simProbe(g, su, &probe_rng, grown, &g->serving->model, g->serving->policy,
+                             &c->model, c->policy, &before, &after);
+                    res->old_takeovers++;
+                    res->old_before += before;
+                    res->old_after += after;
+                }
+            }
+        }
+    }
+    res->retired = g->stats.retired;
+    for (k = 0; k < g->nrows; k++) res->labels_answered += g->serving && g->serving->policy[k] >= 0;
+    free(pairs);
+    gateModelFree(&was_model);
+    simFinish(g, res);
+}
+
+static void simLabelsRow(const simLabels *su, uint64_t runs, uint64_t seed, uint64_t id, simRow *row) {
+    uint64_t i;
+
+    simRowInit(row, runs);
+    for (i = 0; i < runs; i++) {
+        simResult res;
+
+        simLabelsRun(su, simStream(seed, id * 1000003ull + i), &res);
+        simRowAdd(row, &res);
+    }
+    simRowClose(row);
+}
+
+/* --------------------------------- (J) ---------------------------------- */
+
+static void simTakeovers(uint64_t runs, uint64_t seed) {
+    static const struct {
+        simLabels su;
+        const char *name;
+    } rows[] = {
+        {{2, -1, 0.0, 0, 0.1, 0.25, 0, 0}, "2 labels, audit 0.25"},
+        {{2, -1, 0.0, 0, 0.1, 0.50, 0, 0}, "2 labels, audit 0.50"},
+        {{4, -1, 0.0, 0, 0.1, 0.25, 0, 0}, "4 labels, audit 0.25"},
+        {{2, -1, 0.0, 0, 0.1, 0.25, 250, 0}, "2 labels, audit 0.25, a snapshot every 250"},
+        {{2, -1, 0.0, 0, 0.1, 0.50, 0, 6000}, "2 labels, audit 0.50, new words at 6000"}
+    };
+    clock_t start = clock();
+    uint64_t takeovers = 0, old_takeovers = 0;
+    double old_before = 0.0, old_after = 0.0, grow_first = 0.0, grow_end = 0.0;
+    size_t r;
+
+    gate_test_current = "table J";
+    printf("\n(J) TAKEOVERS: A NEWER SNAPSHOT REPLACES THE ONE IN CHARGE\n"
+           "    Classifier gates, alpha = 0.10, delta = %.2f, a snapshot every 1000 examples unless the row\n"
+           "    says otherwise, %u requests per gate, one per second, every answer at once; %llu gates per\n"
+           "    row. In the last row every other topic word is a new one from request 6000 on. A snapshot\n"
+           "    takes over when it answers more of its own proof requests (spot checks, since another one is\n"
+           "    in charge) than the snapshot in charge answers of the same requests with the thresholds it\n"
+           "    has by then. 'proof requests answered': that share for the two at the takeover, counted by\n"
+           "    this program from the guesses recorded with the requests; 'answers less': takeovers at which\n"
+           "    the new one did not answer more of them (there must be none). 'fresh requests answered': the\n"
+           "    share of %u requests the gate has not seen, drawn like the requests of the moment, that each\n"
+           "    of the two answers; 'largest loss': the worst single takeover by that measure, in points.\n"
+           "    'previous rule': the rule of the previous round compared with what the snapshot in charge\n"
+           "    would have answered WHEN EACH REQUEST WAS ASKED. Replayed in this program, NOT IN USE: the\n"
+           "    first moment at which that rule would have let a snapshot take over while the gate's rule\n"
+           "    says no, and what the two snapshots answer of fresh requests at that moment.\n\n",
+           SIM_DELTA, SIM_HORIZON, (unsigned long long)runs, SIM_PROBES);
+    printf("    %-42s  %-9s  %-9s  %-15s  %-7s  %-24s  %-41s\n", "gate", "snapshots", "takeovers",
+           "proof requests", "answers", "fresh requests answered", "previous rule (not in use): takeovers the");
+    printf("    %-42s  %-9s  %-9s  %-15s  %-7s  %6s %6s  %-9s  %-41s\n", "", "dropped", "per gate",
+           "answered", "less", "before", "after", "  largest", "gate refuses; fresh requests answered");
+    printf("    %-42s  %-9s  %-9s  %7s %7s  %-7s  %6s %6s  %-9s  %-9s %7s %7s\n", "", "per gate", "", "before",
+           "after", "", "", "", "     loss", " per gate", "before", "after");
+    for (r = 0; r < sizeof(rows) / sizeof(rows[0]); r++) {
+        simRow row;
+        double n, m;
+
+        simLabelsRow(&rows[r].su, runs, seed, 1000 + r, &row);
+        n = row.takeovers ? (double)row.takeovers : 1.0;
+        m = row.old_takeovers ? (double)row.old_takeovers : 1.0;
+        printf("    %-42s  %9.2f  %9.2f  %6.1f%% %6.1f%%  %7llu  %5.1f%% %5.1f%%  %9.1f  %9.2f %6.1f%% %6.1f%%\n",
+               rows[r].name, simPer(row.retired, runs), simPer(row.takeovers, runs),
+               100.0 * row.proof_before / n, 100.0 * row.proof_after / n,
+               (unsigned long long)row.takeover_drops, 100.0 * row.cover_before / n,
+               100.0 * row.cover_after / n, 100.0 * row.worst_drop, simPer(row.old_takeovers, runs),
+               100.0 * row.old_before / m, 100.0 * row.old_after / m);
+        /* The rule itself, on the gate's own record: no takeover by a
+         * snapshot that does not answer more, and none left out that the
+         * rule calls for. */
+        CHECK(row.takeover_drops == 0);
+        CHECK(row.takeover_missed == 0);
+        /* And what it is for: on requests the gate has not seen, the gates
+         * of a row answer no less after their takeovers than before, taken
+         * together. (256 fresh requests tell the two shares of one takeover
+         * apart to a few points: the allowance is 10 points for one
+         * takeover and one point for a hundred.) */
+        CHECK(row.cover_after - row.cover_before >= -0.10 * sqrt((double)row.takeovers));
+        CHECK((double)row.wrong <= 0.1 * (double)row.accepted);
+        takeovers += row.takeovers;
+        old_takeovers += row.old_takeovers;
+        old_before += row.old_before;
+        old_after += row.old_after;
+        if (rows[r].su.grow) {
+            grow_first = simPct(row.grow_accepted, row.grow_requests);
+            grow_end = simPct(row.tail_accepted, runs * SIM_TAIL);
+        }
+        simRowFree(&row);
+    }
+    CHECK(takeovers >= runs / 2); /* the table is about something */
+    /* What the change was for: the takeovers the gate now refuses would
+     * have cost coverage. */
+    if (old_takeovers >= 10) CHECK(old_after < old_before);
+    printf("\n    The snapshot in charge goes on proving lower thresholds on its spot checks while the next\n"
+           "    one is tested, so it answers more of the newer one's proof requests by the time of the\n"
+           "    comparison than it would have answered when they were asked. Measured against the latter, a\n"
+           "    snapshot that answers less takes over: all %llu such takeovers together would have taken the\n"
+           "    gates from %.1f%% of fresh requests to %.1f%%. The gate refuses them, and the takeovers it\n"
+           "    makes do not lose coverage on the whole. A single one can, by the chance of %u requests, and\n"
+           "    when the traffic has changed since the proof requests were asked (the last row; there the\n"
+           "    gates answered %.1f%% of the first 1000 requests with new words and %.1f%% of the last %u of\n"
+           "    the run: snapshots that know the new words took over).\n"
+           "    The table took %.1f s.\n",
+           (unsigned long long)old_takeovers, old_takeovers ? 100.0 * old_before / (double)old_takeovers : 0.0,
+           old_takeovers ? 100.0 * old_after / (double)old_takeovers : 0.0, SIM_PROBES, grow_first, grow_end,
+           SIM_TAIL, simSeconds(start));
+}
+
+/* --------------------------------- (K) ---------------------------------- */
+
+static void simManyLabels(uint64_t runs, uint64_t seed) {
+    static const struct {
+        simLabels su;
+        const char *name;
+        uint32_t answered; /* labels the gate may answer */
+    } rows[] = {
+        {{8, -1, 0.0, 0, 0.1, 0.05, 0, 0}, "8 labels", 8},
+        {{16, -1, 0.0, 0, 0.1, 0.05, 0, 0}, "16 labels", 16},
+        {{4, 3, 0.25, 0, 0.1, 0.05, 0, 0}, "4 labels, one never answered", 3},
+        {{4, 3, 0.25, 1500, 0.1, 0.05, 0, 0}, "... the only one used at first", 3}
+    };
+    clock_t start = clock();
+    char b1[32], b2[32];
+    size_t r;
+
+    gate_test_current = "table K";
+    printf("\n(K) MANY LABELS, AND A LABEL THAT IS NEVER ANSWERED\n"
+           "    Classifier gates, alpha = 0.10, delta = %.2f, audit = 0.05, a snapshot every 1000\n"
+           "    examples, %u requests per gate, one per second, every answer at once; %llu gates per row.\n"
+           "    The labels are equally frequent. In the last two rows one label of four is ALWAYSDEFER (a\n"
+           "    quarter of the requests); in the last row the teacher calls the first 1500 requests that\n"
+           "    label whatever they are, so that the first snapshot knows nothing else. 'labels answered':\n"
+           "    labels with a proven threshold at the end, the mean over the gates.\n\n", SIM_DELTA,
+           SIM_HORIZON, (unsigned long long)runs);
+    printf("    %-30s  %-13s  %-13s  %-18s  %-8s  %-9s  %-12s  %-13s\n", "gate", "gates that", "first ACCEPT",
+           "share of requests", "labels", "snapshots", "wrong among", "answers with");
+    printf("    %-30s  %-13s  %6s %6s  %8s %9s  %-8s  %-9s  %-12s  %-13s\n", "", "ever answered", "median",
+           "p90", "answered", "the end", "answered", "dropped", "the answered", "that label");
+    for (r = 0; r < sizeof(rows) / sizeof(rows[0]); r++) {
+        simRow row;
+
+        simLabelsRow(&rows[r].su, runs, seed, 1100 + r, &row);
+        printf("    %-30s  %5llu of %-4llu  %6s %6s  %7.1f%% %8.1f%%  %4.1f of %-2u  %9.2f  %5.2f%% of 10%%  ",
+               rows[r].name, (unsigned long long)row.ever_accepted, (unsigned long long)runs,
+               simFmt(b1, sizeof(b1), simQuantile(row.first, runs, 0.5)),
+               simFmt(b2, sizeof(b2), simQuantile(row.first, runs, 0.9)),
+               simPct(row.accepted, row.requests), simPct(row.tail_accepted, runs * SIM_TAIL),
+               simPer(row.labels_answered, runs), rows[r].answered, simPer(row.retired, runs),
+               simPct(row.wrong, row.accepted));
+        if (rows[r].su.defer >= 0) printf("%llu\n", (unsigned long long)row.deferred_accepts);
+        else printf("-\n");
+        /* The gates answer, within the error rate, */
+        CHECK(row.ever_accepted * 10 >= runs * 9);
+        CHECK((double)row.wrong <= 0.1 * (double)row.accepted);
+        /* ... every label they may answer, by the end, give or take one, */
+        CHECK(simPer(row.labels_answered, runs) >= (double)rows[r].answered - 1.0);
+        /* ... and never with the label that is always left to the teacher. */
+        CHECK(row.deferred_accepts == 0);
+        /* The snapshot that only knows that label is dropped (and the one
+         * after it does better). */
+        if (rows[r].su.escalate) CHECK(row.retired >= runs);
+        simRowFree(&row);
+    }
+    printf("\n    The budget of a snapshot is ten times the proof a flawless threshold needs for each label\n"
+           "    the gate may answer, so that with many labels a snapshot is not dropped before any label\n"
+           "    can finish its proof. In the last row the first snapshot says the label that is never\n"
+           "    answered to everything: it can prove nothing, and the requests it leaves to the teacher\n"
+           "    although their label is one the gate may answer use up its budget like proof would. It is\n"
+           "    dropped and the next snapshot, which has seen the other labels, is tested; before, the\n"
+           "    first one was tested for ever and such a gate never answered.\n"
+           "    The table took %.1f s.\n", simSeconds(start));
+}
+
 /* ---------------------------------- main --------------------------------- */
 
 int main(int argc, char **argv) {
@@ -1382,6 +2265,10 @@ int main(int argc, char **argv) {
     simLatency(runs, seed);
     simOutage(runs, seed);
     simClassifier(runs, seed);
+    simBatches(runs >= 2 ? runs / 2 : 1, seed);
+    simPartial(runs >= 2 ? runs / 2 : 1, seed);
+    simTakeovers(runs >= 4 ? runs / 4 : 1, seed);
+    simManyLabels(runs >= 8 ? runs / 8 : 1, seed);
     printf("\nTotal CPU time %.1f s. Consistency checks: ", simSeconds(start));
     return TEST_REPORT();
 }
