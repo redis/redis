@@ -651,14 +651,17 @@ TEST(invalid_alpha_never_certifies) {
         int certified = 0;
 
         gateBetsInit(&b, alphas[i]);
+        /* The mechanism: every increment is NaN, so is every wealth. */
+        for (k = 0; k < GATE_NBETS; k++) CHECK(isnan(b.inc_ok[k]) && isnan(b.inc_err[k]));
         gateRegionInit(&r);
         for (k = 0; k < 5000; k++) {
-            gateRegionUpdate(&r, &b, 0);
+            gateRegionUpdate(&r, &b, k % 50 == 49);
             certified += gateRegionCertifies(&r, -DBL_MAX);
             certified += gateRegionCertifies(&r, 0.5);
         }
         CHECK_EQ_INT(certified, 0);
         CHECK_EQ_INT(r.n, 5000);
+        CHECK_EQ_INT(r.errors, 100);
     }
 }
 
@@ -1504,6 +1507,19 @@ TEST(drift_edge_inputs) {
     gateDriftPush(&w, 1, 0.1);
     CHECK(w.total == 0x100000000ull);
     CHECK(w.total_errors == 0x100000000ull);
+
+    /* The 100 audit minimum is about the samples in the ring, not about the
+     * lifetime: a window that starts empty next to large lifetime totals
+     * (a caller carrying them over) still waits for its own 100. */
+    gateDriftInit(&w);
+    w.total = 5000;
+    w.total_errors = 40;
+    fired = 0;
+    for (i = 0; i < GATE_DRIFT_MIN - 1; i++) fired += gateDriftPush(&w, 1, 0.1);
+    CHECK_EQ_INT(fired, 0);
+    CHECK_EQ_INT(gateDriftPush(&w, 1, 0.1), 1);
+    CHECK_EQ_INT(w.total, 5100);
+    CHECK_EQ_INT(w.total_errors, 140);
 }
 
 int main(void) {
