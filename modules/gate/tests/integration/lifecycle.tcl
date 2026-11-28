@@ -2,7 +2,10 @@
 #
 # Every test states the contract of modules/gate/SPEC.md. Where a number is
 # asserted exactly, the comment next to it says which sentence of the
-# specification it follows from.
+# specification it follows from. Two rules are stated more exactly in the
+# file comments of gate_core.h and gate_stats.h than in SPEC.md, and the
+# tests that lean on them say so: how many answered requests may wait
+# behind a late one, and where the drift detector starts from.
 #
 # Run from the repository root:
 #
@@ -15,6 +18,18 @@
 # draws and the same replies on every run. No assertion names the outcome of
 # one particular draw: they hold for any draw, or (shares over thousands of
 # requests) for nearly every sequence of draws.
+#
+# TIME. A gate reads the clock, and it does its bookkeeping only when it is
+# written to. The tests about late and lost answers therefore create their
+# gates with a short gate.feedback-timeout (lc_gcreate_timeout) and sleep.
+# A sleep lasts at least as long as it says, so "this request is too old
+# now" is always true. "This happened in time" is not, on a machine that is
+# busy with something else: where an assertion needs the test to have been
+# fast, the timeout is some hundred times what the commands take, or the
+# test measures its own time first and skips the assertion if it was slow.
+# (The test and the gate do not read the same clock, and both count whole
+# milliseconds: such a measurement is good to a few milliseconds, and is
+# compared with that much to spare.)
 
 set gatemodule [file normalize modules/gate/gate.so]
 
@@ -72,6 +87,16 @@ proc lc_all_proven {key} {
     return 1
 }
 
+# GCREATE with gate.feedback-timeout set to 'timeout' milliseconds. The
+# setting is read when a gate is created, so it holds for this gate only:
+# the default (SPEC section 5: one minute) is back for the next one.
+proc lc_gcreate_timeout {timeout key args} {
+    r config set gate.feedback-timeout $timeout
+    set reply [r gcreate $key {*}$args]
+    r config set gate.feedback-timeout 60000
+    return $reply
+}
+
 # ------------------------------ Score gates -------------------------------
 
 # One request to a score gate, answered at once if the gate wants feedback.
@@ -107,20 +132,59 @@ proc lc_gate_between {key args} {
     fail "gate $key is not ACTIVE: [r ginfo $key]"
 }
 
-# SPEC section 3 (Proof, Budget) and section 5 (betting fractions, threshold
-# order of a score gate): the number of correct answers in a row, after
-# 'errors' wrong ones, that prove a threshold for snapshot number
-# 'generation' of a score gate.
+# A score gate that answers every score: 'count' of its spot checks, none
+# of them answered. Returns their ids. The requests the gate answers by
+# itself come in between; any other reply fails the test.
+proc lc_lose_audits {key count} {
+    set ids {}
+    for {set k 0} {[llength $ids] < $count} {incr k} {
+        if {$k >= 100 * $count + 100} {fail "gate $key: no spot check in $k requests: [r ginfo $key]"}
+        lassign [r gpredict $key SCORE 0.9] action id
+        if {$action eq "AUDIT"} {
+            lappend ids $id
+        } elseif {$action ne "ACCEPT"} {
+            fail "gate $key replied $action where it answers: [r ginfo $key]"
+        }
+    }
+    return $ids
+}
+
+# A score gate that has stopped answering because its answers stopped
+# coming (SPEC section 3, "No answers at all"): proven, and then 32 spot
+# checks in a row were left without an answer until they were too old.
+# Created with AUDIT 1, so that every request it could answer is a spot
+# check. Returns the id given to the request that found the gate stopped;
+# ::lc_outage_found is the time just before that request.
+proc lc_outage {key} {
+    lc_gcreate_timeout 300 $key ALPHA 0.2 DELTA 0.2 AUDIT 1 SCORE
+    lc_calibrate $key
+    for {set k 0} {$k < 32} {incr k} {
+        lassign [r gpredict $key SCORE 0.9] action id
+        if {$action ne "AUDIT"} {fail "gate $key replied $action to request $k of the outage"}
+    }
+    after 350
+    set ::lc_outage_found [clock milliseconds]
+    lassign [r gpredict $key SCORE 0.9] action id
+    if {$action ne "ABSTAIN" || $id eq {}} {
+        fail "gate $key replied '$action' '$id' after 32 lost answers: [r ginfo $key]"
+    }
+    return $id
+}
+
+# SPEC section 3 (Proof, Budget) and section 5 (betting test, proven): the
+# number of correct answers in a row, after 'errors' wrong ones, that prove
+# a threshold for snapshot number 'generation'.
 #
 # A threshold is tested by betting. The wealth starts at 1; a bet stakes a
 # fraction c of the largest stake that cannot go broke, 1 / (1 - alpha), so
 # a correct answer multiplies its wealth by 1 + c * alpha / (1 - alpha) and
 # a wrong one by 1 - c; the four fractions carry equal weight. The threshold
 # is proven once the wealth reaches 1 / share, where the share is what the
-# snapshot may spend, DELTA / (g (g + 1)), split over the 32 thresholds a
-# score gate tests one by one.
-proc lc_proof_needed {alpha delta generation {errors 0}} {
-    set bar [expr {$generation * ($generation + 1) * 32.0 / $delta}]
+# snapshot may spend, DELTA / (g (g + 1)), split evenly over the thresholds
+# it tests. Every threshold is a test of its own: 32 for each of the
+# 'labels' the gate may answer, and one label for a score gate.
+proc lc_proof_needed {alpha delta generation {errors 0} {labels 1}} {
+    set bar [expr {32.0 * $labels * $generation * ($generation + 1) / $delta}]
     for {set n 1} {$n < 100000} {incr n} {
         set wealth 0.0
         foreach c {0.1 0.25 0.5 0.9} {
@@ -130,6 +194,195 @@ proc lc_proof_needed {alpha delta generation {errors 0}} {
         if {$wealth >= $bar} {return $n}
     }
     error "lc_proof_needed: no proof within 100000 answers"
+}
+
+# No threshold is ever proven with fewer correct answers than this: what the
+# boldest of the four bets would need if it held the whole stake.
+proc lc_proof_floor {alpha delta generation {labels 1}} {
+    set bar [expr {32.0 * $labels * $generation * ($generation + 1) / $delta}]
+    return [expr {int(ceil(log($bar) / log(1 + 0.9 * $alpha / (1 - $alpha))))}]
+}
+
+# ----------------- A score gate, written down a second time ---------------
+#
+# What SPEC sections 3 and 5 say about the first snapshot of a score gate
+# created with AUDIT 1, in a few lines of Tcl. With AUDIT 1 every request
+# the gate could answer is a spot check, so every request is proof and the
+# model needs no dice. Time is counted in rounds: the test that uses the
+# model (in the feedback block) leaves more than a quarter of the feedback
+# timeout between two rounds and less than that inside one, so a request of
+# an earlier round is late and one of this round is not.
+#
+#   thresholds   32, evenly spaced in log(1 - threshold) from 0 to 0.998
+#   proof        counted in request order; an answer waits for the answers
+#                of older requests, but not for one that is late: that
+#                request counts as a wrong guess until its answer arrives
+#   betting test as in lc_proof_needed, one for every threshold
+#   proven       wealth 32 x 1 x 2 / DELTA; the gate answers at the lowest
+#                proven threshold
+#   spot checks  the answer of a request the gate could have answered
+#                reaches the drift detector the moment it arrives:
+#                likelihood ratios for 2x and 4x ALPHA (at most halfway to
+#                1), each starting again from 1 when it has fallen below
+#                (gate_stats.h), and an alarm when their average reaches
+#                1,000
+
+proc lc_model_init {alpha delta} {
+    upvar #0 ::lc_m m
+    array unset m
+    array set m {policy -1 samples 0 audits 0 audit_errors 0 waiting 0 unanswered 0 next 1}
+    set m(queue) {}
+    for {set t 0} {$t < 32} {incr t} {
+        set m(grid,$t) [expr {$t == 31 ? 0.998 : 1 - pow(0.002, $t / 31.0)}]
+        set m(proven,$t) 0
+        set m(wealth,$t) {0.0 0.0 0.0 0.0}
+    }
+    set m(right) {}
+    set m(wrong) {}
+    foreach c {0.1 0.25 0.5 0.9} {
+        lappend m(right) [expr {log(1 + $c * $alpha / (1 - $alpha))}]
+        lappend m(wrong) [expr {log(1 - $c)}]
+    }
+    set m(bar) [expr {log(32.0 * 1 * 2 / $delta)}]
+    set m(drift) {0.0 0.0}
+    set m(drift_right) {}
+    set m(drift_wrong) {}
+    foreach times {2 4} {
+        set p [expr {min($times * $alpha, (1 + $alpha) / 2.0)}]
+        lappend m(drift_right) [expr {log((1 - $p) / (1 - $alpha))}]
+        lappend m(drift_wrong) [expr {log($p / $alpha)}]
+    }
+}
+
+# Add 'steps' to the logarithms of the four bets of one threshold.
+proc lc_model_bet {t steps {sign 1}} {
+    upvar #0 ::lc_m m
+    set wealth {}
+    foreach w $m(wealth,$t) step $steps {lappend wealth [expr {$w + $sign * $step}]}
+    set m(wealth,$t) $wealth
+}
+
+# The thresholds a request is proof for have changed for the better: see
+# which of them are proven now. The gate answers at the lowest proven one.
+proc lc_model_prove {seq} {
+    upvar #0 ::lc_m m
+    for {set t 0} {$t < 32 && $m(grid,$t) <= $m(score,$seq)} {incr t} {
+        set sum 0.0
+        foreach w $m(wealth,$t) {set sum [expr {$sum + 0.25 * exp($w)}]}
+        if {log($sum) >= $m(bar)} {set m(proven,$t) 1}
+    }
+    for {set t 31} {$t >= 0} {incr t -1} {
+        if {$m(proven,$t)} {set m(policy) $t}
+    }
+}
+
+# Count one request as proof, as a right or as a wrong guess.
+proc lc_model_count {seq wrong} {
+    upvar #0 ::lc_m m
+    incr m(samples)
+    for {set t 0} {$t < 32 && $m(grid,$t) <= $m(score,$seq)} {incr t} {
+        lc_model_bet $t [expr {$wrong ? $m(wrong) : $m(right)}]
+    }
+    if {!$wrong} {lc_model_prove $seq}
+}
+
+# What every write command does first: count the answered requests in
+# request order, and move on without an answer that is late and in the way
+# of answered ones.
+proc lc_model_settle {round} {
+    upvar #0 ::lc_m m
+    while {[llength $m(queue)]} {
+        set head [lindex $m(queue) 0]
+        if {$m(answered,$head)} {
+            incr m(waiting) -1
+            lc_model_count $head [expr {!$m(correct,$head)}]
+        } elseif {$m(waiting) > 0 && $m(round,$head) < $round} {
+            set m(moved_on,$head) 1
+            lc_model_count $head 1
+        } else {
+            break
+        }
+        set m(queue) [lrange $m(queue) 1 end]
+    }
+}
+
+# A request. Returns the action of the reply and the model's number for the
+# request.
+proc lc_model_predict {score round} {
+    upvar #0 ::lc_m m
+    lc_model_settle $round
+    set seq $m(next)
+    incr m(next)
+    array set m [list score,$seq $score round,$seq $round answered,$seq 0 moved_on,$seq 0]
+    set m(spot_check,$seq) [expr {$m(policy) >= 0 && $score >= $m(grid,$m(policy))}]
+    lappend m(queue) $seq
+    incr m(unanswered)
+    return [list [expr {$m(spot_check,$seq) ? "AUDIT" : "ABSTAIN"}] $seq]
+}
+
+# The answer of a request. Returns 1 if the drift detector fires.
+proc lc_model_learn {seq correct round} {
+    upvar #0 ::lc_m m
+    lc_model_settle $round
+    set m(answered,$seq) 1
+    set m(correct,$seq) $correct
+    incr m(unanswered) -1
+    if {$m(spot_check,$seq)} {
+        incr m(audits)
+        if {!$correct} {incr m(audit_errors)}
+        set drift {}
+        set average 0.0
+        foreach w $m(drift) step [expr {$correct ? $m(drift_right) : $m(drift_wrong)}] {
+            set w [expr {max($w, 0.0) + $step}]
+            lappend drift $w
+            set average [expr {$average + 0.5 * exp($w)}]
+        }
+        set m(drift) $drift
+        if {$average >= 1000} {return 1}
+    }
+    if {!$m(moved_on,$seq)} {
+        incr m(waiting)
+    } elseif {$correct} {
+        # Proof had moved on without this answer: the wrong guess it was
+        # counted as is taken back.
+        for {set t 0} {$t < 32 && $m(grid,$t) <= $m(score,$seq)} {incr t} {
+            lc_model_bet $t $m(right)
+            lc_model_bet $t $m(wrong) -1
+        }
+        lc_model_prove $seq
+    }
+    lc_model_settle $round
+    return 0
+}
+
+# The feedback timeout has passed for every request: those without an
+# answer stay wrong guesses.
+proc lc_model_give_up {} {
+    upvar #0 ::lc_m m
+    foreach seq $m(queue) {
+        lc_model_count $seq [expr {$m(answered,$seq) ? !$m(correct,$seq) : 1}]
+    }
+    set m(queue) {}
+    set m(waiting) 0
+}
+
+# Compare what GINFO shows with the model.
+proc lc_model_check {key what} {
+    upvar #0 ::lc_m m
+    set i [r ginfo $key]
+    set want [expr {$m(policy) < 0 ? {} : $m(grid,$m(policy))}]
+    set got [lindex [dict get $i thresholds] 0]
+    if {($got eq {}) != ($want eq {}) || ($got ne {} && abs($got - $want) > 1e-9)} {
+        fail "$what: the gate answers from '$got', SPEC sections 3 and 5 say from '$want': $i"
+    }
+    assert_equal [dict get $i state] [expr {$m(policy) < 0 ? "CALIBRATING" : "ACTIVE"}] "$what: state"
+    assert_equal [dict get $i calibration-samples] $m(samples) "$what: calibration-samples"
+    assert_equal [dict get $i audit-samples] $m(audits) "$what: audit-samples"
+    assert_equal [dict get $i audit-errors] $m(audit_errors) "$what: audit-errors"
+    # A request without an answer is pending until it is too old, and
+    # missing from then on.
+    assert_equal [expr {[dict get $i pending] + [dict get $i missing]}] $m(unanswered) \
+        "$what: pending + missing"
 }
 
 # ---------------------------- Classifier gates ----------------------------
@@ -213,6 +466,39 @@ proc lc_trained_gate {key labels history max args} {
         if {$n % 10 == 0 && [lc_all_proven $key]} {return $n}
     }
     fail "gate $key: a label is still without a threshold after $max requests: [r ginfo $key]"
+}
+
+# The simplest problem there is: every label has one message of its own.
+set ::lc_one(ignore) thanks
+set ::lc_one(respond) help
+set ::lc_one(escalate) outage
+
+# A classifier gate whose first snapshot is never wrong on that problem:
+# each message is taught 20 times, in turns, and the snapshot is taken
+# right after that. Where a test counts the correct answers a proof needs,
+# this is the gate it counts on: every answer to "thanks" is one correct
+# answer for "ignore", and nothing else. 'args' are further GCREATE options.
+proc lc_exact_gate {key labels args} {
+    r config set gate.snapshot-examples [expr {20 * [llength $labels]}]
+    r gcreate $key ALPHA 0.2 DELTA 0.2 CLASSES [llength $labels] {*}$labels {*}$args
+    for {set k 0} {$k < 20} {incr k} {
+        foreach label $labels {
+            r gadd $key TEXT $::lc_one($label) LABEL $label
+        }
+    }
+}
+
+# One request with the message of 'label', answered with 'answer' (the
+# label itself unless given). The gate must have wanted the answer. Returns
+# the action.
+proc lc_exact_ask {key label {answer {}}} {
+    if {$answer eq {}} {set answer $label}
+    lassign [r gpredict $key TEXT $::lc_one($label)] action id
+    if {$action eq "ACCEPT" || $id eq {}} {
+        fail "gate $key replied '$action' '$id' to the message of $label: [r ginfo $key]"
+    }
+    assert_equal [r glearn $key $id LABEL $answer] 1
+    return $action
 }
 
 # ============================== Score gates ===============================
@@ -611,12 +897,16 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             lappend ids $id
         }
         # Every answer but the oldest, newest first: far more than a proof
-        # needs, but none of it may be used before the oldest request.
+        # needs, but none of it may be used before the oldest request, as
+        # long as that one is not late. (Proof waits a quarter of the
+        # feedback timeout for it: 15 seconds with the default.)
         for {set k 59} {$k >= 1} {incr k -1} {
             assert_equal [r glearn f:wait [lindex $ids $k] CORRECT 1] 1
         }
         assert_equal [lc_get f:wait state] CALIBRATING
         assert_equal [lc_get f:wait calibration-samples] 0
+        # They wait for their turn, not for GLEARN.
+        assert_equal [lc_get f:wait pending] 1
         # An answer that waits for its turn is used: it cannot be given twice.
         assert_equal [r glearn f:wait [lindex $ids 59] CORRECT 0] 0
 
@@ -694,16 +984,14 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
 
     test {gate lifecycle: a request never answered in time counts as missing and the gate keeps working} {
         lc_seed 15
-        r config set gate.feedback-timeout 200
-        r gcreate f:late ALPHA 0.2 DELTA 0.2 SCORE
-        r config set gate.feedback-timeout 300000
+        lc_gcreate_timeout 300 f:late ALPHA 0.2 DELTA 0.2 SCORE
         set lost {}
         for {set k 0} {$k < 3} {incr k} {
             lassign [r gpredict f:late SCORE 0.9] action id
             lappend lost $id
         }
         assert_equal [lc_get f:late pending] 3
-        after 260
+        after 350
 
         # Too old: the answer is refused.
         assert_equal [r glearn f:late [lindex $lost 0] CORRECT 1] 0
@@ -711,81 +999,394 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert_equal [dict get $i missing] 3
         assert_equal [dict get $i pending] 0
         assert_equal [dict get $i state] CALIBRATING
+        assert_equal [dict get $i calibration-samples] 3
 
-        # The cautious reading: each of them counted as a wrong guess. The
-        # proof takes longer than after a clean start, but it comes.
-        set n 0
-        while {[lc_get f:late state] ne "ACTIVE" && $n < 600} {
-            incr n
-            lc_score f:late 0.9 1
-        }
-        assert_equal [lc_get f:late state] ACTIVE
-        assert_morethan_equal $n [lc_proof_needed 0.2 0.2 1 3]
-        assert_morethan $n [lc_proof_needed 0.2 0.2 1]
-        assert_morethan_equal [lc_get f:late missing] 3
+        # The cautious reading: each of them stays a wrong guess. The proof
+        # takes exactly as long as after three wrong answers, which is
+        # longer than after a clean start, and it comes.
+        assert_equal [lc_calibrate f:late] [lc_proof_needed 0.2 0.2 1 3]
+        assert_morethan [lc_proof_needed 0.2 0.2 1 3] [lc_proof_needed 0.2 0.2 1]
+        assert_equal [lc_get f:late missing] 3
+        assert_equal [lc_get f:late revocations] 0
         lc_assert_counters f:late
     }
 
-    test {gate lifecycle: answers that waited behind a lost request are applied when it times out} {
-        lc_seed 16
-        r config set gate.feedback-timeout 200
-        r gcreate f:held ALPHA 0.2 DELTA 0.2 SCORE
-        r config set gate.feedback-timeout 300000
-        lassign [r gpredict f:held SCORE 0.9] action lost
-        # 60 answered requests behind one that never gets its answer.
-        for {set k 0} {$k < 60} {incr k} {
-            lc_score f:held 0.9 1
+    test {gate lifecycle: an answer that comes after proof has moved on is still used, and the gate ends as if it had come at once} {
+        # SPEC section 3, late and lost answers: proof waits for a late
+        # answer for a quarter of the feedback timeout, then moves on and
+        # counts the request as a wrong guess until its answer arrives.
+        set timeout 2000
+        set need [lc_proof_needed 0.2 0.2 1]
+        # The requests of both gates: the cheap result is right at 0.9 and
+        # wrong at 0.3, and the last request is the one at 0.9 whose answer
+        # completes the proof of the thresholds above 0.3.
+        set stream {}
+        for {set n 1} {$n <= $need} {incr n} {
+            lappend stream 0.9 1
+            if {$n < $need} {lappend stream 0.3 0}
         }
-        after 260
+        set total [expr {[llength $stream] / 2}]
+        # What both gates see afterwards.
+        set more {}
+        for {set n 0} {$n < 50} {incr n} {lappend more 0.9 1 0.3 0}
 
-        # The lost request counts as a wrong guess, the 60 answers behind
-        # it are applied, and that is proof enough: this very request is
-        # answered by the gate.
-        lassign [r gpredict f:held SCORE 0.9] action id
-        assert {$action eq "ACCEPT" || $action eq "AUDIT"}
-        if {$id ne {}} {r glearn f:held $id CORRECT 1}
-        set i [r ginfo f:held]
-        assert_equal [dict get $i state] ACTIVE
-        assert_morethan_equal [dict get $i missing] 1
-        assert_equal [dict get $i pending] 0
-        assert_equal [r glearn f:held $lost CORRECT 1] 0
-        lc_assert_counters f:held
+        # The first gate gets every answer at once.
+        lc_seed 61
+        lc_gcreate_timeout $timeout l:prompt ALPHA 0.2 DELTA 0.2 SCORE
+        foreach {score correct} $stream {
+            assert_equal [lc_get l:prompt state] CALIBRATING
+            lassign [r gpredict l:prompt SCORE $score] action id
+            assert_equal [r glearn l:prompt $id CORRECT $correct] 1
+        }
+        set prompt [r ginfo l:prompt]
+        assert_equal [dict get $prompt state] ACTIVE
+        assert_equal [dict get $prompt generation] 1
+        assert_equal [dict get $prompt calibration-samples] $total
+        assert {[lindex [dict get $prompt thresholds] 0] > 0.3}
+        foreach {score correct} $more {lc_score l:prompt $score $correct}
+        set prompt_later [r ginfo l:prompt]
+
+        # The second gate: the same requests, the same draws, but the
+        # answer of the very first request is late.
+        lc_seed 61
+        lc_gcreate_timeout $timeout l:late ALPHA 0.2 DELTA 0.2 SCORE
+        set start [clock milliseconds]
+        set k 0
+        foreach {score correct} [lrange $stream 0 end-2] {
+            lassign [r gpredict l:late SCORE $score] action id
+            assert_equal $action ABSTAIN
+            if {[incr k] == 1} {
+                set late $id
+            } else {
+                assert_equal [r glearn l:late $id CORRECT $correct] 1
+            }
+        }
+        # Less than a quarter of the timeout has gone by: the newer answers
+        # wait for their turn. One request is waiting for GLEARN.
+        set waiting [expr {[clock milliseconds] - $start < $timeout / 4 - 10}]
+        if {$waiting} {
+            set i [r ginfo l:late]
+            assert_equal [dict get $i calibration-samples] 0
+            assert_equal [dict get $i pending] 1
+            assert_equal [dict get $i state] CALIBRATING
+        }
+        after [expr {$timeout / 4 + 50}]
+        # GINFO shows an idle gate as of its last write.
+        if {$waiting} {assert_equal [lc_get l:late calibration-samples] 0}
+
+        # The last request: the gate is written to, and proof moves on
+        # without the late answer.
+        lassign [lrange $stream end-1 end] score correct
+        lassign [r gpredict l:late SCORE $score] action id
+        assert_equal $action ABSTAIN
+        set i [r ginfo l:late]
+        assert_equal [dict get $i calibration-samples] [expr {$total - 1}]
+        assert_equal [dict get $i pending] 2
+        assert_equal [dict get $i missing] 0
+        assert_equal [dict get $i state] CALIBRATING
+        assert_equal [r glearn l:late $id CORRECT $correct] 1
+        # Every answer is in but the late one, which counts as a wrong
+        # guess for now: the proof is one correct answer short.
+        set i [r ginfo l:late]
+        assert_equal [dict get $i calibration-samples] $total
+        assert_equal [dict get $i state] CALIBRATING
+        assert_equal [lindex [dict get $i thresholds] 0] {}
+        assert_equal [dict get $i pending] 1
+
+        # The late answer arrives, well inside the feedback timeout. It is
+        # used, once, and the request counts as what it was: a right guess.
+        assert_equal [r glearn l:late $late CORRECT 1] 1
+        assert_equal [r glearn l:late $late CORRECT 1] 0
+        set i [r ginfo l:late]
+        foreach field {state thresholds generation candidate calibration-samples pending missing
+                       revocations audit-samples audit-errors requests abstained accepted audited} {
+            assert_equal [dict get $i $field] [dict get $prompt $field] "$field, after the late answer"
+        }
+        # From here on the two gates are one and the same.
+        foreach {score correct} $more {lc_score l:late $score $correct}
+        assert_equal [r ginfo l:late] $prompt_later
+        assert_morethan [dict get $prompt_later accepted] 0
+        lc_assert_counters l:late
     }
 
-    test {gate lifecycle: a gate whose spot checks are never answered stops answering by itself} {
-        lc_seed 17
-        r config set gate.feedback-timeout 200
-        r gcreate f:deaf ALPHA 0.2 DELTA 0.2 AUDIT 1 SCORE
-        r config set gate.feedback-timeout 300000
-        lc_calibrate f:deaf
-        # The feedback path breaks: ten spot checks get no answer.
+    test {gate lifecycle: proof does not move on while no answer waits, and an answer after the feedback timeout is refused} {
+        lc_seed 64
+        set timeout 800
+        lc_gcreate_timeout $timeout l:idle ALPHA 0.2 DELTA 0.2 SCORE
         set ids {}
-        for {set k 0} {$k < 10} {incr k} {
-            lassign [r gpredict f:deaf SCORE 0.9] action id
-            assert_equal $action AUDIT
+        for {set k 0} {$k < 5} {incr k} {
+            lassign [r gpredict l:idle SCORE 0.9] action id
             lappend ids $id
         }
-        assert_equal [lc_get f:deaf state] ACTIVE
-        after 260
+        after [expr {$timeout / 4 + 50}]
 
-        # Each lost spot check counts as a wrong guess (SPEC section 3), and
-        # that many wrong guesses in a row are what the drift detector is
-        # there for.
-        lassign [r gpredict f:deaf SCORE 0.9] action id
-        assert_equal $action ABSTAIN
-        set i [r ginfo f:deaf]
-        assert_equal [dict get $i revocations] 1
-        assert_equal [dict get $i generation] 0
-        assert_morethan_equal [dict get $i missing] 1
-        assert {[dict get $i state] ne "ACTIVE"}
-        # The answers that come back when the feedback path is repaired are
-        # too old, and they are not proof for the new test.
-        foreach old $ids {
-            assert_equal [r glearn f:deaf $old CORRECT 1] 0
+        # A quarter of the timeout has gone by and the gate is written to,
+        # but no answer waits behind the five late ones: there is nothing
+        # to move on to, and nobody is counted as wrong.
+        lassign [r gpredict l:idle SCORE 0.9] action id
+        lappend ids $id
+        set i [r ginfo l:idle]
+        assert_equal [dict get $i calibration-samples] 0
+        assert_equal [dict get $i pending] 6
+        assert_equal [dict get $i missing] 0
+
+        # The answer of the third request. The first two are in its way and
+        # they are late: proof moves on without them, and no further.
+        assert_equal [r glearn l:idle [lindex $ids 2] CORRECT 1] 1
+        set i [r ginfo l:idle]
+        assert_equal [dict get $i calibration-samples] 3
+        assert_equal [dict get $i pending] 5
+        assert_equal [dict get $i missing] 0
+        # The answer of the sixth: the fourth and the fifth were in its way.
+        assert_equal [r glearn l:idle [lindex $ids 5] CORRECT 1] 1
+        assert_equal [lc_get l:idle calibration-samples] 6
+        assert_equal [lc_get l:idle pending] 4
+
+        # Late answers are used as long as the feedback timeout has not
+        # passed: the first request was right, the fourth was wrong.
+        assert_equal [r glearn l:idle [lindex $ids 0] CORRECT 1] 1
+        assert_equal [r glearn l:idle [lindex $ids 3] CORRECT 0] 1
+        set i [r ginfo l:idle]
+        assert_equal [dict get $i calibration-samples] 6
+        assert_equal [dict get $i pending] 2
+        assert_equal [dict get $i missing] 0
+        assert_equal [dict get $i state] CALIBRATING
+
+        after [expr {$timeout - $timeout / 4}]
+        # The feedback timeout has passed for the second and the fifth
+        # request. Their answers are lost: the ids are forgotten and the
+        # requests are missing.
+        assert_equal [r glearn l:idle [lindex $ids 1] CORRECT 1] 0
+        set i [r ginfo l:idle]
+        assert_equal [dict get $i missing] 2
+        assert_equal [dict get $i pending] 0
+        assert_equal [dict get $i calibration-samples] 6
+        assert_equal [dict get $i state] CALIBRATING
+        assert_equal [r glearn l:idle [lindex $ids 4] CORRECT 1] 0
+
+        # Three right guesses so far (the first, the third and the sixth
+        # request) and three wrong ones: the fourth, and the two that stay
+        # wrong guesses because their answer never came. The proof needs
+        # what it needs after three wrong answers, to the request.
+        assert_equal [lc_calibrate l:idle] [expr {[lc_proof_needed 0.2 0.2 1 3] - 3}]
+        assert_equal [lc_get l:idle missing] 2
+        lc_assert_counters l:idle
+    }
+
+    test {gate lifecycle: with one answer in fifty lost a gate becomes ACTIVE, a quarter of the timeout later and not the whole of it} {
+        lc_seed 63
+        set timeout 800
+        lc_gcreate_timeout $timeout l:lossy ALPHA 0.2 DELTA 0.2 SCORE
+        set start [clock milliseconds]
+        set lost {}
+        for {set n 1} {$n <= 200} {incr n} {
+            lassign [r gpredict l:lossy SCORE 0.9] action id
+            assert_equal $action ABSTAIN
+            if {$n % 50 == 1} {
+                # The teacher failed: there is nothing to report.
+                lappend lost $id
+            } elseif {$n == 200} {
+                # The teacher is still thinking about this one.
+                set slow $id
+            } else {
+                assert_equal [r glearn l:lossy $id CORRECT 1] 1
+            }
         }
-        assert_equal [lc_get f:deaf calibration-samples] 0
-        assert_equal [lc_get f:deaf pending] 1
-        lc_assert_counters f:deaf
+        if {[clock milliseconds] - $start < $timeout / 4 - 10} {
+            # All the answers wait behind the very first request.
+            set i [r ginfo l:lossy]
+            assert_equal [dict get $i state] CALIBRATING
+            assert_equal [dict get $i calibration-samples] 0
+            assert_equal [dict get $i pending] 5
+        }
+        after [expr {$timeout / 4 + 50}]
+
+        # A quarter of the timeout later the next answer finds the lost
+        # ones late: proof moves on without them, each counts as a wrong
+        # guess, and the 196 right ones are proof enough.
+        assert_equal [r glearn l:lossy $slow CORRECT 1] 1
+        set i [r ginfo l:lossy]
+        assert_equal [dict get $i state] ACTIVE
+        assert_equal [dict get $i generation] 1
+        assert_equal [dict get $i calibration-samples] 200
+        assert {[lindex [dict get $i thresholds] 0] == 0}
+        # Nothing was given up for that: the four requests still wait for
+        # their answers.
+        assert_equal [dict get $i pending] 4
+        assert_equal [dict get $i missing] 0
+        for {set k 0} {$k < 20} {incr k} {
+            set action [lc_score l:lossy 0.9 1]
+            assert {$action eq "ACCEPT" || $action eq "AUDIT"}
+        }
+
+        after [expr {$timeout - $timeout / 4}]
+        # Now they are too old: missing counts them, their ids are
+        # forgotten, and that is all a lost answer costs.
+        set action [lc_score l:lossy 0.9 1]
+        assert {$action eq "ACCEPT" || $action eq "AUDIT"}
+        set i [r ginfo l:lossy]
+        assert_equal [dict get $i missing] 4
+        assert_equal [dict get $i pending] 0
+        assert_equal [dict get $i state] ACTIVE
+        assert_equal [dict get $i generation] 1
+        assert_equal [dict get $i revocations] 0
+        foreach id $lost {
+            assert_equal [r glearn l:lossy $id CORRECT 1] 0
+        }
+        lc_assert_counters l:lossy
+    }
+
+    test {gate lifecycle: one late answer never holds up more than 16384 answered requests} {
+        # gate_core.h (EVIDENCE) and CHANGES.md section 2: proof moves on
+        # without a late answer after a quarter of the feedback timeout,
+        # or as soon as more than 16,384 answered requests wait behind it.
+        # The gate has the default timeout: a quarter of it is 15 seconds.
+        lc_seed 62
+        r gcreate l:many ALPHA 0.2 DELTA 0.2 SCORE
+        set start [clock milliseconds]
+        lassign [r gpredict l:many SCORE 0.9] action late
+        for {set k 1} {$k <= 16384} {incr k} {
+            lassign [r gpredict l:many SCORE 0.9] action id
+            if {[r glearn l:many $id CORRECT 1] != 1} {fail "request $k: its answer was not used"}
+        }
+        set waiting [expr {[clock milliseconds] - $start < 14000}]
+        set before [r ginfo l:many]
+        if {$waiting} {
+            assert_equal [dict get $before state] CALIBRATING
+            assert_equal [dict get $before calibration-samples] 0
+        }
+        assert_equal [dict get $before pending] 1
+
+        # One answer more than may wait.
+        lassign [r gpredict l:many SCORE 0.9] action id
+        assert_equal $action ABSTAIN
+        assert_equal [r glearn l:many $id CORRECT 1] 1
+        set i [r ginfo l:many]
+        assert_equal [dict get $i state] ACTIVE
+        assert_equal [dict get $i generation] 1
+        assert_equal [dict get $i calibration-samples] 16386
+        assert_equal [dict get $i pending] 1
+        assert_equal [dict get $i missing] 0
+        # The answers that waited are counted and gone.
+        if {$waiting} {assert_lessthan [dict get $i memory] [expr {[dict get $before memory] / 10}]}
+
+        # The late answer is still wanted, and still used.
+        assert_equal [r glearn l:many $late CORRECT 1] 1
+        assert_equal [lc_get l:many pending] 0
+        assert_equal [lc_get l:many state] ACTIVE
+        lc_assert_counters l:many
+    }
+
+    test {gate lifecycle: whatever the order and the delay of the answers, a gate proves what the betting test of SPEC section 5 proves} {
+        # 8 rounds of 40 requests to a gate with AUDIT 1, checked after
+        # every command against lc_model_*, the specification written down
+        # a second time. Of the answers, about 7 in 10 come within the round
+        # (in any order), 2 in 10 one or two rounds later, when proof has
+        # moved on without them, and one per round never. Between two
+        # rounds more than a quarter of the feedback timeout goes by.
+        lc_seed 67
+        lc_srand 67
+        set timeout 600
+        set rounds 8
+        lc_gcreate_timeout $timeout l:model ALPHA 0.2 DELTA 0.2 AUDIT 1 SCORE
+        lc_model_init 0.2 0.2
+        unset -nocomplain model_due model_id model_right model_round model_began
+        # The model holds as long as the test keeps to its schedule: a round
+        # takes less than a quarter of the timeout, and an answer comes
+        # before the timeout of its request. If the machine was too slow
+        # for that, the comparison ends there.
+        set on_schedule 1
+        set alarm 0
+        set late_spot_checks 0
+        for {set round 1} {$round <= $rounds && $on_schedule && !$alarm} {incr round} {
+            set model_began($round) [clock milliseconds]
+            # The commands of this round: 40 requests, and the answers due
+            # from earlier rounds, each at a place of its own.
+            set todo {}
+            for {set k 0} {$k < 40} {incr k} {lappend todo ask}
+            if {[info exists model_due($round)]} {
+                foreach seq $model_due($round) {
+                    set todo [linsert $todo [lc_rand [expr {[llength $todo] + 1}]] [list answer $seq]]
+                }
+            }
+            set lost 0
+            for {set k 0} {$k < [llength $todo] && !$alarm} {incr k} {
+                set step [lindex $todo $k]
+                if {$step eq "ask"} {
+                    # Scores never fall on a threshold. The cheap result is
+                    # wrong half of the time below 0.1 and nearly always
+                    # right above.
+                    set score [expr {([lc_rand 1000] + 0.5) / 1000}]
+                    set correct [expr {[lc_rand 100] >= ($score < 0.1 ? 50 : 1)}]
+                    lassign [lc_model_predict $score $round] want seq
+                    lassign [r gpredict l:model SCORE $score] action id
+                    set what "round $round, request $seq at $score"
+                    set model_id($seq) $id
+                    set model_right($seq) $correct
+                    set model_round($seq) $round
+                    set fate [lc_rand 100]
+                    if {$fate >= 92 && $lost < 1} {
+                        incr lost
+                    } elseif {$fate >= 70 && $fate < 92 && $round <= $rounds - 2} {
+                        lappend model_due([expr {$round + ($fate < 85 ? 1 : 2)}]) $seq
+                        if {$want eq "AUDIT"} {incr late_spot_checks}
+                    } else {
+                        set place [expr {$k + 1 + [lc_rand [expr {[llength $todo] - $k}]]}]
+                        set todo [linsert $todo $place [list answer $seq]]
+                    }
+                } else {
+                    set seq [lindex $step 1]
+                    set what "round $round, the answer of request $seq"
+                    set alarm [lc_model_learn $seq $model_right($seq) $round]
+                    set used [r glearn l:model $model_id($seq) CORRECT $model_right($seq)]
+                }
+                set now [clock milliseconds]
+                if {$now - $model_began($round) >= $timeout / 4 - 10 ||
+                    ($step ne "ask" && $now - $model_began($model_round($seq)) >= $timeout - 10)} {
+                    set on_schedule 0
+                    break
+                }
+                if {$step eq "ask"} {
+                    assert_equal $action $want $what
+                    assert {$id ne {}}
+                } else {
+                    assert_equal $used 1 $what
+                }
+                if {$alarm} {
+                    # Too many failed spot checks in a row: the gate has
+                    # stopped answering and tests itself again.
+                    assert_equal [lc_get l:model revocations] 1 $what
+                    assert_equal [lc_get l:model generation] 0 $what
+                } else {
+                    lc_model_check l:model $what
+                }
+            }
+            after [expr {$timeout / 4 + 20}]
+        }
+        if {$on_schedule} {
+            # What these 320 requests are there for: the gate proved a
+            # threshold, went on to prove the lowest one, and had spot
+            # checks that failed and spot checks that were answered late.
+            assert_equal $alarm 0
+            assert_equal $::lc_m(policy) 0
+            assert_morethan $::lc_m(audit_errors) 0
+            assert_morethan $late_spot_checks 0
+            assert_equal [lc_get l:model state] ACTIVE
+            # The feedback timeout passes for every request that is still
+            # without its answer: they stay wrong guesses, and are missing.
+            after [expr {$timeout + 20}]
+            assert_equal [r gresume l:model] OK
+            lc_model_give_up
+            lc_model_check l:model "after the feedback timeout"
+            set i [r ginfo l:model]
+            assert_equal [dict get $i pending] 0
+            assert_equal [dict get $i missing] $::lc_m(unanswered)
+            assert_morethan [dict get $i missing] 0
+            assert_equal [dict get $i calibration-samples] [expr {40 * $rounds}]
+            assert_equal [dict get $i revocations] 0
+            assert_equal [dict get $i generation] 1
+        }
+        lc_assert_counters l:model
     }
 
     test {gate lifecycle: with 4096 requests waiting a gate abstains without an id until answers arrive} {
@@ -878,7 +1479,10 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         # feedback, and lost feedback costs a little coverage instead of
         # shutting the gate. Here one request never gets its answer and
         # every other request is answered at once: at any moment one
-        # request is waiting for feedback, not 4096.
+        # request is waiting for feedback, not 4096. (The answers wait for
+        # their turn behind the lost one, for 15 seconds at most with the
+        # default timeout; a request that has its answer does not wait for
+        # feedback.)
         lc_seed 20
         r gcreate f:one ALPHA 0.2 DELTA 0.2 SCORE
         lassign [r gpredict f:one SCORE 0.9] action lost
@@ -892,7 +1496,423 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             if {$id ne {}} {assert_equal [r glearn f:one $id CORRECT 1] 1}
         }
         assert_lessthan_equal [lc_get f:one pending] 1
+        assert_equal [lc_get f:one requests] 4501
         lc_assert_counters f:one
+    }
+}
+
+# ============================ No answers at all ===========================
+
+start_server [list tags {"modules external:skip"} overrides [list loadmodule $gatemodule]] {
+
+    test {gate lifecycle: a gate whose answers stop keeps answering until 32 requests in a row have ended unanswered, then stops} {
+        # SPEC section 3, "No answers at all", and section 5: answers
+        # missing in a row before the gate stops, 32.
+        lc_seed 17
+        lc_gcreate_timeout 300 o:s ALPHA 0.2 DELTA 0.2 AUDIT 0.5 SCORE
+        assert_equal [lc_calibrate o:s] [lc_proof_needed 0.2 0.2 1]
+        assert {[lc_threshold o:s] == 0}
+
+        # The feedback path breaks: no spot check gets its answer any more.
+        set start [clock milliseconds]
+        lc_lose_audits o:s 31
+        assert_equal [lc_get o:s state] ACTIVE
+        if {[clock milliseconds] - $start < 290} {assert_equal [lc_get o:s pending] 31}
+        after 350
+
+        # 31 requests have ended without an answer, one short of the limit.
+        # The gate answers.
+        lassign [r gpredict o:s SCORE 0.9] action id
+        assert {$action eq "ACCEPT" || $action eq "AUDIT"}
+        set i [r ginfo o:s]
+        assert_equal [dict get $i missing] 31
+        assert_equal [dict get $i pending] [expr {$action eq "AUDIT"}]
+        assert_equal [dict get $i state] ACTIVE
+        assert_equal [dict get $i generation] 1
+        assert_equal [dict get $i revocations] 0
+        # A spot check without an answer is not a spot check that failed.
+        assert_equal [dict get $i audit-samples] 0
+        assert_equal [dict get $i audit-errors] 0
+
+        # One more spot check is lost.
+        if {$action ne "AUDIT"} {lc_lose_audits o:s 1}
+        assert_equal [lc_get o:s state] ACTIVE
+        after 350
+
+        # 32 in a row, and no answer in between: the feedback path is
+        # broken and the gate cannot check itself. It has stopped.
+        lassign [r gpredict o:s SCORE 0.9] action id
+        assert_equal $action ABSTAIN
+        assert {$id ne {}}
+        set i [r ginfo o:s]
+        assert_equal [dict get $i state] COLD
+        assert_equal [dict get $i generation] 0
+        assert_equal [dict get $i candidate] 0
+        assert_equal [lindex [dict get $i thresholds] 0] {}
+        assert_equal [dict get $i revocations] 1
+        assert_equal [dict get $i missing] 32
+        assert {[dict get $i coverage] == 0}
+        # Until then it did answer.
+        assert_morethan [dict get $i accepted] 0
+        # Not one more request is answered, whatever its score.
+        foreach score {1 0.9 0.5 0} {
+            lassign [r gpredict o:s SCORE $score] action id
+            assert_equal $action ABSTAIN "score $score"
+        }
+        lc_assert_counters o:s
+    }
+
+    test {gate lifecycle: during an outage every request gets an id and no snapshot is taken; the first answer starts a new test} {
+        lc_seed 18
+        set ids [list [lc_outage o:ids]]
+        set i [r ginfo o:ids]
+        assert_equal [dict get $i state] COLD
+        assert_equal [dict get $i revocations] 1
+        assert_equal [dict get $i missing] 32
+
+        # The gate needs one answer to start again, so it asks for one with
+        # every request, whatever the score.
+        for {set k 0} {$k < 40} {incr k} {
+            lassign [r gpredict o:ids SCORE [lindex {0.9 0.1 1 0} [expr {$k % 4}]]] action id
+            assert_equal $action ABSTAIN
+            assert {$id ne {} && $id ni $ids}
+            lappend ids $id
+        }
+        set i [r ginfo o:ids]
+        if {[clock milliseconds] - $::lc_outage_found < 290} {assert_equal [dict get $i pending] 41}
+        assert_equal [dict get $i state] COLD
+        assert_equal [dict get $i candidate] 0
+        after 350
+
+        # Still no answer, and these requests are too old now. Nothing was
+        # being tested, so they are not missing proof, and the outage has
+        # not used up a snapshot number.
+        lassign [r gpredict o:ids SCORE 0.9] action id
+        assert_equal $action ABSTAIN
+        assert {$id ne {} && $id ni $ids}
+        set i [r ginfo o:ids]
+        assert_equal [dict get $i state] COLD
+        assert_equal [dict get $i generation] 0
+        assert_equal [dict get $i candidate] 0
+        assert_equal [dict get $i missing] 32
+        assert_equal [dict get $i pending] 1
+        assert_equal [dict get $i revocations] 1
+        # An answer that comes too late is refused, and starts nothing.
+        assert_equal [r glearn o:ids [lindex $ids 0] CORRECT 1] 0
+        assert_equal [r glearn o:ids [lindex $ids 5] CORRECT 1] 0
+        assert_equal [lc_get o:ids state] COLD
+
+        # The feedback path is repaired: the first answer that is used.
+        assert_equal [r glearn o:ids $id CORRECT 1] 1
+        set i [r ginfo o:ids]
+        assert_equal [dict get $i state] CALIBRATING
+        assert_equal [dict get $i candidate] 2
+        assert_equal [dict get $i generation] 0
+        assert_equal [dict get $i pending] 0
+        # That request was asked while nothing was tested: it proves nothing.
+        assert_equal [dict get $i calibration-samples] 0
+
+        # The gate proves itself again, as snapshot 2 with the smaller
+        # share of the budget that goes with that number.
+        assert_equal [lc_calibrate o:ids] [lc_proof_needed 0.2 0.2 2]
+        set i [r ginfo o:ids]
+        assert_equal [dict get $i state] ACTIVE
+        assert_equal [dict get $i generation] 2
+        assert_equal [dict get $i revocations] 1
+        assert_equal [dict get $i missing] 32
+        lassign [r gpredict o:ids SCORE 0.9] action id
+        assert_equal $action AUDIT
+        assert_equal [r glearn o:ids $id CORRECT 1] 1
+        lc_assert_counters o:ids
+    }
+
+    test {gate lifecycle: fewer than 32 lost answers in a row do not stop a gate} {
+        lc_seed 19
+        lc_gcreate_timeout 300 o:burst ALPHA 0.2 DELTA 0.2 AUDIT 0.5 SCORE
+        lc_calibrate o:burst
+        set thr [lc_threshold o:burst]
+        for {set burst 1} {$burst <= 2} {incr burst} {
+            lc_lose_audits o:burst 31
+            after 350
+            # An answer arrives: the feedback path works, and the run of
+            # lost answers is over.
+            set answered 0
+            for {set k 0} {$k < 200 && !$answered} {incr k} {
+                lassign [r gpredict o:burst SCORE 0.9] action id
+                assert {$action eq "ACCEPT" || $action eq "AUDIT"}
+                if {$action eq "AUDIT"} {
+                    assert_equal [r glearn o:burst $id CORRECT 1] 1
+                    set answered 1
+                }
+            }
+            assert {$answered}
+            set i [r ginfo o:burst]
+            assert_equal [dict get $i missing] [expr {31 * $burst}] "burst $burst"
+            assert_equal [dict get $i state] ACTIVE "burst $burst"
+        }
+        # 62 answers were lost, never 32 in a row. That costs nothing but
+        # the proof they would have been: same snapshot, same threshold, no
+        # failed spot check.
+        set i [r ginfo o:burst]
+        assert_equal [dict get $i generation] 1
+        assert_equal [dict get $i candidate] 0
+        assert_equal [dict get $i revocations] 0
+        assert_equal [lindex [dict get $i thresholds] 0] $thr
+        assert_equal [dict get $i audit-samples] 2
+        assert_equal [dict get $i audit-errors] 0
+        assert_equal [dict get $i pending] 0
+        assert_morethan [dict get $i accepted] 0
+        lc_assert_counters o:burst
+    }
+
+    test {gate lifecycle: lost answers with answers in between do not stop a gate, however many of them are given up at once} {
+        # SPEC section 3: when 32 requests in a row end without an answer
+        # and no answer arrives in between, the feedback path is broken.
+        # Here it works, nine times in ten: of 400 spot checks every tenth
+        # gets no answer, the others get theirs at once. Then the gate is
+        # left alone until the 40 are too old, so that the next command
+        # gives them all up together (a gate does its bookkeeping when it
+        # is written to). 40 lost answers, and never two in a row.
+        lc_seed 24
+        lc_gcreate_timeout 400 o:tenth ALPHA 0.2 DELTA 0.2 AUDIT 1 SCORE
+        lc_calibrate o:tenth
+        for {set n 1} {$n <= 400} {incr n} {
+            lassign [r gpredict o:tenth SCORE 0.9] action id
+            assert_equal $action AUDIT
+            if {$n % 10} {assert_equal [r glearn o:tenth $id CORRECT 1] 1}
+        }
+        assert_equal [lc_get o:tenth audit-samples] 360
+        after 450
+
+        lassign [r gpredict o:tenth SCORE 0.9] action id
+        set i [r ginfo o:tenth]
+        assert_equal [dict get $i state] ACTIVE \
+            "360 of 400 spot checks were answered, and the gate stopped (missing [dict get $i missing],\
+             revocations [dict get $i revocations])"
+        assert_equal $action AUDIT
+        assert_equal [dict get $i generation] 1
+        assert_equal [dict get $i revocations] 0
+        # A lost answer costs a little coverage and nothing else.
+        assert_equal [dict get $i missing] 40
+        assert_equal [dict get $i audit-samples] 360
+        assert_equal [dict get $i audit-errors] 0
+        assert {[lc_threshold o:tenth] == 0}
+        lc_assert_counters o:tenth
+    }
+
+    test {gate lifecycle: a gate that is still calibrating when its answers stop stops testing, and never becomes ACTIVE without answers} {
+        lc_seed 20
+        lc_gcreate_timeout 300 o:cal ALPHA 0.2 DELTA 0.2 SCORE
+        for {set k 0} {$k < 10} {incr k} {
+            assert_equal [lc_score o:cal 0.9 1] ABSTAIN
+        }
+        assert_equal [lc_get o:cal calibration-samples] 10
+
+        # The outage: 31 requests without an answer.
+        for {set k 0} {$k < 31} {incr k} {
+            lassign [r gpredict o:cal SCORE 0.9] action id
+            assert_equal $action ABSTAIN
+            assert {$id ne {}}
+        }
+        after 350
+        # And one more.
+        lassign [r gpredict o:cal SCORE 0.9] action id
+        assert_equal $action ABSTAIN
+        set i [r ginfo o:cal]
+        assert_equal [dict get $i state] CALIBRATING
+        assert_equal [dict get $i candidate] 1
+        assert_equal [dict get $i missing] 31
+        # Each of them counts as a wrong guess.
+        assert_equal [dict get $i calibration-samples] 41
+        after 350
+
+        # 32 in a row: the test of snapshot 1 is over. The gate was not
+        # answering, so there is nothing it stopped doing.
+        set ids {}
+        for {set k 0} {$k < 60} {incr k} {
+            lassign [r gpredict o:cal SCORE 0.9] action id
+            assert_equal $action ABSTAIN
+            assert {$id ne {} && $id ni $ids}
+            lappend ids $id
+        }
+        set i [r ginfo o:cal]
+        assert_equal [dict get $i state] COLD
+        assert_equal [dict get $i generation] 0
+        assert_equal [dict get $i candidate] 0
+        assert_equal [dict get $i missing] 32
+        assert_equal [dict get $i revocations] 0
+        assert_equal [dict get $i calibration-samples] 0
+        assert_equal [dict get $i accepted] 0
+        assert_equal [dict get $i audited] 0
+
+        # The answers come back: the first one starts the test of snapshot
+        # 2, and the gate is proven by the answers it gets from then on.
+        assert_equal [r glearn o:cal [lindex $ids end] CORRECT 1] 1
+        set i [r ginfo o:cal]
+        assert_equal [dict get $i state] CALIBRATING
+        assert_equal [dict get $i candidate] 2
+        assert_equal [dict get $i calibration-samples] 0
+        # Answers of requests asked during the outage are welcome, and
+        # prove nothing.
+        assert_equal [r glearn o:cal [lindex $ids end-1] CORRECT 1] 1
+        assert_equal [lc_get o:cal calibration-samples] 0
+        assert_equal [lc_calibrate o:cal] [lc_proof_needed 0.2 0.2 2]
+        set i [r ginfo o:cal]
+        assert_equal [dict get $i state] ACTIVE
+        assert_equal [dict get $i generation] 2
+        assert_equal [dict get $i revocations] 0
+        lc_assert_counters o:cal
+    }
+
+    test {gate lifecycle: a classifier whose answers stop keeps what it learned, and is tested again at the first answer} {
+        lc_seed 21
+        r config set gate.feedback-timeout 300
+        lc_exact_gate o:c {ignore respond} AUDIT 1
+        r config set gate.feedback-timeout 60000
+        set need [lc_proof_needed 0.2 0.2 1 0 2]
+        for {set n 0} {$n < $need} {incr n} {
+            lc_exact_ask o:c ignore
+            lc_exact_ask o:c respond
+        }
+        set i [r ginfo o:c]
+        assert_equal [dict get $i state] ACTIVE
+        assert_equal [dict get $i generation] 1
+        assert_equal [dict get $i candidate] 2
+        assert_equal [dict get $i thresholds] {0.5 0.5}
+        set learned [dict get $i learned]
+        assert_equal $learned [expr {40 + 2 * $need}]
+
+        # 30 spot checks without an answer, then one with: fewer than 32
+        # in a row.
+        for {set k 0} {$k < 30} {incr k} {
+            lassign [r gpredict o:c TEXT $::lc_one([lindex {ignore respond} [expr {$k % 2}]])] action id
+            assert_equal $action AUDIT
+        }
+        after 350
+        assert_equal [lc_exact_ask o:c ignore] AUDIT
+        incr learned
+        set i [r ginfo o:c]
+        assert_equal [dict get $i missing] 30
+        assert_equal [dict get $i state] ACTIVE
+        assert_equal [dict get $i generation] 1
+        assert_equal [dict get $i revocations] 0
+        # Missing answers say nothing about the model: they are not failed
+        # spot checks, and nothing is forgotten.
+        assert_equal [dict get $i audit-samples] 1
+        assert_equal [dict get $i audit-errors] 0
+        assert_equal [dict get $i learned] $learned
+        assert_equal [dict get $i candidate] 2
+
+        # The outage: 32 in a row.
+        for {set k 0} {$k < 32} {incr k} {
+            lassign [r gpredict o:c TEXT $::lc_one([lindex {ignore respond} [expr {$k % 2}]])] action id
+            assert_equal $action AUDIT
+        }
+        after 350
+        lassign [r gpredict o:c TEXT $::lc_one(ignore)] action id
+        assert_equal $action ABSTAIN
+        assert {$id ne {}}
+        set i [r ginfo o:c]
+        assert_equal [dict get $i state] COLD
+        assert_equal [dict get $i generation] 0
+        assert_equal [dict get $i candidate] 0
+        assert_equal [dict get $i thresholds] {{} {}}
+        assert_equal [dict get $i revocations] 1
+        assert_equal [dict get $i missing] 62
+        # The gate stopped answering. It did not forget its model.
+        assert_equal [dict get $i learned] $learned
+
+        # The first answer: the model the gate kept is frozen and tested
+        # at once, under the next snapshot number.
+        assert_equal [r glearn o:c $id LABEL ignore] 1
+        incr learned
+        set i [r ginfo o:c]
+        assert_equal [dict get $i state] CALIBRATING
+        assert_equal [dict get $i candidate] 3
+        assert_equal [dict get $i generation] 0
+        assert_equal [dict get $i learned] $learned
+        # It knows the answers already: one label is proven by exactly the
+        # correct answers snapshot 3 needs.
+        set need [lc_proof_needed 0.2 0.2 3 0 2]
+        for {set n 1} {$n <= $need} {incr n} {
+            assert_equal [lc_get o:c state] CALIBRATING "after [expr {$n - 1}] of $need answers"
+            assert_equal [lc_exact_ask o:c ignore] ABSTAIN
+        }
+        set i [r ginfo o:c]
+        assert_equal [dict get $i state] ACTIVE
+        assert_equal [dict get $i generation] 3
+        assert_equal [dict get $i thresholds] {0.5 {}}
+        assert_equal [dict get $i revocations] 1
+        lc_assert_counters o:c
+    }
+
+    test {gate lifecycle: GRESET during an outage starts a new test at once} {
+        lc_seed 22
+        set id [lc_outage o:reset]
+        assert_equal [lc_get o:reset state] COLD
+        assert_equal [lc_get o:reset candidate] 0
+
+        assert_equal [r greset o:reset] OK
+        set i [r ginfo o:reset]
+        assert_equal [dict get $i state] CALIBRATING
+        assert_equal [dict get $i candidate] 2
+        assert_equal [dict get $i generation] 0
+        foreach field {requests accepted audited abstained audit-samples audit-errors
+                       calibration-samples pending missing revocations} {
+            assert_equal [dict get $i $field] 0 $field
+        }
+        # The id from before the reset is refused.
+        assert_equal [r glearn o:reset $id CORRECT 1] 0
+        assert_equal [lc_calibrate o:reset] [lc_proof_needed 0.2 0.2 2]
+        assert_equal [lc_get o:reset state] ACTIVE
+        assert_equal [lc_get o:reset generation] 2
+        lc_assert_counters o:reset
+    }
+
+    test {gate lifecycle: what an outage leaves behind does not depend on when the gate was written to} {
+        # Two gates, the same requests and the same answers: 32 spot checks
+        # lost, one answered at once, seven more lost. The second gate is
+        # written to a quarter of the timeout later (a GRESUME that changes
+        # nothing), so its proof moves on without the lost answers before
+        # they are too old. The first gate is left alone until they are.
+        # Whatever a gate makes of 39 lost answers, 32 of them in a row:
+        # it is the same 39 answers for both.
+        set timeout 800
+        foreach key {o:quiet o:written} {
+            lc_seed 23
+            lc_gcreate_timeout $timeout $key ALPHA 0.2 DELTA 0.2 AUDIT 1 SCORE
+            lc_calibrate $key
+        }
+        foreach key {o:quiet o:written} {
+            for {set k 0} {$k < 40} {incr k} {
+                lassign [r gpredict $key SCORE 0.9] action id
+                assert_equal $action AUDIT
+                if {$k == 32} {assert_equal [r glearn $key $id CORRECT 1] 1}
+            }
+        }
+        after [expr {$timeout / 4 + 50}]
+        assert_equal [r gresume o:written] OK
+        # Its proof has moved on: 32 wrong guesses for now, and the right one.
+        set i [r ginfo o:written]
+        assert_equal [dict get $i calibration-samples] [expr {[lc_proof_needed 0.2 0.2 1] + 33}]
+        assert_equal [dict get $i missing] 0
+        assert_equal [dict get $i state] ACTIVE
+        after $timeout
+
+        set replies {}
+        foreach key {o:quiet o:written} {
+            lassign [r gpredict $key SCORE 0.9] action id
+            assert {$id ne {}}
+            lappend replies $action
+        }
+        assert_equal [lindex $replies 1] [lindex $replies 0]
+        set quiet [r ginfo o:quiet]
+        set written [r ginfo o:written]
+        foreach field {state generation candidate thresholds calibration-samples pending missing
+                       revocations audit-samples audit-errors requests accepted audited abstained} {
+            assert_equal [dict get $written $field] [dict get $quiet $field] \
+                "$field of the gate that was written to (first) and of the gate that was not (second)"
+        }
     }
 }
 
@@ -1197,9 +2217,15 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             }
         }
         # A gross failure is caught after a handful of spot checks, not
-        # after one.
+        # after one. SPEC section 5 says after how many: the detector
+        # multiplies two likelihood ratios, by 0.4 / 0.2 = 2 and by
+        # 0.6 / 0.2 = 3 for a failed spot check (twice and four times the
+        # error rate, the latter at most halfway to 1), and sounds the alarm
+        # when their average reaches 1,000. What the gate did right before
+        # does not count in its favour, so the ratios start from 1:
+        # (2^6 + 3^6) / 2 = 396.5 and (2^7 + 3^7) / 2 = 1157.5.
         assert_equal $action ABSTAIN
-        assert_range $wrong_audits 2 10
+        assert_equal $wrong_audits 7
         assert_lessthan $wrong_accepts 60
         set i [r ginfo d:s]
         assert_equal [dict get $i state] CALIBRATING
@@ -1240,6 +2266,8 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             lassign [r gpredict d:lost SCORE 0.9] action lost
         }
         assert {$lost ne {}}
+        set before [r ginfo d:lost]
+        assert_equal [dict get $before audit-errors] 0
 
         # Now the cheap result is wrong every time, and every spot check
         # says so.
@@ -1252,15 +2280,83 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             } elseif {$action eq "AUDIT"} {
                 incr wrong_audits
                 assert_equal [r glearn d:lost $id CORRECT 0] 1
+                if {$wrong_audits < 7} {
+                    # As proof this answer waits for its turn behind the
+                    # lost one (for 15 seconds, with the default timeout).
+                    # The drift detector has heard of it already.
+                    set i [r ginfo d:lost]
+                    assert_equal [dict get $i state] ACTIVE
+                    assert_equal [dict get $i audit-errors] $wrong_audits
+                    assert_equal [dict get $i audit-samples] [expr {[dict get $before audit-samples] + $wrong_audits}]
+                    assert_equal [dict get $i calibration-samples] [dict get $before calibration-samples]
+                }
             } else {
                 break
             }
         }
         assert_equal $action ABSTAIN \
             "still answering after $wrong_audits failed spot checks in a row and $wrong_accepts wrong answers"
-        assert_lessthan_equal $wrong_audits 40
-        assert_equal [lc_get d:lost revocations] 1
-        assert {[lc_get d:lost state] ne "ACTIVE"}
+        # Seven failed spot checks in a row raise the alarm, with or without
+        # an older spot check that is still unanswered (see the test above).
+        assert_equal $wrong_audits 7
+        set i [r ginfo d:lost]
+        assert_equal [dict get $i revocations] 1
+        assert_equal [dict get $i state] CALIBRATING
+        assert_equal [dict get $i generation] 0
+        assert_equal [dict get $i candidate] 2
+        assert_equal [dict get $i missing] 0
+        # The spot check that was lost belongs to the snapshot that is
+        # gone: its answer, if it comes after all, proves nothing.
+        r glearn d:lost $lost CORRECT 1
+        assert_equal [lc_get d:lost calibration-samples] 0
+        assert_equal [lc_get d:lost state] CALIBRATING
+        lc_assert_counters d:lost
+    }
+
+    test {gate lifecycle: a failed spot check counts the moment its answer arrives, late or not} {
+        # Seven spot checks whose answers are late: proof has moved on
+        # without them when they arrive, one after the other, each of them
+        # saying that the cheap result was wrong.
+        lc_seed 30
+        set timeout 2000
+        lc_gcreate_timeout $timeout d:late ALPHA 0.2 DELTA 0.2 AUDIT 1 SCORE
+        lc_calibrate d:late
+        set late {}
+        for {set k 0} {$k < 7} {incr k} {
+            lassign [r gpredict d:late SCORE 0.9] action id
+            assert_equal $action AUDIT
+            lappend late $id
+        }
+        assert_equal [lc_score d:late 0.9 1] AUDIT
+        after [expr {$timeout / 4 + 50}]
+        assert_equal [lc_score d:late 0.9 1] AUDIT
+        set i [r ginfo d:late]
+        assert_equal [dict get $i state] ACTIVE
+        assert_equal [dict get $i pending] 7
+        assert_equal [dict get $i audit-samples] 2
+        assert_equal [dict get $i audit-errors] 0
+        set samples [dict get $i calibration-samples]
+
+        set failed 0
+        foreach id $late {
+            assert_equal [lc_get d:late state] ACTIVE "after $failed failed spot checks"
+            assert_equal [r glearn d:late $id CORRECT 0] 1
+            incr failed
+            if {$failed < 7} {
+                set i [r ginfo d:late]
+                assert_equal [dict get $i audit-samples] [expr {2 + $failed}]
+                assert_equal [dict get $i audit-errors] $failed
+                # As proof they were wrong guesses already.
+                assert_equal [dict get $i calibration-samples] $samples
+            }
+        }
+        set i [r ginfo d:late]
+        assert_equal [dict get $i revocations] 1
+        assert_equal [dict get $i state] CALIBRATING
+        assert_equal [dict get $i generation] 0
+        assert_equal [dict get $i candidate] 2
+        assert_equal [dict get $i pending] 0
+        lc_assert_counters d:late
     }
 }
 
@@ -1496,11 +2592,73 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert_morethan $first_at(ignore) 0
         assert_morethan $first_at(respond) $first_at(ignore)
         assert_morethan $req_then(respond) $req_then(ignore)
-        # The best a bet at 0.05 can do is grow by 1 + 0.9 * 0.05 / 0.95 on
-        # a correct answer, and no share of the budget is larger than DELTA:
-        # fewer than log(1 / 0.2) / log(1.0474) = 35 answers prove nothing.
-        assert_morethan_equal $req_then(respond) 35
+        # A label is proven by correct answers with that label, and SPEC
+        # section 5 says how many it takes at the very least: the betting
+        # test at the label's own error rate, against the share of the
+        # budget one of 2 x 32 thresholds of the first snapshot gets. (A
+        # later snapshot needs more.)
+        assert_morethan_equal $req_then(ignore) [lc_proof_needed 0.2 0.2 1 0 2]
+        assert_morethan_equal $req_then(respond) [lc_proof_needed 0.05 0.2 1 0 2]
         lc_assert_counters c:strict
+    }
+
+    test {gate lifecycle: a label is answered after exactly the proof SPEC section 5 asks for, counted for that label alone} {
+        # lc_exact_gate: a snapshot that is never wrong. Every answer to
+        # the message of a label is one correct answer for that label, and
+        # the label gets its threshold with the answer that takes the
+        # wealth of its test to 32 x labels x 1 x 2 / DELTA. "Labels" are
+        # the labels the gate may answer; a stricter CLASSALPHA makes every
+        # correct answer worth less. The lowest of the 32 thresholds is
+        # max(1 / classes, 0.25): a snapshot that is always right is
+        # answered from there.
+        foreach {labels options alphas tested} {
+            {ignore respond}           {}                                              {0.2 0.2}     2
+            {ignore respond}           {CLASSALPHA 1 respond 0.05}                     {0.2 0.05}    2
+            {ignore respond escalate}  {}                                              {0.2 0.2 0.2} 3
+            {ignore respond escalate}  {ALWAYSDEFER 1 escalate}                        {0.2 0.2 0}   2
+            {escalate respond ignore}  {CLASSALPHA 1 ignore 0.1 ALWAYSDEFER 1 escalate} {0 0.2 0.1}   2
+        } {
+            lc_seed 46
+            r del c:exact
+            lc_exact_gate c:exact $labels {*}$options
+            set what "CLASSES $labels $options"
+            foreach got [lc_get c:exact alphas] want $alphas {
+                assert {$got == $want}
+            }
+            set lowest [expr {max(1.0 / [llength $labels], 0.25)}]
+            set k 0
+            foreach label $labels alpha $alphas {
+                if {$alpha == 0} {
+                    # Never tested, never answered, however often the gate
+                    # is right about it. The gate still learns from it.
+                    for {set n 0} {$n < 60} {incr n} {
+                        assert_equal [lc_exact_ask c:exact $label] ABSTAIN
+                    }
+                    assert_equal [lindex [lc_get c:exact thresholds] $k] {} "$what: $label"
+                } else {
+                    set need [lc_proof_needed $alpha 0.2 1 0 $tested]
+                    for {set n 1} {$n <= $need} {incr n} {
+                        assert_equal [lindex [lc_get c:exact thresholds] $k] {} \
+                            "$what: $label after [expr {$n - 1}] of $need correct answers"
+                        assert_equal [lc_exact_ask c:exact $label] ABSTAIN
+                    }
+                    set threshold [lindex [lc_get c:exact thresholds] $k]
+                    if {$threshold eq {} || abs($threshold - $lowest) > 1e-9} {
+                        fail "$what: threshold '$threshold' of $label after $need correct answers"
+                    }
+                    assert_equal [lc_get c:exact state] ACTIVE
+                    assert_equal [lc_get c:exact generation] 1
+                }
+                incr k
+            }
+            # Proven is proven: the labels that were first still have their
+            # thresholds.
+            foreach alpha $alphas threshold [lc_get c:exact thresholds] {
+                assert_equal [expr {$threshold ne {}}] [expr {$alpha != 0}] $what
+            }
+            assert_equal [lc_get c:exact revocations] 0
+            lc_assert_counters c:exact
+        }
     }
 
     test {gate lifecycle: FEATURES decide the answer when the text does not} {
@@ -1589,13 +2747,19 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         lc_srand 39
         r config set gate.snapshot-examples 100
         r gcreate c:coin ALPHA 0.2 DELTA 0.2 CLASSES 2 ignore respond
+        set tried {}
         for {set n 1} {$n <= 3000} {incr n} {
             # The teacher tosses a coin, whatever the message says.
             set text [lc_message [lc_pick {ignore respond}]]
             set label [lc_pick {ignore respond}]
             lassign [r gpredict c:coin TEXT $text] action id
-            if {$action ne "ABSTAIN"} {fail "request $n: $action"}
-            if {$id ne {}} {r glearn c:coin $id LABEL $label}
+            if {$action ne "ABSTAIN" || $id eq {}} {fail "request $n: '$action' '$id'"}
+            assert_equal [r glearn c:coin $id LABEL $label] 1
+            # The request at which each snapshot was taken.
+            if {[llength $tried] < 3 && [lc_get c:coin candidate] > [llength $tried]} {
+                lappend tried $n
+                assert_equal [lc_get c:coin candidate] [llength $tried]
+            }
         }
         set i [r ginfo c:coin]
         assert {[dict get $i state] ne "ACTIVE"}
@@ -1607,6 +2771,20 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         # A snapshot that proves nothing is dropped and the next one is
         # tried, under a new number.
         assert_morethan [dict get $i candidate] 1
+        # SPEC section 5 says when: after 10 times the proof a flawless
+        # threshold needs, per label. Here every answer is proof for the
+        # snapshot being tested, and both labels may be answered. A
+        # flawless threshold needs lc_proof_needed correct answers, and
+        # could never do with fewer than lc_proof_floor: each snapshot
+        # lasted between 10 x 2 times the one and 10 x 2 times the other,
+        # and the next one was taken with the answer that ended it.
+        assert_equal [llength $tried] 3
+        assert_equal [lindex $tried 0] 100
+        foreach snapshot {1 2} {
+            set lasted [expr {[lindex $tried $snapshot] - [lindex $tried $snapshot-1]}]
+            assert_range $lasted [expr {10 * 2 * [lc_proof_floor 0.2 0.2 $snapshot 2]}] \
+                [expr {10 * 2 * [lc_proof_needed 0.2 0.2 $snapshot 0 2]}]
+        }
         lc_assert_counters c:coin
     }
 
@@ -1669,17 +2847,24 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert_equal [lc_get d:c state] ACTIVE
         set first [lc_get d:c generation]
 
+        set learned [lc_get d:c learned]
+        assert_morethan $learned 300
+
         # From now on the teacher answers the other label.
         set wrong 0
+        set failed 0
         for {set n 1} {$n <= 400} {incr n} {
             set label [lc_pick {ignore respond}]
             lassign [r gpredict d:c TEXT [lc_message $label]] action arg
             if {$action eq "ACCEPT"} {
                 if {$arg ne [lc_other $label]} {incr wrong}
             } elseif {$arg ne {}} {
+                if {$action eq "AUDIT"} {incr failed}
                 r glearn d:c $arg LABEL [lc_other $label]
             }
             if {[lc_get d:c revocations] > 0} break
+            # Until the alarm nothing is forgotten.
+            assert_morethan_equal [lc_get d:c learned] $learned
         }
         # The gate stopped answering at once and forgot its model.
         set i [r ginfo d:c]
@@ -1690,6 +2875,11 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert_equal [dict get $i thresholds] {{} {}}
         assert_equal [dict get $i learned] 0
         assert_lessthan $wrong 100
+        # Every label has a detector of its own, and seven failed spot
+        # checks in a row set one off (see the score gates above): with two
+        # labels that is the 7th failure at the earliest and the 13th at the
+        # latest.
+        assert_range $failed 7 13
 
         # It starts over by itself, and what it answers now is what the
         # teacher says now.
@@ -1713,6 +2903,100 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert_morethan [dict get $i generation] $first
         assert_equal [dict get $i revocations] 1
         lc_assert_counters d:c
+    }
+
+    test {gate lifecycle: every label has a drift detector of its own, tuned to its error rate} {
+        # SPEC section 5, drift detector: likelihood ratios for 2x and 4x
+        # the error rate (at most halfway to 1), alarm at 1,000. At 0.2 a
+        # failed spot check multiplies them by 2 and by 3, and the 7th in a
+        # row takes their average to 1,000 (see the score gates). At 0.05
+        # it multiplies them by 0.1 / 0.05 = 2 and by 0.2 / 0.05 = 4:
+        # (2^5 + 4^5) / 2 = 528 and (2^6 + 4^6) / 2 = 2080, so the 6th
+        # does. A failed spot check of one label says nothing about the
+        # other: failing in turns, it takes the 7th of the first label,
+        # which is the 13th in all.
+        foreach {options failing alarm} {
+            {}                           {ignore}          7
+            {CLASSALPHA 1 respond 0.05}  {ignore}          7
+            {CLASSALPHA 1 respond 0.05}  {respond}         6
+            {}                           {ignore respond}  13
+        } {
+            lc_seed 48
+            r del d:label
+            lc_exact_gate d:label {ignore respond} AUDIT 1 {*}$options
+            set what "$options, failing: $failing"
+            foreach label {ignore respond} alpha [lc_get d:label alphas] {
+                set need [lc_proof_needed $alpha 0.2 1 0 2]
+                for {set n 0} {$n < $need} {incr n} {lc_exact_ask d:label $label}
+            }
+            # Both labels are answered, and the teacher agrees.
+            for {set n 0} {$n < 2} {incr n} {
+                assert_equal [lc_exact_ask d:label ignore] AUDIT
+                assert_equal [lc_exact_ask d:label respond] AUDIT
+            }
+            set i [r ginfo d:label]
+            assert_equal [dict get $i state] ACTIVE $what
+            assert_equal [dict get $i generation] 1 $what
+            assert_equal [dict get $i audit-samples] 4 $what
+            assert_equal [dict get $i audit-errors] 0 $what
+            assert_morethan [dict get $i learned] 100
+
+            # The teacher changes its mind about the messages of 'failing'.
+            for {set n 1} {$n <= $alarm} {incr n} {
+                set i [r ginfo d:label]
+                assert_equal [dict get $i revocations] 0 "$what: after [expr {$n - 1}] failed spot checks"
+                assert_equal [dict get $i audit-errors] [expr {$n - 1}] $what
+                set label [lindex $failing [expr {($n - 1) % [llength $failing]}]]
+                assert_equal [lc_exact_ask d:label $label [lc_other $label]] AUDIT $what
+            }
+            # The gate stopped answering at once, forgot its model, and
+            # starts over by itself.
+            set i [r ginfo d:label]
+            assert_equal [dict get $i revocations] 1 "$what: after $alarm failed spot checks"
+            assert_equal [dict get $i state] COLD $what
+            assert_equal [dict get $i generation] 0 $what
+            assert_equal [dict get $i candidate] 0 $what
+            assert_equal [dict get $i thresholds] {{} {}} $what
+            assert_equal [dict get $i learned] 0 $what
+            assert_equal [lc_exact_ask d:label ignore] ABSTAIN
+            assert_equal [lc_get d:label learned] 1
+            lc_assert_counters d:label
+        }
+    }
+
+    test {gate lifecycle: a newer snapshot does not take over while it answers less than the current one} {
+        # SPEC section 3: a newer snapshot takes over only when it has
+        # proven thresholds of its own and answers more of the same
+        # spot-checked requests than the current one. Here snapshot 1
+        # answers both labels. For a while every request is "help":
+        # snapshot 2 proves that it can answer those too, which is not
+        # more than snapshot 1 does, and it has proven nothing about
+        # "thanks". With AUDIT 1 every request is a spot check, and no
+        # dice are involved.
+        lc_seed 49
+        lc_exact_gate c:less {ignore respond} AUDIT 1
+        set need [lc_proof_needed 0.2 0.2 1 0 2]
+        foreach label {ignore respond} {
+            for {set n 0} {$n < $need} {incr n} {lc_exact_ask c:less $label}
+        }
+        set i [r ginfo c:less]
+        assert_equal [dict get $i generation] 1
+        assert_equal [dict get $i candidate] 2
+        assert_equal [dict get $i thresholds] {0.5 0.5}
+
+        for {set n 1} {$n <= 100} {incr n} {
+            assert_equal [lc_exact_ask c:less respond] AUDIT
+        }
+        set i [r ginfo c:less]
+        assert_equal [dict get $i thresholds] {0.5 0.5} \
+            "after 100 more requests for one label, snapshot [dict get $i generation] answers"
+        assert_equal [dict get $i generation] 1
+        # "thanks" is back, and it is answered as before.
+        for {set n 1} {$n <= 50} {incr n} {
+            assert_equal [lc_exact_ask c:less ignore] AUDIT "request $n for the other label"
+        }
+        assert_equal [lc_get c:less revocations] 0
+        lc_assert_counters c:less
     }
 
     test {gate lifecycle: a newer snapshot takes over while the gate keeps answering} {
@@ -1790,15 +3074,68 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             }
         }
         assert_equal [lc_get c:only state] CALIBRATING
+        assert_equal [lc_get c:only calibration-samples] 0
+        assert_equal [lc_get c:only learned] 1001
+    }
+
+    test {gate lifecycle: a snapshot that only knows an ALWAYSDEFER label is dropped and the next one is tried} {
+        # SPEC section 3: a snapshot that has not taken over after a
+        # generous amount of proof is dropped and the next one is tried;
+        # section 5: after 10 times the proof a flawless threshold needs,
+        # per label. Here the history comes sorted by label, the label that
+        # is never answered first, and the first snapshot is taken when it
+        # has seen nothing else. It says "escalate" to every message, which
+        # is proof of nothing. The model has long learned the other two
+        # labels: the same history in turns (lc_exact_gate) makes a gate
+        # that answers both after 39 requests each. A gate must not wait
+        # for ever for a snapshot that cannot prove anything.
+        lc_seed 47
+        set labels {ignore respond escalate}
+        r config set gate.snapshot-examples 50
+        r gcreate c:stale ALPHA 0.2 DELTA 0.2 CLASSES 3 {*}$labels ALWAYSDEFER 1 escalate
+        foreach label {escalate ignore respond} {
+            for {set k 0} {$k < 50} {incr k} {
+                r gadd c:stale TEXT $::lc_one($label) LABEL $label
+            }
+        }
+        set i [r ginfo c:stale]
+        assert_equal [dict get $i state] CALIBRATING
+        assert_equal [dict get $i candidate] 1
+        assert_equal [dict get $i learned] 150
+
+        # 4000 requests, two in three for a label the gate may answer: more
+        # than three times the 10 x 2 x 39 pieces of proof after which a
+        # snapshot that proved nothing is dropped.
+        set accepts 0
+        set wrong 0
+        for {set n 1} {$n <= 4000 && $accepts < 20} {incr n} {
+            set label [lindex $labels [expr {$n % 3}]]
+            lassign [r gpredict c:stale TEXT $::lc_one($label)] action arg
+            if {$action eq "ACCEPT"} {
+                incr accepts
+                if {$arg ne $label} {incr wrong}
+            } elseif {$arg ne {}} {
+                assert_equal [r glearn c:stale $arg LABEL $label] 1
+            }
+        }
+        set i [r ginfo c:stale]
+        assert_equal [dict get $i state] ACTIVE \
+            "after [dict get $i requests] requests and [dict get $i learned] examples snapshot\
+             [dict get $i candidate] is still being tested, with [dict get $i calibration-samples] pieces of proof"
+        assert_morethan [dict get $i generation] 1
+        assert_equal $accepts 20
+        assert_equal $wrong 0
+        lc_assert_counters c:stale
     }
 
     test {gate lifecycle: a gate proves its labels when most requests carry an ALWAYSDEFER label} {
         # 96 requests in 100 are for a label the gate must never answer.
         # The two labels it may answer are as learnable as ever, and by the
         # end of this run each of them has had some 120 requests: a proof
-        # needs about 30. Requests of a label that is never tested prove
-        # nothing, so they cannot be the "generous amount of proof" after
-        # which a snapshot is dropped (SPEC section 3).
+        # needs 39 correct answers (lc_proof_needed 0.2 0.2 1 0 2). Requests
+        # of a label that is never tested prove nothing, so they cannot be
+        # the "generous amount of proof" after which a snapshot is dropped
+        # (SPEC section 3).
         lc_seed 42
         lc_srand 42
         set labels {ignore respond escalate}
@@ -1829,39 +3166,59 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert {$wrong <= 0.2 * $accepts}
     }
 
-    test {gate lifecycle: a gate with 32 evenly used labels becomes ACTIVE on a learnable problem} {
-        # SPEC section 2 allows 2 to 64 labels. Here every label has two
-        # words of its own and one request in 32, and the model is taught
-        # 30 examples of each before its first snapshot. A label needs some
-        # 45 correct answers for its proof: about 1400 requests in all.
-        lc_seed 43
-        lc_srand 43
-        set labels {}
-        for {set k 0} {$k < 32} {incr k} {lappend labels topic$k}
-        r config set gate.snapshot-examples 960
-        r gcreate c:many ALPHA 0.2 DELTA 0.2 CLASSES 32 {*}$labels
-        for {set k 0} {$k < 960} {incr k} {
-            set topic [expr {$k % 32}]
-            r gadd c:many TEXT [lc_topic_message $topic] LABEL topic$topic
-        }
-        assert_equal [lc_get c:many state] CALIBRATING
-        set accepts 0
-        set wrong 0
-        for {set n 1} {$n <= 4000} {incr n} {
-            set topic [lc_rand 32]
-            lassign [r gpredict c:many TEXT [lc_topic_message $topic]] action arg
-            if {$action eq "ACCEPT"} {
-                incr accepts
-                if {$arg ne "topic$topic"} {incr wrong}
-            } elseif {$arg ne {}} {
-                r glearn c:many $arg LABEL topic$topic
+    foreach count {32 64} {
+        test "gate lifecycle: a gate with $count evenly used labels becomes ACTIVE on a learnable problem" {
+            # SPEC section 2 allows 2 to 64 labels. Here every label has two
+            # words of its own and one request in $count, and the model is
+            # taught 30 examples of each before its first snapshot. Every
+            # threshold is a test of its own, and there are 32 x $count of
+            # them: a label needs 53 correct answers for its proof with 32
+            # labels and 56 with 64 (lc_proof_needed), about 1700 and 3600
+            # requests in all. The snapshot is given 10 times that much.
+            lc_seed 43
+            lc_srand 43
+            set labels {}
+            for {set k 0} {$k < $count} {incr k} {lappend labels topic$k}
+            r config set gate.snapshot-examples [expr {30 * $count}]
+            r del c:many
+            r gcreate c:many ALPHA 0.2 DELTA 0.2 CLASSES $count {*}$labels
+            for {set k 0} {$k < 30 * $count} {incr k} {
+                set topic [expr {$k % $count}]
+                r gadd c:many TEXT [lc_topic_message $topic] LABEL topic$topic
             }
-            if {$accepts >= 100} break
+            assert_equal [lc_get c:many state] CALIBRATING
+            set need [lc_proof_needed 0.2 0.2 1 0 $count]
+            set accepts 0
+            set wrong 0
+            set first 0
+            unset -nocomplain seen_topic
+            for {set n 1} {$n <= 125 * $count} {incr n} {
+                set topic [lc_rand $count]
+                incr seen_topic($topic)
+                lassign [r gpredict c:many TEXT [lc_topic_message $topic]] action arg
+                if {$action eq "ACCEPT"} {
+                    incr accepts
+                    if {$arg ne "topic$topic"} {incr wrong}
+                    # No label is answered before it had the requests its
+                    # proof needs.
+                    if {!$first} {
+                        set first $n
+                        set answered [string range $arg 5 end]
+                        assert {[info exists seen_topic($answered)] && $seen_topic($answered) >= $need}
+                    }
+                } elseif {$arg ne {}} {
+                    r glearn c:many $arg LABEL topic$topic
+                }
+                if {$accepts >= 100} break
+            }
+            set i [r ginfo c:many]
+            assert_equal [dict get $i state] ACTIVE "after $n requests, candidate [dict get $i candidate]"
+            assert_equal [dict get $i generation] 1
+            assert_equal $accepts 100
+            assert {$wrong <= 0.2 * $accepts}
+            assert_equal [dict get $i revocations] 0
+            lc_assert_counters c:many
         }
-        set i [r ginfo c:many]
-        assert_equal [dict get $i state] ACTIVE "after $n requests, candidate [dict get $i candidate]"
-        assert_equal $accepts 100
-        assert {$wrong <= 0.2 * $accepts}
     }
 }
 
@@ -1870,9 +3227,10 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
 start_server [list tags {"modules external:skip"} overrides [list loadmodule $gatemodule]] {
 
     test {gate lifecycle: with the default settings a classifier wants 1000 examples and then its proof} {
-        # Nothing was configured on this server.
+        # Nothing was configured on this server. SPEC section 5: 1,000
+        # examples, and a feedback timeout of one minute.
         assert_equal [r config get gate.snapshot-examples] {gate.snapshot-examples 1000}
-        assert_equal [r config get gate.feedback-timeout] {gate.feedback-timeout 300000}
+        assert_equal [r config get gate.feedback-timeout] {gate.feedback-timeout 60000}
         lc_seed 50
         lc_srand 50
         r gcreate c:default ALPHA 0.05 CLASSES 2 ignore respond
@@ -1905,11 +3263,13 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert_equal [dict get $i state] ACTIVE
         assert_equal [dict get $i generation] 1
         assert {[lc_all_proven c:default]}
-        # At an error rate of 0.05 a correct answer grows a bet by at most
-        # 1 + 0.9 * 0.05 / 0.95, and no share of the budget is larger than
-        # DELTA = 0.01: fewer than log(100) / log(1.0474) = 100 answers
-        # prove nothing.
-        assert_morethan $first_by_gate 1100
+        # The first snapshot is taken with the 1,000th example, and a label
+        # is proven by correct answers with that label: at an error rate
+        # of 0.05, against the share of DELTA = 0.01 that one of 2 x 32
+        # thresholds of the first snapshot gets, that takes 235 of them
+        # (lc_proof_needed). No request was answered before that.
+        assert_equal [lc_proof_needed 0.05 0.01 1 0 2] 235
+        assert_morethan $first_by_gate [expr {1000 + 235}]
         assert_morethan $by_gate 1000
         assert_equal [dict get $i accepted] $by_gate
         assert {$wrong <= 0.05 * $by_gate}
@@ -1997,5 +3357,118 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert_equal [dict get $i pending] 0
         assert_equal [dict get $i missing] 0
         lc_assert_counters loop:score
+    }
+
+    test {gate lifecycle: the client loop with a teacher that is sometimes slow and sometimes fails} {
+        # The loop of SPEC section 2 for 4000 requests, as many clients at
+        # once would run it. Of 100 calls of the teacher 3 fail (README:
+        # "If the teacher fails, send nothing") and 12 are slow: their
+        # answer comes 20, 90 or 400 milliseconds later, that is in time,
+        # after proof has moved on (a quarter of the feedback timeout is 60
+        # milliseconds here), or after the feedback timeout itself. The
+        # teacher says the other label one time in twenty (lc_noisy).
+        #
+        # How many answers come too late depends on how fast this test
+        # runs. What is asserted does not.
+        lc_seed 53
+        lc_srand 53
+        set timeout 240
+        r config set gate.snapshot-examples 200
+        lc_gcreate_timeout $timeout loop:slow ALPHA 0.2 DELTA 0.2 CLASSES 2 ignore respond
+        for {set k 0} {$k < 200} {incr k} {
+            set label [lc_pick {ignore respond}]
+            r gadd loop:slow TEXT [lc_message $label] LABEL [lc_noisy $label]
+        }
+
+        set in_flight {}    ;# slow teacher calls: when the answer comes, when the gate was asked, id, label
+        set accepts 0
+        set wrong 0
+        set failed 0
+        set used 0
+        set refused 0
+        for {set n 1} {$n <= 4000} {incr n} {
+            # The slow answers that have come by now.
+            set now [clock milliseconds]
+            set later {}
+            foreach call $in_flight {
+                lassign $call due asked id label
+                if {$due > $now} {
+                    lappend later $call
+                    continue
+                }
+                set reply [r glearn loop:slow $id LABEL $label]
+                set age [expr {[clock milliseconds] - $asked}]
+                if {$reply == 1} {
+                    incr used
+                } else {
+                    # GLEARN replies 0 to an id that is too old, and to
+                    # no other id of this loop.
+                    incr refused
+                    assert_equal $reply 0
+                    if {$age < $timeout - 5} {fail "request $n: an answer was refused $age ms after its GPREDICT"}
+                }
+            }
+            set in_flight $later
+
+            set label [lc_pick {ignore respond}]
+            set text [lc_message $label]
+            set teacher [lc_noisy $label]
+            set fate [lc_rand 100]
+            set delay [lc_pick {20 90 400}]
+
+            # action, arg = r.execute_command("GPREDICT", key, "TEXT", text)
+            set asked [clock milliseconds]
+            lassign [r gpredict loop:slow TEXT $text] action arg
+            # if action == b"ACCEPT": return arg
+            if {$action eq "ACCEPT"} {
+                incr accepts
+                if {$arg ne $teacher} {incr wrong}
+                continue
+            }
+            # label = teacher(text)
+            if {$fate < 3} {
+                incr failed
+                continue
+            }
+            # if arg is not None: r.execute_command("GLEARN", key, arg, "LABEL", label)
+            if {$arg ne {}} {
+                if {$fate < 15} {
+                    lappend in_flight [list [expr {[clock milliseconds] + $delay}] $asked $arg $teacher]
+                } else {
+                    set reply [r glearn loop:slow $arg LABEL $teacher]
+                    if {$reply == 1} {
+                        incr used
+                    } elseif {[clock milliseconds] - $asked < $timeout - 5} {
+                        fail "request $n: its answer was refused at once"
+                    } else {
+                        incr refused
+                    }
+                }
+            }
+            # Time goes by.
+            if {$n % 25 == 0} {after 1}
+        }
+
+        set i [r ginfo loop:slow]
+        # The gate did its job: it answers, most of the time.
+        assert_equal [dict get $i state] ACTIVE
+        assert_equal [dict get $i accepted] $accepts
+        assert_morethan $accepts 1000
+        # The promise: of the answers the caller got from the gate, fewer
+        # than ALPHA are not what the teacher would have said. (About one
+        # in twenty: as often as the teacher disagrees with itself.)
+        assert_morethan $wrong 0
+        assert {$wrong < 0.2 * $accepts}
+        # Lost answers were counted as wrong guesses, not as failed spot
+        # checks: nothing was revoked and nothing forgotten. Every answer
+        # that was used taught the model.
+        assert_equal [dict get $i revocations] 0
+        assert_equal [dict get $i learned] [expr {200 + $used}]
+        assert_morethan $failed 0
+        assert_morethan [dict get $i missing] 0
+        assert_lessthan_equal [dict get $i missing] [expr {$failed + $refused + [llength $in_flight]}]
+        assert_lessthan_equal [dict get $i pending] [expr {$failed + [llength $in_flight]}]
+        assert_lessthan_equal [dict get $i audit-errors] [dict get $i audit-samples]
+        lc_assert_counters loop:slow
     }
 }

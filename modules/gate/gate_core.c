@@ -71,6 +71,10 @@ int gateConfigSetClasses(gateConfig *cfg, const char *const *labels,
                          const size_t *lens, uint32_t n)
 {
     if (cfg->labels || cfg->class_alpha || cfg->class_defer || n == 0) return GATE_ERR;
+    /* Labels are kept as C strings: one with a zero byte inside would be
+     * cut short and then pass for a valid, different label. */
+    for (uint32_t i = 0; i < n; i++)
+        if (memchr(labels[i], '\0', lens[i]) != NULL) return GATE_ERR;
     cfg->labels = gate_calloc(n, sizeof(char *));
     cfg->class_alpha = gate_calloc(n, sizeof(double));
     cfg->class_defer = gate_calloc(n, 1);
@@ -139,8 +143,8 @@ int gateConfigValidate(gateConfig *cfg, char *err, size_t errlen) {
         GATE_CFG_FAIL("DELTA must be greater than 0 and less than 1");
     if (!(cfg->audit > 0.0 && cfg->audit <= 1.0))
         GATE_CFG_FAIL("AUDIT must be greater than 0 and at most 1");
-    if (cfg->snapshot_examples < 1)
-        GATE_CFG_FAIL("the snapshot step must be at least 1 example");
+    if (cfg->snapshot_examples < 1 || cfg->snapshot_examples > GATE_MAX_SNAPSHOT_EXAMPLES)
+        GATE_CFG_FAIL("the snapshot step is out of range");
     if (cfg->feedback_timeout_ms < 1 || cfg->feedback_timeout_ms > GATE_MAX_FEEDBACK_TIMEOUT_MS)
         GATE_CFG_FAIL("the feedback timeout is out of range");
 
@@ -177,6 +181,12 @@ int gateConfigValidate(gateConfig *cfg, char *err, size_t errlen) {
 
 /* ------------------------------ Small helpers ---------------------------- */
 
+/* A clock value the gate can hold (see GATE_MAX_CLOCK_MS). */
+static int64_t gateClock(int64_t now_ms) {
+    if (now_ms < 0) return 0;
+    return now_ms > GATE_MAX_CLOCK_MS ? GATE_MAX_CLOCK_MS : now_ms;
+}
+
 static int gateIsClassifier(const gate *g) { return g->cfg.kind == GATE_KIND_CLASSIFIER; }
 
 double gateRowAlpha(const gate *g, uint32_t row) {
@@ -187,25 +197,16 @@ int gateRowTested(const gate *g, uint32_t row) {
     return gateIsClassifier(g) ? !g->cfg.class_defer[row] : 1;
 }
 
-int gateIsEntry(const gate *g, uint32_t t) {
-    /* Classifier: the most confident threshold and every eighth below it.
-     * A confident model proves the top first and walks down; the lower
-     * entry points keep a less confident model from waiting on a region it
-     * rarely reaches. Score gates know nothing about the score's scale, so
-     * every threshold stands on its own. */
-    return gateIsClassifier(g) ? ((T - 1 - t) % 8) == 0 : 1;
-}
-
-uint32_t gateEntryPoints(const gate *g) {
-    uint32_t n = 0;
-    for (uint32_t t = 0; t < T; t++) n += gateIsEntry(g, t);
-    return n;
-}
-
 uint32_t gateTestedRows(const gate *g) {
     uint32_t n = 0;
     for (uint32_t r = 0; r < g->nrows; r++) n += gateRowTested(g, r);
     return n;
+}
+
+double gateBar(const gate *g, uint64_t gen) {
+    /* Every threshold of every tested row is a test of its own, so the
+     * generation's share of the budget is split evenly over all of them. */
+    return gateBudgetLogThreshold(g->cfg.delta, gen, gateTestedRows(g) * T);
 }
 
 gateStateId gateState(const gate *g) {
@@ -258,7 +259,8 @@ gateGeneration *gateGenerationAllocate(const gate *g) {
     gen->regions = gate_malloc(sizeof(gateRegion) * g->nrows * T);
     gen->policy = gate_malloc(sizeof(int32_t) * g->nrows);
     gen->drift = gate_malloc(sizeof(gateDrift) * g->nrows);
-    if (!gen->regions || !gen->policy || !gen->drift) {
+    gen->paired = gate_calloc((size_t)g->nrows * T, sizeof(uint64_t));
+    if (!gen->regions || !gen->policy || !gen->drift || !gen->paired) {
         gateGenerationRelease(gen);
         return NULL;
     }
@@ -276,6 +278,7 @@ void gateGenerationRelease(gateGeneration *gen) {
     gate_free(gen->regions);
     gate_free(gen->policy);
     gate_free(gen->drift);
+    gate_free(gen->paired);
     gate_free(gen);
 }
 
@@ -305,8 +308,9 @@ void gateObsLink(gate *g, gateObs *o) {
     g->newest = o;
     g->npending++;
     g->pending_bytes += GATE_OBS_BYTES(o->x.n);
+    if (o->flags & GATE_OBS_RESOLVED) g->nanswered++;
     o->enext = NULL;
-    if (o->flags & GATE_OBS_EVIDENCE) {
+    if ((o->flags & GATE_OBS_EVIDENCE) && !(o->flags & GATE_OBS_PROVISIONAL)) {
         if (g->etail) g->etail->enext = o; else g->ehead = o;
         g->etail = o;
         g->nevidence++;
@@ -323,6 +327,7 @@ static void gateObsUnlink(gate *g, gateObs *o) {
     if (o->prev) o->prev->next = o->next; else g->oldest = o->next;
     if (o->next) o->next->prev = o->prev; else g->newest = o->prev;
     g->npending--;
+    if (o->flags & GATE_OBS_RESOLVED) g->nanswered--;
     g->pending_bytes -= GATE_OBS_BYTES(o->x.n);
     o->prev = o->next = o->hnext = NULL;
 }
@@ -354,7 +359,7 @@ static void gateDropAllPending(gate *g) {
     }
     memset(g->table, 0, sizeof(gateObs *) * GATE_TABLE_SIZE);
     g->oldest = g->newest = g->ehead = g->etail = NULL;
-    g->npending = g->nevidence = 0;
+    g->npending = g->nanswered = g->nevidence = 0;
     g->pending_bytes = 0;
 }
 
@@ -393,6 +398,7 @@ gate *gateAllocate(const gateConfig *cfg) {
         gateBetsInit(&g->bets[r], gateRowAlpha(g, r));
         gateDriftBetsInit(&g->drift_bets[r], gateRowAlpha(g, r));
     }
+
     if (classifier && gateModelInit(&g->trainer, GATE_DIM, cfg->nclasses) != GATE_OK)
         goto fail;
     g->next_seq = 1;
@@ -418,7 +424,7 @@ void gateFree(gate *g) {
 
 static uint64_t gateGenerationBytes(const gate *g, const gateGeneration *gen) {
     uint64_t n = sizeof(*gen);
-    n += (uint64_t)g->nrows * T * sizeof(gateRegion);
+    n += (uint64_t)g->nrows * T * (sizeof(gateRegion) + sizeof(uint64_t));
     n += (uint64_t)g->nrows * (sizeof(int32_t) + sizeof(gateDrift));
     if (gen->model.w) n += gateModelBytes(gen->model.dim, gen->model.nclasses);
     return n;
@@ -444,15 +450,11 @@ uint64_t gateFreeEffort(const gate *g) {
 
 void gateGenerationRefreshPolicy(const gate *g, gateGeneration *gen, uint32_t row) {
     int32_t lowest = -1;
-    int above = 0; /* is the next more confident region proven? */
 
-    for (int32_t t = (int32_t)T - 1; t >= 0; t--) {
-        int crossed = gen->regions[row * T + (uint32_t)t].certified_at != 0;
-        int proven = crossed && (gateIsEntry(g, (uint32_t)t) || above);
-
-        if (proven) lowest = t;
-        above = proven;
-    }
+    (void)g;
+    /* Regions are nested, so the lowest proven threshold is the policy. */
+    for (int32_t t = (int32_t)T - 1; t >= 0; t--)
+        if (gen->regions[row * T + (uint32_t)t].certified_at != 0) lowest = t;
     gen->policy[row] = lowest;
 }
 
@@ -467,29 +469,50 @@ static int gateHasPolicy(const gate *g, const gateGeneration *gen) {
 static void gateGenerationApply(gate *g, gateGeneration *gen, int32_t label,
                                 double score, int error)
 {
-    gen->samples++;
-    if (error) gen->errors++;
-
     uint32_t row = gateIsClassifier(g) ? (uint32_t)label : 0;
     if (gateIsClassifier(g) && (label < 0 || (uint32_t)label >= g->nrows)) return;
-    if (!gateRowTested(g, row)) return;
+    if (!gateRowTested(g, row)) return; /* a label that is never answered */
+
+    gen->samples++;
+    if (error) gen->errors++;
 
     uint32_t count = gateGridCount(g->grid, T, score);
     gateRegion *regions = &gen->regions[row * T];
     for (uint32_t t = 0; t < count; t++) gateRegionUpdate(&regions[t], &g->bets[row], error);
 
     /* Wealth only grows on a correct guess, so only then can a region
-     * cross. The first crossing is latched: by Ville's inequality "ever
-     * reached the bar" is the event the budget pays for. */
+     * reach the bar. The first time is latched: by Ville's inequality
+     * "ever reached the bar" is the event the budget pays for. */
     if (error) return;
-    int crossed = 0;
+    int proven = 0;
     for (uint32_t t = 0; t < count; t++) {
         if (regions[t].certified_at == 0 && gateRegionCertifies(&regions[t], gen->log_threshold)) {
             regions[t].certified_at = regions[t].n;
-            crossed = 1;
+            proven = 1;
         }
     }
-    if (crossed) gateGenerationRefreshPolicy(g, gen, row);
+    if (proven) gateGenerationRefreshPolicy(g, gen, row);
+}
+
+/* A sample that was counted as an error turned out to be correct. */
+static void gateGenerationFlip(gate *g, gateGeneration *gen, int32_t label, double score) {
+    uint32_t row = gateIsClassifier(g) ? (uint32_t)label : 0;
+    if (gateIsClassifier(g) && (label < 0 || (uint32_t)label >= g->nrows)) return;
+    if (!gateRowTested(g, row)) return;
+
+    if (gen->errors) gen->errors--;
+
+    uint32_t count = gateGridCount(g->grid, T, score);
+    gateRegion *regions = &gen->regions[row * T];
+    int proven = 0;
+    for (uint32_t t = 0; t < count; t++) {
+        gateRegionFlip(&regions[t], &g->bets[row]);
+        if (regions[t].certified_at == 0 && gateRegionCertifies(&regions[t], gen->log_threshold)) {
+            regions[t].certified_at = regions[t].n;
+            proven = 1;
+        }
+    }
+    if (proven) gateGenerationRefreshPolicy(g, gen, row);
 }
 
 static void gatePromote(gate *g) {
@@ -497,7 +520,7 @@ static void gatePromote(gate *g) {
     g->serving = g->candidate;
     g->candidate = NULL;
     g->serving->promoted_ms = g->now_ms;
-    g->serving->paired = 0;
+    memset(g->serving->paired, 0, sizeof(uint64_t) * g->nrows * T);
     g->serving->budget = 0;
     g->stats.promotions++;
     gateCoverageReset(g);
@@ -514,7 +537,36 @@ static void gateDriftAlarm(gate *g) {
     if (gateIsClassifier(g)) gateModelReset(&g->trainer);
     g->snapshot_updates = 0;
     g->stats.revocations++;
+    g->missing_run = 0;
     gateCoverageReset(g);
+}
+
+/* Answers have stopped arriving: the gate cannot check itself. Missing
+ * answers say nothing about the model, so it stays; the proof may be
+ * incomplete, so it goes. No snapshot is taken until an answer arrives
+ * (gateLearn), so an outage does not use up generation numbers. */
+static void gateBlindAlarm(gate *g) {
+    if (g->serving) g->stats.revocations++;
+    gateGenerationRelease(g->serving);
+    gateGenerationRelease(g->candidate);
+    g->serving = NULL;
+    g->candidate = NULL;
+    g->snapshot_updates = 0;
+    g->blind = 1;
+    g->missing_run = 0;
+    gateCoverageReset(g);
+}
+
+/* Of the candidate's proof requests, how many the serving generation would
+ * answer with the policy it has NOW (its thresholds only move down, so
+ * what it accepted when each request was asked would undercount it). */
+static uint64_t gatePairedSamples(const gate *g, const gateGeneration *c) {
+    const gateGeneration *s = g->serving;
+    uint64_t n = 0;
+
+    for (uint32_t r = 0; r < g->nrows; r++)
+        if (s->policy[r] >= 0) n += c->paired[r * T + (uint32_t)s->policy[r]];
+    return n;
 }
 
 /* Promote the candidate if it earned it, drop it if it ran out of budget. */
@@ -523,68 +575,131 @@ static void gateConsiderCandidate(gate *g) {
 
     if (c == NULL) return;
     if (gateHasPolicy(g, c) &&
-        (g->serving == NULL || gatePolicySamples(g, c) > c->paired))
+        (g->serving == NULL || gatePolicySamples(g, c) > gatePairedSamples(g, c)))
     {
         gatePromote(g);
         return;
     }
-    if (c->budget && c->samples >= c->budget) {
+    if (c->budget && c->samples + c->missed >= c->budget) {
         gateGenerationRelease(c);
         g->candidate = NULL;
         g->stats.retired++;
     }
 }
 
-/* A piece of evidence is live while a generation it is proof for exists. */
-static int gateObsLive(const gate *g, const gateObs *o) {
-    if (o->flags & GATE_OBS_CAND) {
-        if (g->candidate && g->candidate->gen == o->cand_gen) return 1;
-        if (g->serving && g->serving->gen == o->cand_gen) return 1;
-    }
-    if ((o->flags & GATE_OBS_SERV) && g->serving && g->serving->gen == o->serv_gen) return 1;
-    return 0;
+/* The generation a request is proof for through its candidate guess, or
+ * NULL if that generation is gone. A request asked while a generation was
+ * the candidate stays proof for it after its promotion. */
+static gateGeneration *gateProofCand(const gate *g, const gateObs *o) {
+    if (!(o->flags & GATE_OBS_CAND)) return NULL;
+    if (g->candidate && g->candidate->gen == o->cand_gen) return g->candidate;
+    if (g->serving && g->serving->gen == o->cand_gen) return g->serving;
+    return NULL;
 }
 
-static void gateApplyEvidence(gate *g, const gateObs *o) {
-    int missing = (o->flags & GATE_OBS_MISSING) != 0;
-    int err_cand, err_serv;
+/* ... and through its serving guess. */
+static gateGeneration *gateProofServ(const gate *g, const gateObs *o) {
+    if ((o->flags & GATE_OBS_SERV) && g->serving && g->serving->gen == o->serv_gen)
+        return g->serving;
+    return NULL;
+}
 
-    if (missing) {
-        err_cand = err_serv = 1;
-        g->stats.missing++;
-    } else if (gateIsClassifier(g)) {
-        err_cand = o->cand_label != o->result;
-        err_serv = o->serv_label != o->result;
+/* A piece of evidence is live while a generation it is proof for exists. */
+static int gateObsLive(const gate *g, const gateObs *o) {
+    return gateProofCand(g, o) != NULL || gateProofServ(g, o) != NULL;
+}
+
+/* Whether each recorded guess of an answered request was wrong. */
+static void gateObsErrors(const gate *g, const gateObs *o, int *err_cand, int *err_serv) {
+    if (gateIsClassifier(g)) {
+        *err_cand = o->cand_label != o->result;
+        *err_serv = o->serv_label != o->result;
     } else {
-        err_cand = err_serv = !o->result;
+        *err_cand = *err_serv = !o->result;
     }
+}
 
-    if (o->flags & GATE_OBS_CAND) {
-        if (g->candidate && g->candidate->gen == o->cand_gen) {
-            gateGenerationApply(g, g->candidate, o->cand_label, o->cand_score, err_cand);
-            if ((o->flags & GATE_OBS_WOULD_ACCEPT) && g->serving &&
-                g->serving->gen == o->serv_gen)
-                g->candidate->paired++;
-            gateConsiderCandidate(g);
-        } else if (g->serving && g->serving->gen == o->cand_gen) {
-            /* Asked while this generation was the candidate, answered after
-             * its promotion: still proof for it. */
-            gateGenerationApply(g, g->serving, o->cand_label, o->cand_score, err_cand);
+/* Count a request as proof, in its turn. */
+static void gateProofApply(gate *g, const gateObs *o, int err_cand, int err_serv) {
+    gateGeneration *c = gateProofCand(g, o);
+
+    if (c) {
+        gateGenerationApply(g, c, o->cand_label, o->cand_score, err_cand);
+        if (c == g->candidate) {
+            /* Remember where the serving generation's own guess put this
+             * request, for the comparison in gateConsiderCandidate(). */
+            if (g->serving && g->serving->gen == o->serv_gen) {
+                uint32_t srow = gateIsClassifier(g) ? (uint32_t)o->serv_label : 0;
+
+                if (srow < g->nrows && gateRowTested(g, srow)) {
+                    uint32_t count = gateGridCount(g->grid, T, o->serv_score);
+                    for (uint32_t t = 0; t < count; t++) c->paired[srow * T + t]++;
+                }
+            }
+            gateConsiderCandidate(g); /* may promote or drop it */
         }
     }
+    /* Looked up only now: a promotion just above replaces the generation
+     * the serving guess belonged to. */
+    gateGeneration *s = gateProofServ(g, o);
+    if (s) gateGenerationApply(g, s, o->serv_label, o->serv_score, err_serv);
+}
 
-    if ((o->flags & GATE_OBS_SERV) && g->serving && g->serving->gen == o->serv_gen) {
-        gateGeneration *s = g->serving;
+/* The answer of a request that proof had moved on without (it was counted
+ * as an error) has arrived: set right the guesses that were correct. The
+ * generations are looked up exactly as gateProofApply() did, so an error is
+ * only taken back where it was counted. */
+static void gateProofFlip(gate *g, const gateObs *o, int err_cand, int err_serv) {
+    gateGeneration *c = gateProofCand(g, o);
 
-        gateGenerationApply(g, s, o->serv_label, o->serv_score, err_serv);
-        if ((o->flags & GATE_OBS_WOULD_ACCEPT) && (o->flags & GATE_OBS_AUDIT)) {
+    if (c && !err_cand) {
+        gateGenerationFlip(g, c, o->cand_label, o->cand_score);
+        if (c == g->candidate) gateConsiderCandidate(g);
+    }
+    gateGeneration *s = gateProofServ(g, o);
+    if (s && !err_serv) gateGenerationFlip(g, s, o->serv_label, o->serv_score);
+}
+
+/* The final outcome of a piece of evidence is known: answered ('missing'
+ * 0, 'err_serv' says whether the serving guess was wrong) or given up for
+ * good ('missing' 1). */
+static void gateOutcome(gate *g, const gateObs *o, int missing, int err_serv) {
+    gateGeneration *s = gateProofServ(g, o);
+
+    if (missing) {
+        g->stats.missing++;
+        /* An outage is a run of requests that end unanswered while no
+         * answer arrives at all. A request that has seen an answer arrive
+         * since it was asked (of a newer request, or of any other) is a
+         * lost answer, whenever it is given up. */
+        if (o->seq >= g->answer_mark && ++g->missing_run >= GATE_MISSING_RUN) {
+            gateBlindAlarm(g);
+            return;
+        }
+        /* A lost spot check may hide a disagreement: the drift detector
+         * keeps count (see DRIFT in gate_core.h). */
+        if (s && o->spot) {
             uint32_t row = gateIsClassifier(g) ? (uint32_t)o->serv_label : 0;
 
-            s->audits++;
-            if (err_serv) s->audit_errors++;
-            if (gateDriftPush(&s->drift[row], &g->drift_bets[row], err_serv,
-                              log(GATE_DRIFT_ALARM)))
-                gateDriftAlarm(g);
+            if (gateDriftLost(&s->drift[row], &g->drift_bets[row], o->spot,
+                              log(GATE_LOST_ALARM)) == GATE_DRIFT_ALARM_UNCHECKED)
+                gateBlindAlarm(g);
+        }
+        return;
+    }
+    /* An answered spot check of accepted traffic. A disagreement is
+     * reported to the drift detector under the number the spot check got
+     * when it was asked. (A missing answer is not a disagreement.) */
+    if (s && o->spot) {
+        uint32_t row = gateIsClassifier(g) ? (uint32_t)o->serv_label : 0;
+
+        s->audits++;
+        if (err_serv) {
+            s->audit_errors++;
+            int verdict = gateDriftWrong(&s->drift[row], &g->drift_bets[row], o->spot,
+                                         log(GATE_DRIFT_ALARM), log(GATE_LOST_ALARM));
+            if (verdict == GATE_DRIFT_ALARM_WORSE) gateDriftAlarm(g);
+            else if (verdict == GATE_DRIFT_ALARM_UNCHECKED) gateBlindAlarm(g);
         }
     }
 }
@@ -598,7 +713,6 @@ static void gateDrain(gate *g) {
             /* The generations it was proof for are gone. */
             gateEvidencePop(g);
             if (h->flags & GATE_OBS_RESOLVED) {
-                if (h->flags & GATE_OBS_MISSING) g->stats.dropped++;
                 gateObsUnlink(g, h);
                 gateObsRelease(h);
             } else if (gateIsClassifier(g)) {
@@ -611,15 +725,52 @@ static void gateDrain(gate *g) {
             continue;
         }
         if (!(h->flags & GATE_OBS_RESOLVED)) break;
+
+        int err_cand, err_serv;
         gateEvidencePop(g);
         gateObsUnlink(g, h);
-        gateApplyEvidence(g, h);
+        gateObsErrors(g, h, &err_cand, &err_serv);
+        gateProofApply(g, h, err_cand, err_serv);
         gateObsRelease(h);
     }
 }
 
+/* How long a request has been waiting. Written as a difference: a request
+ * is never newer than the clock, while "created + timeout" could overflow
+ * for a clock near the end of its range. */
+static int64_t gateAge(const gateObs *o, int64_t now_ms) {
+    return now_ms - o->created_ms;
+}
+
+/* How long proof waits for a late answer before moving on without it. */
+static int64_t gateGrace(const gate *g) {
+    int64_t grace = g->cfg.feedback_timeout_ms / GATE_GRACE_DIVISOR;
+    return grace < 1 ? 1 : grace;
+}
+
+/* Is an unanswered request holding up answered proof for too long? */
+static int gatePassDue(const gate *g, int64_t now_ms) {
+    const gateObs *h = g->ehead;
+
+    if (h == NULL || (h->flags & GATE_OBS_RESOLVED) || g->nanswered == 0) return 0;
+    return gateAge(h, now_ms) >= gateGrace(g) || g->nanswered > GATE_MAX_WAITING;
+}
+
+/* Let proof move on without answers that are late: each such request is
+ * counted as an error until its answer arrives (gateLearn) or its time is
+ * up (gateMaintain). Call after gateDrain(), which leaves a live head. */
+static void gatePass(gate *g) {
+    while (gatePassDue(g, g->now_ms)) {
+        gateObs *h = gateEvidencePop(g);
+
+        h->flags |= GATE_OBS_PROVISIONAL;
+        gateProofApply(g, h, 1, 1);
+        gateDrain(g);
+    }
+}
+
 static int gateSnapshotDue(const gate *g) {
-    if (g->candidate) return 0;
+    if (g->candidate || g->blind || g->generations >= GATE_COUNT_MAX) return 0;
     if (gateIsClassifier(g))
         return g->trainer.updates - g->snapshot_updates >= g->cfg.snapshot_examples;
     return g->serving == NULL;
@@ -637,21 +788,23 @@ static void gateSnapshot(gate *g) {
     g->generations++;
     gen->gen = g->generations;
     gen->frozen_ms = g->now_ms;
-    gen->log_threshold = gateBudgetLogThreshold(g->cfg.delta, gen->gen,
-                                                gateTestedRows(g) * gateEntryPoints(g));
+    gen->log_threshold = gateBar(g, gen->gen);
     if (gateIsClassifier(g)) {
-        /* A flawless region of row r reaches the bar after bar / (its best
-         * per-sample gain) answers. A snapshot that has consumed many times
-         * that much proof without taking over is not going to: the trainer
-         * has moved on, try its next snapshot instead. Score gates have no
-         * better snapshot to wait for, so theirs never run out. */
-        double need = 0;
+        /* gateBetsFlawless() is the proof a flawless threshold of a row
+         * needs. A snapshot that has used many times that much for each
+         * label it may answer without taking over is not going to: the
+         * trainer has moved on, try its next snapshot instead. Score gates
+         * have no better snapshot to wait for, so theirs never run out. */
+        uint64_t need = 0, times = (uint64_t)GATE_CANDIDATE_BUDGET_FACTOR * gateTestedRows(g);
+
         for (uint32_t r = 0; r < g->nrows; r++) {
             if (!gateRowTested(g, r)) continue;
-            double n = gen->log_threshold / g->bets[r].inc_ok[GATE_NBETS - 1];
+            uint64_t n = gateBetsFlawless(&g->bets[r], gen->log_threshold);
             if (n > need) need = n;
         }
-        gen->budget = (uint64_t)ceil(need) * GATE_CANDIDATE_BUDGET_FACTOR;
+        /* A tiny ALPHA needs more proof than a counter can hold: such a
+         * snapshot simply never runs out. */
+        gen->budget = need > GATE_COUNT_MAX / times ? GATE_COUNT_MAX : need * times;
         if (gen->budget == 0) gen->budget = 1;
     }
     g->snapshot_updates = g->trainer.updates;
@@ -662,36 +815,51 @@ static void gateSnapshot(gate *g) {
  * take a snapshot if one is due. */
 static void gateSettle(gate *g) {
     gateDrain(g);
+    gatePass(g);
     if (gateSnapshotDue(g)) gateSnapshot(g);
 }
 
 /* ------------------------------- Maintenance ----------------------------- */
 
 int gateMaintenanceDue(const gate *g, int64_t now_ms) {
-    int64_t now = now_ms > g->now_ms ? now_ms : g->now_ms;
+    int64_t now = gateClock(now_ms) > g->now_ms ? gateClock(now_ms) : g->now_ms;
 
-    if (g->oldest && g->oldest->created_ms + g->cfg.feedback_timeout_ms <= now) return 1;
+    if (g->oldest && gateAge(g->oldest, now) >= g->cfg.feedback_timeout_ms) return 1;
+    if (gatePassDue(g, now)) return 1;
     return gateSnapshotDue(g);
 }
 
 void gateMaintain(gate *g, int64_t now_ms) {
     gateObs *o;
 
+    now_ms = gateClock(now_ms);
     if (now_ms > g->now_ms) g->now_ms = now_ms;
-    while ((o = g->oldest) != NULL &&
-           o->created_ms + g->cfg.feedback_timeout_ms <= g->now_ms)
-    {
-        if (o->flags & GATE_OBS_EVIDENCE) {
-            /* It is the oldest waiting request, so it is the head of the
-             * evidence queue. Unanswered: it becomes a missing answer and
-             * is applied as an error when drained. Answered: it was only
-             * waiting behind older evidence, which is gone now. */
-            if (!(o->flags & GATE_OBS_RESOLVED)) {
-                o->flags |= GATE_OBS_MISSING | GATE_OBS_RESOLVED;
-                gateObsDropClues(g, o);
+    while ((o = g->oldest) != NULL && gateAge(o, g->now_ms) >= g->cfg.feedback_timeout_ms) {
+        if (o->flags & GATE_OBS_PROVISIONAL) {
+            /* Already counted as an error: now it is one for good. */
+            int live = gateObsLive(g, o);
+
+            gateObsUnlink(g, o);
+            if (live) gateOutcome(g, o, 1, 1); else g->stats.dropped++;
+            gateObsRelease(o);
+            gateDrain(g); /* an alarm may have left dead requests in the queue */
+        } else if (o->flags & GATE_OBS_EVIDENCE) {
+            /* The oldest waiting request, so the head of the evidence
+             * queue, and unanswered: answered heads never rest there, and
+             * every path that drops a generation drains the queue. */
+            if (g->ehead != o || (o->flags & GATE_OBS_RESOLVED)) break; /* cannot happen */
+            int live = gateObsLive(g, o);
+
+            gateEvidencePop(g);
+            gateObsUnlink(g, o);
+            if (live) {
+                gateProofApply(g, o, 1, 1);
+                gateOutcome(g, o, 1, 1);
+            } else {
+                g->stats.dropped++;
             }
+            gateObsRelease(o);
             gateDrain(g);
-            if (g->oldest == o) break; /* cannot happen; never spin */
         } else {
             g->stats.dropped++;
             gateObsUnlink(g, o);
@@ -701,41 +869,78 @@ void gateMaintain(gate *g, int64_t now_ms) {
     gateSettle(g);
 }
 
+uint32_t gateUnanswered(const gate *g) {
+    return g->npending - g->nanswered;
+}
+
 int gateFull(const gate *g) {
-    return g->npending >= GATE_MAX_PENDING || g->pending_bytes >= GATE_MAX_PENDING_BYTES;
+    return gateUnanswered(g) >= GATE_MAX_PENDING || g->pending_bytes >= GATE_MAX_PENDING_BYTES ||
+           g->next_seq >= GATE_COUNT_MAX; /* out of request numbers: never in practice */
 }
 
 /* ------------------------------- Prediction ------------------------------ */
 
-int gateEvaluate(const gate *g, const gateSparse *x, double ext_score, gateEval *ev) {
-    memset(ev, 0, sizeof(*ev));
-    ev->serving.label = ev->candidate.label = -1;
-
+static int gateEvaluateServing(const gate *g, const gateSparse *x, double ext_score,
+                               gateEval *ev)
+{
+    if (g->serving == NULL) return GATE_OK;
     if (!gateIsClassifier(g)) {
-        if (g->serving) {
-            ev->has_serving = 1;
-            ev->serving.score = ext_score;
-        }
-        if (g->candidate) {
-            ev->has_candidate = 1;
-            ev->candidate.score = ext_score;
-        }
-        return GATE_OK;
-    }
-    if (g->serving) {
+        ev->serving.score = ext_score;
+    } else {
         if (x == NULL) return GATE_ERR;
         ev->serving.label = gateModelPredict(&g->serving->model, x, NULL, &ev->serving.score);
         if (ev->serving.label < 0) return GATE_ERR;
-        ev->has_serving = 1;
     }
-    if (g->candidate) {
+    ev->has_serving = 1;
+    return GATE_OK;
+}
+
+static int gateEvaluateCandidate(const gate *g, const gateSparse *x, double ext_score,
+                                 gateEval *ev)
+{
+    if (g->candidate == NULL) return GATE_OK;
+    if (!gateIsClassifier(g)) {
+        ev->candidate.score = ext_score;
+    } else {
         if (x == NULL) return GATE_ERR;
         ev->candidate.label =
             gateModelPredict(&g->candidate->model, x, NULL, &ev->candidate.score);
         if (ev->candidate.label < 0) return GATE_ERR;
-        ev->has_candidate = 1;
     }
+    ev->has_candidate = 1;
     return GATE_OK;
+}
+
+static void gateEvalInit(gateEval *ev) {
+    memset(ev, 0, sizeof(*ev));
+    ev->serving.label = ev->candidate.label = -1;
+}
+
+int gateEvaluate(const gate *g, const gateSparse *x, double ext_score, gateEval *ev) {
+    gateEvalInit(ev);
+    if (gateEvaluateServing(g, x, ext_score, ev) != GATE_OK) return GATE_ERR;
+    return gateEvaluateCandidate(g, x, ext_score, ev);
+}
+
+/* Would the serving generation answer this guess by itself? */
+static int gateServingAccepts(const gate *g, const gateEval *ev) {
+    if (g->serving == NULL || !ev->has_serving) return 0;
+    int32_t label = ev->serving.label;
+    if (gateIsClassifier(g) && (label < 0 || (uint32_t)label >= g->nrows)) return 0;
+    uint32_t row = gateIsClassifier(g) ? (uint32_t)label : 0;
+    int32_t t = g->serving->policy[row];
+
+    return gateRowTested(g, row) && t >= 0 && ev->serving.score >= g->grid[t];
+}
+
+int gateEvaluateFor(const gate *g, const gateSparse *x, double ext_score, double u,
+                    gateEval *ev)
+{
+    gateEvalInit(ev);
+    if (gateEvaluateServing(g, x, ext_score, ev) != GATE_OK) return GATE_ERR;
+    /* The same test gatePlanRequest() makes for an ACCEPT. */
+    if (!g->paused && !(u < g->cfg.audit) && gateServingAccepts(g, ev)) return GATE_OK;
+    return gateEvaluateCandidate(g, x, ext_score, ev);
 }
 
 typedef struct gatePlan {
@@ -757,6 +962,9 @@ static int gatePlanRequest(const gate *g, double u, const gateEval *ev, gatePlan
     p->flags = audit ? GATE_OBS_AUDIT : 0;
     p->store = 0;
 
+    /* A score gate guesses no label. */
+    if (!classifier && (ev->serving.label != -1 || ev->candidate.label != -1)) return GATE_ERR;
+
     if (g->serving) {
         if (!ev->has_serving) return GATE_ERR;
         int32_t label = ev->serving.label;
@@ -776,6 +984,12 @@ static int gatePlanRequest(const gate *g, double u, const gateEval *ev, gatePlan
             p->label = label;
         }
     }
+    /* An ACCEPT records nothing: the candidate's guess is not needed (and
+     * gateEvaluateFor() does not compute it). */
+    if (would && !audit && !g->paused) {
+        p->action = GATE_ACTION_ACCEPT;
+        return GATE_OK;
+    }
     if (g->candidate) {
         if (!ev->has_candidate) return GATE_ERR;
         if (classifier &&
@@ -783,20 +997,18 @@ static int gatePlanRequest(const gate *g, double u, const gateEval *ev, gatePlan
             return GATE_ERR;
         /* The candidate needs a sample that does not depend on what the
          * serving generation decided: everything while nothing serves,
-         * the audited share afterwards. */
-        if (g->serving == NULL || audit) p->flags |= GATE_OBS_CAND;
+         * the audited share afterwards. A guess of a label that is never
+         * answered proves nothing. */
+        uint32_t crow = classifier ? (uint32_t)ev->candidate.label : 0;
+        if ((g->serving == NULL || audit) && gateRowTested(g, crow)) p->flags |= GATE_OBS_CAND;
     }
 
-    if (would && !audit && !g->paused) {
-        p->action = GATE_ACTION_ACCEPT;
-        return GATE_OK;
-    }
     if (would && audit && !g->paused) p->action = GATE_ACTION_AUDIT;
     p->label = -1;
     if (p->flags & GATE_OBS_EVIDENCE)
         p->store = 1;
-    else
-        p->store = classifier && g->npending < GATE_TRAIN_PENDING;
+    else /* for training, or so that a blind gate has an id to be answered */
+        p->store = (classifier || g->blind) && gateUnanswered(g) < GATE_TRAIN_PENDING;
     return GATE_OK;
 }
 
@@ -838,17 +1050,17 @@ int gatePredict(gate *g, int64_t now_ms, double u, const gateEval *ev,
         double inside = (p.flags & GATE_OBS_WOULD_ACCEPT) ? 1.0 : 0.0;
         g->stats.coverage += (inside - g->stats.coverage) / (double)g->stats.window;
     }
-    res->action = p.action;
     if (p.action == GATE_ACTION_ACCEPT) {
         g->stats.accepted++;
+        res->action = p.action;
         res->label = p.label;
         return GATE_OK;
     }
+    gateObs *o = p.store ? gateObsAllocate() : NULL;
+    if (p.store && o == NULL) p.action = GATE_ACTION_ABSTAIN; /* out of memory: no id */
+    res->action = p.action;
     if (p.action == GATE_ACTION_AUDIT) g->stats.audited++; else g->stats.abstained++;
-    if (!p.store) return GATE_OK;
-
-    gateObs *o = gateObsAllocate();
-    if (o == NULL) return GATE_OK; /* out of memory: abstain without an id */
+    if (o == NULL) return GATE_OK;
     o->seq = g->next_seq++;
     o->created_ms = g->now_ms;
     o->flags = p.flags;
@@ -856,13 +1068,21 @@ int gatePredict(gate *g, int64_t now_ms, double u, const gateEval *ev,
         o->serv_gen = g->serving->gen;
         o->serv_label = ev->serving.label;
         o->serv_score = ev->serving.score;
+        /* A spot check of accepted traffic gets its number in the drift
+         * detector of its row now, when it is asked. */
+        if ((p.flags & GATE_OBS_SERV) && (p.flags & GATE_OBS_WOULD_ACCEPT) &&
+            (p.flags & GATE_OBS_AUDIT))
+        {
+            uint32_t row = gateIsClassifier(g) ? (uint32_t)ev->serving.label : 0;
+            o->spot = gateDriftAsk(&g->serving->drift[row]);
+        }
     }
     if (g->candidate) {
         o->cand_gen = g->candidate->gen;
         o->cand_label = ev->candidate.label;
         o->cand_score = ev->candidate.score;
     }
-    if (x) {
+    if (x && gateIsClassifier(g)) { /* a score gate stores no clues */
         o->x = *x;
         x->n = 0;
         x->idx = NULL;
@@ -902,8 +1122,41 @@ int gateLearn(gate *g, int64_t now_ms, uint64_t epoch, uint64_t seq, int32_t res
         gateObsDropClues(g, o);
     }
     g->stats.learned++;
+    g->blind = 0; /* answers arrive */
+    g->missing_run = 0;
+    g->answer_mark = g->next_seq;
+
+    /* A request the candidate could have been tested on, had it not
+     * guessed a label that is never answered, uses up its budget as proof
+     * does: a snapshot that defers everything must not be tested for
+     * ever. (Same sample as its proof: every request while nothing
+     * serves, the audited share afterwards.) */
+    if (gateIsClassifier(g) && g->candidate && o->cand_gen == g->candidate->gen &&
+        !(o->flags & GATE_OBS_CAND) && (o->serv_gen == 0 || (o->flags & GATE_OBS_AUDIT)) &&
+        o->cand_label >= 0 && !gateRowTested(g, (uint32_t)o->cand_label) &&
+        gateRowTested(g, (uint32_t)result))
+    {
+        g->candidate->missed++;
+        gateConsiderCandidate(g);
+    }
+
+    int err_cand = 0, err_serv = 0;
     if (o->flags & GATE_OBS_EVIDENCE) {
+        gateObsErrors(g, o, &err_cand, &err_serv);
+        /* The drift detector hears of a spot check the moment its answer
+         * arrives: it is an alarm, not proof, and must not wait for the
+         * answers of older requests. An alarm drops the generations this
+         * request was proof for; what follows then finds nothing to do. */
+        if (gateObsLive(g, o)) gateOutcome(g, o, 0, err_serv);
+    }
+    if (o->flags & GATE_OBS_PROVISIONAL) {
+        /* Proof moved on without this answer: set it right. */
+        gateObsUnlink(g, o);
+        gateProofFlip(g, o, err_cand, err_serv);
+        gateObsRelease(o);
+    } else if (o->flags & GATE_OBS_EVIDENCE) {
         o->flags |= GATE_OBS_RESOLVED; /* applied when its turn comes */
+        g->nanswered++;
     } else {
         gateObsUnlink(g, o);
         gateObsRelease(o);
@@ -934,8 +1187,8 @@ gate *gateCreate(const gateConfig *cfg, uint64_t lineage, uint64_t epoch, int64_
     if (g == NULL) return NULL;
     g->lineage = lineage;
     g->epoch = epoch;
-    g->created_ms = now_ms;
-    g->now_ms = now_ms;
+    g->created_ms = gateClock(now_ms);
+    g->now_ms = g->created_ms;
     gateSettle(g); /* a score gate starts testing right away */
     return g;
 }
@@ -958,11 +1211,16 @@ static void gateDropProof(gate *g, uint64_t new_epoch) {
     g->serving = NULL;
     g->snapshot_updates = 0;
     g->epoch = new_epoch;
+    g->blind = 0;
+    g->missing_run = 0;
     gateCoverageReset(g);
 }
 
 void gateReset(gate *g, int64_t now_ms, uint64_t new_epoch) {
-    if (now_ms > g->now_ms) g->now_ms = now_ms;
+    /* Nothing that carries a time survives, so the clock is simply set: a
+     * replica that used to be a primary may hold a later clock of its own
+     * and must come back to its new primary's. */
+    g->now_ms = gateClock(now_ms);
     gateDropProof(g, new_epoch);
     if (gateIsClassifier(g)) gateModelReset(&g->trainer);
     memset(&g->stats, 0, sizeof(g->stats));
@@ -970,7 +1228,7 @@ void gateReset(gate *g, int64_t now_ms, uint64_t new_epoch) {
 }
 
 void gateRecover(gate *g, int64_t now_ms, uint64_t new_epoch) {
-    if (now_ms > g->now_ms) g->now_ms = now_ms;
+    g->now_ms = gateClock(now_ms); /* set, not advanced: see gateReset() */
     gateDropProof(g, new_epoch);
     gateSettle(g);
 }
@@ -1004,6 +1262,11 @@ static int gateCheckGeneration(const gate *g, const gateGeneration *gen,
                     GATE_INV_FAIL("%s: deferred row %u has proof", what, r);
         }
         for (uint32_t t = 0; t < T; t++) {
+            if (gen->paired[r * T + t] > gen->samples ||
+                (t > 0 && gen->paired[r * T + t] > gen->paired[r * T + t - 1]))
+                GATE_INV_FAIL("%s: paired counts inconsistent", what);
+        }
+        for (uint32_t t = 0; t < T; t++) {
             const gateRegion *reg = &gen->regions[r * T + t];
             if (reg->errors > reg->n || reg->n > gen->samples || reg->certified_at > reg->n)
                 GATE_INV_FAIL("%s: region counters inconsistent", what);
@@ -1017,7 +1280,7 @@ static int gateCheckGeneration(const gate *g, const gateGeneration *gen,
 }
 
 int gateCheckInvariants(const gate *g, char *err, size_t errlen) {
-    uint32_t n = 0, ne = 0, indexed = 0;
+    uint32_t n = 0, ne = 0, na = 0, indexed = 0;
     uint64_t bytes = 0, last = 0;
     const gateObs *o, *prev = NULL;
 
@@ -1026,24 +1289,58 @@ int gateCheckInvariants(const gate *g, char *err, size_t errlen) {
                                            (unsigned long long)o->seq);
         if (o->seq <= last) GATE_INV_FAIL("requests not in ascending order");
         if (o->seq >= g->next_seq) GATE_INV_FAIL("request beyond next_seq");
-        if (gateFindObservation(g, o->seq) != o) GATE_INV_FAIL("request missing from index");
         if ((o->flags & GATE_OBS_RESOLVED) && !(o->flags & GATE_OBS_EVIDENCE))
             GATE_INV_FAIL("answered request outside the evidence queue");
         if (!gateIsClassifier(g) && o->x.n != 0) GATE_INV_FAIL("score gate stores clues");
+        if ((o->flags & GATE_OBS_PROVISIONAL) &&
+            (!(o->flags & GATE_OBS_EVIDENCE) || (o->flags & GATE_OBS_RESOLVED)))
+            GATE_INV_FAIL("request counted as an error is not unanswered evidence");
+        if ((o->flags & GATE_OBS_RESOLVED) && o->x.n != 0)
+            GATE_INV_FAIL("answered request still stores clues");
+        if (o->flags & GATE_OBS_RESOLVED) na++;
         last = o->seq;
         bytes += GATE_OBS_BYTES(o->x.n);
         n++;
     }
     if (g->newest != prev) GATE_INV_FAIL("newest pointer is wrong");
     if (n != g->npending) GATE_INV_FAIL("npending %u, counted %u", g->npending, n);
+    if (na != g->nanswered) GATE_INV_FAIL("nanswered %u, counted %u", g->nanswered, na);
+    if (g->blind && (g->candidate || g->serving))
+        GATE_INV_FAIL("a blind gate holds a generation");
     if (bytes != g->pending_bytes) GATE_INV_FAIL("pending_bytes is wrong");
 
+    /* The index. A chain holds the waiting requests of its slot, newest
+     * first (gateObsLink() puts a request in front, and it is the newest).
+     * So walking the list from the newest back, each request must be the
+     * next one of its chain, and no chain may have anything left: one pass,
+     * however the ids fall. (Looking each request up instead takes time
+     * quadratic in the length of a chain, and a blob can put every request
+     * it holds into one.) */
+    {
+        const gateObs *chain[GATE_TABLE_SIZE];
+
+        for (uint32_t i = 0; i < GATE_TABLE_SIZE; i++) chain[i] = g->table[i];
+        for (o = g->newest; o; o = o->prev) {
+            uint32_t slot = gateSlot(o->seq);
+
+            if (chain[slot] != o) GATE_INV_FAIL("request missing from index");
+            chain[slot] = o->hnext;
+        }
+        for (uint32_t i = 0; i < GATE_TABLE_SIZE; i++)
+            if (chain[i] != NULL) GATE_INV_FAIL("index holds a request that is not waiting");
+    }
+
+    /* The queue is a part of the list, in the same order: one pass over
+     * both finds every queued request among the waiting ones. */
+    const gateObs *waiting = g->oldest;
     last = 0;
     prev = NULL;
     for (o = g->ehead; o; prev = o, o = o->enext) {
-        if (!(o->flags & GATE_OBS_EVIDENCE)) GATE_INV_FAIL("non-evidence in the queue");
+        if (!(o->flags & GATE_OBS_EVIDENCE) || (o->flags & GATE_OBS_PROVISIONAL))
+            GATE_INV_FAIL("the queue holds a request that is not unapplied evidence");
         if (o->seq <= last) GATE_INV_FAIL("evidence queue out of order");
-        if (gateFindObservation(g, o->seq) != o) GATE_INV_FAIL("queued request not waiting");
+        while (waiting && waiting != o) waiting = waiting->next;
+        if (waiting == NULL) GATE_INV_FAIL("queued request not waiting");
         last = o->seq;
         ne++;
     }
@@ -1052,9 +1349,9 @@ int gateCheckInvariants(const gate *g, char *err, size_t errlen) {
     if (g->ehead && (g->ehead->flags & GATE_OBS_RESOLVED) && gateObsLive(g, g->ehead))
         GATE_INV_FAIL("answered live evidence left at the head");
 
-    for (uint32_t i = 0; i < GATE_TABLE_SIZE; i++)
-        for (o = g->table[i]; o; o = o->hnext) indexed++;
-    if (indexed != g->npending) GATE_INV_FAIL("index holds %u requests", indexed);
+    (void)indexed;
+    if (g->answer_mark > g->next_seq) GATE_INV_FAIL("answer mark beyond next_seq");
+    if (g->missing_run >= GATE_MISSING_RUN) GATE_INV_FAIL("a run of missing answers that raised no alarm");
 
     if (g->candidate) {
         if (!gateCheckGeneration(g, g->candidate, "candidate", err, errlen)) return 0;

@@ -75,6 +75,19 @@ void gateRegionInit(gateRegion *r);
  * wealth after the update. Does not set certified_at. */
 double gateRegionUpdate(gateRegion *r, const gateBets *b, int error);
 
+/* Turn one sample that was accounted as an error into a correct one: the
+ * wealth becomes what it would be had the sample been correct from the
+ * start (up to rounding). 'n' does not change. Does nothing if the region
+ * holds no error. Does not set certified_at. */
+void gateRegionFlip(gateRegion *r, const gateBets *b);
+
+/* The number of correct answers in a row that take a fresh region to
+ * 'log_threshold': the smallest n >= 1 with
+ * log((1/4) * sum_j exp(n * inc_ok[j])) >= log_threshold. Returns
+ * UINT64_MAX when that number does not fit (a tiny alpha) or the arguments
+ * are not numbers. */
+uint64_t gateBetsFlawless(const gateBets *b, double log_threshold);
+
 /* log((1/4) * sum_j exp(logw[j])), computed with log-sum-exp. */
 double gateRegionLogWealth(const gateRegion *r);
 
@@ -115,49 +128,99 @@ int gateGridBuild(double *grid, double lo, double hi);
 uint32_t gateGridCount(const double *grid, uint32_t n, double score);
 
 /* ----------------------------- Drift detector ----------------------------
- * A CUSUM e-detector over the spot checks of accepted traffic. For a risk
- * target alpha it watches for the error rate rising to an alternative p1 >
- * alpha with the likelihood ratio of one spot check,
+ * Watches the spot checks of accepted traffic for an error rate above the
+ * target. For a risk target alpha and an alternative p1 > alpha, the
+ * likelihood ratio of one spot check is
  *
  *     e(E) = (p1 / alpha)^E * ((1 - p1) / (1 - alpha))^(1 - E),
  *
- * whose expectation is <= 1 whenever the true error rate is <= alpha. The
- * statistic restarts from 1 whenever it falls below 1:
+ * whose expectation is <= 1 whenever the true error rate is <= alpha. Two
+ * alternatives are run side by side, p1 = 2 alpha and p1 = 4 alpha (each at
+ * most halfway from alpha to 1), and averaged.
  *
- *     W <- max(W, 1) * e(E)
+ * Spot checks are numbered in the order they are ASKED and cut into blocks
+ * of 64, of 512 and of 4,096 (GATE_DRIFT_SCALES block lengths at once). The
+ * statistic of a block is the product of e() over the spot checks asked in
+ * it so far, where a spot check counts as right until a disagreeing answer
+ * arrives. The alarm fires when the statistic of a block reaches the alarm
+ * level A.
  *
- * Two alternatives are run side by side, p1 = 2 alpha and p1 = 4 alpha
- * (each capped at (1 + alpha) / 2), and the alarm fires when their average
- * reaches the alarm level A. While the error rate is at most alpha the
- * expected number of spot checks before a false alarm is at least A; a
- * gross failure (half the answers wrong) is caught in about a dozen.
- * Everything is kept in log space. */
+ * LOST ANSWERS. A spot check whose answer never arrives is not known to be
+ * a disagreement, but it may be one (a teacher or a client that fails on
+ * the hard cases loses exactly the answers that matter). A second
+ * statistic per block counts every lost answer as a disagreement, next to
+ * the real ones. It has its own, much higher alarm level, and its alarm
+ * means "can no longer be checked", not "got worse".
+ *
+ * WHY BLOCKS. A product does not depend on the order of its factors, so
+ * the statistic does not depend on the order in which answers arrive.
+ * However answers are delayed, batched or reordered, its value is never
+ * above the product over the same spot checks with their true answers
+ * taken in the order they were asked, and that is a nonnegative
+ * supermartingale while the error rate is at most alpha. Each block
+ * therefore raises a false alarm with probability at most 1/A, whatever
+ * the timing of the answers. (A running statistic that restarts when it
+ * falls, like CUSUM, alarms on a handful of disagreements that happen to
+ * arrive together.) Short blocks catch a gross failure within a few dozen
+ * spot checks; long blocks gather enough evidence against a rate that is
+ * only moderately too high. A disagreeing answer that arrives after its
+ * block has ended counts only in the longer blocks that are still open.
+ * Everything is kept as counts; the statistic is computed in log space. */
 
 #define GATE_DRIFT_ALTS 2
+#define GATE_DRIFT_SCALES 3
+extern const uint32_t gateDriftBlocks[GATE_DRIFT_SCALES]; /* {64, 512, 4096} */
 
 typedef struct gateDriftBets {
-    double inc_ok[GATE_DRIFT_ALTS];  /* log e(0) per alternative (negative) */
-    double inc_err[GATE_DRIFT_ALTS]; /* log e(1) per alternative (positive) */
+    double inc_ok[GATE_DRIFT_ALTS];  /* log e(0) per alternative (<= 0) */
+    double inc_err[GATE_DRIFT_ALTS]; /* log e(1) per alternative (>= 0) */
 } gateDriftBets;
 
 typedef struct gateDrift {
-    double logw[GATE_DRIFT_ALTS]; /* log statistic per alternative, >= ... */
-    uint64_t n;                   /* spot checks seen */
-    uint64_t errors;              /* of which disagreements */
+    uint64_t asked;                    /* spot checks asked */
+    uint64_t errors;                   /* disagreeing answers received */
+    uint32_t wrong[GATE_DRIFT_SCALES]; /* ... of which belong to the block
+                                        * now open, per block length */
+    uint32_t lost[GATE_DRIFT_SCALES];  /* answers given up, of the block now
+                                        * open, per block length */
 } gateDrift;
 
+#define GATE_DRIFT_QUIET 0
+#define GATE_DRIFT_ALARM_WORSE 1    /* disagreements reached the alarm level */
+#define GATE_DRIFT_ALARM_UNCHECKED 2 /* only together with lost answers */
+
 /* 'alpha' must be in (0,1); otherwise the increments are poisoned so that
- * the detector alarms on the first sample (fail closed). */
+ * the first disagreement raises the alarm (fail closed). For an alpha so
+ * close to 1 that no double lies between it and 1, an alternative has no
+ * room above alpha and stays silent (both increments 0). */
 void gateDriftBetsInit(gateDriftBets *b, double alpha);
 void gateDriftInit(gateDrift *d);
 
-/* Record one spot check ('error' 0 or 1). Returns 1 when the alarm level
- * 'log_alarm' (the natural log of A) is reached, or when the statistic is
- * not a finite number. */
-int gateDriftPush(gateDrift *d, const gateDriftBets *b, int error, double log_alarm);
+/* A spot check is asked. Returns its number: 1, 2, 3, ... */
+uint64_t gateDriftAsk(gateDrift *d);
 
-/* Current value of the statistic, as the log of the average over the
- * alternatives. 0 for a fresh detector. */
-double gateDriftLogStat(const gateDrift *d);
+/* The answer of spot check 'number' disagreed. Returns
+ * GATE_DRIFT_ALARM_WORSE when the disagreements of a block reach the alarm
+ * level 'log_alarm' (the natural log of A) or a statistic is not a finite
+ * number; otherwise GATE_DRIFT_ALARM_UNCHECKED when disagreements and lost
+ * answers together reach 'log_lost_alarm'; otherwise GATE_DRIFT_QUIET. A
+ * number that was never handed out is ignored. Agreeing answers are not
+ * reported at all. */
+int gateDriftWrong(gateDrift *d, const gateDriftBets *b, uint64_t number, double log_alarm,
+                   double log_lost_alarm);
+
+/* The answer of spot check 'number' was given up. Returns
+ * GATE_DRIFT_ALARM_UNCHECKED when disagreements and lost answers of a block
+ * together reach 'log_lost_alarm', else GATE_DRIFT_QUIET. */
+int gateDriftLost(gateDrift *d, const gateDriftBets *b, uint64_t number, double log_lost_alarm);
+
+/* Spot checks asked so far in the block of length gateDriftBlocks[scale]
+ * that is now open (0 before the first one). */
+uint32_t gateDriftOpen(const gateDrift *d, int scale);
+
+/* The largest block statistic now, as a log (0 for a fresh detector):
+ * over the disagreements, or with 'with_lost' over disagreements and lost
+ * answers together. */
+double gateDriftLogStat(const gateDrift *d, const gateDriftBets *b, int with_lost);
 
 #endif /* GATE_STATS_H */

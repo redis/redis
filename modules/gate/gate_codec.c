@@ -15,12 +15,13 @@
  * (K, or 1 for a score gate).
  *
  *   header      "GATE", u16 codec version, u16 features version
- *   config      u8 kind, f64 alpha, f64 delta, f64 audit, u32 K,
- *               K x (u32 length, label bytes), K x f64 class alpha,
- *               K x u8 class defer, u32 snapshot examples,
- *               i64 feedback timeout
+ *   config      u8 kind (0 classifier, 1 score), f64 alpha, f64 delta,
+ *               f64 audit, u32 K, K x (u32 length, label bytes),
+ *               K x f64 class alpha, K x u8 class defer (0 or 1),
+ *               u32 snapshot examples, i64 feedback timeout
  *   ledger      u64 lineage, u64 epoch, i64 created_ms, i64 now_ms *,
- *               u64 generations, u8 paused, u64 snapshot_updates
+ *               u64 generations, u8 paused (0 or 1), u64 snapshot_updates,
+ *               u8 blind (0 or 1), u32 missing_run, u64 answer_mark
  *   trainer     u8 present (1 for a classifier, else 0); if present, a model
  *   candidate   u8 present; if present, a generation
  *   serving     u8 present; if present, a generation
@@ -32,20 +33,39 @@
  *
  *   model       u64 updates, V * GATE_DIM x f32 weights, V x f32 biases
  *   generation  u64 gen, i64 frozen_ms, i64 promoted_ms, u64 samples,
- *               errors, paired, audits, audit_errors, budget, a model
+ *               errors, missed, audits, audit_errors, budget, a model
  *               (classifier only), R * GATE_THRESHOLDS x region (4 x f64
- *               log wealth, u64 n, errors, certified_at), R x drift
- *               detector (2 x f64 log statistic, u64 n, errors)
+ *               log wealth, u64 n, errors, certified_at),
+ *               R * GATE_THRESHOLDS x u64 paired, R x drift detector
+ *               (u64 asked, u64 errors, 3 x u32 wrong, 3 x u32 lost)
  *   request     u64 seq, i64 created_ms, u32 flags, i32 cand_label,
  *               i32 serv_label, f64 cand_score, f64 serv_score,
- *               u64 cand_gen, u64 serv_gen, i32 result, u32 n,
+ *               u64 cand_gen, u64 serv_gen, i32 result, u64 spot, u32 n,
  *               n x u32 bucket, n x f32 value
  *
- * The fields marked * are written as zero for a digest. The bar and the
- * policy of a generation are not stored: the decoder computes them again.
- * Weights, regions and drift detectors carry no count: it follows from the
- * config and from GATE_DIM and GATE_THRESHOLDS, so changing either of those
- * changes the format and needs a new GATE_CODEC_VERSION.
+ * COUNTERS. No counter is written above GATE_COUNT_MAX (2^62) and none is
+ * accepted above it. The core never moves a request number, a snapshot
+ * number or the clock past its limit (it stops handing them out), and every
+ * other counter is simply written as the limit once it is beyond: so
+ * whatever the core makes of a gate that decoded, it can be encoded and
+ * decoded again.
+ *
+ * The flags of a request are the GATE_OBS_* bits of gate_core.h: 1 audit,
+ * 2 would-accept, 4 proof for the candidate, 8 proof for the serving
+ * generation, 16 answered and waiting for its turn (RESOLVED), 32 counted
+ * as an error until its answer arrives (PROVISIONAL). A label that does not
+ * exist (a score gate, or no such generation when the request was asked)
+ * is -1, and so is the result of a request that has no answer yet. A
+ * generation number of 0 means "there was none".
+ *
+ * The fields marked * are written as zero for a digest. Not stored, because
+ * the decoder computes them again: the bar and the policy of a generation,
+ * the number of answered requests, and the evidence queue, which is the
+ * waiting requests that are proof for something (4 or 8) and are not
+ * PROVISIONAL, in the order of the list. Weights, regions and drift
+ * detectors carry no count: it follows from the config and from GATE_DIM
+ * and GATE_THRESHOLDS, so changing either of those changes the format and
+ * needs a new GATE_CODEC_VERSION. So does changing what a flag bit means.
  *
  * WHAT THE DECODER ENFORCES. The limits of gate_defs.h, what the core needs
  * in order to be safe (the labels and buckets it indexes with, the numbers
@@ -54,6 +74,17 @@
  * deliberately enforces nothing else: a gate that decodes must still decode
  * after the core has worked on it, and every further rule is one more way
  * for a state the core can reach to be refused when it is loaded again.
+ * In particular it does not ask whether the proof in a blob is true, or
+ * whether a waiting request could be waiting where it is (evidence for a
+ * generation that is gone, a request the proof moved on without in front
+ * of older proof): the core copes with all of those, and whoever restores
+ * a blob it does not trust drops the proof anyway (gateRecover).
+ *
+ * One such way is left, and the decoder cannot close it on its own: a bound
+ * has an edge. A blob may put a bounded counter, or the clock, exactly at
+ * its bound. The core does not stop counting there, and takes a clock
+ * beyond its range if it is handed one; what is encoded after that is
+ * refused. (No gate gets there by counting or by the passing of time.)
  */
 
 #include <math.h>
@@ -71,8 +102,16 @@
 
 /* Arrays whose size follows from these constants carry no count. */
 #if GATE_CODEC_VERSION == 1 && \
-    (GATE_DIM != 8192u || GATE_THRESHOLDS != 32u || GATE_NBETS != 4 || GATE_DRIFT_ALTS != 2)
+    (GATE_DIM != 8192u || GATE_THRESHOLDS != 32u || GATE_NBETS != 4 || GATE_DRIFT_SCALES != 3)
 #error "these constants shape the encoding: changing one needs a new GATE_CODEC_VERSION"
+#endif
+
+/* The kind of a gate and the flags of a request are stored as they are. */
+#if GATE_CODEC_VERSION == 1 && \
+    (GATE_KIND_CLASSIFIER != 0 || GATE_KIND_SCORE != 1 || GATE_OBS_AUDIT != 1u || \
+     GATE_OBS_WOULD_ACCEPT != 2u || GATE_OBS_CAND != 4u || GATE_OBS_SERV != 8u || \
+     GATE_OBS_RESOLVED != 16u || GATE_OBS_PROVISIONAL != 32u)
+#error "these values are part of the encoding: changing one needs a new GATE_CODEC_VERSION"
 #endif
 
 /* Little-endian stores and loads, spelled out byte by byte: right on any
@@ -156,6 +195,12 @@ static void gateWriteU64(gateWriter *w, uint64_t v) {
 
 static void gateWriteI64(gateWriter *w, int64_t v) { gateWriteU64(w, (uint64_t)v); }
 
+/* A counter: never written above the limit the decoder accepts (see
+ * COUNTERS in the file comment). */
+static void gateWriteCount(gateWriter *w, uint64_t v) {
+    gateWriteU64(w, v > GATE_COUNT_MAX ? GATE_COUNT_MAX : v);
+}
+
 static void gateWriteDouble(gateWriter *w, double v) {
     uint64_t bits;
 
@@ -178,7 +223,7 @@ static void gateWriteFloats(gateWriter *w, const float *v, size_t n) {
 /* --------------------------------- Encoder ------------------------------- */
 
 static void gateWriteModel(gateWriter *w, const gateModel *m) {
-    gateWriteU64(w, m->updates);
+    gateWriteCount(w, m->updates);
     gateWriteFloats(w, m->w, (size_t)m->nvec * m->dim);
     gateWriteFloats(w, m->b, m->nvec);
 }
@@ -187,30 +232,32 @@ static void gateWriteGeneration(gateWriter *w, const gate *g, const gateGenerati
     gateWriteU8(w, gen != NULL);
     if (gen == NULL) return;
 
-    gateWriteU64(w, gen->gen);
+    gateWriteCount(w, gen->gen);
     gateWriteI64(w, gen->frozen_ms);
     gateWriteI64(w, gen->promoted_ms);
-    gateWriteU64(w, gen->samples);
-    gateWriteU64(w, gen->errors);
-    gateWriteU64(w, gen->paired);
-    gateWriteU64(w, gen->audits);
-    gateWriteU64(w, gen->audit_errors);
-    gateWriteU64(w, gen->budget);
+    gateWriteCount(w, gen->samples);
+    gateWriteCount(w, gen->errors);
+    gateWriteCount(w, gen->missed);
+    gateWriteCount(w, gen->audits);
+    gateWriteCount(w, gen->audit_errors);
+    gateWriteCount(w, gen->budget);
     if (g->cfg.kind == GATE_KIND_CLASSIFIER) gateWriteModel(w, &gen->model);
     for (uint32_t i = 0; i < g->nrows * GATE_THRESHOLDS; i++) {
         const gateRegion *reg = &gen->regions[i];
 
         for (int j = 0; j < GATE_NBETS; j++) gateWriteDouble(w, reg->logw[j]);
-        gateWriteU64(w, reg->n);
-        gateWriteU64(w, reg->errors);
-        gateWriteU64(w, reg->certified_at);
+        gateWriteCount(w, reg->n);
+        gateWriteCount(w, reg->errors);
+        gateWriteCount(w, reg->certified_at);
     }
+    for (uint32_t i = 0; i < g->nrows * GATE_THRESHOLDS; i++) gateWriteCount(w, gen->paired[i]);
     for (uint32_t row = 0; row < g->nrows; row++) {
         const gateDrift *d = &gen->drift[row];
 
-        for (int k = 0; k < GATE_DRIFT_ALTS; k++) gateWriteDouble(w, d->logw[k]);
-        gateWriteU64(w, d->n);
-        gateWriteU64(w, d->errors);
+        gateWriteCount(w, d->asked);
+        gateWriteCount(w, d->errors);
+        for (int s = 0; s < GATE_DRIFT_SCALES; s++) gateWriteU32(w, d->wrong[s]);
+        for (int s = 0; s < GATE_DRIFT_SCALES; s++) gateWriteU32(w, d->lost[s]);
     }
 }
 
@@ -225,6 +272,7 @@ static void gateWriteObs(gateWriter *w, const gateObs *o) {
     gateWriteU64(w, o->cand_gen);
     gateWriteU64(w, o->serv_gen);
     gateWriteU32(w, (uint32_t)o->result);
+    gateWriteCount(w, o->spot);
     gateWriteU32(w, o->x.n);
     for (uint32_t i = 0; i < o->x.n; i++) gateWriteU32(w, o->x.idx[i]);
     gateWriteFloats(w, o->x.val, o->x.n);
@@ -268,34 +316,37 @@ int gateEncode(const gate *g, int for_digest, unsigned char **buf, size_t *len) 
     gateWriteU64(&w, g->epoch);
     gateWriteI64(&w, g->created_ms);
     gateWriteI64(&w, now_ms);
-    gateWriteU64(&w, g->generations);
+    gateWriteCount(&w, g->generations);
     gateWriteU8(&w, g->paused != 0);
-    gateWriteU64(&w, g->snapshot_updates);
+    gateWriteCount(&w, g->snapshot_updates);
+    gateWriteU8(&w, g->blind != 0);
+    gateWriteU32(&w, g->missing_run);
+    gateWriteCount(&w, g->answer_mark);
 
     gateWriteU8(&w, (uint8_t)classifier);
     if (classifier) gateWriteModel(&w, &g->trainer);
     gateWriteGeneration(&w, g, g->candidate);
     gateWriteGeneration(&w, g, g->serving);
 
-    gateWriteU64(&w, g->next_seq);
+    gateWriteCount(&w, g->next_seq);
     gateWriteU32(&w, g->npending);
     for (const gateObs *o = g->oldest; o; o = o->next) gateWriteObs(&w, o);
 
-    gateWriteU64(&w, s.requests);
-    gateWriteU64(&w, s.accepted);
-    gateWriteU64(&w, s.audited);
-    gateWriteU64(&w, s.abstained);
-    gateWriteU64(&w, s.full);
-    gateWriteU64(&w, s.window);
+    gateWriteCount(&w, s.requests);
+    gateWriteCount(&w, s.accepted);
+    gateWriteCount(&w, s.audited);
+    gateWriteCount(&w, s.abstained);
+    gateWriteCount(&w, s.full);
+    gateWriteCount(&w, s.window);
     gateWriteDouble(&w, s.coverage);
-    gateWriteU64(&w, s.observations);
-    gateWriteU64(&w, s.learned);
-    gateWriteU64(&w, s.ignored);
-    gateWriteU64(&w, s.missing);
-    gateWriteU64(&w, s.dropped);
-    gateWriteU64(&w, s.promotions);
-    gateWriteU64(&w, s.revocations);
-    gateWriteU64(&w, s.retired);
+    gateWriteCount(&w, s.observations);
+    gateWriteCount(&w, s.learned);
+    gateWriteCount(&w, s.ignored);
+    gateWriteCount(&w, s.missing);
+    gateWriteCount(&w, s.dropped);
+    gateWriteCount(&w, s.promotions);
+    gateWriteCount(&w, s.revocations);
+    gateWriteCount(&w, s.retired);
 
     if (w.failed) {
         gate_free(w.buf);
@@ -366,14 +417,14 @@ static uint64_t gateReadU64(gateReader *r) {
 
 static int64_t gateReadI64(gateReader *r) { return (int64_t)gateReadU64(r); }
 
-/* A counter the core keeps in order with others: the numbers of requests
- * and generations ascend, a part stays below its total. That holds while
- * it does not wrap around, so it may not start near the end of its range.
- * Counting never gets it anywhere near 2^63. */
+/* A counter. The encoder never writes one above GATE_COUNT_MAX and the
+ * core never needs one to be (see COUNTERS in the file comment), so a
+ * larger value is not ours; and held to this range a counter cannot wrap,
+ * get out of order with another, or show as a negative number. */
 static uint64_t gateReadCount(gateReader *r) {
     uint64_t v = gateReadU64(r);
 
-    if (v > INT64_MAX) gateReadFail(r, "counter out of range");
+    if (v > GATE_COUNT_MAX) gateReadFail(r, "counter out of range");
     return v;
 }
 
@@ -422,7 +473,7 @@ static void gateReadWeights(gateReader *r, float *v, size_t n) {
 
 /* Fill an allocated model. */
 static void gateReadModel(gateReader *r, gateModel *m) {
-    m->updates = gateReadU64(r);
+    m->updates = gateReadCount(r);
     gateReadWeights(r, m->w, (size_t)m->nvec * m->dim);
     gateReadWeights(r, m->b, m->nvec);
 }
@@ -489,34 +540,42 @@ static gateGeneration *gateReadGeneration(gateReader *r, const gate *g) {
         return NULL;
     }
 
-    gen->gen = gateReadU64(r);
+    gen->gen = gateReadCount(r);
     gen->frozen_ms = gateReadI64(r);
     gen->promoted_ms = gateReadI64(r);
     gen->samples = gateReadCount(r);
-    gen->errors = gateReadU64(r);
-    gen->paired = gateReadU64(r);
+    gen->errors = gateReadCount(r);
+    gen->missed = gateReadCount(r);
     gen->audits = gateReadCount(r);
-    gen->audit_errors = gateReadU64(r);
-    gen->budget = gateReadU64(r);
+    gen->audit_errors = gateReadCount(r);
+    gen->budget = gateReadCount(r);
     if (classifier) gateReadModel(r, &gen->model);
     for (uint32_t i = 0; i < g->nrows * GATE_THRESHOLDS; i++) {
         gateRegion *reg = &gen->regions[i];
 
         for (int j = 0; j < GATE_NBETS; j++) reg->logw[j] = gateReadDouble(r);
-        reg->n = gateReadU64(r);
-        reg->errors = gateReadU64(r);
-        reg->certified_at = gateReadU64(r);
+        reg->n = gateReadCount(r);
+        reg->errors = gateReadCount(r);
+        reg->certified_at = gateReadCount(r);
     }
+    for (uint32_t i = 0; i < g->nrows * GATE_THRESHOLDS; i++) gen->paired[i] = gateReadCount(r);
     for (uint32_t row = 0; row < g->nrows; row++) {
         gateDrift *d = &gen->drift[row];
 
-        for (int k = 0; k < GATE_DRIFT_ALTS; k++) d->logw[k] = gateReadDouble(r);
-        d->n = gateReadU64(r);
-        d->errors = gateReadU64(r);
+        d->asked = gateReadCount(r);
+        d->errors = gateReadCount(r);
+        for (int s = 0; s < GATE_DRIFT_SCALES; s++) d->wrong[s] = gateReadU32(r);
+        for (int s = 0; s < GATE_DRIFT_SCALES; s++) {
+            d->lost[s] = gateReadU32(r);
+            /* Disagreements and lost answers of the block now open: no
+             * more than it holds. */
+            if ((uint64_t)d->wrong[s] + d->lost[s] > gateDriftOpen(d, s))
+                gateReadFail(r, "invalid drift detector");
+        }
+        if (d->errors > d->asked) gateReadFail(r, "invalid drift detector");
         gateGenerationRefreshPolicy(g, gen, row);
     }
-    gen->log_threshold = gateBudgetLogThreshold(g->cfg.delta, gen->gen,
-                                                gateTestedRows(g) * gateEntryPoints(g));
+    gen->log_threshold = gateBar(g, gen->gen);
     return gen;
 }
 
@@ -550,10 +609,10 @@ static void gateReadClues(gateReader *r, gateSparse *x) {
     }
 }
 
-/* The flags a request can rest with. GATE_OBS_MISSING is not one of them:
- * a request that timed out is applied before the gate comes to rest. */
+/* The flags a request can rest with: all of them. */
 #define GATE_OBS_STORED \
-    (GATE_OBS_AUDIT | GATE_OBS_WOULD_ACCEPT | GATE_OBS_EVIDENCE | GATE_OBS_RESOLVED)
+    (GATE_OBS_AUDIT | GATE_OBS_WOULD_ACCEPT | GATE_OBS_EVIDENCE | GATE_OBS_RESOLVED | \
+     GATE_OBS_PROVISIONAL)
 
 /* A frozen guess as gatePredict() records it: no label for a score gate or
  * when the generation did not exist, else one of the K. The core indexes
@@ -579,8 +638,13 @@ static void gateReadObs(gateReader *r, const gate *g, gateObs *o) {
     o->cand_gen = gateReadU64(r);
     o->serv_gen = gateReadU64(r);
     o->result = (int32_t)gateReadU32(r);
+    o->spot = gateReadCount(r);
     gateReadClues(r, &o->x);
 
+    /* The core takes the age of a request from the clock, now and later:
+     * the difference of two clock values, the request's never the larger.
+     * With a time from before the clock's range it would overflow. */
+    if (o->created_ms < 0) gateReadFail(r, "request time out of range");
     if (o->created_ms > g->now_ms) gateReadFail(r, "request from the future");
     if (o->flags & ~(uint32_t)GATE_OBS_STORED) gateReadFail(r, "invalid request flags");
     if (!gateGuessValid(g, o->cand_gen, o->cand_label) ||
@@ -589,6 +653,20 @@ static void gateReadObs(gateReader *r, const gate *g, gateObs *o) {
     answered = (o->flags & GATE_OBS_RESOLVED) != 0;
     if (answered ? (o->result < 0 || o->result >= answers) : o->result != -1)
         gateReadFail(r, "invalid request answer");
+    /* A spot check was one when it was asked (the proof flag may have been
+     * dropped since), and its number was handed out by the detector of its
+     * row if that generation is still the one serving. */
+    if (o->spot != 0) {
+        const uint32_t spot_flags = GATE_OBS_AUDIT | GATE_OBS_WOULD_ACCEPT;
+
+        if ((o->flags & spot_flags) != spot_flags || o->serv_gen == 0) {
+            gateReadFail(r, "invalid spot check");
+        } else if (!r->failed && g->serving && g->serving->gen == o->serv_gen) {
+            uint32_t row = g->cfg.kind == GATE_KIND_CLASSIFIER ? (uint32_t)o->serv_label : 0;
+
+            if (o->spot > g->serving->drift[row].asked) gateReadFail(r, "invalid spot check");
+        }
+    }
 }
 
 static void gateReadPending(gateReader *r, gate *g) {
@@ -599,8 +677,9 @@ static void gateReadPending(gateReader *r, gate *g) {
         gateObs *o;
 
         /* The core records a request only while the gate is not full, so
-         * no gate holds more than this, and no blob makes us allocate
-         * more. */
+         * none follows the one that filled it, however many of the older
+         * ones have been answered since. With the limit below this is also
+         * what bounds the memory a blob can make us allocate. */
         if (gateFull(g)) {
             gateReadFail(r, "too many waiting requests");
             return;
@@ -618,6 +697,10 @@ static void gateReadPending(gateReader *r, gate *g) {
         }
         last = o->seq;
         gateObsLink(g, o);
+        /* Answered requests do not count towards full, but the core lets
+         * only so many of them wait for an older answer: with one more,
+         * proof moves on (gatePass) and they are applied. */
+        if (g->nanswered > GATE_MAX_WAITING) gateReadFail(r, "too many answers waiting");
     }
 }
 
@@ -632,11 +715,16 @@ static void gateReadState(gateReader *r, gate *g) {
     g->now_ms = gateReadI64(r);
     g->generations = gateReadCount(r);
     g->paused = gateReadBool(r);
-    g->snapshot_updates = gateReadU64(r);
-    /* The core adds the feedback timeout to the time of a request, which
-     * is never after the clock (checked for each request). */
-    if (g->now_ms > INT64_MAX - GATE_MAX_FEEDBACK_TIMEOUT_MS)
-        gateReadFail(r, "clock out of range");
+    g->snapshot_updates = gateReadCount(r);
+    g->blind = gateReadBool(r);
+    g->missing_run = gateReadU32(r);
+    g->answer_mark = gateReadCount(r);
+    /* The run ends in an alarm when it reaches the limit. */
+    if (g->missing_run >= GATE_MISSING_RUN) gateReadFail(r, "counter out of range");
+    /* The range the core is specified for (TIME in gate_core.h), the same
+     * that every later clock value is held to. The time of each request is
+     * checked against it. */
+    if (g->now_ms < 0 || g->now_ms > GATE_MAX_CLOCK_MS) gateReadFail(r, "clock out of range");
 
     if (gateReadBool(r) != classifier) gateReadFail(r, "trainer does not match the gate kind");
     if (classifier) gateReadModel(r, &g->trainer);
@@ -644,24 +732,26 @@ static void gateReadState(gateReader *r, gate *g) {
     g->serving = gateReadGeneration(r, g);
 
     g->next_seq = gateReadCount(r);
-    if (g->next_seq == 0) gateReadFail(r, "invalid request counter");
+    /* Request numbers start at 1; the mark is a value next_seq once had. */
+    if (g->next_seq == 0 || g->answer_mark > g->next_seq)
+        gateReadFail(r, "invalid request counter");
     gateReadPending(r, g);
 
-    s->requests = gateReadU64(r);
-    s->accepted = gateReadU64(r);
-    s->audited = gateReadU64(r);
-    s->abstained = gateReadU64(r);
-    s->full = gateReadU64(r);
-    s->window = gateReadU64(r);
+    s->requests = gateReadCount(r);
+    s->accepted = gateReadCount(r);
+    s->audited = gateReadCount(r);
+    s->abstained = gateReadCount(r);
+    s->full = gateReadCount(r);
+    s->window = gateReadCount(r);
     s->coverage = gateReadDouble(r);
-    s->observations = gateReadU64(r);
-    s->learned = gateReadU64(r);
-    s->ignored = gateReadU64(r);
-    s->missing = gateReadU64(r);
-    s->dropped = gateReadU64(r);
-    s->promotions = gateReadU64(r);
-    s->revocations = gateReadU64(r);
-    s->retired = gateReadU64(r);
+    s->observations = gateReadCount(r);
+    s->learned = gateReadCount(r);
+    s->ignored = gateReadCount(r);
+    s->missing = gateReadCount(r);
+    s->dropped = gateReadCount(r);
+    s->promotions = gateReadCount(r);
+    s->revocations = gateReadCount(r);
+    s->retired = gateReadCount(r);
     /* A share of at most GATE_COVERAGE_WINDOW requests. */
     if (s->window > GATE_COVERAGE_WINDOW || !(s->coverage >= 0.0 && s->coverage <= 1.0))
         gateReadFail(r, "coverage out of range");

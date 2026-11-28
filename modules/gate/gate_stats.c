@@ -16,7 +16,7 @@
  * or a corrupted value must never turn into a certification. So for inputs
  * outside the documented domain each function returns the answer that
  * cannot certify (a NaN increment, an unreachable threshold, a zero budget)
- * or, for the drift window, the answer that raises the alarm.
+ * or, for the drift detector, the answer that raises the alarm.
  *
  * NO STATE, NO HEAP. Every function works on caller owned structures and
  * nothing here allocates, so there is no failure path to handle.
@@ -91,6 +91,49 @@ double gateRegionUpdate(gateRegion *r, const gateBets *b, int error) {
     r->n++;
     if (error) r->errors++;
     return gateRegionLogWealth(r);
+}
+
+/* Log mixture wealth of a region after n correct answers and no error. */
+static double gateBetsFlawlessWealth(const gateBets *b, double n) {
+    double max = -INFINITY, sum = 0.0;
+    int j;
+
+    for (j = 0; j < GATE_NBETS; j++)
+        if (n * b->inc_ok[j] > max) max = n * b->inc_ok[j];
+    for (j = 0; j < GATE_NBETS; j++) sum += exp(n * b->inc_ok[j] - max);
+    return max + log(sum / GATE_NBETS);
+}
+
+uint64_t gateBetsFlawless(const gateBets *b, double log_threshold) {
+    /* The boldest bet gains most per correct answer. The mixture is never
+     * above it and never below a quarter of it, which brackets the answer
+     * within a few steps; the wealth grows with n, so bisect. */
+    double best = b->inc_ok[GATE_NBETS - 1], lo_d, hi_d;
+    uint64_t lo, hi;
+
+    if (!isfinite(log_threshold) || !(best > 0.0)) return UINT64_MAX;
+    if (!(log_threshold > 0.0)) return 1;
+    hi_d = ceil((log_threshold + log((double)GATE_NBETS)) / best) + 1.0;
+    if (!(hi_d < 9e18)) return UINT64_MAX;
+    lo_d = floor(log_threshold / best);
+    lo = lo_d < 1.0 ? 1 : (uint64_t)lo_d;
+    hi = (uint64_t)hi_d;
+    if (hi < lo) hi = lo;
+    while (gateBetsFlawlessWealth(b, (double)hi) < log_threshold) hi++; /* rounding only */
+    while (lo < hi) {
+        uint64_t mid = lo + (hi - lo) / 2;
+
+        if (gateBetsFlawlessWealth(b, (double)mid) >= log_threshold) hi = mid; else lo = mid + 1;
+    }
+    return lo;
+}
+
+void gateRegionFlip(gateRegion *r, const gateBets *b) {
+    int j;
+
+    if (r->errors == 0) return; /* nothing to take back */
+    for (j = 0; j < GATE_NBETS; j++) r->logw[j] += b->inc_ok[j] - b->inc_err[j];
+    r->errors--;
 }
 
 double gateRegionLogWealth(const gateRegion *r) {
@@ -277,46 +320,104 @@ void gateDriftBetsInit(gateDriftBets *b, double alpha) {
         double p1 = gateDriftMultiples[k] * alpha;
 
         if (p1 > cap) p1 = cap;
-        b->inc_err[k] = log(p1 / alpha);                 /* > 0 */
-        b->inc_ok[k] = log1p(-p1) - log1p(-alpha);       /* < 0 */
+        /* For an alpha one step below 1 the cap rounds to 1, which is not
+         * an alternative (its log would be -inf and read as an alarm). No
+         * room is left above alpha: this alternative stays silent. */
+        if (!(p1 < 1.0)) p1 = alpha;
+        b->inc_err[k] = log(p1 / alpha);                 /* >= 0 */
+        b->inc_ok[k] = log1p(-p1) - log1p(-alpha);       /* <= 0 */
     }
 }
+
+const uint32_t gateDriftBlocks[GATE_DRIFT_SCALES] = {64, 512, 4096};
 
 void gateDriftInit(gateDrift *d) {
-    memset(d, 0, sizeof(*d)); /* log statistic 0 = statistic 1 */
+    memset(d, 0, sizeof(*d));
 }
 
-double gateDriftLogStat(const gateDrift *d) {
-    double max = -INFINITY, sum = 0.0;
+uint32_t gateDriftOpen(const gateDrift *d, int scale) {
+    if (d->asked == 0) return 0;
+    return (uint32_t)((d->asked - 1) % gateDriftBlocks[scale]) + 1;
+}
+
+uint64_t gateDriftAsk(gateDrift *d) {
+    int s;
+
+    /* The first spot check of a block opens it. */
+    for (s = 0; s < GATE_DRIFT_SCALES; s++)
+        if (d->asked % gateDriftBlocks[s] == 0) d->wrong[s] = d->lost[s] = 0;
+    return ++d->asked;
+}
+
+/* Log of the average over the alternatives of the block's product, with
+ * 'w' of its spot checks counted as disagreements. */
+static double gateDriftBlockStat(const gateDrift *d, const gateDriftBets *b, int s, double w) {
+    double n = (double)gateDriftOpen(d, s);
+    double max = -INFINITY, sum = 0.0, lw[GATE_DRIFT_ALTS];
     int k;
 
     for (k = 0; k < GATE_DRIFT_ALTS; k++) {
-        if (isnan(d->logw[k])) return d->logw[k];
-        if (d->logw[k] > max) max = d->logw[k];
+        lw[k] = w * b->inc_err[k] + (n - w) * b->inc_ok[k];
+        if (!isfinite(lw[k])) return NAN;
+        if (lw[k] > max) max = lw[k];
     }
-    if (isinf(max)) return max;
-    for (k = 0; k < GATE_DRIFT_ALTS; k++) sum += exp(d->logw[k] - max);
-    return max + log(sum / (double)GATE_DRIFT_ALTS);
+    for (k = 0; k < GATE_DRIFT_ALTS; k++) sum += exp(lw[k] - max);
+    return max + log(sum / GATE_DRIFT_ALTS);
 }
 
-int gateDriftPush(gateDrift *d, const gateDriftBets *b, int error, double log_alarm) {
-    const double *inc = error ? b->inc_err : b->inc_ok;
-    double stat;
-    int k;
+double gateDriftLogStat(const gateDrift *d, const gateDriftBets *b, int with_lost) {
+    double best = 0.0;
+    int s;
 
-    for (k = 0; k < GATE_DRIFT_ALTS; k++) {
-        /* Restart from 1 (log 0) when below it: evidence that the policy
-         * was fine in the past must not delay an alarm about the present.
-         * A NaN is left alone so that it propagates to the alarm below. */
-        if (d->logw[k] < 0.0) d->logw[k] = 0.0;
-        d->logw[k] += inc[k];
+    if (d->asked == 0) return 0.0;
+    for (s = 0; s < GATE_DRIFT_SCALES; s++) {
+        double w = (double)d->wrong[s] + (with_lost ? (double)d->lost[s] : 0.0);
+        double stat = gateDriftBlockStat(d, b, s, w);
+
+        if (!isfinite(stat)) return NAN;
+        if (s == 0 || stat > best) best = stat;
     }
-    d->n++;
-    if (error) d->errors++;
+    return best;
+}
 
-    stat = gateDriftLogStat(d);
-    /* Written as the negation of "safely below the alarm" so that a NaN or
-     * infinite statistic, or a NaN alarm level, fires instead of silently
-     * disabling the detector. */
-    return !(isfinite(stat) && stat < log_alarm);
+/* One more spot check of the open blocks counts against the gate: as a
+ * disagreement ('lost' 0) or as a lost answer ('lost' 1). */
+static int gateDriftCount(gateDrift *d, const gateDriftBets *b, uint64_t number, int lost,
+                          double log_alarm, double log_lost_alarm)
+{
+    int s, verdict = GATE_DRIFT_QUIET;
+
+    if (number == 0 || number > d->asked) return GATE_DRIFT_QUIET;
+    if (!lost) d->errors++;
+    for (s = 0; s < GATE_DRIFT_SCALES; s++) {
+        uint32_t len = gateDriftBlocks[s];
+        double stat;
+
+        if ((number - 1) / len != (d->asked - 1) / len) continue; /* its block has ended */
+        if (d->wrong[s] + d->lost[s] < gateDriftOpen(d, s)) {
+            if (lost) d->lost[s]++; else d->wrong[s]++;
+        }
+        /* Written as the negation of "safely below the alarm" so that a NaN
+         * statistic or alarm level fires instead of silently disabling the
+         * detector. */
+        if (!lost) {
+            stat = gateDriftBlockStat(d, b, s, (double)d->wrong[s]);
+            if (!(isfinite(stat) && stat < log_alarm)) verdict = GATE_DRIFT_ALARM_WORSE;
+        }
+        if (verdict != GATE_DRIFT_ALARM_WORSE) {
+            stat = gateDriftBlockStat(d, b, s, (double)d->wrong[s] + (double)d->lost[s]);
+            if (!(isfinite(stat) && stat < log_lost_alarm)) verdict = GATE_DRIFT_ALARM_UNCHECKED;
+        }
+    }
+    return verdict;
+}
+
+int gateDriftWrong(gateDrift *d, const gateDriftBets *b, uint64_t number, double log_alarm,
+                   double log_lost_alarm)
+{
+    return gateDriftCount(d, b, number, 0, log_alarm, log_lost_alarm);
+}
+
+int gateDriftLost(gateDrift *d, const gateDriftBets *b, uint64_t number, double log_lost_alarm) {
+    return gateDriftCount(d, b, number, 1, INFINITY, log_lost_alarm);
 }

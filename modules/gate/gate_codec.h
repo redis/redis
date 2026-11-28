@@ -9,9 +9,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
  *
  * One self-describing blob holds the complete state of a gate:
- * configuration, ledger, trainer, candidate and serving generations
- * (weights, per-region proof, policy, drift detectors), waiting requests in
- * order (flags, frozen guesses, answers, stored clues), ids and counters.
+ * configuration, ledger (ids, clock, generation numbers, the pause flag,
+ * the run of missing answers and whether it has left the gate blind),
+ * trainer, candidate and serving generations (weights, per-region proof,
+ * drift detectors), waiting requests in order (flags, frozen guesses,
+ * answers, stored clues) and counters.
  * It is used for RDB save/load, DUMP/RESTORE, AOF rewrite and DEBUG DIGEST.
  *
  * FORMAT RULES
@@ -24,13 +26,17 @@
  *     layout or padding.
  *   - Canonical: equal states give equal bytes, and
  *     gateEncode(gateDecode(b)) == b for every blob b that decodes.
- *   - Not stored: runtime_tag (0 after decoding), and values that are pure
- *     functions of stored ones (the threshold grid, the betting and drift
- *     increments, the request index and list links).
+ *   - Not stored: runtime_tag and runtime_clock (0 after decoding), and
+ *     values that are pure functions of stored ones (the threshold grid,
+ *     the betting and drift increments, the bar and the policy of a
+ *     generation, the request index and list links, the queue of evidence,
+ *     the number of answered requests).
  *   - With 'for_digest' set, the fields only the primary maintains are
  *     written as zero: now_ms and the request counters (requests, accepted,
  *     audited, abstained, full, window, coverage). Replicas agree with their
- *     primary on everything else, so digests compare equal.
+ *     primary on everything else, so digests compare equal. That includes
+ *     what a gate knows about late and lost answers: which requests the
+ *     proof has moved on without, the run of missing answers, blindness.
  *
  * DECODING IS SAFE ON UNTRUSTED INPUT. RESTORE hands attacker-controlled
  * bytes to the decoder. For ANY input it must not read out of bounds,
@@ -38,11 +44,19 @@
  * gate_defs.h allow. Every length is checked against the remaining input
  * and the limits before allocating; every number is checked for finiteness
  * and range; label indices, bucket indices (ascending, below GATE_DIM),
- * generation numbers, request order, flags and policy indices are
- * validated; trailing bytes are an error. A decoded gate must pass
- * gateConfigValidate() and gateCheckInvariants(), and its policies are
- * recomputed from the crossed regions rather than trusted. On any failure
- * everything built so far is released and NULL is returned.
+ * generation numbers, the clock and the time of every request, request
+ * order and flags are validated; no more waiting requests are taken than a
+ * gate can hold (without an answer: until the gate is full; with an answer
+ * that waits for its turn: GATE_MAX_WAITING); trailing bytes are an error.
+ * A decoded gate passes gateConfigValidate() and gateCheckInvariants(), and
+ * what is not stored is computed again rather than trusted: its policies
+ * from the proven regions, its queue of evidence from the flags of the
+ * requests. On any failure everything built so far is released and NULL is
+ * returned.
+ *
+ * Safe to use is all that is promised. Whether the proof in a blob was ever
+ * collected the decoder cannot know: who decodes bytes it does not trust
+ * makes the gate drop its proof (gateRecover) before it answers anything.
  */
 
 #ifndef GATE_CODEC_H

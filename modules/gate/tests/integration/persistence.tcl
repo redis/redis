@@ -3,27 +3,56 @@
 # RDB (DEBUG RELOAD, SAVE and restart, BGSAVE), AOF (DEBUG LOADAOF, rewrite,
 # restart) and DUMP / RESTORE, including damaged payloads.
 #
-# What SPEC.md promises and these tests check:
+# What SPEC.md promises (CHANGES.md says what the revised core changed) and
+# these tests check:
 #
 #   - a gate is one key: whatever Redis does to persist a key keeps the gate
-#     exactly as it was (same DEBUG DIGEST-VALUE);
-#   - the AOF receives what actually happened, never the command;
+#     exactly as it was (same DEBUG DIGEST-VALUE), in every state a gate can
+#     rest in. The revised core added four: answers that wait for the answer
+#     of an older request; requests that proof moved on without, which count
+#     as wrong guesses until their answer arrives; a gate that stopped
+#     because its answers stopped arriving; and one that has just resumed;
+#   - the AOF receives what actually happened, never the command, and that
+#     includes what the clock did: a late answer, a lost one, an outage;
 #   - after a restart, a reload or a RESTORE the gate keeps its configuration
 #     and its model, drops its proof and its waiting requests, and proves
 #     itself again by itself. Until then it does not answer, ids issued
 #     before are refused (GLEARN replies 0), and snapshot numbers are never
-#     reused.
+#     reused, so the proof it needs is that of the next number;
+#   - a damaged payload is refused, or what it leaves is a gate.
 #
 # Proof needs many requests at realistic settings, so the gates here use
 # ALPHA 0.2 DELTA 0.2 (a threshold is proven after a few dozen right
-# answers) and a small snapshot step. Every scenario seeds the module's test
-# sequence (gate.test-seed), so runs repeat exactly; the assertions do not
-# depend on what is drawn.
+# answers: gp_need says how many) and a small snapshot step. Every scenario
+# seeds the module's test sequence (gate.test-seed), so runs repeat exactly.
+#
+# TIME. A gate does its bookkeeping when it is written to, never by itself.
+# The tests that need time to pass create their gates with a short feedback
+# timeout, sleep once (::gp_wait) and then write. Three timeouts are used:
+#
+#   ::gp_lost   shorter than the sleep: after it, what was not answered is
+#               lost;
+#   ::gp_late   four times longer than the sleep, nearly: after it, proof
+#               moves on without an unanswered request that holds up
+#               answers (a quarter of the timeout has passed), and its
+#               answer can still arrive;
+#   ::gp_mid    between the two: proof moves on after the first sleep, the
+#               answer is lost after a second one (::gp_wait2).
+#
+# What must not happen is a pause of the whole machine of more than about
+# 0.6 seconds at the wrong moment; the scenarios notice that and say so.
 #
 # Each test builds the gates it needs. The exceptions are the tests around a
-# restart, which follow from the test that saved the dataset.
+# restart and those that follow one set of gates through several ways of
+# saving them; they say what they follow from.
 
 set gatemodule [file normalize modules/gate/gate.so]
+
+set ::gp_wait 800
+set ::gp_wait2 850
+set ::gp_lost 700
+set ::gp_late 3000
+set ::gp_mid 1600
 
 # ------------------------------- Helpers ----------------------------------
 # All helpers are prefixed gp_ (gate persistence).
@@ -45,8 +74,11 @@ proc gp_guard {body} {
 }
 
 # Start a scenario: seed the module's test sequence and restart the
-# numbering of the synthetic requests.
+# numbering of the synthetic requests. (Redis does not call the setter of a
+# value that does not change: 0 first, so that the sequence restarts even
+# if the seed is the one already set.)
 proc gp_begin {seed} {
+    r config set gate.test-seed 0
     r config set gate.test-seed $seed
     set ::gp_n 0
 }
@@ -58,17 +90,63 @@ proc gp_info {key {field {}}} {
     dict get $info $field
 }
 
-# A classifier gate over two topics. The snapshot step is a server setting
-# read when the gate is created. It is put back to its default at once, so
-# every test also shows that a gate keeps the value it was created with.
-proc gp_classifier {key {snapshot 20} {audit 0.2}} {
-    r config set gate.snapshot-examples $snapshot
-    assert_equal OK [r gcreate $key ALPHA 0.2 DELTA 0.2 AUDIT $audit CLASSES 2 spam ham]
+# The two server settings that are read when a gate is created, back to
+# their defaults.
+proc gp_defaults {} {
     r config set gate.snapshot-examples 1000
+    r config set gate.feedback-timeout 60000
 }
 
-proc gp_score {key {audit 0.2}} {
+# A classifier gate over two topics. The snapshot step and the feedback
+# timeout are server settings read when the gate is created. They are put
+# back to their defaults at once, so every test also shows that a gate keeps
+# the values it was created with.
+proc gp_classifier {key {snapshot 20} {audit 0.2} {timeout 60000}} {
+    r config set gate.snapshot-examples $snapshot
+    r config set gate.feedback-timeout $timeout
+    assert_equal OK [r gcreate $key ALPHA 0.2 DELTA 0.2 AUDIT $audit CLASSES 2 spam ham]
+    gp_defaults
+}
+
+proc gp_score {key {audit 0.2} {timeout 60000}} {
+    r config set gate.feedback-timeout $timeout
     assert_equal OK [r gcreate $key ALPHA 0.2 DELTA 0.2 AUDIT $audit SCORE]
+    gp_defaults
+}
+
+# How many right answers a threshold of snapshot number $g needs before it
+# is proven (SPEC.md section 5). Its wealth starts at 1 and is multiplied by
+# 1 + c alpha / (1 - alpha) for a right guess and by 1 - c for a wrong one,
+# for each c of 0.1, 0.25, 0.5 and 0.9; it is proven when the average of the
+# four reaches 32 x labels x g (g + 1) / delta, where labels is the number
+# of labels the gate may answer (1 for a score gate). $errors wrong guesses
+# come before the right ones.
+proc gp_need {g {labels 1} {errors 0} {alpha 0.2} {delta 0.2}} {
+    set bar [expr {32.0 * $labels * $g * ($g + 1) / $delta}]
+    set wealth {}
+    foreach c {0.1 0.25 0.5 0.9} { lappend wealth [expr {pow(1.0 - $c, $errors)}] }
+    set before 1.0
+    for {set n 1} {$n <= 100000} {incr n} {
+        set sum 0.0
+        set grown {}
+        foreach w $wealth c {0.1 0.25 0.5 0.9} {
+            set w [expr {$w * (1.0 + $c * $alpha / (1.0 - $alpha))}]
+            lappend grown $w
+            set sum [expr {$sum + $w}]
+        }
+        set wealth $grown
+        set now [expr {$sum / 4.0}]
+        if {$now >= $bar} {
+            # The tests assert this number exactly: it must not hang on the
+            # last digits of a sum.
+            if {$now < $bar * 1.0001 || $before > $bar * 0.9999} {
+                fail "gp_need: snapshot $g of $labels labels reaches its bar too closely for an exact test"
+            }
+            return $n
+        }
+        set before $now
+    }
+    fail "gp_need: no proof in 100000 answers"
 }
 
 # Request number $n of the synthetic traffic, as the arguments of GPREDICT,
@@ -214,7 +292,13 @@ proc gp_same_numbers {a b} {
 # What GINFO must show for a gate that came back (from an RDB file, the
 # AOF or a DUMP payload) and was not written to since, given what it showed
 # before: configuration and model kept, proof and waiting requests gone.
-proc gp_assert_came_back {key before} {
+# GINFO shows such a gate as its first write will leave it.
+#
+# $from says where it came from. An RDB file and a DUMP payload hold the
+# request counters; the AOF only knows of the requests that were written to
+# it (a request the gate answered by itself was not), so there the counters
+# only have to add up.
+proc gp_assert_came_back {key before {from rdb}} {
     set now [gp_info $key]
     foreach field {kind classes} {
         assert_equal [dict get $before $field] [dict get $now $field] "$field of $key"
@@ -235,15 +319,44 @@ proc gp_assert_came_back {key before} {
     }
     assert {[dict get $now coverage] == 0}
     # A paused gate stays paused; any other is not answering.
+    set state [dict get $now state]
     if {[dict get $before state] eq "PAUSED"} {
-        assert_equal PAUSED [dict get $now state] "state of $key"
+        assert_equal PAUSED $state "state of $key"
     } else {
-        assert {[dict get $now state] in {COLD CALIBRATING}}
+        assert {$state in {COLD CALIBRATING}}
     }
-    # Counters of what went wrong never go back.
+    # A snapshot is going to be tested, with a number that was never used,
+    # or none is. A score gate has nothing to learn first. ("Before" may
+    # itself be what GINFO shows of a gate that came back and was not
+    # written to since: the snapshot it announces was not taken, and is
+    # announced again. A gate that held proof or requests was no such gate.)
+    set used [expr {max([dict get $before generation], [dict get $before candidate])}]
+    set held [expr {[dict get $before generation] > 0 || [dict get $before pending] > 0 ||
+                    [dict get $before calibration-samples] > 0}]
+    set candidate [dict get $now candidate]
+    if {$state eq "CALIBRATING" || [dict get $now kind] eq "score"} {
+        assert {$candidate > 0}
+        if {$held} { assert {$candidate > $used} } else { assert {$candidate >= $used} }
+    } elseif {$state eq "COLD"} {
+        assert_equal 0 $candidate "candidate of $key"
+    } elseif {$held} {
+        assert {$candidate == 0 || $candidate > $used}
+    }
+    if {[dict get $now kind] eq "score" && $state ne "PAUSED"} {
+        assert_equal CALIBRATING $state "state of $key"
+    }
+    # What went wrong before is neither forgotten nor counted twice.
     foreach field {missing revocations} {
-        assert {[dict get $now $field] >= [dict get $before $field]}
+        assert_equal [dict get $before $field] [dict get $now $field] "$field of $key"
     }
+    if {$from ne "aof"} {
+        foreach field {requests accepted audited abstained} {
+            assert_equal [dict get $before $field] [dict get $now $field] "$field of $key"
+        }
+    }
+    assert_equal [dict get $now requests] \
+        [expr {[dict get $now accepted] + [dict get $now audited] + [dict get $now abstained]}] \
+        "requests of $key and the sum of what became of them"
 }
 
 # DEBUG RELOAD, then check every key: same digest, same type, same memory,
@@ -281,9 +394,85 @@ proc gp_aof_commands {path} {
 # The AOF must hold what happened, never a gate command.
 proc gp_assert_realized {names} {
     assert {[dict exists $names _gate.apply]}
-    foreach cmd {gcreate gpredict glearn gadd gpause gresume greset} {
+    foreach cmd {gcreate gpredict glearn gadd gpause gresume greset ginfo} {
         assert {![dict exists $names $cmd]}
     }
+}
+
+# How many operations (of its AOF, or of a primary) the server found not to
+# fit their gate, by its own count.
+proc gp_mismatches {} {
+    getInfoProperty [r info gate] gate_apply_mismatches
+}
+
+# Every operation the server has applied so far fitted its gate.
+proc gp_assert_all_fit {} {
+    assert_equal 0 [count_log_message 0 "did not fit"]
+    assert_equal 0 [gp_mismatches] "operations that did not fit their gate"
+}
+
+# Make sure that everything the server has to write is in its AOF file: with
+# appendfsync everysec a write can wait for a sync that is still running.
+proc gp_aof_flush {} {
+    r config set appendfsync always
+    r set gp:flushed 1
+    r config set appendfsync everysec
+}
+
+# The operations an AOF file (not an RDB preamble) holds for a key, in
+# order: the names that follow "_GATE.APPLY key", or {name clock} pairs
+# (a RESTORE written by a rewrite has no clock), or the whole commands.
+proc gp_aof_ops {path key {what names}} {
+    set fp [open $path r]
+    fconfigure $fp -translation binary
+    set ops {}
+    while {1} {
+        set cmd [read_from_aof $fp]
+        if {$cmd eq {}} break
+        if {[lindex $cmd 0] ne "_gate.apply" || [lindex $cmd 1] ne $key} continue
+        switch $what {
+            names { lappend ops [lindex $cmd 2] }
+            clocks { lappend ops [list [lindex $cmd 2] [lindex $cmd 3]] }
+            commands { lappend ops $cmd }
+        }
+    }
+    close $fp
+    return $ops
+}
+
+# The same for every key at once: a dict, key -> the commands of its
+# operations, in order.
+proc gp_aof_read {path} {
+    set fp [open $path r]
+    fconfigure $fp -translation binary
+    set ops {}
+    while {1} {
+        set cmd [read_from_aof $fp]
+        if {$cmd eq {}} break
+        if {[lindex $cmd 0] eq "_gate.apply"} { dict lappend ops [lindex $cmd 1] $cmd }
+    }
+    close $fp
+    return $ops
+}
+
+# One command in the format of the AOF.
+proc gp_aof_format {args} {
+    set out "*[llength $args]\r\n"
+    foreach arg $args { append out "\$[string length $arg]\r\n$arg\r\n" }
+    return $out
+}
+
+# Append commands to the AOF file behind the back of the server, as a
+# damaged or hand-made file would hold them, and make the server load its
+# file. (The operations of a gate are an internal command: no client can
+# send them, but the file can hold anything.)
+proc gp_aof_load_with {commands} {
+    gp_aof_flush
+    set fp [open [get_last_incr_aof_path r] a]
+    fconfigure $fp -translation binary
+    foreach command $commands { puts -nonewline $fp [gp_aof_format {*}$command] }
+    close $fp
+    r debug loadaof
 }
 
 # ------------------------ DUMP payloads, by hand ---------------------------
@@ -299,7 +488,8 @@ proc gp_assert_realized {names} {
 #   8 bytes   CRC64 of everything before it, little endian
 
 # CRC-64/Jones as in src/crc64.c: reflected, initial value 0, no final xor.
-proc gp_crc64 {data} {
+# $crc is the checksum of what came before $data, if anything did.
+proc gp_crc64 {data {crc 0}} {
     if {![info exists ::gp_crc64_table]} {
         set poly [expr {wide(0x95ac9329ac4bc9b5)}]
         for {set i 0} {$i < 256} {incr i} {
@@ -315,7 +505,6 @@ proc gp_crc64 {data} {
         }
     }
     set table $::gp_crc64_table
-    set crc 0
     binary scan $data cu* bytes
     foreach byte $bytes {
         set crc [expr {[lindex $table [expr {($crc ^ $byte) & 0xff}]] ^ (($crc >> 8) & 0x00ffffffffffffff)}]
@@ -372,11 +561,99 @@ proc gp_dump_seal {body} {
     return $body
 }
 
+# Many damaged copies of one large gate: the checksum of what a copy has in
+# common with the original is not computed again for each. gp_dump_base
+# notes the checksum of the original payload at every 4,096th byte of the
+# serialized gate.
+proc gp_dump_base {head blob} {
+    set prefix $head
+    append prefix [gp_rdb_length [string length $blob]]
+    set crc [gp_crc64 $prefix]
+    set marks [list $crc]
+    set length [string length $blob]
+    for {set at 0} {$at + 4096 <= $length} {incr at 4096} {
+        set crc [gp_crc64 [string range $blob $at [expr {$at + 4095}]] $crc]
+        lappend marks $crc
+    }
+    list $prefix $length $marks
+}
+
+# The payload for a serialized gate that has the length of the original
+# behind $base and its bytes up to byte $from, with a valid checksum.
+proc gp_dump_damage {base damaged version from} {
+    lassign $base prefix length marks
+    if {[string length $damaged] != $length} { fail "gp_dump_damage: the damaged gate must keep its length" }
+    set mark [expr {min($from / 4096, [llength $marks] - 1)}]
+    set tail [string range $damaged [expr {$mark * 4096}] end]
+    append tail "\x00" $version
+    set payload $prefix
+    append payload $damaged "\x00" $version [binary format w [gp_crc64 $tail [lindex $marks $mark]]]
+    return $payload
+}
+
+# What every GINFO reply must be, whatever became of the gate: the fields of
+# SPEC.md, a state and a kind that exist, a configuration GCREATE could
+# have made. (That no counter is negative is the subject of a test of its
+# own.)
+proc gp_check_info {what info} {
+    foreach field {kind state alpha delta audit classes alphas thresholds generation candidate learned
+                   requests accepted audited abstained coverage audit-samples audit-errors
+                   calibration-samples pending missing revocations memory} {
+        if {![dict exists $info $field]} { fail "$what: GINFO has no $field: $info" }
+    }
+    set kind [dict get $info kind]
+    if {$kind ni {classifier score}} { fail "$what: kind '$kind'" }
+    if {[dict get $info state] ni {COLD CALIBRATING ACTIVE PAUSED}} { fail "$what: state '[dict get $info state]'" }
+    foreach {field low high} {alpha 0 1 delta 0 1 audit 0 1.0000001} {
+        set value [dict get $info $field]
+        if {!($value > $low && $value < $high)} { fail "$what: $field is $value" }
+    }
+    set classes [llength [dict get $info classes]]
+    if {$kind eq "score" ? $classes != 0 : ($classes < 2 || $classes > 64)} {
+        fail "$what: a $kind gate with $classes classes"
+    }
+    set rows [expr {$kind eq "score" ? 1 : $classes}]
+    if {[llength [dict get $info alphas]] != $rows || [llength [dict get $info thresholds]] != $rows} {
+        fail "$what: $rows labels, but alphas [dict get $info alphas] and thresholds [dict get $info thresholds]"
+    }
+    foreach field {generation candidate pending memory} {
+        set value [dict get $info $field]
+        if {![string is wide -strict $value] || $value < 0} { fail "$what: $field is $value" }
+    }
+    if {[dict get $info pending] > 4096} { fail "$what: [dict get $info pending] requests wait" }
+    set coverage [dict get $info coverage]
+    if {!($coverage >= 0 && $coverage <= 1)} { fail "$what: coverage is $coverage" }
+}
+
+# A GPREDICT reply: an action and its argument.
+proc gp_check_reply {what reply} {
+    if {[llength $reply] != 2 || [lindex $reply 0] ni {ACCEPT ABSTAIN AUDIT}} {
+        fail "$what: GPREDICT replied '$reply'"
+    }
+    if {[lindex $reply 0] eq "AUDIT" && [lindex $reply 1] eq {}} { fail "$what: AUDIT without an id" }
+}
+
+# Request number $n for a gate that came from a damaged payload: what
+# gp_request gives, with an answer the gate knows (its labels may be damaged
+# too). $info is its GINFO.
+proc gp_damaged_request {info n} {
+    lassign [gp_request [dict get $info kind] $n] question answer
+    if {[dict get $info kind] eq "classifier"} {
+        set classes [dict get $info classes]
+        set answer [list LABEL [lindex $classes [expr {$n % [llength $classes]}]]]
+    }
+    list $question $answer
+}
+
 # RESTORE a damaged payload into gp:damaged. It must be refused with an
 # error that leaves no key behind. If the damage happens to leave a
 # well-formed gate, the gate must be a gate: one that came back without
-# proof, can be used, does not answer by itself, and can be dumped and
-# restored again. Returns "refused" or "accepted".
+# proof and can be used (asked, answered, taught, paused, reset), dumped and
+# restored again, and deleted. Returns "refused" or "accepted".
+#
+# The settings of such a gate may be damaged too: a feedback timeout of one
+# millisecond, an error rate of nearly 1. So only the first request is sure
+# not to be answered by the gate, and feedback may come too late.
 proc gp_restore_damaged {payload what {canonical 1}} {
     r del gp:damaged gp:again
     if {[catch {r restore gp:damaged 0 $payload} reply]} {
@@ -393,18 +670,9 @@ proc gp_restore_damaged {payload what {canonical 1}} {
         gp_assert_same_bytes $payload [r dump gp:damaged] "$what: the payload that was restored and DUMP of the gate"
     }
     set info [gp_info gp:damaged]
+    gp_check_info $what $info
     set kind [dict get $info kind]
-    if {$kind ni {classifier score}} { fail "$what: kind '$kind'" }
-    # It is a gate GCREATE could have made ...
-    foreach {field low high} {alpha 0 1 delta 0 1 audit 0 1.0000001} {
-        set value [dict get $info $field]
-        if {!($value > $low && $value < $high)} { fail "$what: $field is $value" }
-    }
-    set classes [llength [dict get $info classes]]
-    if {$kind eq "score" ? $classes != 0 : ($classes < 2 || $classes > 64)} {
-        fail "$what: a $kind gate with $classes classes"
-    }
-    # ... that came back without proof ...
+    # It came back without proof ...
     if {[dict get $info generation] != 0 || [dict get $info pending] != 0 ||
         [dict get $info state] eq "ACTIVE"} {
         fail "$what: restored with proof: $info"
@@ -412,28 +680,51 @@ proc gp_restore_damaged {payload what {canonical 1}} {
     foreach threshold [dict get $info thresholds] {
         if {$threshold ne {}} { fail "$what: restored with a threshold: $info" }
     }
-    # ... and works: it takes requests, feedback and examples, and does not
-    # answer by itself.
+    # ... and works: it takes requests, feedback and examples.
     for {set i 0} {$i < 3} {incr i} {
-        lassign [gp_request $kind $i] question answer
-        lassign [r gpredict gp:damaged {*}$question] action id
-        if {$action eq "ACCEPT"} { fail "$what: answered by itself right after RESTORE" }
-        if {$id ne {} && [r glearn gp:damaged $id {*}$answer] != 1} {
-            fail "$what: fresh feedback was not used"
+        lassign [gp_damaged_request $info $i] question answer
+        set reply [r gpredict gp:damaged {*}$question]
+        gp_check_reply $what $reply
+        lassign $reply action id
+        if {$i == 0 && $action ne "ABSTAIN"} { fail "$what: replied $action right after RESTORE" }
+        if {$action ne "ACCEPT" && $id ne {}} {
+            set used [r glearn gp:damaged $id {*}$answer]
+            if {$used ni {0 1}} { fail "$what: GLEARN replied '$used'" }
+            if {[r glearn gp:damaged $id {*}$answer] != 0} { fail "$what: feedback was used twice" }
         }
     }
     if {$kind eq "classifier"} {
         r gadd gp:damaged TEXT "an example" LABEL [lindex [dict get $info classes] 0]
     }
     r gpause gp:damaged
+    if {[gp_info gp:damaged state] ne "PAUSED"} { fail "$what: GPAUSE did not pause it" }
     r gresume gp:damaged
-    gp_info gp:damaged
+    gp_check_info "$what, after it was used" [gp_info gp:damaged]
     # Whatever it is now, Redis must be able to save it and load it again.
     if {[catch {r restore gp:again 0 [r dump gp:damaged]} reply]} {
         fail "$what: after RESTORE and a few commands the gate cannot be restored from its own DUMP: $reply"
     }
-    r del gp:damaged gp:again
+    # A reset leaves the gate GCREATE would have made.
+    r greset gp:damaged
+    set info [gp_info gp:damaged]
+    gp_check_info "$what, after GRESET" $info
+    foreach field {learned generation pending requests missing revocations} {
+        if {[dict get $info $field] != 0} { fail "$what: after GRESET $field is [dict get $info $field]" }
+    }
+    gp_check_reply "$what, after GRESET" [r gpredict gp:damaged {*}[lindex [gp_request $kind 1] 0]]
+    if {[catch {r restore gp:again 0 [r dump gp:damaged] replace} reply]} {
+        fail "$what: after RESTORE and GRESET the gate cannot be restored from its own DUMP: $reply"
+    }
+    if {[r del gp:damaged gp:again] != 2} { fail "$what: the gate and its copy could not be deleted" }
     return accepted
+}
+
+# The checksum of a payload is linear: one flipped bit changes it by a value
+# that depends only on the bit and on how many bytes follow it. Given the
+# change a flip makes, gp_crc64_zero says what the same flip makes one byte
+# earlier.
+proc gp_crc64_zero {delta} {
+    expr {[lindex $::gp_crc64_table [expr {$delta & 0xff}]] ^ (($delta >> 8) & 0x00ffffffffffffff)}
 }
 
 # Six small gates in different states, each with three requests waiting.
@@ -485,6 +776,513 @@ proc gp_takeover {p seed} {
         }
     }
     fail "no snapshot took over from an older one: the scenario of gp_takeover needs new numbers"
+}
+
+# ------------------ The states late and lost answers lead to ---------------
+#
+# Proof is counted in request order, so an answer waits for the answers of
+# older requests; not for long: after a quarter of the feedback timeout
+# proof moves on without the unanswered request and counts it as a wrong
+# guess until its answer arrives. After the feedback timeout the answer is
+# lost, and after 32 lost answers in a row the gate stops answering and
+# testing until an answer arrives again.
+#
+# gp_states builds seventeen small gates in the states this leads to, for
+# score gates and classifiers, being tested and answering, and paused:
+#
+#   wait    two answers wait behind an unanswered request;
+#   prov    proof has moved on without a request: it counts as a wrong guess
+#           and still waits for its answer;
+#   lost    five answers were lost: not enough for the gate to stop;
+#   blind   32 answers in a row were lost: the gate has stopped;
+#   res     the first answer after that has arrived: the gate has just
+#           resumed, with the next snapshot number, and requests that were
+#           asked while it had stopped still wait.
+#
+# Returns a dict: key -> a dict with
+#
+#   state   one of the five words above;
+#   used    the largest snapshot number the gate has used;
+#   old     the requests asked so far, as {id answer} pairs. Whatever became
+#           of them, none may be used once the gate has come back;
+#   late    (prov) the request proof moved on without.
+#
+# The two halves are for a caller that has more to do before and after the
+# one sleep this takes.
+
+# Send requests until $count wait for feedback, and answer those at the
+# positions $answered at once, out of order: the others stay unanswered.
+# Returns all of them as {id answer} pairs.
+proc gp_some_answered {key count answered} {
+    set waiting [gp_collect $key $count]
+    foreach i $answered {
+        assert_equal 1 [gp_answer $key [lindex $waiting $i]] "feedback for a fresh id on $key"
+    }
+    return $waiting
+}
+
+proc gp_states_ask {p} {
+    # Name, kind, whether it answers already, whether it is paused, and its
+    # feedback timeout. With AUDIT 1 a gate that answers sends every request
+    # to the teacher as a spot check, so all of them are proof.
+    set plan [list \
+        wait:s   score      0 0 60000 \
+        wait:c   classifier 0 0 60000 \
+        wait:a   score      1 0 60000 \
+        wait:p   score      0 1 60000 \
+        prov:s   score      0 0 $::gp_late \
+        prov:c   classifier 0 0 $::gp_late \
+        prov:a   score      1 0 $::gp_late \
+        prov:p   score      0 1 $::gp_late \
+        lost:s   score      0 0 $::gp_lost \
+        blind:s  score      0 0 $::gp_lost \
+        blind:c  classifier 0 0 $::gp_lost \
+        blind:a  score      1 0 $::gp_lost \
+        blind:ca classifier 1 0 $::gp_lost \
+        blind:p  score      1 1 $::gp_lost \
+        res:s    score      0 0 $::gp_lost \
+        res:c    classifier 0 0 $::gp_lost \
+        res:p    score      0 1 $::gp_lost]
+    set z {}
+    foreach {name kind answering paused timeout} $plan {
+        set key $p:$name
+        if {$kind eq "score"} {
+            gp_score $key [expr {$answering ? 1 : 0.2}] $timeout
+        } else {
+            set step [expr {$answering ? 100 : 20}]
+            gp_classifier $key $step [expr {$answering ? 1 : 0.2}] $timeout
+            gp_teach $key $step
+        }
+        if {$paused} { assert_equal OK [r gpause $key] }
+        if {$answering} { gp_prove $key }
+        set before [gp_info $key]
+        assert_equal [expr {$paused ? "PAUSED" : $answering ? "ACTIVE" : "CALIBRATING"}] [dict get $before state] "state of $key"
+        switch -glob $name {
+            wait:* { set asked [gp_some_answered $key 5 {1 3}] }
+            prov:* { set asked [gp_some_answered $key 3 {1}] }
+            lost:* { set asked [gp_collect $key 5] }
+            default { set asked [gp_collect $key 32] }
+        }
+        # An answer does not overtake the answer of an older request:
+        # nothing was counted yet.
+        assert_equal [dict get $before calibration-samples] [gp_info $key calibration-samples] "proof of $key"
+        dict set z $key [dict create state [lindex [split $name :] 0] kind $kind answering $answering \
+            used [gp_max_number $key] old $asked samples [dict get $before calibration-samples]]
+    }
+    return $z
+}
+
+# The second half, at least ::gp_wait milliseconds after the first.
+proc gp_states_settle {z} {
+    dict for {key meta} $z {
+        set old [dict get $meta old]
+        set state [dict get $meta state]
+        switch $state {
+            wait {
+                # Their feedback timeout is a minute: the answers still
+                # wait. Three of five requests are unanswered.
+                assert_equal 3 [gp_info $key pending] "pending of $key"
+            }
+            prov {
+                # The answer of the youngest request arrives. The oldest is
+                # still unanswered and a quarter of the feedback timeout has
+                # passed: proof moves on without it.
+                assert_equal 1 [gp_answer $key [lindex $old 2]] "feedback for $key"
+                set info [gp_info $key]
+                if {[dict get $info missing] != 0} {
+                    fail "$key: the machine stood still for seconds, this test cannot work: $info"
+                }
+                assert_equal 1 [dict get $info pending] "pending of $key"
+                assert_equal [expr {[dict get $meta samples] + 3}] [dict get $info calibration-samples] "proof of $key"
+                dict set z $key late [lindex $old 0]
+            }
+            lost {
+                # Feedback that comes too late is not used. The same goes
+                # for the four other requests.
+                assert_equal 0 [gp_answer $key [lindex $old 0]] "late feedback for $key"
+                set info [gp_info $key]
+                assert_equal 5 [dict get $info missing] "missing of $key"
+                assert_equal 0 [dict get $info pending] "pending of $key"
+                assert_equal CALIBRATING [dict get $info state] "state of $key"
+                assert_equal 5 [dict get $info calibration-samples] "proof of $key"
+            }
+            blind - res {
+                assert_equal 0 [gp_answer $key [lindex $old 0]] "late feedback for $key"
+                set info [gp_info $key]
+                assert_equal 32 [dict get $info missing] "missing of $key"
+                assert_equal 0 [dict get $info pending] "pending of $key"
+                # It has stopped: no snapshot answers and none is tested.
+                assert_equal 0 [dict get $info generation] "generation of $key"
+                assert_equal 0 [dict get $info candidate] "candidate of $key"
+                assert {[dict get $info state] in {COLD PAUSED}}
+                assert_equal [dict get $meta answering] [dict get $info revocations] "revocations of $key"
+                foreach threshold [dict get $info thresholds] { assert_equal {} $threshold }
+            }
+        }
+        if {$state eq "res"} {
+            # While it has stopped every request gets an id, and the first
+            # answer starts the next snapshot.
+            set asked [gp_collect $key 3]
+            assert_equal 0 [gp_info $key candidate]
+            assert_equal 1 [gp_answer $key [lindex $asked 1]] "feedback for $key"
+            set info [gp_info $key]
+            assert_equal [expr {[dict get $meta used] + 1}] [dict get $info candidate] "candidate of $key"
+            assert_equal 0 [dict get $info generation] "generation of $key"
+            assert_equal 2 [dict get $info pending] "pending of $key"
+            assert_equal 0 [dict get $info calibration-samples] "proof of $key"
+            dict set z $key used [dict get $info candidate]
+            dict set z $key old [concat $old $asked]
+        }
+    }
+    return $z
+}
+
+proc gp_states {p} {
+    set z [gp_states_ask $p]
+    after $::gp_wait
+    gp_states_settle $z
+}
+
+# A gate of gp_states that came back (from an RDB file, the AOF or a DUMP
+# payload) and was not written to since. Its first write makes it drop its
+# proof and its waiting requests, which GINFO was showing already; then it
+# proves itself again, with a snapshot number it has not used before. $meta
+# is what gp_states returned for the gate (for a copy: for its original).
+proc gp_recovers {key meta} {
+    set shown [gp_info $key]
+    # The first write: feedback for the requests from before. None is used.
+    foreach pair [dict get $meta old] {
+        assert_equal 0 [gp_answer $key $pair] "feedback for a request $key was asked before it came back"
+    }
+    set now [gp_info $key]
+    foreach info {shown now} { dict unset $info memory }
+    assert_equal $shown $now "GINFO of $key before and after its first write"
+    assert_equal 0 [dict get $now generation] "generation of $key"
+    assert_equal 0 [dict get $now pending] "pending of $key"
+    # Every gate of gp_states has what it takes for a snapshot.
+    set used [dict get $meta used]
+    assert {[dict get $now candidate] > $used}
+    set paused [expr {[dict get $now state] eq "PAUSED"}]
+    if {!$paused} { assert_equal CALIBRATING [dict get $now state] "state of $key" }
+    for {set n 0} {![gp_proven $key]} {incr n} {
+        if {$n >= 600} { fail "$key did not prove itself again in $n requests: [gp_info $key]" }
+        set action [gp_ask $key]
+        if {$paused && $action ne "ABSTAIN"} { fail "$key is paused and replied $action" }
+    }
+    if {$paused} {
+        assert_equal PAUSED [gp_info $key state] "state of $key"
+        assert_equal OK [r gresume $key]
+    }
+    assert_equal ACTIVE [gp_info $key state] "state of $key"
+    assert {[gp_info $key generation] > $used}
+}
+
+# ----------------------- A story in which the clock matters ----------------
+#
+# Ten gates and what late answers, lost answers and an outage do to them,
+# told in four parts so that the caller can put the two sleeps, and a
+# rewrite of the AOF, between them:
+#
+#   gp_story_ask      requests are asked, some are answered out of order;
+#   gp_story_late     (::gp_wait later) answers arrive that find proof has
+#                     moved on without an older request, and feedback that
+#                     finds its request is lost; one gate has lost 32
+#                     answers in a row and stops;
+#   gp_story_answers  the late answers arrive after all, right and wrong;
+#                     the gates that stopped get an answer and resume;
+#   gp_story_lost     (::gp_wait2 later) what is still unanswered is lost.
+#
+# The score gates are only asked requests their cheap answer is right for,
+# at one score, so the story can say exactly when each is proven.
+#
+# The story is a dict: the prefix of the keys, and for each key the ids (or
+# {id answer} pairs) of its requests.
+
+# Ask a score gate $count requests. Returns their ids.
+proc gp_right {key count} {
+    set ids {}
+    for {set i 0} {$i < $count} {incr i} {
+        lassign [r gpredict $key SCORE 0.9] action id
+        if {$action eq "ACCEPT" || $id eq {}} { fail "$key did not ask for feedback: $action $id" }
+        lappend ids $id
+    }
+    return $ids
+}
+
+# Ask a score gate and answer "right" until $count answers were given or the
+# gate answers by itself. Returns the number of answers.
+proc gp_right_answers {key count} {
+    for {set n 0} {$n < $count} {incr n} {
+        lassign [r gpredict $key SCORE 0.9] action id
+        if {$action eq "ACCEPT"} break
+        assert_equal 1 [r glearn $key $id CORRECT 1] "feedback for a fresh id on $key"
+    }
+    return $n
+}
+
+# A score gate whose snapshot is being tested, and has $given right answers
+# so far, gets more of them, all at one score. It must be proven by the last
+# of the $need answers the snapshot needs, and not by the one before.
+proc gp_proven_by {key need {given 0}} {
+    set more [expr {$need - $given - 1}]
+    assert_equal $more [gp_right_answers $key $more] "answers $key took"
+    assert_equal 0 [gp_info $key generation] "the snapshot of $key that answers, one answer short of $need"
+    assert_equal 1 [gp_right_answers $key 1]
+    if {[gp_info $key generation] == 0} { fail "$key is not proven after $need right answers: [gp_info $key]" }
+}
+
+proc gp_story_keys {story} {
+    set keys {}
+    foreach name {flip:s wrong:s flip:c lost:s lost:c wait:s run:s out:s out:c tick:s} {
+        lappend keys [dict get $story prefix]:$name
+    }
+    return $keys
+}
+
+proc gp_story_ask {p} {
+    set story [dict create prefix $p]
+    # Answers that will still wait when the others have long moved on: this
+    # gate waits a quarter of a minute.
+    gp_score $p:wait:s
+    set ids [gp_right $p:wait:s 4]
+    assert_equal 1 [r glearn $p:wait:s [lindex $ids 1] CORRECT 1]
+    assert_equal 1 [r glearn $p:wait:s [lindex $ids 2] CORRECT 1]
+    dict set story $p:wait:s $ids
+    # Twenty requests nobody will answer: 12 short of what stops a gate.
+    gp_score $p:run:s 0.2 $::gp_lost
+    dict set story $p:run:s [gp_right $p:run:s 20]
+    # Two gates that answer, and whose spot checks nobody will answer: with
+    # AUDIT 1 every request is one.
+    gp_score $p:out:s 1 $::gp_lost
+    gp_proven_by $p:out:s [gp_need 1]
+    assert_equal ACTIVE [gp_info $p:out:s state]
+    dict set story $p:out:s [gp_right $p:out:s 32]
+    gp_classifier $p:out:c 100 1 $::gp_lost
+    gp_teach $p:out:c 100
+    gp_prove $p:out:c
+    dict set story $p:out:c:used [gp_max_number $p:out:c]
+    dict set story $p:out:c:learned [gp_info $p:out:c learned]
+    dict set story $p:out:c [gp_collect $p:out:c 32]
+    # Four requests each, the second answered: it waits for the first. The
+    # gates whose clock is the tightest come last (and first after the
+    # sleep): those with the feedback timeout in the middle.
+    foreach {name timeout} [list flip:s $::gp_late wrong:s $::gp_late lost:s $::gp_mid] {
+        gp_score $p:$name 0.2 $timeout
+        set ids [gp_right $p:$name 4]
+        assert_equal 1 [r glearn $p:$name [lindex $ids 1] CORRECT 1]
+        dict set story $p:$name $ids
+    }
+    foreach {name timeout} [list flip:c $::gp_late lost:c $::gp_mid] {
+        gp_classifier $p:$name 20 0.2 $timeout
+        gp_teach $p:$name 20
+        dict set story $p:$name [gp_some_answered $p:$name 4 {1}]
+    }
+    # A gate that answers nearly everything by itself (one request in a
+    # billion is a spot check) while requests from before still wait: 45
+    # were asked, the proof took the answers of the first 35.
+    assert_equal OK [r config set gate.feedback-timeout $::gp_mid]
+    assert_equal OK [r gcreate $p:tick:s ALPHA 0.2 DELTA 0.2 AUDIT 0.000000001 SCORE]
+    gp_defaults
+    set ids [gp_right $p:tick:s 45]
+    for {set i 0} {$i < [gp_need 1]} {incr i} {
+        assert_equal CALIBRATING [gp_info $p:tick:s state]
+        assert_equal 1 [r glearn $p:tick:s [lindex $ids $i] CORRECT 1]
+    }
+    assert_equal ACTIVE [gp_info $p:tick:s state]
+    # The third of the ten that still wait is answered: it waits for two.
+    assert_equal 1 [r glearn $p:tick:s [lindex $ids 37] CORRECT 1]
+    assert_equal 9 [gp_info $p:tick:s pending]
+    assert_equal 35 [gp_info $p:tick:s calibration-samples]
+    dict set story $p:tick:s $ids
+    return $story
+}
+
+proc gp_story_late {story} {
+    set p [dict get $story prefix]
+    # This gate answers by itself, which writes nothing about the request;
+    # but proof moves on without the two requests that hold up an answer.
+    set key $p:tick:s
+    assert_equal {ACCEPT {}} [r gpredict $key SCORE 0.9]
+    set info [gp_info $key]
+    if {[dict get $info missing] != 0} {
+        fail "$key: the machine stood still for a second, this test cannot work: $info"
+    }
+    assert_equal 9 [dict get $info pending] "pending of $key"
+    assert_equal 38 [dict get $info calibration-samples] "proof of $key"
+    assert_equal ACTIVE [dict get $info state] "state of $key"
+    # The answer of the third request arrives. A quarter of the feedback
+    # timeout has passed: proof moves on without the first, takes the
+    # second and the third, and waits for the fourth.
+    foreach name {lost:s lost:c flip:s wrong:s flip:c} {
+        set key $p:$name
+        set third [lindex [dict get $story $key] 2]
+        if {[gp_info $key kind] eq "score"} {
+            assert_equal 1 [r glearn $key $third CORRECT 1] "feedback for $key"
+        } else {
+            assert_equal 1 [gp_answer $key $third] "feedback for $key"
+        }
+        set info [gp_info $key]
+        if {[dict get $info missing] != 0} {
+            fail "$key: the machine stood still for seconds, this test cannot work: $info"
+        }
+        assert_equal 2 [dict get $info pending] "pending of $key"
+        assert_equal 3 [dict get $info calibration-samples] "proof of $key"
+    }
+    assert_equal 0 [gp_info $p:wait:s calibration-samples]
+    # Feedback for the first of the twenty comes too late, and so it would
+    # for the others. The gate is still being tested; twelve more requests
+    # that nobody will answer.
+    set key $p:run:s
+    assert_equal 0 [r glearn $key [lindex [dict get $story $key] 0] CORRECT 1] "late feedback for $key"
+    assert_equal 20 [gp_info $key missing]
+    assert_equal CALIBRATING [gp_info $key state]
+    assert_equal 1 [gp_info $key candidate]
+    dict set story $key [gp_right $key 12]
+    assert_equal 12 [gp_info $key pending]
+    # The next request finds that 32 spot checks in a row were lost: the
+    # gate stops. It still wants feedback, so that it can start again.
+    foreach name {out:s out:c} {
+        set key $p:$name
+        set learned [gp_info $key learned]
+        if {$name eq "out:s"} {
+            lassign [r gpredict $key SCORE 0.9] action id
+        } else {
+            lassign [r gpredict $key TEXT "buy cheap pills now offer 1"] action id
+        }
+        assert_equal ABSTAIN $action "reply of $key"
+        assert {$id ne {}}
+        set info [gp_info $key]
+        assert_equal COLD [dict get $info state] "state of $key"
+        assert_equal 0 [dict get $info generation] "generation of $key"
+        assert_equal 0 [dict get $info candidate] "candidate of $key"
+        assert_equal 32 [dict get $info missing] "missing of $key"
+        assert_equal 1 [dict get $info revocations] "revocations of $key"
+        assert_equal 1 [dict get $info pending] "pending of $key"
+        # Lost answers say nothing about the model: it is kept.
+        assert_equal $learned [dict get $info learned] "learned of $key"
+        dict set story $key:stopped $id
+    }
+    return $story
+}
+
+proc gp_story_answers {story} {
+    set p [dict get $story prefix]
+    # The answer of the first request arrives after all, and says the cheap
+    # answer was right: the wrong guess that was counted is taken back, and
+    # the gate is proven after the 35 right answers snapshot 1 needs.
+    set key $p:flip:s
+    set ids [dict get $story $key]
+    assert_equal 1 [r glearn $key [lindex $ids 0] CORRECT 1] "late feedback for $key"
+    assert_equal 1 [r glearn $key [lindex $ids 3] CORRECT 1]
+    assert_equal 0 [gp_info $key pending]
+    assert_equal 4 [gp_info $key calibration-samples]
+    gp_proven_by $key [gp_need 1] 4
+    assert_equal ACTIVE [gp_info $key state] "state of $key"
+    assert_equal [gp_need 1] [gp_info $key calibration-samples] "proof of $key"
+    # Here the late answer says the cheap answer was wrong: the wrong guess
+    # stays, and it takes more right answers to make up for it.
+    set key $p:wrong:s
+    set ids [dict get $story $key]
+    assert_equal 1 [r glearn $key [lindex $ids 0] CORRECT 0] "late feedback for $key"
+    assert_equal 1 [r glearn $key [lindex $ids 3] CORRECT 1]
+    assert {[gp_need 1 1 1] > [gp_need 1]}
+    gp_proven_by $key [gp_need 1 1 1] 3
+    assert_equal ACTIVE [gp_info $key state] "state of $key"
+    assert_equal [expr {[gp_need 1 1 1] + 1}] [gp_info $key calibration-samples] "proof of $key"
+    # The same for a classifier: late, and used.
+    set key $p:flip:c
+    set asked [dict get $story $key]
+    assert_equal 1 [gp_answer $key [lindex $asked 0]] "late feedback for $key"
+    assert_equal 1 [gp_answer $key [lindex $asked 3]]
+    assert_equal 0 [gp_info $key pending]
+    assert_equal 24 [gp_info $key learned]
+    # The answer everything waited for.
+    set key $p:wait:s
+    set ids [dict get $story $key]
+    assert_equal 0 [gp_info $key calibration-samples]
+    assert_equal 1 [r glearn $key [lindex $ids 0] CORRECT 1]
+    assert_equal 3 [gp_info $key calibration-samples]
+    assert_equal 1 [r glearn $key [lindex $ids 3] CORRECT 1]
+    assert_equal 4 [gp_info $key calibration-samples]
+    # The feedback path works again: the first answer makes the gate take
+    # its next snapshot, and it proves itself again, which for snapshot 2
+    # takes more than it took for snapshot 1.
+    set key $p:out:s
+    lassign [r gpredict $key SCORE 0.9] action id
+    assert_equal ABSTAIN $action
+    assert_equal 0 [gp_info $key candidate]
+    assert_equal 1 [r glearn $key $id CORRECT 1] "the first answer after the outage of $key"
+    assert_equal CALIBRATING [gp_info $key state]
+    assert_equal 2 [gp_info $key candidate]
+    gp_proven_by $key [gp_need 2]
+    assert_equal ACTIVE [gp_info $key state]
+    assert_equal 2 [gp_info $key generation]
+    set key $p:out:c
+    lassign [r gpredict $key TEXT "meeting notes project schedule 2"] action id
+    assert_equal ABSTAIN $action
+    assert_equal 1 [r glearn $key $id LABEL ham] "the first answer after the outage of $key"
+    assert_equal [expr {[dict get $story $key:learned] + 1}] [gp_info $key learned]
+    assert_equal CALIBRATING [gp_info $key state]
+    assert_equal [expr {[dict get $story $key:used] + 1}] [gp_info $key candidate]
+    gp_prove $key
+    assert_equal ACTIVE [gp_info $key state]
+    assert {[gp_info $key generation] > [dict get $story $key:used]}
+    assert_equal 1 [gp_info $key revocations]
+    return $story
+}
+
+proc gp_story_lost {story} {
+    set p [dict get $story prefix]
+    # The first request of these two never got its answer in time: it stays
+    # a wrong guess, and its id is forgotten.
+    foreach name {lost:s lost:c} {
+        set key $p:$name
+        set first [lindex [dict get $story $key] 0]
+        assert_equal 0 [gp_info $key missing]
+        if {$name eq "lost:s"} {
+            assert_equal 0 [r glearn $key $first CORRECT 1] "feedback for $key after the feedback timeout"
+        } else {
+            assert_equal 0 [gp_answer $key $first] "feedback for $key after the feedback timeout"
+        }
+        set info [gp_info $key]
+        # So is its fourth request, which was never answered either.
+        assert_equal 2 [dict get $info missing] "missing of $key"
+        assert_equal 0 [dict get $info pending] "pending of $key"
+        assert_equal 4 [dict get $info calibration-samples] "proof of $key"
+        assert_equal CALIBRATING [dict get $info state] "state of $key"
+    }
+    # Twelve more lost answers make 32 in a row: the gate stops.
+    set key $p:run:s
+    assert_equal CALIBRATING [gp_info $key state]
+    assert_equal 0 [r glearn $key [lindex [dict get $story $key] 0] CORRECT 1] "late feedback for $key"
+    set info [gp_info $key]
+    assert_equal COLD [dict get $info state] "state of $key"
+    assert_equal 32 [dict get $info missing] "missing of $key"
+    assert_equal 0 [dict get $info candidate] "candidate of $key"
+    assert_equal 0 [dict get $info revocations] "revocations of $key"
+    # The requests that were asked when the two gates had stopped were not
+    # answered either. They were proof for nothing: not missed.
+    foreach name {out:s out:c} {
+        set key $p:$name
+        set id [dict get $story $key:stopped]
+        if {$name eq "out:s"} {
+            assert_equal 0 [r glearn $key $id CORRECT 1] "late feedback for $key"
+        } else {
+            assert_equal 0 [r glearn $key $id LABEL spam] "late feedback for $key"
+        }
+        assert_equal 32 [gp_info $key missing] "missing of $key"
+        assert_equal ACTIVE [gp_info $key state] "state of $key"
+    }
+    # The gate that answers by itself: nine requests are lost now, the two
+    # that proof had moved on without and the seven behind them.
+    set key $p:tick:s
+    assert_equal {ACCEPT {}} [r gpredict $key SCORE 0.9]
+    set info [gp_info $key]
+    assert_equal 9 [dict get $info missing] "missing of $key"
+    assert_equal 0 [dict get $info pending] "pending of $key"
+    assert_equal 45 [dict get $info calibration-samples] "proof of $key"
+    assert_equal ACTIVE [dict get $info state] "state of $key"
+    return $story
 }
 
 # ============================ RDB: DEBUG RELOAD =============================
@@ -554,14 +1352,16 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         gp_teach g:cal 20
         assert_equal CALIBRATING [gp_info g:cal state]
         set waiting [gp_collect g:cal 6]
-        # Proof is applied in request order: these two answers have to wait
-        # for the older requests.
+        # Proof is counted in request order: these two answers have to wait
+        # for the answers of the older requests (for a quarter of the
+        # feedback timeout, which is a minute here). The model learns from
+        # them at once; "pending" is what still waits for its GLEARN.
         assert_equal 1 [gp_answer g:cal [lindex $waiting 2]]
         assert_equal 1 [gp_answer g:cal [lindex $waiting 4]]
         assert_equal CALIBRATING [gp_info g:cal state]
         assert_equal 22 [gp_info g:cal learned]
         assert_equal 0 [gp_info g:cal calibration-samples]
-        assert {[gp_info g:cal pending] >= 4}
+        assert_equal 4 [gp_info g:cal pending]
         gp_reload_check g:cal
     }
 
@@ -639,7 +1439,8 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert_equal 1 [gp_answer s:cal [lindex $waiting 2]]
         assert_equal 1 [gp_answer s:cal [lindex $waiting 5]]
         assert_equal CALIBRATING [gp_info s:cal state]
-        assert {[gp_info s:cal pending] >= 6}
+        assert_equal 0 [gp_info s:cal calibration-samples]
+        assert_equal 6 [gp_info s:cal pending]
         # A score gate that was just created, too.
         gp_score s:new
         gp_reload_check {s:cal s:new}
@@ -698,6 +1499,9 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         }
         assert_equal 1 [gp_info s:revoked revocations]
         assert_equal 0 [gp_info s:revoked generation]
+        # It starts over by itself, with the next snapshot number.
+        assert_equal CALIBRATING [gp_info s:revoked state]
+        assert_equal 2 [gp_info s:revoked candidate]
         gp_collect s:revoked 2
         # The same for a classifier, which also forgets its model.
         gp_classifier g:revoked 100 1
@@ -712,12 +1516,13 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         }
         assert_equal 1 [gp_info g:revoked revocations]
         assert_equal 0 [gp_info g:revoked generation]
+        assert_equal 0 [gp_info g:revoked learned]
+        assert_equal COLD [gp_info g:revoked state]
         gp_teach g:revoked 3
         gp_collect g:revoked 2
-        # Requests whose feedback never came.
-        r config set gate.feedback-timeout 40
-        gp_score s:late
-        r config set gate.feedback-timeout 300000
+        # Requests whose feedback never came. (More than three are lost if
+        # the machine pauses between the last two requests.)
+        gp_score s:late 0.2 40
         gp_collect s:late 3
         after 80
         gp_collect s:late 2
@@ -725,16 +1530,26 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         gp_reload_check {g:reset s:revoked g:revoked s:late}
     }
 
-    gp_test {DEBUG RELOAD keeps the digest: requests older than the feedback window that nothing has noticed yet} {
+    gp_test {DEBUG RELOAD keeps the digest: requests older than the feedback timeout that nothing has noticed yet} {
         gp_begin 110
-        r config set gate.feedback-timeout 40
-        gp_score s:stale
-        gp_classifier g:stale
-        r config set gate.feedback-timeout 300000
+        gp_score s:stale 0.2 40
+        gp_classifier g:stale 20 0.2 40
         gp_teach g:stale 20
         set old [gp_collect s:stale 3]
         set oldc [gp_collect g:stale 3]
+        # A gate does its bookkeeping when it is written to: time alone
+        # changes nothing, neither what GINFO shows nor what is saved.
+        foreach key {s:stale g:stale} {
+            set stale_info($key) [gp_info $key]
+            set stale_digest($key) [debug_digest_value $key]
+            set stale_dump($key) [r dump $key]
+        }
         after 80
+        foreach key {s:stale g:stale} {
+            assert_equal $stale_info($key) [gp_info $key] "GINFO of $key before and after doing nothing"
+            assert_equal $stale_digest($key) [debug_digest_value $key] "digest of $key before and after doing nothing"
+            gp_assert_same_bytes $stale_dump($key) [r dump $key] "DUMP of $key before and after doing nothing"
+        }
         gp_reload_check {s:stale g:stale}
         # Too old, and from before the reload.
         assert_equal 0 [gp_answer s:stale [lindex $old 0]]
@@ -811,6 +1626,100 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert_equal 0 [r glearn s:full [lindex $ids end] CORRECT 1]
         assert_equal 1 [r glearn s:full $id CORRECT 1]
         r del s:full
+    }
+
+    gp_test {DEBUG RELOAD keeps the digest: as many requests as a gate can hold, 16,384 answers that wait and 4,096 unanswered} {
+        gp_begin 115
+        gp_score s:most
+        # The first request is never answered, so the answer of every
+        # request after it has to wait for it: 16,384 of them, the most a
+        # gate lets wait (CHANGES.md section 2). Answered requests do not
+        # count against the 4,096 a gate holds for feedback.
+        lassign [r gpredict s:most SCORE 0.9] action first
+        assert {$first ne {}}
+        set rd [redis_deferring_client]
+        fconfigure [$rd channel] -buffersize 1000000
+        for {set batch 0} {$batch < 8} {incr batch} {
+            for {set i 0} {$i < 2048} {incr i} { $rd gpredict s:most SCORE 0.9 }
+            set ids {}
+            for {set i 0} {$i < 2048} {incr i} { lappend ids [lindex [$rd read] 1] }
+            foreach id $ids { $rd glearn s:most $id CORRECT 1 }
+            set used 0
+            foreach id $ids { incr used [$rd read] }
+            assert_equal 2048 $used "answers used in batch $batch"
+        }
+        set info [gp_info s:most]
+        assert_equal 1 [dict get $info pending]
+        assert_equal 0 [dict get $info calibration-samples]
+        assert_equal CALIBRATING [dict get $info state]
+        assert_equal 16385 [dict get $info requests]
+        # 4,095 unanswered requests more, and it is full.
+        for {set i 0} {$i < 4095} {incr i} { $rd gpredict s:most SCORE 0.9 }
+        for {set i 0} {$i < 4095} {incr i} {
+            lassign [$rd read] action id
+            if {$action ne "ABSTAIN" || $id eq {}} { fail "request $i of the last 4,095: $action $id" }
+        }
+        $rd close
+        assert_equal 4096 [gp_info s:most pending]
+        assert_equal 0 [gp_info s:most calibration-samples]
+        assert_equal {ABSTAIN {}} [r gpredict s:most SCORE 0.9]
+        # Through DUMP and RESTORE ...
+        assert_equal OK [r restore s:most:copy 0 [r dump s:most]]
+        assert_equal [debug_digest_value s:most] [debug_digest_value s:most:copy]
+        assert_equal [gp_info s:most memory] [gp_info s:most:copy memory]
+        gp_assert_came_back s:most:copy [gp_info s:most]
+        assert_equal OK [r rename s:most:copy s:most:big]
+        # ... and through an RDB file.
+        gp_reload_check s:most
+        # Nothing waits any more: neither the unanswered request ...
+        assert_equal 0 [r glearn s:most $first CORRECT 1]
+        # ... nor the answers. The gate starts again from nothing.
+        assert_equal 0 [gp_info s:most calibration-samples]
+        gp_proven_by s:most [gp_need 2]
+        assert_equal ACTIVE [gp_info s:most state]
+        assert_equal 2 [gp_info s:most generation]
+        r del s:most
+        # A gate that holds as much again, given up in the background.
+        assert_equal OK [r restore s:most 0 [r dump s:most:big]]
+        assert_equal 2 [r unlink s:most s:most:big]
+        wait_lazyfree_done r
+        assert_equal PONG [r ping]
+    }
+
+    # ---------------------- Late and lost answers --------------------------
+
+    gp_test {DEBUG RELOAD keeps the digest: answers that wait, proof that moved on, lost answers, gates that stopped for want of answers and gates that resumed, paused or not} {
+        gp_begin 116
+        set ::gp_z1 [gp_states n]
+        set zkeys [dict keys $::gp_z1]
+        assert_equal 17 [llength $zkeys]
+        # All four states of GINFO are among them.
+        set states {}
+        foreach key $zkeys { dict incr states [gp_info $key state] }
+        foreach state {COLD CALIBRATING ACTIVE PAUSED} { assert {[dict exists $states $state]} }
+        gp_reload_check $zkeys
+        # Loaded and saved once more, without a write in between.
+        gp_reload_check $zkeys
+    }
+
+    gp_test {BGSAVE and DEBUG RELOAD NOSAVE: the same gates still have their digests} {
+        set zkeys [dict keys $::gp_z1]
+        foreach key $zkeys { set z_info($key) [gp_info $key] }
+        set before [gp_digests $zkeys]
+        r bgsave
+        waitForBgsave r
+        assert_equal ok [s rdb_last_bgsave_status]
+        assert_equal $before [gp_digests $zkeys]
+        assert_equal OK [r debug reload nosave]
+        assert_equal $before [gp_digests $zkeys]
+        foreach key $zkeys { assert_equal $z_info($key) [gp_info $key] "GINFO of $key" }
+    }
+
+    gp_test {After DEBUG RELOAD each of these gates drops what it held at its first write and proves itself again with a new snapshot number} {
+        gp_begin 117
+        dict for {key meta} $::gp_z1 { gp_recovers $key $meta }
+        # What they are now is saved and loaded like anything else.
+        gp_reload_check [dict keys $::gp_z1]
     }
 
     gp_test {DEBUG RELOAD keeps the digest: a classifier holding hundreds of long waiting requests} {
@@ -1255,6 +2164,70 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert {[gp_info b:ledger generation] > $used}
     }
 
+    gp_test {After DEBUG RELOAD and after RESTORE a score gate needs the proof of its next snapshot number: 35, 41, 44 and 47 right answers} {
+        gp_begin 211
+        # With AUDIT 1 the gate never answers by itself: every request is
+        # asked, and answered "right".
+        gp_score b:exact 1
+        set number 0
+        foreach how {GCREATE {DEBUG RELOAD} RESTORE {DEBUG RELOAD}} need {35 41 44 47} {
+            if {$how eq "DEBUG RELOAD"} { assert_equal OK [r debug reload] }
+            if {$how eq "RESTORE"} { assert_equal OK [r restore b:exact 0 [r dump b:exact] replace] }
+            incr number
+            # SPEC.md section 5 with ALPHA 0.2 and DELTA 0.2: the wealth of
+            # a threshold must reach 32 x g (g + 1) / 0.2.
+            assert_equal $need [gp_need $number] "right answers snapshot $number needs"
+            assert_equal $number [gp_info b:exact candidate] "the snapshot that is tested after $how"
+            assert_equal 0 [gp_info b:exact calibration-samples]
+            gp_proven_by b:exact $need
+            set info [gp_info b:exact]
+            assert_equal ACTIVE [dict get $info state]
+            assert_equal $number [dict get $info generation]
+            assert_equal $need [dict get $info calibration-samples]
+            assert_equal 0 [dict get $info missing]
+            # Some spot checks, so that there is proof of both kinds to lose.
+            assert_equal 5 [gp_right_answers b:exact 5]
+            assert_equal 5 [gp_info b:exact audit-samples]
+        }
+    }
+
+    gp_test {After DEBUG RELOAD a classifier needs the proof of its next snapshot number, for as many labels as it may answer} {
+        gp_begin 212
+        # Three labels, one of which the gate must never answer with: the
+        # proof is that of two labels (32 x 2 x g (g + 1) / DELTA).
+        r config set gate.snapshot-examples 90
+        assert_equal OK [r gcreate b:exactc ALPHA 0.2 DELTA 0.2 AUDIT 1 CLASSES 3 spam ham other ALWAYSDEFER 1 other]
+        gp_defaults
+        for {set i 0} {$i < 30} {incr i} {
+            r gadd b:exactc TEXT "buy cheap pills now offer [incr ::gp_n]" LABEL spam
+            r gadd b:exactc TEXT "meeting notes project schedule [incr ::gp_n]" LABEL ham
+            r gadd b:exactc TEXT "weather forecast rain tomorrow [incr ::gp_n]" LABEL other
+        }
+        assert_equal CALIBRATING [gp_info b:exactc state]
+        assert {[gp_need 1 2] > [gp_need 1] && [gp_need 1 3] > [gp_need 1 2]}
+        foreach number {1 2} {
+            if {$number == 2} { assert_equal OK [r debug reload] }
+            assert_equal $number [gp_info b:exactc candidate]
+            # Only one topic is asked about, and the model knows it: every
+            # guess is right and is proof for that label.
+            set need [gp_need $number 2]
+            for {set i 1} {$i <= $need} {incr i} {
+                assert_equal 0 [gp_info b:exactc generation] "the snapshot that answers after [expr {$i - 1}] of $need right answers"
+                lassign [r gpredict b:exactc TEXT "buy cheap pills now offer [incr ::gp_n]"] action id
+                assert_equal ABSTAIN $action
+                assert_equal 1 [r glearn b:exactc $id LABEL spam]
+            }
+            set info [gp_info b:exactc]
+            assert_equal ACTIVE [dict get $info state]
+            assert_equal $number [dict get $info generation] "the snapshot that answers after $need right answers"
+            # It answers for that label alone; the label it must never
+            # answer with is still marked so.
+            lassign [dict get $info thresholds] spam ham other
+            assert {$spam ne {} && $ham eq {} && $other eq {}}
+            assert {[gp_same_numbers {0.2 0.2 0} [dict get $info alphas]]}
+        }
+    }
+
     gp_test {MEMORY USAGE and GINFO memory are the same before and after DEBUG RELOAD} {
         gp_begin 209
         gp_classifier m:c 100
@@ -1307,10 +2280,8 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         gp_begin 301
         # Settings that are not the defaults: after the restart the server
         # has the defaults again, the gates must not.
-        r config set gate.feedback-timeout 500
-        gp_classifier r:cold
-        gp_score r:late
-        r config set gate.feedback-timeout 300000
+        gp_classifier r:cold 20 0.2 500
+        gp_score r:late 0.2 500
         gp_teach r:cold 10
         gp_collect r:cold 3
         gp_classifier r:cal
@@ -1329,18 +2300,23 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         gp_score r:paused
         gp_prove r:paused
         r gpause r:paused
+        # A gate that is only given right answers, and never answers by
+        # itself (AUDIT 1): its first snapshot is proven by the 35th.
+        gp_score r:exact 1
+        gp_proven_by r:exact [gp_need 1]
+        assert_equal 1 [gp_info r:exact generation]
         r set r:string "not a gate"
         set keys {r:cold r:late r:cal r:act r:score r:paused}
-        foreach key $keys {
+        foreach key [concat $keys r:exact] {
             set r_info($key) [gp_info $key]
             set r_used($key) [gp_max_number $key]
         }
-        set before [gp_digests $keys]
+        set before [gp_digests [concat $keys r:exact]]
         assert_equal OK [r save]
         restart_server 0 true false
-        assert_equal $before [gp_digests $keys]
+        assert_equal $before [gp_digests [concat $keys r:exact]]
         assert_equal "not a gate" [r get r:string]
-        foreach key $keys {
+        foreach key [concat $keys r:exact] {
             assert_equal gate-type [r type $key]
             gp_assert_came_back $key $r_info($key)
         }
@@ -1366,13 +2342,19 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         }
         assert_equal PAUSED [gp_info r:paused state]
         assert {[gp_info r:paused generation] > $r_used(r:paused)}
+        # The file kept count of the snapshots: the next one is number 2,
+        # and number 2 needs more proof than number 1 did.
+        assert_equal 2 [gp_info r:exact candidate]
+        assert {[gp_need 2] > [gp_need 1]}
+        gp_proven_by r:exact [gp_need 2]
+        assert_equal 2 [gp_info r:exact generation]
     }
 
-    gp_test {After a restart a gate still has the snapshot step and the feedback window it was created with} {
+    gp_test {After a restart a gate still has the snapshot step and the feedback timeout it was created with} {
         gp_begin 303
         # The server is back to its defaults.
         assert_equal 1000 [lindex [r config get gate.snapshot-examples] 1]
-        assert_equal 300000 [lindex [r config get gate.feedback-timeout] 1]
+        assert_equal 60000 [lindex [r config get gate.feedback-timeout] 1]
         # Created with a snapshot step of 20: 10 examples before the
         # restart, 10 more now.
         assert_equal COLD [gp_info r:cold state]
@@ -1382,7 +2364,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         gp_teach r:cold 1
         assert_equal CALIBRATING [gp_info r:cold state]
         assert {[gp_info r:cold candidate] > 0}
-        # Created with a feedback window of half a second.
+        # Created with a feedback timeout of half a second.
         set waiting [gp_collect r:late 2]
         set waitingc [gp_collect r:cold 2]
         assert_equal 1 [gp_answer r:late [lindex $waiting 0]]
@@ -1390,7 +2372,29 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         after 650
         assert_equal 0 [gp_answer r:late [lindex $waiting 1]] "late feedback for r:late"
         assert_equal 0 [gp_answer r:cold [lindex $waitingc 1]] "late feedback for r:cold"
-        assert {[gp_info r:late missing] >= 1}
+        # Each lost the answer of one request that was proof.
+        assert_equal 1 [gp_info r:late missing]
+        assert_equal 1 [gp_info r:cold missing]
+    }
+
+    gp_test {SAVE and restart: gates with late and lost answers, gates that stopped and gates that resumed come back with the digests they had} {
+        gp_begin 310
+        set ::gp_z3 [gp_states q]
+        set zkeys [dict keys $::gp_z3]
+        foreach key $zkeys { set z_info($key) [gp_info $key] }
+        set before [gp_digests $zkeys]
+        assert_equal OK [r save]
+        restart_server 0 true false
+        assert_equal $before [gp_digests $zkeys]
+        foreach key $zkeys {
+            assert_equal gate-type [r type $key]
+            gp_assert_came_back $key $z_info($key)
+        }
+    }
+
+    gp_test {After a restart each of these gates drops what it held at its first write and proves itself again with a new snapshot number} {
+        gp_begin 311
+        dict for {key meta} $::gp_z3 { gp_recovers $key $meta }
     }
 
     gp_test {The two settings survive CONFIG REWRITE and a restart, and are for new gates only} {
@@ -1418,8 +2422,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert_equal 29 [gp_info r:thirty learned]
         gp_teach r:thirty 1
         assert_equal CALIBRATING [gp_info r:thirty state]
-        r config set gate.snapshot-examples 1000
-        r config set gate.feedback-timeout 300000
+        gp_defaults
     }
 
     gp_test {redis-check-rdb accepts an RDB file with gates} {
@@ -1561,7 +2564,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert_equal "not a gate" [r get w:string]
         assert_equal 0 [r exists w:old]
         # Nothing in the file was refused by the gate it was for.
-        assert_equal 0 [count_log_message 0 "did not fit"]
+        gp_assert_all_fit
     }
 
     gp_test {AOF: the file holds what happened (_GATE.APPLY), never the commands} {
@@ -1595,7 +2598,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert_equal OK [r debug loadaof]
         assert_equal $before [gp_digests {a:c a:s}]
         foreach key {a:c a:s} {
-            gp_assert_came_back $key $a_info($key)
+            gp_assert_came_back $key $a_info($key) aof
             gp_not_answered $key $a_question($key)
             foreach pair $a_old($key) { assert_equal 0 [gp_answer $key $pair] }
             gp_prove $key
@@ -1606,7 +2609,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         set before [gp_digests {a:c a:s}]
         assert_equal OK [r debug loadaof]
         assert_equal $before [gp_digests {a:c a:s}]
-        assert_equal 0 [count_log_message 0 "did not fit"]
+        gp_assert_all_fit
         gp_assert_realized [gp_aof_commands [get_last_incr_aof_path r]]
     }
 
@@ -1648,7 +2651,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         # Nearly no spot checks, so that the gate answers whatever is drawn.
         r config set gate.feedback-timeout 1000
         assert_equal OK [r gcreate a:tick ALPHA 0.2 DELTA 0.2 AUDIT 0.000000001 SCORE]
-        r config set gate.feedback-timeout 300000
+        gp_defaults
         # More requests than the proof needs, answered in order until the
         # gate answers: the rest keeps waiting.
         set ids {}
@@ -1660,20 +2663,81 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             incr answered
         }
         assert_equal ACTIVE [gp_info a:tick state]
+        assert_equal [gp_need 1] $answered "answers the proof took"
         set waiting [expr {45 - $answered}]
-        assert {$waiting >= 1}
         assert_equal $waiting [gp_info a:tick pending]
         after 1100
         # This request is answered by the gate: nothing about it goes to
         # the file. That the waiting requests are now too old must.
         assert_equal {ACCEPT {}} [r gpredict a:tick SCORE 0.9]
+        assert_equal $waiting [gp_info a:tick missing]
+        assert_equal 0 [gp_info a:tick pending]
+        # It is there as what happened: time passed.
+        gp_aof_flush
+        assert_equal [concat CREATE [lrepeat 45 PREDICT] [lrepeat $answered LEARN] TICK] \
+            [gp_aof_ops [get_last_incr_aof_path r] a:tick]
+        # Requests the gate answers when nothing is due write nothing.
+        set size [file size [get_last_incr_aof_path r]]
+        for {set i 0} {$i < 10} {incr i} { assert_equal {ACCEPT {}} [r gpredict a:tick SCORE 0.9] }
+        gp_aof_flush
+        assert {[file size [get_last_incr_aof_path r]] - $size < 100}
         set before [debug_digest_value a:tick]
         assert_equal OK [r debug loadaof]
         assert_equal $before [debug_digest_value a:tick]
         assert_equal 0 [r glearn a:tick [lindex $ids end] CORRECT 1]
-        assert {[gp_info a:tick missing] >= $waiting}
+        assert_equal $waiting [gp_info a:tick missing]
         assert_equal 0 [gp_info a:tick pending]
-        assert_equal 0 [count_log_message 0 "did not fit"]
+        gp_assert_all_fit
+    }
+
+    gp_test {AOF: of a text of a megabyte the file gets the 4,096 bytes that are read, and DEBUG LOADAOF gives the same gate} {
+        gp_begin 412
+        gp_classifier a:long
+        gp_teach a:long 10
+        # The longest text a request may have.
+        set text [string range [string repeat "buy cheap pills now offer " 40330] 0 1048575]
+        assert_equal 1048576 [string length $text]
+        gp_aof_flush
+        set path [get_last_incr_aof_path r]
+        set size [file size $path]
+        assert_equal 11 [r gadd a:long TEXT $text LABEL spam]
+        lassign [r gpredict a:long TEXT $text FEATURES 1 depth 0.5] action answered
+        assert_equal 1 [r glearn a:long $answered LABEL spam]
+        lassign [r gpredict a:long TEXT $text] action waiting
+        assert {$waiting ne {}}
+        gp_aof_flush
+        # An example and two requests, each with what is read of its text.
+        set grown [expr {[file size $path] - $size}]
+        assert {$grown > 3 * 4096 && $grown < 4 * 4096}
+        # One byte more is refused, and changes nothing.
+        set digest [debug_digest_value a:long]
+        assert_error "ERR*" {r gadd a:long TEXT "${text}!" LABEL spam}
+        assert_error "ERR*" {r gpredict a:long TEXT "${text}!"}
+        assert_equal $digest [debug_digest_value a:long]
+        # The file gives the same gate: the same model, and the same
+        # request waiting with the same clues.
+        set memory [gp_info a:long memory]
+        assert_equal OK [r debug loadaof]
+        assert_equal $digest [debug_digest_value a:long]
+        assert_equal $memory [gp_info a:long memory]
+        assert_equal 12 [gp_info a:long learned]
+        gp_assert_all_fit
+    }
+
+    gp_test {AOF: a gate loaded from the AOF needs the proof of its next snapshot number} {
+        gp_begin 413
+        gp_score a:exact 1
+        gp_proven_by a:exact [gp_need 1]
+        assert_equal 1 [gp_info a:exact generation]
+        assert_equal OK [r debug loadaof]
+        assert_equal 2 [gp_info a:exact candidate]
+        gp_proven_by a:exact [gp_need 2]
+        assert_equal 2 [gp_info a:exact generation]
+        set digest [debug_digest_value a:exact]
+        assert_equal OK [r debug loadaof]
+        assert_equal $digest [debug_digest_value a:exact]
+        assert_equal 3 [gp_info a:exact candidate]
+        gp_assert_all_fit
     }
 
     foreach {preamble seed} {yes 404 no 405} {
@@ -1729,9 +2793,146 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             set before [gp_digests $keys]
             assert_equal OK [r debug loadaof]
             assert_equal $before [gp_digests $keys]
-            assert_equal 0 [count_log_message 0 "did not fit"]
+            gp_assert_all_fit
             gp_assert_realized [gp_aof_commands [get_last_incr_aof_path r]]
         }
+    }
+
+    # The clock in the file. Each round follows seventeen gates into the
+    # states late and lost answers lead to (gp_states) and ten more through
+    # a story of late answers, lost answers and an outage (gp_story_*), and
+    # then loads the file. In two rounds the file is rewritten in the middle
+    # of the story, so that what the gates were doing at that moment goes
+    # through the snapshot a rewrite makes of them.
+    foreach {rewrite seed} {none 430 yes 431 no 432} {
+        set title [expr {$rewrite eq "none" ? "no rewrite" : "a rewrite in the middle with aof-use-rdb-preamble $rewrite"}]
+        gp_test "AOF: late answers, lost answers and an outage, $title: DEBUG LOADAOF gives every gate the digest it had" {
+            gp_begin $seed
+            if {$rewrite eq "none"} {
+                # Start from an empty history: what the tests did so far
+                # goes into a new base file, the story into a new log.
+                r config set aof-use-rdb-preamble yes
+                r bgrewriteaof
+                waitForBgrewriteaof r
+                assert_equal ok [s aof_last_bgrewrite_status]
+            }
+            set p t$rewrite
+            set z [gp_states_ask $p:z]
+            set story [gp_story_ask $p]
+            after $::gp_wait
+            set story [gp_story_late $story]
+            set z [gp_states_settle $z]
+            set keys [concat [dict keys $z] [gp_story_keys $story]]
+            if {$rewrite ne "none"} {
+                r config set aof-use-rdb-preamble $rewrite
+                r bgrewriteaof
+                waitForBgrewriteaof r
+                assert_equal ok [s aof_last_bgrewrite_status]
+                set base [get_base_aof_path r]
+                if {$rewrite eq "yes"} {
+                    assert_match "*.base.rdb" $base
+                } else {
+                    assert_match "*.base.aof" $base
+                    gp_assert_realized [gp_aof_commands $base]
+                    # A gate is one operation there: the gate as it is.
+                    set ops [gp_aof_read $base]
+                    foreach key $keys {
+                        assert_equal 1 [llength [dict get $ops $key]] "operations the base file holds for $key"
+                        assert_equal RESTORE [lindex [dict get $ops $key] 0 2]
+                    }
+                }
+            }
+            set story [gp_story_answers $story]
+            after $::gp_wait2
+            set story [gp_story_lost $story]
+            # What the file says happened since it was last rewritten.
+            gp_aof_flush
+            set path [get_last_incr_aof_path r]
+            gp_assert_realized [gp_aof_commands $path]
+            set ops [gp_aof_read $path]
+            foreach key $keys {
+                if {![dict exists $ops $key]} continue
+                set last 0
+                foreach op [dict get $ops $key] {
+                    set name [lindex $op 2]
+                    set clock [lindex $op 3]
+                    assert {$name in {CREATE PREDICT LEARN ADD PAUSE RESUME TICK RESET RECOVER}}
+                    # The clock of a gate does not go back.
+                    assert {[string is wide -strict $clock] && $clock >= $last}
+                    set last $clock
+                }
+            }
+            # The gate that answered two requests by itself wrote nothing
+            # about them but that time had passed, twice.
+            set ticks {}
+            foreach op [dict get $ops $p:tick:s] { lappend ticks [lindex $op 2] }
+            if {$rewrite eq "none"} {
+                assert_equal [concat CREATE [lrepeat 45 PREDICT] [lrepeat 36 LEARN] TICK TICK] $ticks
+            } else {
+                assert_equal TICK $ticks
+            }
+            foreach key $keys { set t_info($key) [gp_info $key] }
+            set before [gp_digests $keys]
+            assert_equal OK [r debug loadaof]
+            assert_equal $before [gp_digests $keys]
+            gp_assert_all_fit
+            foreach key $keys { gp_assert_came_back $key $t_info($key) aof }
+            # The seventeen recover at their first write and prove
+            # themselves again, and the file holds that too.
+            dict for {key meta} $z { gp_recovers $key $meta }
+            set before [gp_digests $keys]
+            assert_equal OK [r debug loadaof]
+            assert_equal $before [gp_digests $keys]
+            gp_assert_all_fit
+        }
+    }
+
+    gp_test {AOF: what a gate does that was restored from where the clock is ahead is in the file as it happened} {
+        gp_begin 433
+        r config set rdbcompression no
+        gp_score a:skew 0.2 200
+        set ids [gp_right a:skew 1]
+        lassign [gp_dump_split [r dump a:skew]] head blob version
+        # The clock of the gate as of its last write: in its ledger, after
+        # the random number its ids start with and the time it was created.
+        set epoch [binary format w 0x[lindex [split [lindex $ids 0] -] 0]]
+        set at [expr {[string first $epoch $blob] + 16}]
+        assert {$at > 16}
+        binary scan [string range $blob $at [expr {$at + 7}]] w clock
+        set now [clock milliseconds]
+        assert {$clock <= $now + 1000 && $clock > $now - 60000}
+        # The same gate as a server would have dumped it whose clock is an
+        # hour ahead of this one's.
+        set payload [gp_dump_join $head [string replace $blob $at [expr {$at + 7}] [binary format w [expr {$clock + 3600000}]]] $version]
+        assert_equal OK [r restore a:skew 0 $payload replace]
+        # One answer in time and one too late for a feedback timeout of a
+        # fifth of a second: the gate's clock goes on from where it was,
+        # at the pace of this server.
+        set ids [gp_right a:skew 2]
+        assert_equal 1 [r glearn a:skew [lindex $ids 1] CORRECT 1]
+        after 300
+        assert_equal 0 [r glearn a:skew [lindex $ids 0] CORRECT 1]
+        assert_equal 1 [gp_info a:skew missing]
+        assert_equal 2 [gp_info a:skew calibration-samples]
+        # The file says so with the clock of the gate, an hour ahead: when
+        # it came back, its two requests, the answer and the late answer.
+        gp_aof_flush
+        set ops [gp_aof_ops [get_last_incr_aof_path r] a:skew clocks]
+        set ops [lrange $ops [lsearch -index 0 $ops RECOVER] end]
+        set names {}
+        set last 0
+        foreach op $ops {
+            lassign $op name stamp
+            lappend names $name
+            assert {$stamp >= $clock + 3600000 && $stamp < $clock + 3600000 + 60000 && $stamp >= $last}
+            set last $stamp
+        }
+        assert_equal {RECOVER PREDICT PREDICT LEARN LEARN} $names
+        assert {$last >= [lindex $ops 0 1] + 290}
+        set digest [debug_digest_value a:skew]
+        assert_equal OK [r debug loadaof]
+        assert_equal $digest [debug_digest_value a:skew]
+        gp_assert_all_fit
     }
 
     gp_test {AOF: a snapshot that takes over, and gates that stop by themselves, are the same after DEBUG LOADAOF} {
@@ -1763,7 +2964,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert_equal $before [gp_digests $keys]
         assert_equal 1 [gp_info a:revoked revocations]
         assert_equal 1 [gp_info a:crevoked revocations]
-        assert_equal 0 [count_log_message 0 "did not fit"]
+        gp_assert_all_fit
     }
 
     gp_test {AOF: a DEBUG RELOAD in the middle of the history does not break it} {
@@ -1786,7 +2987,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         set before [gp_digests $keys]
         assert_equal OK [r debug loadaof]
         assert_equal $before [gp_digests $keys]
-        assert_equal 0 [count_log_message 0 "did not fit"]
+        gp_assert_all_fit
     }
 
     gp_test {AOF: after a restart every gate has the digest it had, and none answers before proving itself again} {
@@ -1812,8 +3013,8 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         restart_server 0 true false
         assert_equal $before [gp_digests $keys]
         assert_equal "not a gate" [r get z:string]
-        assert_equal 0 [count_log_message 0 "did not fit"]
-        foreach key $keys { gp_assert_came_back $key $a_info($key) }
+        gp_assert_all_fit
+        foreach key $keys { gp_assert_came_back $key $a_info($key) aof }
         gp_begin 407
         foreach key {z:c z:s} {
             gp_not_answered $key $a_question($key)
@@ -1826,7 +3027,255 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         set before [gp_digests $keys]
         assert_equal OK [r debug loadaof]
         assert_equal $before [gp_digests $keys]
-        assert_equal 0 [count_log_message 0 "did not fit"]
+        gp_assert_all_fit
+    }
+
+    gp_test {redis-check-aof accepts the files} {
+        gp_aof_flush
+        set manifest [file join [lindex [r config get dir] 1] [lindex [r config get appenddirname] 1] \
+                          [lindex [r config get appendfilename] 1]$::manifest_suffix]
+        catch {exec src/redis-check-aof $manifest} output
+        assert_match "*All AOF files and manifest are valid*" $output
+    }
+}
+
+# ==================== AOF: a file no gate has written ======================
+
+start_server [list tags {"modules external:skip"} overrides [list loadmodule $gatemodule appendonly yes]] {
+
+    gp_test {AOF: operations in the file that do not fit their gate are skipped and counted: the gates stay as they were and can be saved and loaded} {
+        gp_begin 440
+        gp_score k:s
+        set ids [gp_right k:s 3]
+        assert_equal 1 [r glearn k:s [lindex $ids 1] CORRECT 1]
+        gp_classifier k:c
+        gp_teach k:c 20
+        set asked [gp_collect k:c 3]
+        r set k:string "not a gate"
+        # What the server wrote for the last request of each gate: the
+        # clock, the draw, what the snapshot that answers and the one that
+        # is tested made of it, the number of the request, and for a
+        # classifier its text.
+        gp_aof_flush
+        set path [get_last_incr_aof_path r]
+        set k_request [lindex [gp_aof_ops $path k:s commands] end-1]
+        set k_requestc [lindex [gp_aof_ops $path k:c commands] end]
+        assert_equal PREDICT [lindex $k_request 2]
+        assert_equal PREDICT [lindex $k_requestc 2]
+        assert_equal 12 [llength $k_request] "words of the operation a score gate's request is"
+        assert_equal 14 [llength $k_requestc] "words of the operation a classifier's request is"
+        assert_equal 3 [lindex $k_request 11] "the number of the third request"
+        assert_equal TEXT [lindex $k_requestc 12]
+        set now [lindex $k_requestc 3]
+        set u [lindex $k_request 4]
+        set id [lindex $ids 0]
+        set idc [lindex $asked 0 0]
+        # Bits of doubles: 0, 0.5, 1, 2, a NaN and infinity.
+        set zero 0000000000000000
+        set half 3fe0000000000000
+        set one 3ff0000000000000
+        set two 4000000000000000
+        set nan 7ff8000000000000
+        set inf 7ff0000000000000
+        set lineage 0123456789abcdef
+        set epoch fedcba9876543210
+        set misfits [list \
+            [list _GATE.APPLY k:s FLY $now] \
+            [list _GATE.APPLY k:s TICK] \
+            [list _GATE.APPLY k:s TICK soon] \
+            [list _GATE.APPLY k:s TICK -1] \
+            [list _GATE.APPLY k:s TICK 9223372036854775807] \
+            [list _GATE.APPLY k:s TICK $now more] \
+            [list _GATE.APPLY k:s PAUSE] \
+            [list _GATE.APPLY k:s RESUME $now more] \
+            [list _GATE.APPLY k:s LEARN $now $id] \
+            [list _GATE.APPLY k:s LEARN $now not-an-id 1] \
+            [list _GATE.APPLY k:s LEARN $now $id 2] \
+            [list _GATE.APPLY k:s LEARN $now $id -1] \
+            [list _GATE.APPLY k:s LEARN $now $id yes] \
+            [list _GATE.APPLY k:c LEARN $now $idc 2] \
+            [list _GATE.APPLY k:c LEARN $now $idc 64] \
+            [list _GATE.APPLY k:s ADD $now TEXT hello LABEL spam] \
+            [list _GATE.APPLY k:c ADD $now TEXT hello LABEL eggs] \
+            [list _GATE.APPLY k:c ADD $now TEXT hello] \
+            [list _GATE.APPLY k:c ADD $now TEXT hello FEATURES 1 depth nan LABEL spam] \
+            [list _GATE.APPLY k:s RESET $now] \
+            [list _GATE.APPLY k:s RESET $now not-hex] \
+            [list _GATE.APPLY k:s RECOVER $now 123] \
+            [list _GATE.APPLY k:s PREDICT $now $u 0 -1 $zero 1 -1 $half] \
+            [list _GATE.APPLY k:s PREDICT $now $one 0 -1 $zero 1 -1 $half 100] \
+            [list _GATE.APPLY k:s PREDICT $now $nan 0 -1 $zero 1 -1 $half 100] \
+            [list _GATE.APPLY k:s PREDICT $now $u 0 -1 $zero 1 -1 $nan 100] \
+            [list _GATE.APPLY k:s PREDICT $now $u 0 -1 $zero 1 -1 $inf 100] \
+            [list _GATE.APPLY k:s PREDICT $now $u 0 -1 $zero 1 -1 $two 100] \
+            [list _GATE.APPLY k:s PREDICT $now $u 0 -1 $zero 1 0 $half 100] \
+            [list _GATE.APPLY k:s PREDICT $now $u 0 0 $zero 1 -1 $half 100] \
+            [list _GATE.APPLY k:s PREDICT $now $u 0 -1 $zero 1 64 $half 100] \
+            [list _GATE.APPLY k:s PREDICT $now $u 0 -2 $zero 1 -1 $half 100] \
+            [list _GATE.APPLY k:s PREDICT soon $u 0 -1 $zero 1 -1 $half 100] \
+            [list _GATE.APPLY k:s PREDICT $now $u 0 -1 $zero 1 -1 $half 0] \
+            [list _GATE.APPLY k:s PREDICT $now $u 0 -1 $zero 1 -1 $half 3] \
+            [list _GATE.APPLY k:s PREDICT $now $u 0 -1 $zero 1 -1 $half next] \
+            [list _GATE.APPLY k:s PREDICT $now $u 0 -1 $zero 1 -1 $half 100 TEXT "hello world"] \
+            [list _GATE.APPLY k:c PREDICT $now $u 0 -1 $zero 1 0 $half 100] \
+            [list _GATE.APPLY k:c PREDICT $now $u 0 -1 $zero 1 0 $half 100 TEXT hello FEATURES 1 depth] \
+            [list _GATE.APPLY k:c PREDICT $now $u 0 -1 $zero 1 0 $half 100 TEXT hello EXTRA] \
+            [list _GATE.APPLY k:c PREDICT $now $u 0 -1 $zero 1 0 $half 2 TEXT hello] \
+            [list _GATE.APPLY k:string TICK $now] \
+            [list _GATE.APPLY k:string LEARN $now $id 1] \
+            [list _GATE.APPLY k:string PREDICT $now $u 0 -1 $zero 1 -1 $half 100] \
+            [list _GATE.APPLY k:missing TICK $now] \
+            [list _GATE.APPLY k:missing PAUSE $now] \
+            [list _GATE.APPLY k:missing RESET $now $epoch] \
+            [list _GATE.APPLY k:missing LEARN $now $id 1] \
+            [list _GATE.APPLY k:missing PREDICT $now $u 0 -1 $zero 1 -1 $half 100] \
+            [list _GATE.APPLY k:new CREATE $now $lineage $epoch 0 60000 ALPHA 0.2 SCORE] \
+            [list _GATE.APPLY k:new CREATE $now $lineage $epoch 4294967296 60000 ALPHA 0.2 SCORE] \
+            [list _GATE.APPLY k:new CREATE $now $lineage $epoch 4294967297 60000 ALPHA 0.2 SCORE] \
+            [list _GATE.APPLY k:new CREATE $now $lineage $epoch 1000 0 ALPHA 0.2 SCORE] \
+            [list _GATE.APPLY k:new CREATE $now $lineage $epoch 1000 60000 ALPHA 2 SCORE] \
+            [list _GATE.APPLY k:new CREATE $now $lineage $epoch 1000 60000 ALPHA 0.2] \
+            [list _GATE.APPLY k:new CREATE $now $lineage not-hex 1000 60000 ALPHA 0.2 SCORE] \
+            [list _GATE.APPLY k:new CREATE -5 $lineage $epoch 1000 60000 ALPHA 0.2 SCORE] \
+            [list _GATE.APPLY k:new CREATE $now $lineage $epoch 1000 60000] \
+            [list _GATE.APPLY k:new RESTORE] \
+            [list _GATE.APPLY k:new RESTORE garbage] \
+            [list _GATE.APPLY k:new RESTORE GATE] \
+        ]
+        set before [gp_digests {k:s k:c}]
+        assert_equal 0 [gp_mismatches]
+        assert_equal OK [gp_aof_load_with $misfits]
+        assert_equal PONG [r ping]
+        # Nothing happened to the gates, nothing was created or replaced.
+        assert_equal $before [gp_digests {k:s k:c}]
+        assert_equal "not a gate" [r get k:string]
+        assert_equal 0 [r exists k:missing k:new]
+        # The server has counted them, said so in its log for the first
+        # ten, and said for each gate of a rewritten file that it is lost.
+        assert_equal [llength $misfits] [gp_mismatches] "operations that did not fit their gate"
+        assert_equal 10 [count_log_message 0 "did not fit"]
+        assert_equal 2 [count_log_message 0 "cannot be restored and is lost"]
+        # The gates are gates: Redis can save and load them, and they work.
+        foreach key {k:s k:c} {
+            assert_equal OK [r restore $key:copy 0 [r dump $key]]
+            assert_equal 1 [r del $key:copy]
+        }
+        assert_equal OK [r debug reload]
+        assert_equal $before [gp_digests {k:s k:c}]
+        # Three more look right until the gate is asked: a request that
+        # says no snapshot was being tested, and requests of the classifier
+        # whose guess is a label the gate does not have, or none. The gate
+        # takes over the number of such a request before it finds that it
+        # cannot record it. Nothing else changes.
+        set tried [list \
+            [list _GATE.APPLY k:s PREDICT $now $u 0 -1 $zero 0 -1 $half 100] \
+            [list _GATE.APPLY k:c PREDICT $now $u 0 -1 $zero 1 2 $half 100 TEXT hello] \
+            [list _GATE.APPLY k:c PREDICT $now $u 0 -1 $zero 1 -1 $half 100 TEXT hello] \
+        ]
+        foreach key {k:s k:c} { set k_info($key) [gp_info $key] }
+        set mismatches [gp_mismatches]
+        assert_equal OK [gp_aof_load_with $tried]
+        assert_equal [expr {$mismatches + [llength $misfits] + [llength $tried]}] [gp_mismatches]
+        foreach key {k:s k:c} {
+            assert_equal $k_info($key) [gp_info $key] "GINFO of $key"
+            assert_equal OK [r restore $key:copy 0 [r dump $key]]
+            assert_equal 1 [r del $key:copy]
+        }
+        assert_equal OK [r debug reload]
+        # The gates work, and number their next request 100.
+        foreach key {k:s k:c} {
+            lassign [gp_request [gp_info $key kind] 1] question answer
+            lassign [r gpredict $key {*}$question] action next
+            assert_equal ABSTAIN $action
+            assert_equal 100 [lindex [split $next -] 1] "number of the next request of $key"
+            assert_equal 1 [r glearn $key $next {*}$answer]
+        }
+        assert_equal 0 [r glearn k:s $id CORRECT 1]
+    }
+
+    gp_test {AOF: operations written by hand that do fit are applied} {
+        # The test before means something only if the server reads what a
+        # test appends to its file. Follows from it: k:s and k:c.
+        gp_begin 441
+        set mismatches [gp_mismatches]
+        lassign [r gpredict k:s SCORE 0.9] action id
+        lassign [split $id -] epoch number
+        gp_aof_flush
+        set path [get_last_incr_aof_path r]
+        set k_request [lindex [gp_aof_ops $path k:s commands] end]
+        assert_equal PREDICT [lindex $k_request 2]
+        assert_equal $number [lindex $k_request 11]
+        set now [lindex $k_request 3]
+        set info [gp_info k:s]
+        # The same request once more, as request number 200; an answer for
+        # it; a pause; an example for the classifier.
+        set learned [gp_info k:c learned]
+        assert_equal OK [gp_aof_load_with [list \
+            [list _GATE.APPLY k:s {*}[lrange $k_request 2 10] 200] \
+            [list _GATE.APPLY k:s LEARN $now $epoch-200 1] \
+            [list _GATE.APPLY k:s PAUSE $now] \
+            [list _GATE.APPLY k:c ADD $now TEXT "buy cheap pills now" LABEL spam] \
+        ]]
+        # The file was read again from its start: what did not fit then
+        # does not fit now, and nothing else.
+        assert_equal [expr {$mismatches + [llength $misfits] + [llength $tried]}] [gp_mismatches]
+        assert_equal [expr {$learned + 1}] [gp_info k:c learned]
+        # The gate is shown as it will be after its first write, so of what
+        # the operations did only the pause is to be seen ...
+        assert_equal PAUSED [gp_info k:s state]
+        assert_equal [expr {[dict get $info requests] + 1}] [gp_info k:s requests]
+        # ... and that the next request has a number after 200.
+        assert_equal OK [r gresume k:s]
+        lassign [r gpredict k:s SCORE 0.9] action id
+        assert_equal ABSTAIN $action
+        assert_equal 201 [lindex [split $id -] 1]
+        assert_equal OK [r debug reload]
+    }
+
+    gp_test {AOF: a request number or a clock in the file that is at the end of its range leaves a gate that can be saved and loaded} {
+        # Follows from the tests before. The server is the last to use this
+        # file: what it holds now cannot be undone.
+        gp_begin 442
+        gp_score k:far
+        gp_right k:far 2
+        gp_score k:end
+        gp_right k:end 2
+        gp_aof_flush
+        set k_request [lindex [gp_aof_ops [get_last_incr_aof_path r] k:far commands] end]
+        assert_equal 2 [lindex $k_request 11]
+        # For one gate a request with the largest number there is: the gate
+        # has to count on from it. For the other the passing of time, up to
+        # the last moment the module takes (a week before the largest
+        # number): its clock has to go on from there.
+        set mismatches [gp_mismatches]
+        assert_equal OK [gp_aof_load_with [list \
+            [list _GATE.APPLY k:far {*}[lrange $k_request 2 10] 9223372036854775807] \
+            [list _GATE.APPLY k:end TICK [expr {9223372036854775807 - 7 * 86400 * 1000}]] \
+        ]]
+        assert_equal PONG [r ping]
+        set fitted [expr {[llength $misfits] + [llength $tried] + 2 - ([gp_mismatches] - $mismatches)}]
+        # Skipped or applied, what is in memory must be gates Redis can
+        # save and load, now and after they were used. (Asked of RESTORE
+        # and not of DEBUG RELOAD: a server that cannot load its own RDB
+        # file has lost every key in it.)
+        set problems {}
+        foreach {key what} {k:far "a request numbered 9223372036854775807" k:end "a clock at the end of its range"} {
+            foreach when {"" ", one request and 20 ms later"} {
+                if {$when ne ""} {
+                    gp_check_reply $key [r gpredict $key SCORE 0.9]
+                    after 20
+                    gp_check_reply $key [r gpredict $key SCORE 0.9]
+                }
+                if {[catch {r restore $key:copy 0 [r dump $key] replace} reply]} {
+                    lappend problems "after $what in the AOF$when, the gate cannot be restored from its own DUMP: $reply"
+                }
+            }
+        }
+        if {[llength $problems]} {
+            r del k:far k:end
+            fail "[join $problems "\n"]\n($fitted of the two operations were applied)"
+        }
+        assert_equal OK [r debug reload]
     }
 }
 
@@ -2013,6 +3462,76 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         }
     }
 
+    gp_test {DUMP / RESTORE: gates with late and lost answers, gates that stopped and gates that resumed: the copy has the digest of the original and starts over, the original goes on} {
+        gp_begin 505
+        r flushall
+        r config set rdbcompression no
+        set z [gp_states e]
+        # The payloads are kept for the tests of damaged payloads below.
+        set ::gp_dumped {}
+        dict for {key meta} $z {
+            set info [gp_info $key]
+            set digest [debug_digest_value $key]
+            set payload [r dump $key]
+            dict set ::gp_dumped $key [dict create payload $payload info $info meta $meta]
+            assert_equal OK [r restore $key:copy 0 $payload]
+            assert_equal gate-type [r type $key:copy]
+            assert_equal $digest [debug_digest_value $key:copy] "digest of the copy of $key"
+            assert_equal [dict get $info memory] [gp_info $key:copy memory] "memory of the copy of $key"
+            gp_assert_same_bytes $payload [r dump $key:copy] "DUMP of $key and of its copy"
+            gp_assert_came_back $key:copy $info
+            # Neither DUMP nor the copy touched the original.
+            assert_equal $info [gp_info $key] "GINFO of $key"
+            assert_equal $digest [debug_digest_value $key] "digest of $key"
+        }
+        # The original goes on where it was.
+        dict for {key meta} $z {
+            set old [dict get $meta old]
+            switch [dict get $meta state] {
+                wait {
+                    # The answer the others waited for arrives: it is
+                    # counted, and so is the one behind it.
+                    set samples [gp_info $key calibration-samples]
+                    assert_equal 1 [gp_answer $key [lindex $old 0]] "feedback for $key"
+                    assert_equal [expr {$samples + 2}] [gp_info $key calibration-samples] "proof of $key"
+                    assert_equal 2 [gp_info $key pending] "pending of $key"
+                }
+                prov {
+                    # The late answer is still wanted there.
+                    assert_equal 1 [gp_answer $key [dict get $meta late]] "late feedback for $key"
+                    assert_equal 0 [gp_info $key pending] "pending of $key"
+                    assert_equal 0 [gp_info $key missing] "missing of $key"
+                }
+                blind {
+                    # It has stopped, and wants feedback for whatever it is
+                    # asked. Its first answer starts the next snapshot.
+                    set asked [gp_collect $key 1]
+                    if {$key eq "e:blind:s"} {
+                        # A gate without a snapshot and with one request:
+                        # the smallest payload there is that has both.
+                        set ::gp_tiny [r dump $key]
+                    }
+                    set asked [concat $asked [gp_collect $key 2]]
+                    assert_equal 0 [gp_info $key candidate] "candidate of $key"
+                    assert_equal 1 [gp_answer $key [lindex $asked 1]] "feedback for $key"
+                    assert_equal [expr {[dict get $meta used] + 1}] [gp_info $key candidate] "candidate of $key"
+                }
+                default {
+                    # The snapshot that is being tested is still the one.
+                    assert_equal [dict get $meta used] [gp_info $key candidate] "candidate of $key"
+                }
+            }
+        }
+        # The copies start over: none of the requests is theirs, and they
+        # prove themselves with a snapshot number the original never used.
+        dict for {key meta} $z { gp_recovers $key:copy $meta }
+        # The original that had just resumed is proven with the number it
+        # had; its copy took the next one.
+        gp_prove e:res:s
+        assert_equal [dict get $z e:res:s used] [gp_info e:res:s generation]
+        assert_equal [expr {[dict get $z e:res:s used] + 1}] [gp_info e:res:s:copy generation]
+    }
+
     # ------------------------- Damaged payloads ----------------------------
 
     # The payloads below are many and large. Tcl writes a command in pieces
@@ -2128,8 +3647,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         r config set gate.feedback-timeout 123456789
         assert_equal OK [r gcreate x:cfg ALPHA 0.21 DELTA 0.17 AUDIT 0.33 CLASSES 2 spam hams \
             CLASSALPHA 2 spam 0.11 hams 0.13]
-        r config set gate.snapshot-examples 1000
-        r config set gate.feedback-timeout 300000
+        gp_defaults
         lassign [gp_dump_split [r dump x:cfg]] head blob version
         set nan [binary format w 0x7ff8000000000000]
         set inf [binary format q Inf]
@@ -2148,7 +3666,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
                       negative [binary format q -0.11] "not a number" $nan] \
             "the snapshot step" [binary format i 439041101] [binary format i 7] {} \
                 [list zero [binary format i 0]] \
-            "the feedback window" [binary format w 123456789] [binary format w 50] {} \
+            "the feedback timeout" [binary format w 123456789] [binary format w 50] {} \
                 [list zero [binary format w 0] negative [binary format w -1]] \
             "a label" spam eggs {classes {eggs hams}} \
                 [list "a control character" "sp\x01m" "a zero byte" "sp\x00m" DEL "sp\x7fm" \
@@ -2275,6 +3793,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         # bytes and the proof, requests and counters at the end.
         r config set rdbcompression no
         lassign [gp_dump_split [r dump x:c]] head blob version
+        set base [gp_dump_base $head $blob]
         set length [string length $blob]
         assert {$length > 3 * 8192 * 4}
         for {set i 0} {$i < 100} {incr i} {
@@ -2290,12 +3809,379 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
                 set new [expr {($old + 1 + int(rand() * 255)) & 0xff}]
             }
             set damaged [string replace $blob $at $at [binary format c $new]]
-            set result [gp_restore_damaged [gp_dump_join $head $damaged $version] "x:c: byte $at from $old to $new"]
+            set result [gp_restore_damaged [gp_dump_damage $base $damaged $version $at] "x:c: byte $at from $old to $new"]
             dict incr count $result
         }
         assert_equal 200 [expr {[dict get $count refused] + [dict get $count accepted]}]
         assert_equal PONG [r ping]
         if {$::verbose} { puts "damaged classifier payloads: $count" }
+    }
+
+    gp_test {RESTORE of a damaged payload: random damage to gates with late and lost answers, gates that stopped and gates that resumed is refused or leaves a working gate} {
+        gp_begin 518
+        expr {srand(518)}
+        r flushall
+        r config set rdbcompression no
+        # The seventeen payloads the DUMP / RESTORE test above has kept.
+        assert_equal 17 [dict size $::gp_dumped]
+        set count {refused 0 accepted 0}
+        set ::gp_kept {}
+        dict for {key dumped} $::gp_dumped {
+            lassign [gp_dump_split [dict get $dumped payload]] head blob version
+            set base [gp_dump_base $head $blob]
+            set length [string length $blob]
+            set kind [dict get $dumped info kind]
+            set kept 0
+            for {set i 0} {$i < ($kind eq "classifier" ? 16 : 30)} {incr i} {
+                # One bit, one byte, or a few bytes.
+                set damaged $blob
+                set what "$key:"
+                set first $length
+                set changes [lindex {1 1 1 2 4} [expr {int(rand() * 5)}]]
+                for {set j 0} {$j < $changes} {incr j} {
+                    # A classifier is mostly weights, where a changed byte
+                    # is only another weight: two times out of three the
+                    # damage goes to its first bytes or to its end, where
+                    # the proof, the requests and the counters are.
+                    if {$kind eq "classifier" && $i % 3 == 0} {
+                        set at [expr {int(rand() * 256)}]
+                    } elseif {$kind eq "classifier" && $i % 3 == 1} {
+                        set at [expr {$length - 1 - int(rand() * 4500)}]
+                    } else {
+                        set at [expr {int(rand() * $length)}]
+                    }
+                    set old [scan [string index $damaged $at] %c]
+                    if {$i % 2} {
+                        set new [expr {$old ^ (1 << int(rand() * 8))}]
+                    } else {
+                        set new [expr {($old + 1 + int(rand() * 255)) & 0xff}]
+                    }
+                    set damaged [string replace $damaged $at $at [binary format c $new]]
+                    append what " byte $at from $old to $new"
+                    set first [expr {min($first, $at)}]
+                }
+                set payload [gp_dump_damage $base $damaged $version $first]
+                set result [gp_restore_damaged $payload $what]
+                dict incr count $result
+                if {$result eq "accepted" && $kept < 3} {
+                    # Three of each are kept for the next test, with three
+                    # requests each, the second of them answered.
+                    incr kept
+                    set name x:kept[llength $::gp_kept]
+                    assert_equal OK [r restore $name 0 $payload]
+                    set asked {}
+                    for {set n 1} {$n <= 3} {incr n} {
+                        lassign [gp_damaged_request [gp_info $name] $n] question answer
+                        set reply [r gpredict $name {*}$question]
+                        gp_check_reply $what $reply
+                        lappend asked [list [lindex $reply 1] $answer]
+                    }
+                    lassign [lindex $asked 1] id answer
+                    if {$id ne {}} { r glearn $name $id {*}$answer }
+                    lappend ::gp_kept [list $name $kind $what $asked]
+                }
+            }
+        }
+        assert_equal 440 [expr {[dict get $count refused] + [dict get $count accepted]}]
+        # A good share of the damage is noticed, and a good share is not.
+        assert {[dict get $count refused] >= 100}
+        assert {[llength $::gp_kept] >= 30}
+        assert_equal PONG [r ping]
+        if {$::verbose} { puts "damaged payloads of gates with late and lost answers: $count" }
+    }
+
+    gp_test {RESTORE of a damaged payload: the gates that got in are still gates when time has passed: answers come late or are lost, the gates are reset, saved and deleted} {
+        # Follows from the test before, which left gates with unanswered
+        # requests. Their feedback timeouts are those of the gates they
+        # were made from (unless that is what was damaged): for some the
+        # answers are lost by now, for some proof has to move on without
+        # one, for some nothing is due.
+        after $::gp_wait
+        set answers {0 0 1 0}
+        foreach kept $::gp_kept {
+            lassign $kept name kind what asked
+            foreach i {0 2} {
+                lassign [lindex $asked $i] id answer
+                if {$id eq {}} continue
+                set used [r glearn $name $id {*}$answer]
+                if {$used ni {0 1}} { fail "$what: GLEARN replied '$used'" }
+                dict incr answers $used
+                if {[r glearn $name $id {*}$answer] != 0} { fail "$what: late feedback was used twice" }
+            }
+            gp_check_reply "$what, later" [r gpredict $name {*}[lindex [gp_request $kind 1] 0]]
+            gp_check_info "$what, later" [gp_info $name]
+            if {[catch {r restore x:again 0 [r dump $name] replace} reply]} {
+                fail "$what: when time has passed the gate cannot be restored from its own DUMP: $reply"
+            }
+            assert_equal OK [r greset $name]
+            set info [gp_info $name]
+            gp_check_info "$what, later, after GRESET" $info
+            foreach field {learned generation pending requests missing revocations} {
+                if {[dict get $info $field] != 0} { fail "$what: after GRESET $field is [dict get $info $field]" }
+            }
+            assert_equal 2 [r del $name x:again]
+        }
+        # Both happened: answers that were lost, and answers that were late
+        # and still used.
+        assert {[dict get $answers 0] > 0}
+        assert {[dict get $answers 1] > 0}
+        assert_equal PONG [r ping]
+        if {$::verbose} { puts "late answers for [llength $::gp_kept] damaged gates, by reply: $answers" }
+    }
+
+    gp_test {RESTORE of a damaged payload: every single bit of a gate that has stopped, and of the requests of gates with late answers, is refused or leaves a working gate} {
+        gp_begin 520
+        r flushall
+        r config set rdbcompression no
+        # A gate with an unanswered request and an answer that waits for it.
+        # How many bytes a waiting request of a score gate takes is asked
+        # of the module.
+        gp_score x:two
+        set size [string length [r dump x:two]]
+        set ids [gp_right x:two 1]
+        set record [expr {[string length [r dump x:two]] - $size}]
+        assert {$record >= 40 && $record <= 200}
+        lappend ids {*}[gp_right x:two 1]
+        assert_equal 1 [r glearn x:two [lindex $ids 1] CORRECT 1]
+        assert_equal [expr {$size + 2 * $record}] [string length [r dump x:two]]
+        # The gate that has stopped is small (it has no snapshot): all of
+        # it, with its one request. Of the two others their end: the
+        # requests that wait, and the counters that follow them.
+        set targets [list \
+            "a gate that has stopped" $::gp_tiny 100000 \
+            "a gate proof has moved on without a request of" [dict get $::gp_dumped e:prov:s payload] [expr {$record + 160}] \
+            "a gate with an answer that waits" [r dump x:two] [expr {2 * $record + 160}]]
+        # Each damaged payload is restored and, if it gets in, shown, asked,
+        # dumped, deleted and restored from that dump, in one script: the
+        # payloads are thousands.
+        set script [r script load {
+            local restored = redis.pcall('RESTORE', KEYS[1], 0, ARGV[1])
+            if type(restored) == 'table' and restored.err then return {0, restored.err} end
+            local info = redis.call('GINFO', KEYS[1])
+            local asked = redis.call('GPREDICT', KEYS[1], 'SCORE', '0.9')
+            local dump = redis.call('DUMP', KEYS[1])
+            local deleted = redis.call('DEL', KEYS[1])
+            local again = redis.pcall('RESTORE', KEYS[1], 0, dump)
+            if type(again) == 'table' and again.err then return {1, info, asked, deleted, again.err} end
+            redis.call('DEL', KEYS[1])
+            return {1, info, asked, deleted, ''}
+        }]
+        gp_crc64 ""
+        set count {refused 0 accepted 0}
+        foreach {name payload bytes} $targets {
+            lassign [gp_dump_split $payload] head blob version
+            set length [string length $blob]
+            set from [expr {max(0, $length - $bytes)}]
+            set prefix $head
+            append prefix [gp_rdb_length $length]
+            binary scan [string range $payload end-7 end] w crc
+            # What a flipped bit of the last byte of the gate does to the
+            # checksum: three bytes follow it.
+            set deltas {}
+            for {set bit 0} {$bit < 8} {incr bit} {
+                set delta [lindex $::gp_crc64_table [expr {1 << $bit}]]
+                for {set k 0} {$k < 3} {incr k} { set delta [gp_crc64_zero $delta] }
+                lappend deltas $delta
+            }
+            for {set at [expr {$length - 1}]} {$at >= $from} {incr at -1} {
+                set old [scan [string index $blob $at] %c]
+                set earlier {}
+                for {set bit 0} {$bit < 8} {incr bit} {
+                    set delta [lindex $deltas $bit]
+                    lappend earlier [gp_crc64_zero $delta]
+                    set what "$name: bit $bit of byte $at"
+                    set damaged $prefix
+                    append damaged [string replace $blob $at $at [binary format c [expr {$old ^ (1 << $bit)}]]] \
+                        "\x00" $version [binary format w [expr {$crc ^ $delta}]]
+                    lassign [r evalsha $script 1 gp:bit $damaged] restored info asked deleted problem
+                    if {!$restored} {
+                        if {![string match "*Bad data format*" $info]} { fail "$what: RESTORE replied '$info'" }
+                        dict incr count refused
+                        continue
+                    }
+                    dict incr count accepted
+                    gp_check_info $what $info
+                    if {[dict get $info generation] != 0 || [dict get $info pending] != 0} {
+                        fail "$what: restored with proof: $info"
+                    }
+                    gp_check_reply $what $asked
+                    if {[lindex $asked 0] ne "ABSTAIN"} { fail "$what: replied [lindex $asked 0] right after RESTORE" }
+                    if {$deleted != 1} { fail "$what: DEL replied $deleted" }
+                    if {$problem ne ""} {
+                        fail "$what: after RESTORE and one request the gate cannot be restored from its own DUMP: $problem"
+                    }
+                }
+                set deltas $earlier
+            }
+        }
+        assert_equal 0 [r exists gp:bit]
+        # Thousands of payloads, a good share of each kind.
+        assert {[dict get $count refused] > 1500}
+        assert {[dict get $count accepted] > 1500}
+        assert_equal PONG [r ping]
+        if {$::verbose} { puts "single bits: $count" }
+    }
+
+    gp_test {RESTORE of a damaged payload: the mark of a gate that has stopped and its count of answers lost in a row are checked (CHANGES.md section 5)} {
+        gp_begin 521
+        r flushall
+        r config set rdbcompression no
+        # The ledger of a gate: after the random number its ids start with
+        # come two clocks, the number of snapshots taken, whether the gate
+        # is paused, the number of examples at the last snapshot and, new
+        # in this form, whether it has stopped (one byte) and how many
+        # answers were lost in a row (four bytes). Found in the payloads
+        # the DUMP / RESTORE test has kept, by the id of a request.
+        set found {}
+        foreach name {lost:s blind:s blind:p res:s wait:c blind:c} {
+            set dumped [dict get $::gp_dumped e:$name]
+            lassign [gp_dump_split [dict get $dumped payload]] head blob version
+            set id [lindex [dict get $dumped meta old] 0 0]
+            set epoch [binary format w 0x[lindex [split $id -] 0]]
+            set at [string first $epoch $blob]
+            assert {$at > 0}
+            assert_equal -1 [string first $epoch $blob [expr {$at + 1}]] "the payload of e:$name holds the number of its ids once"
+            binary scan [string range $blob [expr {$at + 8}] [expr {$at + 45}]] wwwcuwcuiu created clock snapshots paused examples stopped run
+            dict set found $name [dict create head $head blob $blob version $version \
+                stopped [expr {$at + 41}] run [expr {$at + 42}] \
+                ledger [list $snapshots $paused $examples $stopped $run]]
+        }
+        # What the module wrote there is what the gates were: snapshots
+        # taken, paused, examples at the last snapshot, stopped, lost in a
+        # row.
+        assert_equal {1 0 0 0 5} [dict get $found lost:s ledger]
+        assert_equal {1 0 0 1 0} [dict get $found blind:s ledger]
+        assert_equal {1 1 0 1 0} [dict get $found blind:p ledger]
+        assert_equal {2 0 0 0 0} [dict get $found res:s ledger]
+        assert_equal {1 0 20 0 0} [dict get $found wait:c ledger]
+        assert_equal {1 0 0 1 0} [dict get $found blind:c ledger]
+        # A gate stops at the 32nd lost answer, and a gate that has stopped
+        # holds no snapshot. One that neither tests a snapshot nor has
+        # stopped is a gate that will take one at its first write, as every
+        # gate that comes back does.
+        foreach {name field value expected} {
+            lost:s  run     31         accepted
+            lost:s  run     32         refused
+            lost:s  run     4294967295 refused
+            lost:s  stopped 1          refused
+            lost:s  stopped 2          refused
+            blind:s run     31         accepted
+            blind:s run     32         refused
+            blind:s stopped 0          accepted
+            blind:s stopped 2          refused
+            blind:s stopped 255        refused
+            blind:c stopped 0          accepted
+            blind:c run     32         refused
+            blind:p stopped 2          refused
+            res:s   stopped 1          refused
+            wait:c  stopped 1          refused
+            wait:c  run     33         refused
+        } {
+            set at [dict get $found $name $field]
+            if {$field eq "run"} {
+                set bytes [binary format i $value]
+            } else {
+                set bytes [binary format c $value]
+            }
+            set blob [string replace [dict get $found $name blob] $at [expr {$at + [string length $bytes] - 1}] $bytes]
+            set payload [gp_dump_join [dict get $found $name head] $blob [dict get $found $name version]]
+            assert_equal $expected [gp_restore_damaged $payload "e:$name with $field $value"] "e:$name with $field $value"
+        }
+        # A payload in the form of the previous core, which did not have
+        # the two fields, is refused, not taken for something else.
+        dict for {name place} $found {
+            set blob [dict get $place blob]
+            set blob [string replace $blob [dict get $place stopped] [expr {[dict get $place run] + 3}]]
+            set payload [gp_dump_join [dict get $place head] $blob [dict get $place version]]
+            assert_equal refused [gp_restore_damaged $payload "e:$name in the form of the previous core"] "e:$name in the form of the previous core"
+        }
+    }
+
+    gp_test {RESTORE: a gate that was dumped where the clock is ahead still loses the answers that come too late} {
+        gp_begin 522
+        r flushall
+        r config set rdbcompression no
+        gp_score x:clock 0.2 200
+        set ids [gp_right x:clock 1]
+        lassign [gp_dump_split [r dump x:clock]] head blob version
+        # The clock of the gate as of its last write: in its ledger, after
+        # the random number its ids start with and the time it was created.
+        set epoch [binary format w 0x[lindex [split [lindex $ids 0] -] 0]]
+        set x_clock [expr {[string first $epoch $blob] + 16}]
+        assert {$x_clock > 16}
+        binary scan [string range $blob $x_clock [expr {$x_clock + 7}]] w clock
+        set now [clock milliseconds]
+        assert {$clock <= $now + 1000 && $clock > $now - 60000}
+        # The same gate as another server would have dumped it: one whose
+        # clock is right, one whose clock is an hour ahead (or this
+        # server's clock was set back since), and a year ahead.
+        set asked {}
+        foreach {what ahead} {"is right" 0 "is an hour ahead" 3600000 "is a year ahead" 31536000000} {
+            set payload [gp_dump_join $head [string replace $blob $x_clock [expr {$x_clock + 7}] [binary format w [expr {$clock + $ahead}]]] $version]
+            foreach reset {0 1} {
+                set key x:clock:$ahead:$reset
+                assert_equal OK [r restore $key 0 $payload] "RESTORE of a gate whose clock $what"
+                if {$reset} { assert_equal OK [r greset $key] }
+                lassign [r gpredict $key SCORE 0.9] action id
+                assert_equal ABSTAIN $action
+                lappend asked "a gate from where the clock $what[expr {$reset ? ", after GRESET" : ""}]" $key $id
+            }
+        }
+        # The feedback timeout of these gates is a fifth of a second.
+        after 300
+        set problems {}
+        foreach {what key id} $asked {
+            set used [r glearn $key $id CORRECT 1]
+            set missing [gp_info $key missing]
+            if {$used != 0 || $missing != 1} {
+                lappend problems "$what: feedback after 300 ms, with a feedback timeout of 200 ms: GLEARN replied $used, missing is $missing"
+            }
+            # Its clock went on from where it was: what the gate is now
+            # must be something Redis can save and load.
+            if {[catch {r restore x:again 0 [r dump $key] replace} reply]} {
+                lappend problems "$what: after 300 ms the gate cannot be restored from its own DUMP: $reply"
+            }
+            assert_equal 1 [r del $key]
+        }
+        r del x:again
+        if {[llength $problems]} { fail [join $problems "\n"] }
+    }
+
+    gp_test {RESTORE of a damaged payload: a gate that got in can still be saved and loaded when time has passed (clock at the end of its range)} {
+        # Follows from the test before: the payload of x:clock and where it
+        # holds its clock. The module lets in a clock up to a week before
+        # the largest number there is.
+        gp_begin 524
+        set last [expr {9223372036854775807 - 7 * 86400 * 1000}]
+        set problems {}
+        set results {}
+        foreach {what value} [list "one millisecond past the end of its range" [expr {$last + 1}] \
+                                   "at the end of its range" $last \
+                                   "10 milliseconds before the end of its range" [expr {$last - 10}] \
+                                   "a minute before the end of its range" [expr {$last - 60000}]] {
+            set payload [gp_dump_join $head [string replace $blob $x_clock [expr {$x_clock + 7}] [binary format w $value]] $version]
+            r del x:late
+            if {[catch {r restore x:late 0 $payload} reply]} {
+                assert_match "*Bad data format*" $reply
+                lappend results "a clock $what: refused"
+                continue
+            }
+            # It got in, so it must keep working: a request, and its answer
+            # 50 milliseconds later, which is in time.
+            lassign [r gpredict x:late SCORE 0.9] action id
+            assert_equal ABSTAIN $action
+            after 50
+            assert_equal 1 [r glearn x:late $id CORRECT 1] "a clock $what: feedback in time"
+            if {[catch {r restore x:again 0 [r dump x:late] replace} reply]} {
+                lappend problems "a gate from where the clock is $what: after a request and 50 ms the gate cannot be restored from its own DUMP: $reply"
+                lappend results "a clock $what: accepted, and unusable"
+            } else {
+                lappend results "a clock $what: accepted, and usable"
+            }
+        }
+        r del x:late x:again
+        if {$::verbose} { puts [join $results "\n"] }
+        if {[llength $problems]} { fail [join $problems "\n"] }
     }
 
     gp_test {RESTORE of a damaged payload: a refused payload, and a restored gate that is deleted, leave no memory behind} {
@@ -2341,35 +4227,151 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         gp_begin 515
         r flushall
         r config set rdbcompression no
-        # A score gate that was reset six times has used seven snapshot
-        # numbers, and after four requests the next request number is 5.
-        gp_score x:top
+        # A score gate that never answers by itself (AUDIT 1) and whose
+        # feedback timeout is shorter than the sleep below. It was reset six
+        # times, so it has used seven snapshot numbers, and after four
+        # requests its next request number is 5.
+        gp_score x:top 1 $::gp_lost
         for {set i 0} {$i < 6} {incr i} { r greset x:top }
-        gp_collect x:top 4
+        gp_right x:top 4
         assert_equal 7 [gp_info x:top candidate]
         lassign [gp_dump_split [r dump x:top]] head blob version
-        set top [binary format w 0x7fffffffffffffff]
-        set problems {}
-        # The payload holds the first number in its ledger, for the snapshot
-        # being tested and in each of the four waiting requests: the ledger
-        # comes first. It holds the second once.
+        # Where the payload holds what the gate counts. The first two are
+        # found by their values: the ledger, which comes first, holds the
+        # number of snapshots, as do the snapshot being tested and each of
+        # the four waiting requests; the next request number is there once.
+        set places {}
         foreach {what value expected} {"snapshots ever taken" 7 6 "the next request number" 5 1} {
-            # Where the payload holds that number.
             set old [binary format w $value]
-            set places {}
+            set found {}
             for {set at [string first $old $blob]} {$at >= 0} {set at [string first $old $blob [expr {$at + 1}]]} {
-                lappend places $at
+                lappend found $at
             }
-            assert_equal $expected [llength $places] "places where the payload holds $what"
-            set at [lindex $places 0]
-            set payload [gp_dump_join $head [string replace $blob $at [expr {$at + 7}] $top] $version]
-            # Refusing it is fine. Accepting it means it must keep working:
-            # gp_restore_damaged uses the gate, then dumps and restores it.
-            if {[catch {gp_restore_damaged $payload "$what at the top of its range"} problem]} {
-                lappend problems [string range $problem [string length "assertion:"] end]
-                r del gp:damaged gp:again
+            assert_equal $expected [llength $found] "places where the payload holds $what"
+            dict set places $what [lindex $found 0]
+        }
+        # The counters GINFO shows are among the last fifteen numbers of a
+        # payload, where the module's own GINFO says they are: looked up in
+        # the gate of the DUMP / RESTORE test that had counted something of
+        # everything, and in this one.
+        foreach {info payload} [list [dict get $::gp_dumped e:blind:a info] [dict get $::gp_dumped e:blind:a payload] \
+                                     [gp_info x:top] [r dump x:top]] {
+            binary scan [string range $payload end-130 end-11] w6qw8 first coverage rest
+            foreach {field number} [list requests [lindex $first 0] accepted [lindex $first 1] audited [lindex $first 2] \
+                                         abstained [lindex $first 3] missing [lindex $rest 3] revocations [lindex $rest 6]] {
+                assert_equal [dict get $info $field] $number "$field in the payload"
             }
         }
+        assert {[dict get $::gp_dumped e:blind:a info missing] > 0 && [dict get $::gp_dumped e:blind:a info revocations] > 0}
+        set end [string length $blob]
+        dict set places requests [expr {$end - 120}]
+        dict set places abstained [expr {$end - 96}]
+        dict set places missing [expr {$end - 40}]
+        dict set places revocations [expr {$end - 16}]
+        # Each of them at the end of its range, and around the largest
+        # value the module lets in (it refuses a count above 2^62).
+        # "requests" is the sum of what became of the requests: all four of
+        # this gate were sent to the teacher, so that number moves with it.
+        set limit 4611686018427387904
+        set tops [list 9223372036854775807 [expr {$limit + 1}] $limit [expr {$limit - 1}]]
+        set started {}
+        set results {}
+        set problems {}
+        # Restoring its own DUMP is how a gate is asked whether Redis could
+        # still load it: a server that cannot load its RDB file has lost
+        # every key in it.
+        set loadable {
+            if {[catch {r restore x:again 0 [r dump $key] replace} reply]} {
+                lappend problems "$what: $when the gate cannot be restored from its own DUMP: $reply"
+                lappend results "$what: accepted, and unusable $when"
+                r del $key
+                continue
+            }
+        }
+        set n 0
+        foreach counter {"snapshots ever taken" "the next request number" requests missing revocations} {
+            foreach top $tops {
+                set what "$counter = $top"
+                set damaged [string replace $blob [dict get $places $counter] [expr {[dict get $places $counter] + 7}] [binary format w $top]]
+                if {$counter eq "requests"} {
+                    set damaged [string replace $damaged [dict get $places abstained] [expr {[dict get $places abstained] + 7}] [binary format w $top]]
+                }
+                set key x:top:[incr n]
+                if {[catch {r restore $key 0 [gp_dump_join $head $damaged $version]} reply]} {
+                    assert_match "*Bad data format*" $reply
+                    lappend results "$what: refused"
+                    continue
+                }
+                # It got in, so it must keep working. (What a gate does
+                # when it has no numbers left to count with is its own
+                # business: it may refuse to go on. So nothing is asked of
+                # its replies here but that they are replies.) Its first
+                # request: the gate takes a snapshot and records it.
+                gp_check_info $what [gp_info $key]
+                set asked {
+                    set reply [r gpredict $key SCORE 0.9]
+                    gp_check_reply $what $reply
+                    set id [lindex $reply 1]
+                }
+                eval $asked
+                if {$id ne {}} { r glearn $key $id CORRECT 1 }
+                set when "after its first request"
+                eval $loadable
+                # It proves itself, answers, and stops when its spot checks
+                # are answered "wrong"; which starts the next snapshot.
+                for {set i 0} {$i < 700 && [gp_info $key generation] == 0} {incr i} {
+                    eval $asked
+                    if {$id ne {}} { r glearn $key $id CORRECT 1 }
+                }
+                set revocations [gp_info $key revocations]
+                for {set i 0} {$i < 100 && [gp_info $key generation] != 0 && [gp_info $key revocations] == $revocations} {incr i} {
+                    eval $asked
+                    if {$id ne {}} { r glearn $key $id CORRECT 0 }
+                }
+                set when "after it answered and stopped"
+                eval $loadable
+                # A request nobody answers, for later.
+                eval $asked
+                lappend started $what $key $id
+            }
+        }
+        after $::gp_wait
+        foreach {what key id} $started {
+            # The answer is lost.
+            set missing [gp_info $key missing]
+            if {$id ne {}} { assert_equal 0 [r glearn $key $id CORRECT 1] "$what: late feedback" }
+            assert {[gp_info $key missing] >= $missing}
+            set when "after it lost an answer"
+            eval $loadable
+            assert_equal OK [r greset $key]
+            eval $asked
+            set when "after GRESET"
+            eval $loadable
+            gp_check_info $what [gp_info $key]
+            lappend results "$what: accepted, and usable"
+            assert_equal 1 [r del $key]
+        }
+        r del x:again
+        # The same for the number of examples a model has learned from,
+        # found in the payload of a classifier by its value.
+        gp_classifier x:topc 1000
+        gp_teach x:topc 300
+        lassign [gp_dump_split [r dump x:topc]] head blob version
+        set at [string first [binary format w 300] $blob]
+        assert {$at >= 0}
+        assert_equal -1 [string first [binary format w 300] $blob [expr {$at + 1}]]
+        foreach top $tops {
+            set payload [gp_dump_join $head [string replace $blob $at [expr {$at + 7}] [binary format w $top]] $version]
+            # gp_restore_damaged teaches the gate, answers its requests and
+            # resets it, and restores its DUMP after each.
+            if {[catch {gp_restore_damaged $payload "learned = $top"} result]} {
+                lappend problems [string range $result [string length "assertion:"] end]
+                set result "accepted, and unusable"
+                r del gp:damaged gp:again
+            }
+            lappend results "learned = $top: $result"
+        }
+        if {$::verbose} { puts [join $results "\n"] }
         if {[llength $problems]} { fail [join $problems "\n"] }
     }
 
@@ -2377,10 +4379,12 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         gp_begin 516
         r flushall
         r config set rdbcompression no
+        set problems {}
+        # The number of examples a model has learned from, found in the
+        # payload by its value.
         gp_classifier x:count 1000
         gp_teach x:count 300
         lassign [gp_dump_split [r dump x:count]] head blob version
-        # The number of learned examples, found by its value.
         set old [binary format w 300]
         set at [string first $old $blob]
         assert {$at >= 0}
@@ -2388,18 +4392,74 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         r del x:good
         assert_equal OK [r restore x:good 0 [gp_dump_join $head [string replace $blob $at [expr {$at + 7}] [binary format w 301]] $version]]
         assert_equal 301 [gp_info x:good learned]
-        foreach value {-1 -9223372036854775808} {
+        foreach {top value} {2^63 -9223372036854775808 2^64-1 -1} {
             r del x:huge
             set payload [gp_dump_join $head [string replace $blob $at [expr {$at + 7}] [binary format w $value]] $version]
             if {[catch {r restore x:huge 0 $payload} reply]} {
                 assert_match "*Bad data format*" $reply
                 continue
             }
-            assert {[gp_info x:huge learned] >= 0}
-            assert {[r gadd x:huge TEXT "one more" LABEL spam] > 0}
-            assert {[gp_info x:huge learned] > 0}
+            if {[gp_info x:huge learned] < 0} { lappend problems "learned at $top: GINFO shows learned [gp_info x:huge learned]" }
+            set learned [r gadd x:huge TEXT "one more" LABEL spam]
+            if {$learned < 0} { lappend problems "learned at $top: GADD replied $learned" }
         }
         r del x:good x:huge
+        # The counters at the end of a payload, in one that has counted
+        # something of everything: the gate of the DUMP / RESTORE test that
+        # answered and then lost 32 spot checks. They are the last fifteen
+        # numbers; those GINFO shows are among them where the module's own
+        # GINFO says they are.
+        set dumped [dict get $::gp_dumped e:blind:a]
+        set info [dict get $dumped info]
+        lassign [gp_dump_split [dict get $dumped payload]] head blob version
+        set end [string length $blob]
+        binary scan [string range $blob [expr {$end - 120}] end] w6qw8 first coverage rest
+        lassign $first requests accepted audited abstained
+        set missing [lindex $rest 3]
+        set revocations [lindex $rest 6]
+        foreach field {requests accepted audited abstained missing revocations} {
+            assert_equal [dict get $info $field] [set $field] "$field of e:blind:a in its payload"
+        }
+        assert {$requests > 0 && $audited > 0 && $abstained > 0 && $missing > 0 && $revocations > 0}
+        set place {requests 0 accepted 1 audited 2 abstained 3 missing 10 revocations 13}
+        # Each of them at 2^63 and at 2^64 - 1. The request counters must
+        # add up (or the payload is refused for that), so the total moves
+        # with its part.
+        foreach fields {{requests accepted} {requests audited} {requests abstained} missing revocations} {
+            foreach top {2^63 2^64-1} {
+                set part [lindex $fields end]
+                if {$top eq "2^63"} {
+                    set moved [expr {[set $part] + 9223372036854775808}]
+                } else {
+                    set moved 18446744073709551615
+                }
+                set values [dict create $part $moved]
+                if {[llength $fields] == 2} { dict set values requests [expr {$requests - [set $part] + $moved}] }
+                set damaged $blob
+                dict for {field value} $values {
+                    set at [expr {$end - 120 + 8 * [dict get $place $field]}]
+                    set damaged [string replace $damaged $at [expr {$at + 7}] [binary format w [expr {$value & 0xffffffffffffffff}]]]
+                }
+                r del x:huge
+                if {[catch {r restore x:huge 0 [gp_dump_join $head $damaged $version]} reply]} {
+                    assert_match "*Bad data format*" $reply
+                    continue
+                }
+                # It got in: shown as it is, and after it was used.
+                foreach when {"" ", after a request"} {
+                    set shown [gp_info x:huge]
+                    foreach field {learned requests accepted audited abstained audit-samples audit-errors
+                                   calibration-samples pending missing revocations generation candidate memory} {
+                        if {[dict get $shown $field] < 0} {
+                            lappend problems "$part at $top$when: GINFO shows $field [dict get $shown $field]"
+                        }
+                    }
+                    r gpredict x:huge SCORE 0.9
+                }
+            }
+        }
+        r del x:huge
+        if {[llength $problems]} { fail [join $problems "\n"] }
     }
 
     gp_test {RESTORE of a damaged payload: the server is still there} {

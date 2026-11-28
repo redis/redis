@@ -56,7 +56,9 @@
 
 static RedisModuleType *GateType;
 
-/* Server configuration, read when a gate is created. */
+/* Server configuration, read when a gate is created. (gate.test-seed is
+ * for tests: Redis does not call a setter for an unchanged value, so to
+ * restart the sequence set it to 0 and then to the seed again.) */
 static long long gateCfgSnapshotExamples = GATE_DEFAULT_SNAPSHOT_EXAMPLES;
 static long long gateCfgFeedbackTimeout = GATE_DEFAULT_FEEDBACK_TIMEOUT_MS;
 static long long gateCfgTestSeed = 0;
@@ -66,7 +68,8 @@ static long long gateCfgTestSeed = 0;
 static uint64_t gateIncarnation;
 
 /* Apply operations that did not fit the gate they were sent to. Should
- * stay 0; anything else means a replica diverged from its primary. */
+ * stay 0; anything else means a replica diverged from its primary. Shown
+ * as gate_apply_mismatches in INFO. */
 static unsigned long long gateApplyMismatches;
 
 /* A similarity computed in floating point can land a hair outside [0,1]
@@ -173,10 +176,26 @@ static int gateOpen(RedisModuleCtx *ctx, RedisModuleString *name, int mode,
     return REDISMODULE_OK;
 }
 
-/* The clock a command uses: the wall clock, never behind the gate. */
-static long long gateNow(const gate *g) {
-    long long now = RedisModule_Milliseconds();
-    return (g && g->now_ms > now) ? g->now_ms : now;
+/* The clock a command uses. The first time this incarnation uses a gate
+ * it is the wall clock, never behind the gate; from then on the gate's own
+ * clock advanced by the monotonic time that has passed. A wall clock that
+ * is stepped forward for a moment and then corrected can therefore neither
+ * rewind a gate nor freeze it until real time catches up. */
+static long long gateNow(gate *g) {
+    long long mono = (long long)(RedisModule_MonotonicMicroseconds() / 1000);
+    long long now;
+
+    if (g->runtime_tag != gateIncarnation || g->runtime_clock == 0) {
+        now = RedisModule_Milliseconds();
+        if (now < g->now_ms) now = g->now_ms;
+    } else {
+        long long elapsed = mono - g->runtime_clock;
+        now = g->now_ms + (elapsed > 0 ? elapsed : 0);
+    }
+    g->runtime_clock = mono > 0 ? mono : 1;
+    /* The top of the range is centuries away; a gate restored from a
+     * forged payload may sit right below it. */
+    return now > GATE_MAX_CLOCK_MS ? GATE_MAX_CLOCK_MS : now;
 }
 
 /* Make sure this incarnation trusts the gate; see RECOVERY above. */
@@ -191,8 +210,37 @@ static void gateTrust(RedisModuleCtx *ctx, RedisModuleString *key, gate *g, long
     RedisModule_Replicate(ctx, "_GATE.APPLY", "sclc", key, "RECOVER", now, hex);
 }
 
+/* The gate changed in a way a reader could see: WATCH and client-side
+ * caches must know. */
+static void gateChanged(RedisModuleCtx *ctx, RedisModuleString *key) {
+    RedisModule_SignalModifiedKey(ctx, key);
+}
+
 static void gateReplicateTick(RedisModuleCtx *ctx, RedisModuleString *key, long long now) {
     RedisModule_Replicate(ctx, "_GATE.APPLY", "scl", key, "TICK", now);
+}
+
+/* The arguments "TEXT text ..." of a request as they go into the stream:
+ * only the part of the text that is read (GATE_TEXT_READ_BYTES) travels.
+ * A replica gets the same clues from it, and a megabyte of text does not
+ * end up in the AOF. 'argv[0]' is the word TEXT. Returns the vector to
+ * replicate ('copy' if the text was cut, else argv itself) and in '*cut'
+ * a string the caller frees with RedisModule_FreeString (or NULL). */
+static RedisModuleString **gateStreamRequest(RedisModuleCtx *ctx, RedisModuleString **argv,
+                                             int argc, RedisModuleString **copy,
+                                             RedisModuleString **cut)
+{
+    size_t len;
+    const char *text;
+
+    *cut = NULL;
+    if (argc < 2) return argv;
+    text = RedisModule_StringPtrLen(argv[1], &len);
+    if (len <= GATE_TEXT_READ_BYTES) return argv;
+    *cut = RedisModule_CreateString(ctx, text, GATE_TEXT_READ_BYTES);
+    for (int i = 0; i < argc; i++) copy[i] = argv[i];
+    copy[1] = *cut;
+    return copy;
 }
 
 /* Parse "TEXT text [FEATURES ...]" at args[*pos] and turn it into clues. */
@@ -238,8 +286,10 @@ static int GCreate_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
         return RedisModule_ReplyWithError(ctx, "ERR out of memory");
     }
     g->runtime_tag = gateIncarnation;
+    (void)gateNow(g); /* starts the gate's clock */
     RedisModule_ModuleTypeSetValue(key, GateType, g);
     RedisModule_CloseKey(key);
+    gateChanged(ctx, argv[1]);
 
     gateFormatHex64(lineage_hex, lineage);
     gateFormatHex64(epoch_hex, epoch);
@@ -312,7 +362,7 @@ static int GPredict_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, 
 
     double u = gateRandomUniform();
     int recorded_with_clues = 0;
-    if (gateEvaluate(g, classifier ? &x : NULL, score, &ev) != GATE_OK) {
+    if (gateEvaluateFor(g, classifier ? &x : NULL, score, u, &ev) != GATE_OK) {
         /* A model produced a non-finite guess: do not trust it with this
          * request. Nothing was drawn or recorded. */
         res.action = GATE_ACTION_ABSTAIN;
@@ -331,18 +381,29 @@ static int GPredict_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, 
     /* Only a recorded request changes what replicas hold. */
     if (res.seq != 0) {
         char ubits[17], sbits[17], cbits[17];
+        RedisModuleString *cut = NULL, **stream = argv + 2;
+        RedisModuleString **copy = NULL;
+        size_t nstream = 0;
 
+        if (recorded_with_clues) {
+            nstream = (size_t)(argc - 2);
+            copy = RedisModule_Alloc(sizeof(*copy) * nstream);
+            stream = gateStreamRequest(ctx, argv + 2, argc - 2, copy, &cut);
+        }
         gateFormatDoubleBits(ubits, u);
         gateFormatDoubleBits(sbits, ev.serving.score);
         gateFormatDoubleBits(cbits, ev.candidate.score);
-        RedisModule_Replicate(ctx, "_GATE.APPLY", "sclcllcllcv", argv[1], "PREDICT", now,
+        RedisModule_Replicate(ctx, "_GATE.APPLY", "sclcllcllclv", argv[1], "PREDICT", now,
                               ubits, (long long)ev.has_serving, (long long)ev.serving.label,
                               sbits, (long long)ev.has_candidate,
-                              (long long)ev.candidate.label, cbits, argv + 2,
-                              (size_t)(recorded_with_clues ? argc - 2 : 0));
+                              (long long)ev.candidate.label, cbits, (long long)res.seq,
+                              stream, nstream);
+        if (cut) RedisModule_FreeString(ctx, cut);
+        if (copy) RedisModule_Free(copy);
     } else if (due) {
         gateReplicateTick(ctx, argv[1], now);
     }
+    gateChanged(ctx, argv[1]); /* at least the counters GINFO shows moved */
 
     RedisModule_ReplyWithArray(ctx, 2);
     RedisModule_ReplyWithCString(ctx, gateActionName(res.action));
@@ -424,6 +485,7 @@ static int GLearn_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, in
      * survives, and the replica parses it exactly as we did. */
     RedisModule_Replicate(ctx, "_GATE.APPLY", "sclsl", argv[1], "LEARN", now, argv[2],
                           (long long)answer);
+    gateChanged(ctx, argv[1]);
     RedisModule_CloseKey(key);
     return RedisModule_ReplyWithLongLong(ctx, used);
 }
@@ -467,8 +529,17 @@ static int GAdd_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     gateTrust(ctx, argv[1], g, now);
     (void)gateTrain(g, now, &x, label);
     gateSparseFree(&x);
-    RedisModule_Replicate(ctx, "_GATE.APPLY", "sclv", argv[1], "ADD", now, argv + 2,
-                          (size_t)(argc - 2));
+    {
+        RedisModuleString *cut = NULL;
+        RedisModuleString **copy = RedisModule_Alloc(sizeof(*copy) * (size_t)(argc - 2));
+        RedisModuleString **stream = gateStreamRequest(ctx, argv + 2, argc - 2, copy, &cut);
+
+        RedisModule_Replicate(ctx, "_GATE.APPLY", "sclv", argv[1], "ADD", now, stream,
+                              (size_t)(argc - 2));
+        if (cut) RedisModule_FreeString(ctx, cut);
+        RedisModule_Free(copy);
+    }
+    gateChanged(ctx, argv[1]);
     long long learned = (long long)g->trainer.updates;
     RedisModule_CloseKey(key);
     return RedisModule_ReplyWithLongLong(ctx, learned);
@@ -561,7 +632,7 @@ static int GInfo_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
     RedisModule_ReplyWithCString(ctx, "calibration-samples");
     RedisModule_ReplyWithLongLong(ctx, tested ? (long long)tested->samples : 0);
     RedisModule_ReplyWithCString(ctx, "pending");
-    RedisModule_ReplyWithLongLong(ctx, untrusted ? 0 : (long long)g->npending);
+    RedisModule_ReplyWithLongLong(ctx, untrusted ? 0 : (long long)gateUnanswered(g));
     RedisModule_ReplyWithCString(ctx, "missing");
     RedisModule_ReplyWithLongLong(ctx, (long long)g->stats.missing);
     RedisModule_ReplyWithCString(ctx, "revocations");
@@ -602,6 +673,7 @@ static int gateAdmin(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, in
         RedisModule_Replicate(ctx, "_GATE.APPLY", "scl", argv[1],
                               what == GATE_ADMIN_PAUSE ? "PAUSE" : "RESUME", now);
     }
+    gateChanged(ctx, argv[1]);
     RedisModule_CloseKey(key);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
@@ -638,13 +710,20 @@ static int gateApply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         if (argc != 4) return 0;
         const char *blob = RedisModule_StringPtrLen(argv[3], &len);
         gate *g = gateDecode((const unsigned char *)blob, len, err, sizeof(err));
-        if (g == NULL) return 0;
+        if (g == NULL) {
+            /* Only an AOF rewrite writes this operation: the file is
+             * damaged. The key is lost; say so, for each one. */
+            RedisModule_Log(ctx, "warning", "gate: a gate in the append only file cannot be "
+                            "restored and is lost (%s)", err);
+            return 0;
+        }
         RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ | REDISMODULE_WRITE);
         RedisModule_ModuleTypeSetValue(key, GateType, g);
         RedisModule_CloseKey(key);
         return 1;
     }
-    if (argc < 4 || !gateParseI64(argv[3], &now)) return 0;
+    /* The clock range the core works in (see TIME in gate_core.h). */
+    if (argc < 4 || !gateParseI64(argv[3], &now) || now < 0 || now > GATE_MAX_CLOCK_MS) return 0;
 
     if (gateStringIs(op, "CREATE")) {
         /* _GATE.APPLY key CREATE now lineage epoch snapshot timeout <args> */
@@ -654,7 +733,9 @@ static int gateApply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         long long snapshot, timeout;
 
         if (argc < 9 || !gateStringHex64(argv[4], &lineage) || !gateStringHex64(argv[5], &epoch) ||
-            !gateParseI64(argv[6], &snapshot) || !gateParseI64(argv[7], &timeout) || snapshot < 1)
+            !gateParseI64(argv[6], &snapshot) || !gateParseI64(argv[7], &timeout) ||
+            snapshot < 1 || snapshot > GATE_MAX_SNAPSHOT_EXAMPLES ||
+            timeout < 1 || timeout > GATE_MAX_FEEDBACK_TIMEOUT_MS)
             return 0;
         args = gateArgsView(argv + 8, argc - 8, stack);
         int ok = gateParseCreate(args, argc - 8, (uint32_t)snapshot, timeout, &cfg, err,
@@ -679,37 +760,63 @@ static int gateApply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     gate *g = RedisModule_ModuleTypeGetValue(key);
     int ok = 0;
 
+    /* Whatever this node made of the gate by itself (a writable replica),
+     * it now follows somebody else's operations: it must not answer on
+     * proof built that way. */
+    g->runtime_tag = 0;
+
     if (gateStringIs(op, "PREDICT")) {
         /* _GATE.APPLY key PREDICT now u has_s s_label s_score has_c c_label
-         *             c_score [TEXT text [FEATURES ...]] */
+         *             c_score seq [TEXT text [FEATURES ...]] */
+        int classifier = g->cfg.kind == GATE_KIND_CLASSIFIER;
         gateEval ev;
         gatePredictResult res;
         gateSparse x = {0};
-        long long has_s, s_label, has_c, c_label;
+        long long has_s, s_label, has_c, c_label, seq;
         double u;
 
         memset(&ev, 0, sizeof(ev));
-        if (argc >= 11 && gateStringDoubleBits(argv[4], &u) &&
+        if (argc >= 12 && gateStringDoubleBits(argv[4], &u) &&
             gateParseI64(argv[5], &has_s) && gateParseI64(argv[6], &s_label) &&
             gateStringDoubleBits(argv[7], &ev.serving.score) &&
             gateParseI64(argv[8], &has_c) && gateParseI64(argv[9], &c_label) &&
-            gateStringDoubleBits(argv[10], &ev.candidate.score))
+            gateStringDoubleBits(argv[10], &ev.candidate.score) && gateParseI64(argv[11], &seq))
         {
-            int have_clues = argc > 11;
+            int have_clues = argc > 12;
             ev.has_serving = has_s != 0;
             ev.serving.label = (int32_t)s_label;
             ev.has_candidate = has_c != 0;
             ev.candidate.label = (int32_t)c_label;
-            ok = 1;
-            if (have_clues) {
+            /* What a primary can realize for this kind of gate, checked
+             * before any narrowing could hide a wild value (a NaN fails
+             * every comparison). A recorded classifier request carries its
+             * text, a score request never does and has no labels. The
+             * request number is the primary's: taking it over keeps later
+             * feedback paired with the right request even after an
+             * operation that did not fit. */
+            ok = u >= 0.0 && u < 1.0 &&
+                 ev.serving.score >= 0.0 && ev.serving.score <= 1.0 &&
+                 ev.candidate.score >= 0.0 && ev.candidate.score <= 1.0 &&
+                 s_label >= -1 && s_label < GATE_MAX_CLASSES &&
+                 c_label >= -1 && c_label < GATE_MAX_CLASSES &&
+                 have_clues == classifier &&
+                 (classifier || (s_label == -1 && c_label == -1)) &&
+                 seq >= 1 && (uint64_t)seq >= g->next_seq && (uint64_t)seq < GATE_COUNT_MAX;
+            if (ok && have_clues) {
                 gateArg stack[GATE_STACK_ARGS], *args = gateArgsView(argv, argc, stack);
-                int pos = 11;
+                int pos = 12;
                 ok = gateClues(args, argc, &pos, &x, err, sizeof(err)) == GATE_OK && pos == argc;
                 gateArgsRelease(args, stack);
             }
             /* The primary recorded this request; so must we. */
-            if (ok) ok = gatePredict(g, now, u, &ev, have_clues ? &x : NULL, &res) == GATE_OK &&
-                         res.seq != 0;
+            if (ok) {
+                uint64_t before = g->next_seq;
+
+                g->next_seq = (uint64_t)seq;
+                ok = gatePredict(g, now, u, &ev, have_clues ? &x : NULL, &res) == GATE_OK &&
+                     res.seq == (uint64_t)seq;
+                if (!ok && res.seq == 0) g->next_seq = before; /* nothing took the number */
+            }
             gateSparseFree(&x);
         }
     } else if (gateStringIs(op, "LEARN")) {
@@ -770,12 +877,17 @@ static int gateApply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
  * replication (that would only make the divergence permanent), so it is
  * logged and counted and the reply is still OK. */
 static int GApply_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    if (argc < 3) return RedisModule_WrongArity(ctx);
-    if (!gateApply(ctx, argv, argc)) {
-        if (gateApplyMismatches++ == 0)
+    /* Too few words is one more operation that does not fit (the AOF loader
+     * does not check arity, and an error reply there can stop the server). */
+    if (argc < 3 || !gateApply(ctx, argv, argc)) {
+        unsigned long long n = ++gateApplyMismatches;
+
+        if (n <= 10 || n % 1000 == 0)
             RedisModule_Log(ctx, "warning",
-                            "gate: a replicated operation did not fit its gate; this replica "
-                            "may have diverged from its primary (logged once)");
+                            "gate: a replicated operation did not fit its gate (%llu so far); "
+                            "this replica may have diverged from its primary", n);
+    } else {
+        gateChanged(ctx, argv[1]);
     }
     /* Module commands are never propagated implicitly: without this the
      * operation would be missing from a replica's own AOF and from its
@@ -855,6 +967,12 @@ static void gateRoleChanged(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t su
     gateIncarnation = gateNewIncarnation();
 }
 
+static void gateInfo(RedisModuleInfoCtx *ctx, int for_crash_report) {
+    REDISMODULE_NOT_USED(for_crash_report);
+    RedisModule_InfoAddSection(ctx, "");
+    RedisModule_InfoAddFieldULongLong(ctx, "apply_mismatches", gateApplyMismatches);
+}
+
 /* ------------------------------ Configuration ---------------------------- */
 
 static long long gateConfigGet(const char *name, void *privdata) {
@@ -909,18 +1027,23 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     gateSetAllocator(RedisModule_Alloc, RedisModule_Calloc, RedisModule_Realloc, RedisModule_Free);
+    /* Keys are signalled as modified by hand (gateChanged): a command that
+     * is refused or finds nothing to do must not abort a WATCH. */
     RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_HANDLE_IO_ERRORS |
-                                      REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD);
+                                      REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD |
+                                      REDISMODULE_OPTION_NO_IMPLICIT_SIGNAL_MODIFIED);
 
     if (RedisModule_RegisterNumericConfig(ctx, "snapshot-examples",
-            GATE_DEFAULT_SNAPSHOT_EXAMPLES, REDISMODULE_CONFIG_DEFAULT, 1, 1000000000,
+            GATE_DEFAULT_SNAPSHOT_EXAMPLES, REDISMODULE_CONFIG_DEFAULT, 1,
+            GATE_MAX_SNAPSHOT_EXAMPLES,
             gateConfigGet, gateConfigSet, NULL, &gateCfgSnapshotExamples) == REDISMODULE_ERR ||
         RedisModule_RegisterNumericConfig(ctx, "feedback-timeout",
             GATE_DEFAULT_FEEDBACK_TIMEOUT_MS, REDISMODULE_CONFIG_DEFAULT, 1,
             GATE_MAX_FEEDBACK_TIMEOUT_MS, gateConfigGet, gateConfigSet, NULL,
             &gateCfgFeedbackTimeout) == REDISMODULE_ERR ||
-        /* Testing only: a non-zero seed makes draws and ids predictable. */
-        RedisModule_RegisterNumericConfig(ctx, "test-seed", 0, REDISMODULE_CONFIG_DEFAULT, 0,
+        /* Testing only: a non-zero seed makes draws and ids predictable.
+         * Hidden from CONFIG GET patterns. */
+        RedisModule_RegisterNumericConfig(ctx, "test-seed", 0, REDISMODULE_CONFIG_HIDDEN, 0,
             LLONG_MAX, gateConfigGet, gateConfigSet, NULL, &gateCfgTestSeed) == REDISMODULE_ERR ||
         RedisModule_LoadConfigs(ctx) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
@@ -958,5 +1081,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     gateIncarnation = gateNewIncarnation();
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ReplicationRoleChanged, gateRoleChanged);
+    RedisModule_RegisterInfoFunc(ctx, gateInfo);
     return REDISMODULE_OK;
 }

@@ -46,48 +46,93 @@
  *   the serving generation   if its row is tested and either the row has no
  *                            proven threshold yet (every such request goes
  *                            to the teacher, so every one counts) or audit;
- *   the candidate            if nothing is serving (every request), else
- *                            if audit.
+ *   the candidate            if its row is tested and nothing is serving
+ *                            (every such request), else if audit.
+ * "Its row" is the label that generation guessed; a guess of an ALWAYSDEFER
+ * label proves nothing and is not counted anywhere.
  * A request that is proof for something must get its teacher answer: it is
- * EVIDENCE. Evidence is applied strictly in request order; an answer waits
- * until every older piece of evidence is answered or has timed out, so the
- * time a teacher takes cannot select the proof.
+ * EVIDENCE. Evidence is applied in request order, so the time a teacher
+ * takes cannot select the proof: an answer waits for the answers of older
+ * requests. It does not wait long. Once an unanswered request is older
+ * than the GRACE period (a quarter of the feedback timeout) and holds up
+ * answered ones, or holds up more than GATE_MAX_WAITING of them, proof
+ * moves on without it: it is counted as an error for now (PROVISIONAL) and
+ * set right if its answer arrives after all.
  *
  * A piece of evidence stores the guess each generation made when the
  * request was asked. Its error indicator feeds every region of the guessed
  * row whose threshold is <= the stored score. Guesses are never recomputed.
  *
- * MISSING. Evidence whose answer does not arrive within the feedback
- * timeout is applied as an error. That is the worst case for the gate, so
- * it can only make the gate more cautious.
+ * MISSING. Evidence whose answer has not arrived when the feedback timeout
+ * expires stays an error for good and its id is forgotten. Counting an
+ * unanswered request as an error is the worst case for the gate, so it can
+ * only make the gate more cautious, and the wealth of a region with late
+ * answers counted as errors is never above its true wealth, so a threshold
+ * proven that way is proven.
  *
- * PROVEN. A region has CROSSED once its log wealth reached the generation's
- * bar. It is PROVEN if it crossed and it is an entry point or the next
- * more confident region of the row is proven. Classifier rows have entry
- * points at every eighth threshold counting from the most confident; in a
- * score gate every threshold is an entry point. The policy of a row is its
+ * BLIND. A gate whose answers stop arriving cannot check itself. When
+ * GATE_MISSING_RUN pieces of evidence in a row end without an answer, and
+ * no answer of any request has arrived since the first of them was asked,
+ * the gate drops both generations. (Evidence that ends unanswered although
+ * an answer has arrived since it was asked is a lost answer, not an
+ * outage: it does not count towards the run.) The gate keeps its trainer,
+ * because missing answers say nothing about the model, and takes no
+ * snapshot until an answer arrives again, so an outage does not use up
+ * generation numbers. While blind every request is recorded, so that there
+ * is an id to answer.
+ *
+ * PROVEN. A region is PROVEN once its log wealth has reached the
+ * generation's bar; that is latched (region.certified_at). Every threshold
+ * is a test of its own. Regions are nested, so the policy of a row is its
  * lowest proven threshold. Testing never stops, so the policy only moves
  * down.
  *
- *     bar = log(g (g + 1)) + log(tested rows * entry points) - log(delta)
+ *     bar = log(g (g + 1)) + log(tested rows * GATE_THRESHOLDS) - log(delta)
  *
  * PROMOTION. A candidate with at least one proven region is promoted when
- * nothing is serving, or when it accepts more of its own proof requests
- * than the serving generation did (compared on the same requests). A
- * classifier candidate that has consumed its budget of proof without being
- * promoted is dropped.
+ * nothing is serving, or when its policy accepts more of its own proof
+ * requests than the policy the serving generation has now would accept of
+ * those same requests (each generation judged by the guess it recorded). A
+ * classifier candidate that has used up its budget without being promoted
+ * is dropped; the budget is GATE_CANDIDATE_BUDGET_FACTOR times the proof a
+ * flawless threshold needs, for each tested row. Proof uses it up, and so
+ * does every request the candidate could have been tested on had it not
+ * guessed a label that is never answered (the teacher's answer was a
+ * tested label): a snapshot that defers everything must not be tested for
+ * ever.
  *
- * DRIFT. Each serving row runs a drift detector over its audits. An alarm
- * drops the serving generation and the candidate and (classifier) wipes the
- * trainer: the gate starts over.
+ * DRIFT. Each serving row runs a drift detector over its spot checks of
+ * accepted traffic (gate_stats.h). A spot check gets its number when it is
+ * asked and counts as right until a disagreeing answer arrives, which is
+ * reported the moment it arrives. The detector does not depend on the
+ * order or the timing of the answers. An alarm drops the serving
+ * generation and the candidate and (classifier) wipes the trainer: the
+ * gate starts over.
  *
- * FULL. A gate that already holds GATE_MAX_PENDING waiting requests (or
+ * A spot check whose answer is given up is not a disagreement, but it may
+ * hide one. The detector counts lost answers next to the disagreements and
+ * raises a second alarm, at the much higher level GATE_LOST_ALARM, when
+ * the two together would mean the row got worse: the gate can no longer
+ * be checked. That alarm is handled like BLIND (both generations dropped,
+ * the trainer kept).
+ *
+ * FULL. A gate that already holds GATE_MAX_PENDING unanswered requests (or
  * GATE_MAX_PENDING_BYTES of stored clues) answers ABSTAIN to everything
  * without drawing or recording anything. Requests that would only be used
  * for training are no longer recorded above GATE_TRAIN_PENDING.
  *
- * TIME. 'now_ms' is wall-clock milliseconds. The gate never moves
- * backwards: each call uses max(now_ms, the largest value seen so far).
+ * TIME. 'now_ms' is wall-clock milliseconds, between 0 and INT64_MAX -
+ * GATE_MAX_FEEDBACK_TIMEOUT_MS. The gate never moves backwards: each call
+ * uses max(now_ms, the largest value seen so far). The two exceptions are
+ * gateReset() and gateRecover(), which drop everything that carries a time
+ * and set the clock to their argument. Whoever replicates an
+ * operation must replicate that effective clock, not the value it read:
+ * the primary's clock also advances on requests replicas never see.
+ *
+ * CALL ORDER for a request: gateMaintain(now), gateEvaluate(), then
+ * gatePredict(now) with the same clock. The guesses of a gateEval belong to
+ * the generations as they are after that gateMaintain(); gatePredict()
+ * cannot tell a stale one.
  */
 
 #ifndef GATE_CORE_H
@@ -142,8 +187,9 @@ void gateConfigFree(gateConfig *cfg);
 /* Deep copy. GATE_OK / GATE_ERR. */
 int gateConfigCopy(gateConfig *dst, const gateConfig *src);
 /* Give a classifier config its K labels (copied) and allocate class_alpha
- * (all = cfg->alpha at the time of the call... see gateConfigValidate) and
- * class_defer (all 0). GATE_OK / GATE_ERR. */
+ * (all 0 = "not set": gateConfigValidate replaces it by alpha) and
+ * class_defer (all 0). GATE_OK, or GATE_ERR on allocation failure, n = 0,
+ * a config that already has classes, or a label with a zero byte inside. */
 int gateConfigSetClasses(gateConfig *cfg, const char *const *labels,
                          const size_t *lens, uint32_t n);
 /* Check every rule of SPEC.md section 2 (ranges, 2..64 distinct valid
@@ -165,17 +211,22 @@ typedef struct gateGeneration {
     double log_threshold;    /* the bar */
     gateModel model;         /* frozen weights (classifier); zeroed otherwise */
     gateRegion *regions;     /* nrows * GATE_THRESHOLDS, index row * T + t;
-                              * region.certified_at records when it CROSSED */
+                              * region.certified_at != 0 once it is PROVEN */
     int32_t *policy;         /* nrows: lowest proven threshold index, -1 none */
     gateDrift *drift;        /* nrows: drift detectors (used while serving) */
-    uint64_t samples;        /* evidence applied to this generation */
+    uint64_t samples;        /* evidence applied to this generation (guesses
+                              * of tested rows only) */
     uint64_t errors;         /* ... of which were wrong guesses */
-    uint64_t paired;         /* ... which the then-serving generation would
-                              * have accepted (candidate only) */
+    uint64_t *paired;        /* candidate only, nrows * GATE_THRESHOLDS: its
+                              * proof requests that the serving generation's
+                              * own guess put at or above each threshold of
+                              * each row (nested like the regions) */
     uint64_t audits;         /* audits applied while serving */
     uint64_t audit_errors;   /* ... of which were wrong guesses */
-    uint64_t budget;         /* candidate: dropped once samples reach this
-                              * without promotion; 0 = no limit */
+    uint64_t missed;         /* candidate: requests it could have been tested
+                              * on had it not guessed an untested label */
+    uint64_t budget;         /* candidate: dropped once samples + missed reach
+                              * this without promotion; 0 = no limit */
 } gateGeneration;
 
 /* ------------------------------ Observations ----------------------------- */
@@ -185,7 +236,8 @@ typedef struct gateGeneration {
 #define GATE_OBS_CAND (1u << 2)         /* proof for generation cand_gen */
 #define GATE_OBS_SERV (1u << 3)         /* proof for generation serv_gen */
 #define GATE_OBS_RESOLVED (1u << 4)     /* answered, waiting for its turn */
-#define GATE_OBS_MISSING (1u << 5)      /* timed out: applied as an error */
+#define GATE_OBS_PROVISIONAL (1u << 5)  /* unanswered, counted as an error
+                                         * until its answer arrives */
 #define GATE_OBS_EVIDENCE (GATE_OBS_CAND | GATE_OBS_SERV)
 
 typedef struct gateObs {
@@ -200,9 +252,11 @@ typedef struct gateObs {
     uint64_t serv_gen;   /* 0 = nothing serving when asked */
     int32_t result;      /* answer: label index (classifier) or 0/1 correct
                           * (score); -1 while unanswered */
+    uint64_t spot;       /* its number as a spot check of the serving
+                          * generation's row (drift detector); 0 if none */
     gateSparse x;        /* clues kept for training; freed once trained */
     struct gateObs *prev, *next; /* every waiting request, ascending seq */
-    struct gateObs *enext;       /* evidence queue, ascending seq */
+    struct gateObs *enext;       /* evidence not applied yet, ascending seq */
     struct gateObs *hnext;       /* index chain */
 } gateObs;
 
@@ -227,10 +281,11 @@ typedef struct gateCounters {
     uint64_t observations; /* ids handed out */
     uint64_t learned;      /* feedback used (GLEARN replied 1) */
     uint64_t ignored;      /* feedback not used (GLEARN replied 0) */
-    uint64_t missing;      /* evidence that timed out */
-    uint64_t dropped;      /* training-only requests that timed out */
+    uint64_t missing;      /* evidence applied without its answer */
+    uint64_t dropped;      /* requests forgotten unanswered that were not
+                            * (or no longer) proof for anything */
     uint64_t promotions;
-    uint64_t revocations;  /* drift alarms */
+    uint64_t revocations;  /* times a serving generation was withdrawn */
     uint64_t retired;      /* candidates dropped at their budget */
 } gateCounters;
 
@@ -253,9 +308,15 @@ typedef struct gate {
     gateGeneration *serving;
     int paused;
 
+    uint32_t missing_run;    /* evidence ended unanswered since the last answer */
+    uint64_t answer_mark;    /* next_seq when the last answer was used: a
+                              * request below it has seen an answer arrive */
+    int blind;               /* no snapshot until an answer arrives (see BLIND) */
+
     uint64_t next_seq;       /* next request number, starts at 1 */
-    uint32_t npending;
-    uint32_t nevidence;      /* requests in the evidence queue */
+    uint32_t npending;       /* waiting requests, answered or not */
+    uint32_t nanswered;      /* ... of which answered, waiting for their turn */
+    uint32_t nevidence;      /* evidence not applied yet (the queue) */
     gateObs *oldest, *newest;
     gateObs *ehead, *etail;
     gateObs **table;         /* GATE_TABLE_SIZE chains */
@@ -265,13 +326,17 @@ typedef struct gate {
 
     uint64_t runtime_tag;    /* owned by the embedding layer: never encoded,
                               * never touched here, 0 after decoding */
+    int64_t runtime_clock;   /* likewise: 0 after gateAllocate() and after
+                              * decoding, never touched here */
 } gate;
 
 /* ------------------------------- Lifecycle ------------------------------- */
 
 /* Create a gate from a VALIDATED config (deep-copied). 'lineage' and
  * 'epoch' are caller-supplied random numbers. A score gate starts its first
- * generation at once. NULL on allocation failure. */
+ * generation at once (if only that allocation fails, the gate is returned
+ * without it and the next call takes the snapshot). NULL on allocation
+ * failure. */
 gate *gateCreate(const gateConfig *cfg, uint64_t lineage, uint64_t epoch, int64_t now_ms);
 void gateFree(gate *g);
 
@@ -285,18 +350,22 @@ uint64_t gateFreeEffort(const gate *g);
 gateStateId gateState(const gate *g);
 
 /* 1 if gateMaintain(g, now_ms) would change anything besides the clock: a
- * waiting request has timed out, or a snapshot is due. Pure. */
+ * waiting request has timed out, proof is due to move on without a late
+ * answer, or a snapshot is due. Pure. */
 int gateMaintenanceDue(const gate *g, int64_t now_ms);
 
 /* Advance the clock, time out waiting requests (oldest first: unanswered
- * evidence is applied as an error, training-only requests are dropped),
- * apply evidence that this unblocks, take a snapshot if one is due. Every
- * mutating function calls this first. */
+ * evidence becomes an error for good, training-only requests are dropped),
+ * let proof move on without answers that are late, apply what that
+ * unblocks, take a snapshot if one is due. Every mutating function calls
+ * this first. */
 void gateMaintain(gate *g, int64_t now_ms);
 
 /* 1 if the gate cannot record another request (see FULL above). While
  * full, gatePredict() abstains without looking at the request. */
 int gateFull(const gate *g);
+/* Requests still waiting for their answer. */
+uint32_t gateUnanswered(const gate *g);
 
 /* ------------------------------- Prediction ------------------------------ */
 
@@ -307,7 +376,9 @@ typedef struct gatePrediction {
 
 typedef struct gateEval {
     int has_serving, has_candidate;
-    gatePrediction serving, candidate;
+    gatePrediction serving, candidate; /* a guess that is not there (no such
+                                        * generation, or left out by
+                                        * gateEvaluateFor) is label -1, score 0 */
 } gateEval;
 
 /* Pure: what the serving and candidate generations guess for a request.
@@ -315,6 +386,13 @@ typedef struct gateEval {
  * Score: 'x' is NULL and both "guess" (-1, ext_score).
  * GATE_ERR if a model produced a non-finite value. */
 int gateEvaluate(const gate *g, const gateSparse *x, double ext_score, gateEval *ev);
+
+/* As gateEvaluate(), but without the candidate's guess when the request
+ * with draw 'u' is going to be answered by the serving generation: an
+ * ACCEPT records nothing, so nobody would look at it, and the hot path
+ * pays for one model instead of two. */
+int gateEvaluateFor(const gate *g, const gateSparse *x, double ext_score, double u,
+                    gateEval *ev);
 
 typedef struct gatePredictResult {
     int action;     /* GATE_ACTION_* */
@@ -332,8 +410,9 @@ int gatePredictNeedsFeatures(const gate *g, double u, const gateEval *ev);
  * requests are recorded:
  *   - full gate: ABSTAIN, seq 0, nothing else happens;
  *   - ACCEPT: nothing is recorded;
- *   - otherwise the request is recorded if it is evidence, or (classifier)
- *     for training while fewer than GATE_TRAIN_PENDING requests wait.
+ *   - otherwise the request is recorded if it is evidence, or (classifier,
+ *     or any gate while blind) while fewer than GATE_TRAIN_PENDING requests
+ *     are unanswered.
  * 'x' (classifier): when the request is recorded the gate takes ownership
  * of x's arrays and resets *x; otherwise x is untouched. If clues are
  * needed and x is NULL, returns GATE_ERR having done only maintenance
@@ -348,7 +427,8 @@ int gatePredict(gate *g, int64_t now_ms, double u, const gateEval *ev,
  * has validated it. Returns 1 if it was used, 0 if the id is not waiting
  * (wrong epoch, never issued, timed out, already answered). When used: the
  * trainer learns from it (classifier), and if the request is evidence it is
- * applied when its turn comes. */
+ * applied when its turn comes, or set right at once if proof had already
+ * moved on without it. */
 int gateLearn(gate *g, int64_t now_ms, uint64_t epoch, uint64_t seq, int32_t result);
 
 /* GADD: one training step on a labelled example. Never proof. Classifier
@@ -369,7 +449,7 @@ void gateReset(gate *g, int64_t now_ms, uint64_t new_epoch);
 /* After a restart, a failover or a RESTORE: drop both generations and
  * every waiting request and switch to 'new_epoch'. Keeps the trainer, the
  * counters and the ledger. A classifier with enough learned examples takes
- * a fresh snapshot at once. */
+ * a fresh snapshot at once. Clears BLIND. */
 void gateRecover(gate *g, int64_t now_ms, uint64_t new_epoch);
 
 /* ------------------------------ Introspection ---------------------------- */
@@ -378,8 +458,8 @@ void gateRecover(gate *g, int64_t now_ms, uint64_t new_epoch);
 double gateRowAlpha(const gate *g, uint32_t row);
 /* 1 if the row is tested (not ALWAYSDEFER). */
 int gateRowTested(const gate *g, uint32_t row);
-/* 1 if threshold index t is an entry point for this kind of gate. */
-int gateIsEntry(const gate *g, uint32_t t);
+/* The bar of generation number 'gen' of this gate (see PROVEN). */
+double gateBar(const gate *g, uint64_t gen);
 /* Threshold the gate currently answers at for a row, or a negative number
  * if it does not answer for that row. */
 double gateRowThreshold(const gate *g, uint32_t row);
@@ -412,12 +492,12 @@ void gateGenerationRelease(gateGeneration *gen);
 gateObs *gateObsAllocate(void);
 void gateObsRelease(gateObs *o);
 /* Append a request whose seq is larger than every waiting seq: index,
- * list, evidence queue if it has an evidence flag, counts and bytes. */
+ * list, evidence queue if it is evidence that was not applied yet, counts
+ * and bytes. */
 void gateObsLink(gate *g, gateObs *o);
-/* Number of tested rows and of entry points per row. */
+/* Number of tested rows. */
 uint32_t gateTestedRows(const gate *g);
-uint32_t gateEntryPoints(const gate *g);
-/* Recompute policy[row] of a generation from its crossed regions. */
+/* Recompute policy[row] of a generation from its proven regions. */
 void gateGenerationRefreshPolicy(const gate *g, gateGeneration *gen, uint32_t row);
 
 #endif /* GATE_CORE_H */

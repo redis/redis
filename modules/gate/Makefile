@@ -25,7 +25,9 @@ endif
 
 WARN = -W -Wall -Wextra -Wno-missing-field-initializers
 CFLAGS ?= -O2 -g -ggdb
-STD = -std=gnu11
+# Replicas repeat the primary's arithmetic and must get the same bits on
+# every architecture: no fused multiply-add behind our back.
+STD = -std=gnu11 -ffp-contract=off
 
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 ifeq ($(uname_S),Darwin)
@@ -56,22 +58,24 @@ T = tests/unit
 TEST_CC = $(CC) -I. -I$(T) $(STD) $(WARN) $(CFLAGS) $(SAN)
 CORE_SRCS = gate_alloc.c gate_stats.c gate_model.c gate_core.c
 
-$(T)/test_stats: $(T)/test_stats.c gate_alloc.c gate_stats.c gate_defs.h gate_stats.h $(T)/testutil.h
+TEST_DEPS = $(LIB_HDRS) $(T)/testutil.h
+
+$(T)/test_stats: $(T)/test_stats.c gate_alloc.c gate_stats.c $(TEST_DEPS)
 	$(TEST_CC) -o $@ $(T)/test_stats.c gate_alloc.c gate_stats.c -lm
 
-$(T)/test_model: $(T)/test_model.c gate_alloc.c gate_model.c gate_defs.h gate_model.h $(T)/testutil.h
+$(T)/test_model: $(T)/test_model.c gate_alloc.c gate_model.c $(TEST_DEPS)
 	$(TEST_CC) -o $@ $(T)/test_model.c gate_alloc.c gate_model.c -lm
 
-$(T)/test_features: $(T)/test_features.c gate_alloc.c gate_features.c gate_defs.h gate_features.h $(T)/testutil.h
+$(T)/test_features: $(T)/test_features.c gate_alloc.c gate_features.c $(TEST_DEPS)
 	$(TEST_CC) -o $@ $(T)/test_features.c gate_alloc.c gate_features.c -lm
 
-$(T)/test_core: $(T)/test_core.c $(CORE_SRCS) gate_defs.h gate_stats.h gate_model.h gate_core.h $(T)/testutil.h
+$(T)/test_core: $(T)/test_core.c $(CORE_SRCS) $(TEST_DEPS)
 	$(TEST_CC) -o $@ $(T)/test_core.c $(CORE_SRCS) -lm
 
-$(T)/test_args: $(T)/test_args.c $(CORE_SRCS) gate_args.c gate_args.h gate_features.h gate_core.h $(T)/testutil.h
+$(T)/test_args: $(T)/test_args.c $(CORE_SRCS) gate_args.c $(TEST_DEPS)
 	$(TEST_CC) -o $@ $(T)/test_args.c $(CORE_SRCS) gate_args.c -lm
 
-$(T)/test_codec: $(T)/test_codec.c $(CORE_SRCS) gate_codec.c gate_codec.h gate_core.h $(T)/testutil.h
+$(T)/test_codec: $(T)/test_codec.c $(CORE_SRCS) gate_codec.c $(TEST_DEPS)
 	$(TEST_CC) -o $@ $(T)/test_codec.c $(CORE_SRCS) gate_codec.c -lm
 
 UNIT_TESTS = $(T)/test_stats $(T)/test_model $(T)/test_features $(T)/test_core $(T)/test_args $(T)/test_codec
@@ -82,10 +86,10 @@ test-unit: $(UNIT_TESTS)
 # --------------------------------------------------------------- simulations
 S = tests/sim
 
-$(S)/sim_certify: $(S)/sim_certify.c gate_alloc.c gate_stats.c gate_defs.h gate_stats.h $(T)/testutil.h
+$(S)/sim_certify: $(S)/sim_certify.c gate_alloc.c gate_stats.c $(TEST_DEPS)
 	$(TEST_CC) -o $@ $(S)/sim_certify.c gate_alloc.c gate_stats.c -lm
 
-$(S)/sim_protocol: $(S)/sim_protocol.c $(CORE_SRCS) gate_core.h $(T)/testutil.h
+$(S)/sim_protocol: $(S)/sim_protocol.c $(CORE_SRCS) $(TEST_DEPS)
 	$(TEST_CC) -o $@ $(S)/sim_protocol.c $(CORE_SRCS) -lm
 
 sim: $(S)/sim_certify $(S)/sim_protocol

@@ -25,18 +25,24 @@ RESPOND = ["can you explain", "please help me with", "how do i", "what is",
            "where can i find", "who owns"]
 TOPICS = ["the deploy", "this error", "the report", "that ticket", "the build",
           "our dashboard", "the invoice", "this query", "the release notes"]
+VAGUE = ["fyi", "status", "update", "meeting", "numbers", "schedule", "notes",
+         "draft", "agenda", "minutes", "budget", "roadmap", "offsite", "lunch"]
 
 
 def make_message(rng):
-    """A chat message and the label the teacher gives it."""
-    if rng.random() < 0.65:
+    """A chat message and the label the teacher gives it. Most messages are
+    easy; one in six is vague, and what the teacher makes of those cannot
+    be told from the words."""
+    kind = rng.random()
+    if kind < 0.55:
         text = rng.choice(IGNORE) + rng.choice(["", "!", " :)", " everyone", " team"])
         label = "ignore"
-    else:
+    elif kind < 0.84:
         text = rng.choice(RESPOND) + " " + rng.choice(TOPICS) + "?"
         label = "respond"
-    if rng.random() < 0.02:               # the teacher is not perfectly predictable
-        label = "respond" if label == "ignore" else "ignore"
+    else:
+        text = " ".join(rng.sample(VAGUE, 3))
+        label = rng.choice(["ignore", "respond"])
     return text, label
 
 

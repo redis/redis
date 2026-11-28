@@ -24,10 +24,11 @@ import time
 
 import redis
 
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+ROOT = os.environ.get("REDIS_ROOT",
+                      os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
 SERVER = os.path.join(ROOT, "src", "redis-server")
 BENCH = os.path.join(ROOT, "src", "redis-benchmark")
-MODULE = os.path.join(ROOT, "modules", "gate", "gate.so")
+MODULE = os.environ.get("GATE_MODULE", os.path.join(ROOT, "modules", "gate", "gate.so"))
 PORT = int(os.environ.get("GATE_BENCH_PORT", "21900"))
 
 WORDS = ("thanks ok great deploy error report ticket build dashboard invoice "

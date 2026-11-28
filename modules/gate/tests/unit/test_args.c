@@ -190,20 +190,32 @@ TEST(double_rejects_everything_else) {
 }
 
 TEST(double_length_limit) {
-    char s[64];
+    /* A numeral may be as long as the exact decimal expansion of a double
+     * (about 1,080 characters): 1,099 bytes are accepted, 1,100 are not. */
+    static char s[1100];
     double v = 99.0;
 
-    /* 62 zeros and a 1 are 63 bytes, the longest number accepted. */
+    /* 1,098 zeros and a 1 are 1,099 bytes, the longest number accepted. */
     memset(s, '0', sizeof(s));
-    s[62] = '1';
-    CHECK(parse_double(s, 63, &v) && v == 1.0);
-    /* One more zero makes it 10 in 64 bytes: refused for its length. */
+    s[1098] = '1';
+    CHECK(parse_double(s, 1099, &v) && v == 1.0);
+    /* One more zero makes it 10 in 1,100 bytes: refused for its length. */
     v = 99.0;
-    CHECK(!parse_double(s, 64, &v) && v == 99.0);
+    CHECK(!parse_double(s, 1100, &v) && v == 99.0);
     /* 63 bytes that all matter. */
     memset(s, '0', sizeof(s));
     s[0] = '1';
     CHECK(parse_double(s, 63, &v) && v == 1e62);
+    /* The exact value of the double nearest 0.0001, written out in full
+     * (68 bytes), and 0.5 followed by a hundred zeros. */
+    {
+        const char *exact = "0.000100000000000000004792173602385929598312941379845142364501953125";
+        CHECK(parse_double(exact, strlen(exact), &v) && v == 0.0001);
+    }
+    memset(s, '0', sizeof(s));
+    s[1] = '.';
+    s[2] = '5';
+    CHECK(parse_double(s, 103, &v) && v == 0.5);
 }
 
 /* ------------------------------- gateParseU64 ---------------------------- */

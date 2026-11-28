@@ -1,15 +1,37 @@
 # Gate module, integration suite "commands": the command surface.
 #
-# Every test states the contract of SPEC.md (section 2 unless said otherwise):
-# syntax, replies and errors of the eight G* commands in RESP2 and RESP3, and
-# how a gate behaves as an ordinary Redis key (TYPE, DEL, EXPIRE, RENAME,
-# MEMORY USAGE, COPY, ACL, COMMAND, CONFIG, MULTI/EXEC, Lua). Where SPEC.md is
-# silent the test says so and asserts the most reasonable behaviour.
+# Every test states the contract: SPEC.md (section 2 unless said otherwise)
+# and, for the revised core, CHANGES.md. Where the contract is silent the
+# test says so and asserts the most reasonable behaviour.
 #
-# Run from the repository root:
+#    1. Syntax, replies and errors of the eight G* commands, RESP2 and RESP3
+#    2. A gate is a key: TYPE, DEL, EXPIRE, RENAME, DUMP / RESTORE, COPY, ...
+#    3. COMMAND, ACL, memory limits, and that clients cannot call _GATE.APPLY
+#    4. Server settings
+#    5. MULTI/EXEC, WATCH, client-side caching and Lua
+#    6. Many keys
+#    7. Settings at the edge of what GCREATE accepts
+#    8. The fixed choices of SPEC.md section 5, as far as commands show them
+#    9. Late and lost answers (real time)
+#   10. Random arguments and random sessions
+#   11. _GATE.APPLY called the way a replication link calls it
+#
+# Run from the root of a Redis tree (or of a copy of its test harness) whose
+# modules/gate is the module under test:
 #
 #   ./runtest --single ../modules/gate/tests/integration/commands \
-#             --baseport 30000 --portcount 1500 --clients 1
+#             --baseport 12000 --portcount 1500 --clients 1
+#
+# DETERMINISM. The servers of this file run with gate.test-seed set (the one
+# of section 4 sets it test by test), so the draws and the ids of the module
+# are the same on every run, and the random choices of the tests come from
+# generators with a fixed seed. Where an exact outcome is asserted it follows
+# from the contract, not from one draw. A few tests need real time to pass
+# (section 9): they measure how long they took and start over, at most
+# twice, when the machine was too slow for the timing they need. The second
+# test of random sessions (section 10) sleeps a millisecond now and then on
+# purpose: which of its gates time out when depends on the clock, what it
+# asserts does not.
 #
 # This file is plain ASCII on purpose: byte strings that are not ASCII are
 # built with [binary format H* ...] so that nothing depends on the encoding
@@ -84,6 +106,187 @@ proc gcmd_permutations {items} {
         }
     }
     return $out
+}
+
+# Restart the seeded sequence of draws and ids. Redis does not call the
+# setter of a setting whose value does not change, so the seed goes through 0.
+# (Two gates created after the same seed get the same ids: every call in a
+# server uses a seed of its own unless that is what the test wants.)
+proc gcmd_seed {seed} {
+    r config set gate.test-seed 0
+    r config set gate.test-seed $seed
+}
+
+# 1 if DEBUG DIGEST-VALUE can tell two values apart in this run.
+proc gcmd_has_digest {} {
+    expr {[lsearch $::denytags "needs:debug"] < 0 && !$::ignoredigest}
+}
+
+# What one GADD teaches: the digest of the classifier 'key' after a GRESET
+# and that one GADD. The seed is the same every time, so the reset gate is
+# the same gate every time (its new ids start with the same number), and two
+# examples leave the same digest exactly when the model learned the same
+# from them. The key must be used for nothing else. Afterwards the server
+# goes on with a seed no test has used, so that no two gates of a server
+# ever hand out the same ids.
+set ::gcmd_fresh_seed 900000
+proc gcmd_effect {key args} {
+    gcmd_seed 31337
+    r greset $key
+    r gadd $key {*}$args
+    set digest [debug_digest_value $key]
+    gcmd_seed [incr ::gcmd_fresh_seed]
+    return $digest
+}
+
+# A gate must survive being saved and loaded as it is. DUMP it, RESTORE the
+# payload under another name (the module checks every rule a gate must obey
+# when it loads one) and compare the two values.
+proc gcmd_check_saveable {key {detail {}}} {
+    set payload [r dump $key]
+    r del gcmd:copy
+    if {[catch {r restore gcmd:copy 0 $payload} err]} {
+        fail "the gate '$key' cannot be loaded from its own DUMP ($err) $detail"
+    }
+    set same [expr {[debug_digest_value $key] eq [debug_digest_value gcmd:copy]}]
+    r del gcmd:copy
+    if {!$same} {fail "the gate '$key' is another gate after DUMP and RESTORE $detail"}
+}
+
+# The checksum at the end of a DUMP payload: CRC-64 "Jones", the low bit
+# first, as Redis computes it over everything before it.
+proc gcmd_crc64 {data} {
+    set crc 0
+    binary scan $data cu* bytes
+    foreach b $bytes {
+        set crc [expr {$crc ^ $b}]
+        for {set i 0} {$i < 8} {incr i} {
+            set crc [expr {$crc & 1 ? ($crc >> 1) ^ 0x95AC9329AC4BC9B5 : $crc >> 1}]
+        }
+    }
+    return $crc
+}
+
+# SPEC 3 "Redis": a gate that was loaded (here: a RESTOREd copy of 'key')
+# keeps its model, drops its proof and its waiting requests at its first
+# write, and proves itself again. Until then GINFO shows it as that write
+# will leave it. Checks both on the copy, with a write that does nothing by
+# itself.
+proc gcmd_check_recovery {key {detail {}}} {
+    set was [r ginfo $key]
+    set payload [r dump $key]
+    r del gcmd:copy
+    r restore gcmd:copy 0 $payload
+    set shown [r ginfo gcmd:copy]
+    if {[dict get $shown state] eq "PAUSED"} {r gpause gcmd:copy} else {r gresume gcmd:copy}
+    set after [r ginfo gcmd:copy]
+    r del gcmd:copy
+    # (the bytes are those the copy holds, before and after)
+    if {[dict remove $shown memory] ne [dict remove $after memory]} {
+        fail "GINFO of a loaded copy of '$key' before its first write:\n$shown\nand after it:\n$after\n$detail"
+    }
+    foreach field {kind alpha delta audit classes alphas learned requests accepted audited abstained
+                   missing revocations} {
+        if {[dict get $after $field] ne [dict get $was $field]} {
+            fail "a loaded copy of '$key' did not keep '$field': [dict get $after $field], was\
+                [dict get $was $field] $detail"
+        }
+    }
+    if {([dict get $after state] eq "PAUSED") != ([dict get $was state] eq "PAUSED")} {
+        fail "a loaded copy of '$key' did not keep its pause $detail"
+    }
+    foreach field {generation pending audit-samples audit-errors calibration-samples} {
+        if {[dict get $after $field] != 0} {
+            fail "a loaded copy of '$key' kept '$field' [dict get $after $field] $detail"
+        }
+    }
+    foreach threshold [dict get $after thresholds] {
+        if {$threshold ne {}} {fail "a loaded copy of '$key' kept a threshold $detail"}
+    }
+    # the snapshot it will test has a number that was never used
+    set candidate [dict get $after candidate]
+    if {$candidate != 0 && $candidate <= max([dict get $was generation], [dict get $was candidate])} {
+        fail "a loaded copy of '$key' tests snapshot $candidate again $detail"
+    }
+}
+
+# 1 if 'cmd', run on the main connection, aborts a transaction of the
+# connection 'w' that WATCHes 'key', else 0. The reply of the command, or
+# its error, goes to the variable named 'replyvar'.
+proc gcmd_aborts_watch {w key cmd {replyvar {}}} {
+    $w watch $key
+    set rc [catch {r {*}$cmd} reply]
+    $w multi
+    $w ping
+    set done [$w exec]
+    if {$replyvar ne {}} {
+        upvar 1 $replyvar out
+        set out $reply
+    }
+    expr {$done eq {} ? 1 : 0}
+}
+
+# Client-side caching. The key named by the next invalidation message read
+# from 'inv': the connection invalidations are redirected to (RESP2) or the
+# tracking connection itself, which gets them as pushes (RESP3).
+proc gcmd_invalidated {inv proto} {
+    set msg [$inv read]
+    if {$proto == 2} {return [lindex $msg 2]}
+    if {[lindex $msg 0] ne "invalidate"} {fail "expected an invalidation, got '$msg'"}
+    lindex $msg 1
+}
+
+# Let the connection 'c' read (and so track) 'key' with GINFO, run 'cmd' on
+# the main connection, and return 1 if that invalidated the key, else 0. The
+# marker key 'marker', tracked too and changed afterwards, shows where the
+# invalidations of 'cmd' end.
+proc gcmd_invalidates {c inv proto key marker cmd} {
+    catch {$c ginfo $key}
+    $c get $marker
+    catch {r {*}$cmd}
+    r incr $marker
+    set first [gcmd_invalidated $inv $proto]
+    if {$first eq $marker} {return 0}
+    if {$first ne $key} {fail "an invalidation of '$first' instead of '$key'"}
+    set second [gcmd_invalidated $inv $proto]
+    if {$second ne $marker} {fail "an invalidation of '$second' instead of '$marker'"}
+    return 1
+}
+
+# Wait until the clock of the test shows 'deadline' (in milliseconds).
+proc gcmd_sleep_until {deadline} {
+    set left [expr {$deadline - [clock milliseconds]}]
+    if {$left > 0} {after $left}
+}
+
+# SPEC 5, "betting test" and "proven": how many right answers prove a
+# threshold of snapshot number 'generation' after 'errors' wrong ones. The
+# wealth starts at 1 and is multiplied by 1 + c alpha / (1 - alpha) for a
+# right guess and by 1 - c for a wrong one; the average over the four c
+# must reach 32 x labels x g (g + 1) / DELTA, where 'labels' counts the
+# labels the gate may answer (1 for a score gate).
+proc gcmd_proof_needed {alpha delta {generation 1} {labels 1} {errors 0}} {
+    set bar [expr {32.0 * $labels * $generation * ($generation + 1) / $delta}]
+    for {set n 1} {$n <= 100000} {incr n} {
+        set wealth 0.0
+        foreach c {0.1 0.25 0.5 0.9} {
+            set wealth [expr {$wealth + 0.25 * pow(1 - $c, $errors) *
+                              pow(1 + $c * $alpha / (1 - $alpha), $n)}]
+        }
+        if {$wealth >= $bar} {return $n}
+    }
+    error "gcmd_proof_needed: no proof within 100000 right answers"
+}
+
+# SPEC 5, "thresholds per label": the 32 thresholds lie evenly spaced in
+# log(1 - threshold) between 'lo' and 'hi'. Returns which of them 'value'
+# is (0 to 31), or -1 if it is none.
+proc gcmd_grid_index {lo hi value} {
+    for {set t 0} {$t < 32} {incr t} {
+        set threshold [expr {1 - (1 - $lo) * pow((1 - $hi) / (1 - $lo), $t / 31.0)}]
+        if {abs($value - $threshold) < 1e-9} {return $t}
+    }
+    return -1
 }
 
 # ---------------------------------------------------------------- raw RESP
@@ -299,6 +502,19 @@ proc gcmd_teach {key n} {
     }
 }
 
+# The same in one pipeline; returns the reply of the last GADD.
+proc gcmd_teach_fast {key n} {
+    set rd [redis_deferring_client]
+    for {set i 0} {$i < $n} {incr i} {
+        lassign [gcmd_example $i] text label
+        $rd gadd $key TEXT $text LABEL $label
+    }
+    set learned 0
+    for {set i 0} {$i < $n} {incr i} {set learned [$rd read]}
+    $rd close
+    return $learned
+}
+
 # Make a "spam ham" classifier (created with gcmd_create_fast)
 # answer both labels by itself: teach it, then play the client loop with a
 # teacher that is always right. Nothing here depends on the random draws:
@@ -326,6 +542,29 @@ proc gcmd_prove_score {key} {
         }
     }
     fail "score gate $key proved nothing in 400 rounds: [r ginfo $key]"
+}
+
+# 'n' requests at 'score' to a score gate, each answered at once with
+# 'correct' if the gate wants feedback. Returns the actions.
+proc gcmd_ask_score {key n {score 0.9} {correct 1}} {
+    set actions {}
+    for {set i 0} {$i < $n} {incr i} {
+        lassign [r gpredict $key SCORE $score] action id
+        if {$id ne {}} {r glearn $key $id CORRECT $correct}
+        lappend actions $action
+    }
+    return $actions
+}
+
+# Right answers at 'score' until the score gate has a threshold; returns how
+# many it took. With nothing but right answers that threshold is 0: the
+# gate answers everything.
+proc gcmd_prove_all {key {score 0.9} {max 2000}} {
+    for {set n 0} {$n < $max} {incr n} {
+        if {[lindex [gcmd_info $key thresholds] 0] ne {}} {return $n}
+        gcmd_ask_score $key 1 $score 1
+    }
+    fail "score gate $key proved nothing in $max right answers: [r ginfo $key]"
 }
 
 # n GPREDICTs in one pipeline; returns the replies.
@@ -421,8 +660,9 @@ proc gcmd_picks {list min max} {
 start_server [list tags {"modules external:skip"} overrides [list loadmodule $gatemodule]] {
 
     # Draws and ids come from a seeded sequence in this server, so every run
-    # of this block is the same. The seed is never set again here: setting it
-    # restarts the sequence and would hand out the same ids twice.
+    # of this block is the same. Setting a seed again restarts the sequence
+    # and would hand out the same ids twice: only gcmd_effect does it, and
+    # leaves the server with a seed of its own afterwards.
     r config set gate.test-seed 20261128
 
     # ------------------------------------------------------------- GCREATE
@@ -530,8 +770,8 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     }
 
     gcmd_test {GCREATE: option words are case-insensitive} {
-        # SPEC.md does not say so in as many words; it is how every Redis
-        # command reads its option words.
+        # "Option words (ALPHA, TEXT, LABEL, ...) are not case-sensitive;
+        # labels and feature names are."
         set want [gcmd_config_of gc:ref]
         foreach args {
             {alpha 0.1 classes 3 a b c audit 0.25 delta 0.02 alwaysdefer 1 b classalpha 1 c 0.03}
@@ -552,6 +792,17 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             assert_equal [gcmd_config_of gc:case] $want "GCREATE key $args"
         }
         r del gc:case
+        # The labels keep the case they were given in, and a label in
+        # another case is another label.
+        assert_equal OK [r gcreate gc:case alpha 0.1 classes 3 Spam SPAM spam alwaysdefer 1 SPAM \
+                             classalpha 1 spam 0.05]
+        set info [r ginfo gc:case]
+        assert_equal {Spam SPAM spam} [dict get $info classes]
+        lassign [dict get $info alphas] a b c
+        assert {$a == 0.1 && $b == 0 && $c == 0.05}
+        r del gc:case
+        gcmd_create_fails ALPHA 0.1 CLASSES 2 spam ham ALWAYSDEFER 1 Spam
+        gcmd_create_fails ALPHA 0.1 CLASSES 2 spam ham CLASSALPHA 1 HAM 0.05
     }
 
     gcmd_test {GCREATE: labels may spell option words} {
@@ -865,8 +1116,8 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     }
 
     gcmd_test {GCREATE: label lists that contradict themselves are refused} {
-        # SPEC.md is silent on all four; refusing is the reading that never
-        # drops part of a command silently.
+        # "... each listed once; a label is in ALWAYSDEFER or in CLASSALPHA,
+        # not both, and ALWAYSDEFER cannot list every label."
         # the same label twice in CLASSES
         gcmd_create_fails ALPHA 0.1 CLASSES 2 a a
         gcmd_create_fails ALPHA 0.1 CLASSES 3 a b a
@@ -930,6 +1181,48 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert_equal 1 [r glearn gc:busy:gate $id LABEL b]
         assert_equal score [gcmd_info gc:busy:score kind]
         assert {[gcmd_info gc:busy:score alpha] == 0.3}
+    }
+
+    gcmd_test {errors: a label or a name that looks like a format is shown as it is, or not at all} {
+        # An error is one line of text; what a client sent goes into it as
+        # bytes, never as something to interpret.
+        r del gc:fmt
+        r gcreate gc:fmt ALPHA 0.1 CLASSES 2 %s%s%s%n %d
+        assert_equal {%s%s%s%n %d} [gcmd_info gc:fmt classes]
+        foreach odd {%s%s%s%s%n %n%n%n%n %99999999d %p%p%p%p {%1$s} %c%c 100% {%.*s} {{0}} {$(id)} {`id`}} {
+            foreach cmd [list \
+                [list gcreate gc:bad ALPHA 0.1 CLASSES 2 a b ALWAYSDEFER 1 $odd] \
+                [list gcreate gc:bad ALPHA 0.1 CLASSES 2 a b CLASSALPHA 1 $odd 0.05] \
+                [list gcreate gc:bad ALPHA 0.1 CLASSES 3 $odd $odd b] \
+                [list gcreate gc:bad ALPHA 0.1 CLASSES 3 a $odd b CLASSALPHA 1 $odd 7] \
+                [list gcreate gc:bad ALPHA 0.1 CLASSES 3 a $odd b ALWAYSDEFER 2 $odd $odd] \
+                [list gcreate gc:bad ALPHA 0.1 CLASSES 3 a $odd b ALWAYSDEFER 1 $odd CLASSALPHA 1 $odd 0.05] \
+                [list gcreate gc:bad ALPHA 0.1 $odd] \
+                [list gcreate gc:bad $odd 0.1 SCORE] \
+                [list gpredict gc:fmt TEXT hello FEATURES 1 $odd nan] \
+                [list gpredict gc:fmt TEXT hello FEATURES 2 $odd 1 $odd 2] \
+                [list gpredict gc:fmt $odd hello] \
+                [list gadd gc:fmt TEXT hello LABEL $odd] \
+                [list gadd gc:fmt TEXT hello $odd a] \
+                [list glearn gc:fmt some-id LABEL $odd] \
+                [list glearn gc:fmt some-id $odd a] \
+            ] {
+                set rc [catch {r {*}$cmd} err]
+                assert_equal $rc 1 "command: $cmd"
+                assert_match "ERR *" $err
+                assert_no_match "*\n*" $err
+                assert {[string length $err] < 250}
+                # whatever of the argument is shown is shown literally
+                if {[string first % $err] >= 0 || [string first \$ $err] >= 0 || [string first ` $err] >= 0 ||
+                    [string first \{ $err] >= 0} {
+                    assert {[string first $odd $err] >= 0}
+                }
+            }
+        }
+        assert_equal 0 [r exists gc:bad]
+        assert_equal 0 [gcmd_info gc:fmt learned]
+        assert_equal PONG [r ping]
+        r del gc:fmt
     }
 
     # ------------------------------------------------------------ GPREDICT
@@ -1058,8 +1351,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     }
 
     gcmd_test {GPREDICT: a repeated feature name is an error} {
-        # SPEC.md does not mention it; a name given twice has no single
-        # value, so it cannot be right.
+        # "Names follow the rule for labels and may not repeat."
         foreach form {
             {TEXT hello FEATURES 2 x 1 x 2}
             {TEXT hello FEATURES 2 x 1 x 1}
@@ -1075,7 +1367,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     }
 
     gcmd_test {GPREDICT: 64 named features are accepted, 65 are refused} {
-        # The limit is not in SPEC.md; 64 is the one gate_defs.h sets.
+        # "FEATURES optionally adds up to 64 named numbers"
         set features {}
         for {set i 0} {$i < 64} {incr i} {lappend features f$i [expr {($i - 32) / 32.0}]}
         set reply [r gpredict gp:cls TEXT hello FEATURES 64 {*}$features]
@@ -1096,6 +1388,186 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             [r gadd gp:cls TEXT hello FEATURES 64 {*}$features LABEL a]
         gcmd_fails_unchanged gp:cls "ERR *" \
             [list gadd gp:cls TEXT hello FEATURES 65 {*}$features f64 0.5 LABEL a]
+        # 65 pairs are refused whatever the count says
+        gcmd_fails_unchanged gp:cls "ERR *" \
+            [list gpredict gp:cls TEXT hello FEATURES 64 {*}$features f64 0.5]
+        gcmd_fails_unchanged gp:cls "ERR *" \
+            [list gpredict gp:cls TEXT hello FEATURES 66 {*}$features f64 0.5]
+    }
+
+    gcmd_test {GPREDICT: FEATURES 0 is accepted and adds nothing} {
+        # "up to 64 named numbers": none is up to 64. (The syntax line of
+        # SPEC.md shows at least one pair; a client that builds the list
+        # from what it has may well have nothing to list.)
+        foreach form {{TEXT hello FEATURES 0} {text hello features 0} {TEXT {} FEATURES 0}} {
+            lassign [r gpredict gp:cls {*}$form] action id
+            assert_equal $action ABSTAIN "GPREDICT key $form"
+            assert_equal [r glearn gp:cls $id LABEL a] 1 "GPREDICT key $form"
+        }
+        set learned [gcmd_info gp:cls learned]
+        assert_equal [expr {$learned + 1}] [r gadd gp:cls TEXT hello FEATURES 0 LABEL a]
+        # a count of 0 takes no pair
+        gcmd_fails_unchanged gp:cls "ERR *" {gpredict gp:cls TEXT hello FEATURES 0 x 1}
+        gcmd_fails_unchanged gp:cls "ERR *" {gadd gp:cls TEXT hello FEATURES 0 x 1 LABEL a}
+
+        # The example teaches what the same text without FEATURES teaches.
+        r del gp:effect
+        r gcreate gp:effect ALPHA 0.1 CLASSES 2 a b
+        set plain [gcmd_effect gp:effect TEXT hello LABEL a]
+        assert_equal $plain [gcmd_effect gp:effect TEXT hello LABEL a]
+        assert_equal $plain [gcmd_effect gp:effect TEXT hello FEATURES 0 LABEL a]
+        # (the comparison can tell: another input teaches something else)
+        if {[gcmd_has_digest]} {
+            assert {$plain ne [gcmd_effect gp:effect TEXT hello FEATURES 1 x 1 LABEL a]}
+            assert {$plain ne [gcmd_effect gp:effect TEXT hullo LABEL a]}
+            assert {$plain ne [gcmd_effect gp:effect TEXT hello LABEL b]}
+        }
+        r del gp:effect
+    }
+
+    gcmd_test {GPREDICT: feature names follow the rule for labels} {
+        # 1 to 64 bytes of UTF-8 without control characters
+        set good [list \
+            x 0 -1 {thread depth} {a,b;c} "it's" {"quoted"} TEXT FEATURES LABEL \
+            [string repeat x 64] \
+            [binary format H* e697a5e69cace8aa9e] \
+            [binary format H* [string repeat f09f9880 16]] \
+            [binary format H* c2a0] \
+            [binary format H* f48fbfbf]]
+        foreach name $good {
+            binary scan $name H* hex
+            lassign [r gpredict gp:cls TEXT hello FEATURES 1 $name 0.5] action id
+            assert_equal $action ABSTAIN "feature name 0x$hex"
+            assert_equal [r glearn gp:cls $id LABEL a] 1 "feature name 0x$hex"
+            set learned [gcmd_info gp:cls learned]
+            assert_equal [r gadd gp:cls TEXT hello FEATURES 2 first 1 $name -0.5 LABEL b] \
+                [expr {$learned + 1}] "feature name 0x$hex"
+        }
+        set bad [list \
+            {} \
+            [string repeat x 65] \
+            [binary format H* [string repeat f09f9880 17]] \
+            "a\x00b" "a\x00" "\x00" "a\nb" "a\rb" "a\tb" "\x1b" "\x7f" "a\x7f" \
+            [binary format H* c280] [binary format H* c29f] \
+            [binary format H* ff] [binary format H* 80] [binary format H* c0af] \
+            [binary format H* eda080] [binary format H* f4908080] [binary format H* e282]]
+        foreach name $bad {
+            gcmd_fails_unchanged gp:cls "ERR *" [list gpredict gp:cls TEXT hello FEATURES 1 $name 0.5]
+            gcmd_fails_unchanged gp:cls "ERR *" \
+                [list gpredict gp:cls TEXT hello FEATURES 3 a 1 $name 0.5 c 1]
+            gcmd_fails_unchanged gp:cls "ERR *" \
+                [list gadd gp:cls TEXT hello FEATURES 1 $name 0.5 LABEL a]
+        }
+    }
+
+    gcmd_test {GPREDICT: feature names are case-sensitive, the order of the features does not matter} {
+        r del gp:effect
+        r gcreate gp:effect ALPHA 0.1 CLASSES 2 a b
+        set lower [gcmd_effect gp:effect TEXT hello FEATURES 1 depth 1 LABEL a]
+        assert_equal $lower [gcmd_effect gp:effect TEXT hello features 1 depth 1 label a]
+        if {[gcmd_has_digest]} {
+            assert {$lower ne [gcmd_effect gp:effect TEXT hello FEATURES 1 Depth 1 LABEL a]}
+            assert {$lower ne [gcmd_effect gp:effect TEXT hello FEATURES 1 DEPTH 1 LABEL a]}
+        }
+        # SPEC.md does not say that the order of the pairs is free; named
+        # numbers that depended on their position would not be named.
+        set ab [gcmd_effect gp:effect TEXT hello FEATURES 3 mentioned 1 depth 0.25 hour -0.5 LABEL a]
+        assert_equal $ab [gcmd_effect gp:effect TEXT hello FEATURES 3 hour -0.5 mentioned 1 depth 0.25 LABEL a]
+        assert_equal $ab [gcmd_effect gp:effect TEXT hello FEATURES 3 depth 0.25 hour -0.5 mentioned 1 LABEL a]
+        if {[gcmd_has_digest]} {
+            assert {$ab ne [gcmd_effect gp:effect TEXT hello FEATURES 3 mentioned 0.25 depth 1 hour -0.5 LABEL a]}
+        }
+        r del gp:effect
+    }
+
+    gcmd_test {GPREDICT: a feature value beyond 4 counts as 4} {
+        r del gp:effect
+        r gcreate gp:effect ALPHA 0.1 CLASSES 2 a b
+        # (Compared with a second feature next to it. The named features
+        # of a request are scaled down together when they are large, which
+        # SPEC.md does not describe: one feature alone counts the same from
+        # about 2.83 up, so that 3 and 4 could not be told apart.)
+        foreach sign {{} -} {
+            set four [gcmd_effect gp:effect TEXT hello FEATURES 2 x ${sign}4 y 1 LABEL a]
+            foreach value {4.0 4.000001 4.5 5 64 1e9 1e300 17976931348623157e292} {
+                assert_equal [gcmd_effect gp:effect TEXT hello FEATURES 2 x $sign$value y 1 LABEL a] \
+                    $four "a feature value of $sign$value"
+            }
+            if {[gcmd_has_digest]} {
+                # ... and what is not beyond 4 does not
+                foreach value {3 2 1 0.5 0} {
+                    assert {$four ne [gcmd_effect gp:effect TEXT hello FEATURES 2 x $sign$value y 1 LABEL a]}
+                }
+            }
+        }
+        set plus [gcmd_effect gp:effect TEXT hello FEATURES 2 x 1e300 y 1 LABEL a]
+        set minus [gcmd_effect gp:effect TEXT hello FEATURES 2 x -1e300 y 1 LABEL a]
+        if {[gcmd_has_digest]} {assert {$plus ne $minus}}
+        # one feature alone
+        set four [gcmd_effect gp:effect TEXT hello FEATURES 1 x 4 LABEL a]
+        foreach value {5 1e300} {
+            assert_equal [gcmd_effect gp:effect TEXT hello FEATURES 1 x $value LABEL a] $four \
+                "a feature value of $value"
+        }
+        # GPREDICT takes what GADD takes
+        foreach value {4 5 1e300 -1e300} {
+            lassign [r gpredict gp:cls TEXT hello FEATURES 1 x $value] action id
+            assert_equal ABSTAIN $action
+            assert_equal 1 [r glearn gp:cls $id LABEL a]
+        }
+        r del gp:effect
+    }
+
+    gcmd_test {GPREDICT and GADD: a TEXT of exactly 1 MiB is taken, one byte more is refused} {
+        set mib [string repeat "sixteen bytes!! " 65536]
+        assert_equal 1048576 [string length $mib]
+        lassign [r gpredict gp:cls TEXT $mib] action id
+        assert_equal ABSTAIN $action
+        assert_equal 1 [r glearn gp:cls $id LABEL a]
+        lassign [r gpredict gp:cls TEXT $mib FEATURES 2 x 1 y -1] action id
+        assert_equal ABSTAIN $action
+        assert_equal 1 [r glearn gp:cls $id LABEL b]
+        set learned [gcmd_info gp:cls learned]
+        assert_equal [expr {$learned + 1}] [r gadd gp:cls TEXT $mib LABEL a]
+        assert_equal [expr {$learned + 2}] [r gadd gp:cls TEXT $mib FEATURES 1 x 1 LABEL b]
+        assert_equal 0 [gcmd_info gp:cls pending]
+
+        foreach over [list "${mib}x" "x${mib}" "${mib}${mib}" [string repeat "\x00" 1048577]] {
+            set shown "TEXT of [string length $over] bytes"
+            set before [gcmd_state gp:cls]
+            assert_error "ERR *" {r gpredict gp:cls TEXT $over} $shown
+            assert_error "ERR *" {r gpredict gp:cls TEXT $over FEATURES 1 x 1} $shown
+            assert_error "ERR *" {r gadd gp:cls TEXT $over LABEL a} $shown
+            assert_error "ERR *" {r gadd gp:cls TEXT $over FEATURES 1 x 1 LABEL a} $shown
+            assert_equal [gcmd_state gp:cls] $before $shown
+        }
+        # the error is one line that does not carry the megabyte back
+        catch {r gpredict gp:cls TEXT "${mib}x"} err
+        assert {[string length $err] < 200}
+    }
+
+    gcmd_test {GPREDICT: only the first 4,096 bytes of a TEXT are read} {
+        r del gp:effect
+        r gcreate gp:effect ALPHA 0.1 CLASSES 2 a b
+        set head [string range [string repeat "alpha beta gamma delta epsilon " 200] 0 4095]
+        assert_equal 4096 [string length $head]
+        set base [gcmd_effect gp:effect TEXT $head LABEL a]
+        # whatever follows the first 4,096 bytes teaches nothing
+        foreach tail [list " omega" "omega" "!" "\x00" " http://example.com/ ``` code" \
+                          [string repeat " something else entirely" 1000] \
+                          [string repeat z [expr {1048576 - 4096}]]] {
+            assert_equal [gcmd_effect gp:effect TEXT "$head$tail" LABEL a] $base \
+                "a TEXT of [string length "$head$tail"] bytes"
+        }
+        if {[gcmd_has_digest]} {
+            # ... and every one of the 4,096 bytes can
+            foreach at {0 2048 4095} {
+                set other [string replace $head $at $at "!"]
+                assert_equal 4096 [string length $other]
+                assert {$base ne [gcmd_effect gp:effect TEXT $other LABEL a]}
+            }
+        }
+        r del gp:effect
     }
 
     gcmd_test {GPREDICT: TEXT is bytes: empty, NUL bytes, invalid UTF-8, 100 KiB} {
@@ -1146,22 +1618,185 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         }
     }
 
-    gcmd_test {GPREDICT: a score a rounding error outside 0..1 is accepted} {
-        # Commit d77742b: 1.0000001 is what a cosine similarity computed in
-        # floating point looks like, not a caller error. SPEC.md does not
-        # mention the allowance.
-        foreach score {1.0000001 1.00000001 1.0000000000000002 -0.0000001 -1e-12} {
+    gcmd_test {GPREDICT: a score a rounding error outside 0..1 is taken as the end of the range} {
+        # "(A rounding error outside the range, such as 1.0000001, is taken
+        # as the end of the range.)" That is what a cosine similarity
+        # computed in floating point looks like, not a caller error.
+        foreach score {1.0000001 1.00000001 1.0000000000000002 -0.0000001 -1e-12 -1e-300} {
             set reply [r gpredict gp:score SCORE $score]
             assert_equal [lindex $reply 0] ABSTAIN "SCORE $score"
             assert_equal [r glearn gp:score [lindex $reply 1] CORRECT 1] 1 "SCORE $score"
         }
+        # Taken as 0, not as a score below 0: a gate that answers from 0 up
+        # (every answer it ever got was right) answers it, as it answers 0.
+        r del gp:zero
+        r gcreate gp:zero ALPHA 0.2 DELTA 0.2 SCORE
+        gcmd_prove_all gp:zero 0.5
+        assert {[lindex [gcmd_info gp:zero thresholds] 0] == 0}
+        foreach score {0 -0 0.0 -0.0000001 -1e-12 -1e-300 1 1.0000001 1.0000000000000002} {
+            foreach action [gcmd_ask_score gp:zero 10 $score 1] {
+                if {$action ni {ACCEPT AUDIT}} {
+                    fail "SCORE $score to a gate that answers every score: $action"
+                }
+            }
+        }
+        r del gp:zero
+        # What is further out is an error (the next test has more of them).
+        foreach score {1.001 -0.001 1.01 -0.01} {
+            gcmd_fails_unchanged gp:score "ERR *" [list gpredict gp:score SCORE $score]
+        }
+    }
+
+    gcmd_test {numbers are written in decimal, with or without an exponent} {
+        # "Numbers are written in decimal, with or without an exponent."
+        r del gc:num gc:num:cls
+        r gcreate gc:num:cls ALPHA 0.1 CLASSES 2 a b
+        # every usual way to write one half ...
+        foreach half {0.5 0.50 +0.5 5e-1 5E-1 5e-01 0.5e0 0.5E+0 50e-2 0.05e1 0.005E+2 500000e-6} {
+            r del gc:num
+            assert_equal [r gcreate gc:num ALPHA $half DELTA $half AUDIT $half SCORE] OK "the number $half"
+            set info [r ginfo gc:num]
+            assert {[dict get $info alpha] == 0.5 && [dict get $info delta] == 0.5 && [dict get $info audit] == 0.5}
+            lassign [r gpredict gc:num SCORE $half] action id
+            assert_equal $action ABSTAIN "SCORE $half"
+            assert_equal 1 [r glearn gc:num $id CORRECT 1]
+            lassign [r gpredict gc:num:cls TEXT hello FEATURES 1 x $half] action id
+            assert_equal $action ABSTAIN "a feature value of $half"
+            assert_equal 1 [r glearn gc:num:cls $id LABEL a]
+            r del gc:num
+            assert_equal [r gcreate gc:num ALPHA 0.5 CLASSES 2 a b CLASSALPHA 1 a $half] OK \
+                "CLASSALPHA $half"
+            assert {[lindex [gcmd_info gc:num alphas] 0] == 0.5}
+        }
+        # ... and of the ends of a range
+        foreach one {1 1.0 1.000 1e0 1E0 +1 10e-1 0.1e1 1.0E+00} {
+            r del gc:num
+            assert_equal [r gcreate gc:num ALPHA 0.5 AUDIT $one SCORE] OK "AUDIT $one"
+            assert {[gcmd_info gc:num audit] == 1}
+            lassign [r gpredict gc:num SCORE $one] action id
+            assert_equal $action ABSTAIN "SCORE $one"
+            assert_equal 1 [r glearn gc:num $id CORRECT 1]
+        }
+        foreach zero {0 0.0 0.000 0e0 +0 -0 -0.0 0e5 0.0e-7 0E+00} {
+            lassign [r gpredict gc:num SCORE $zero] action id
+            assert_equal $action ABSTAIN "SCORE $zero"
+            assert_equal 1 [r glearn gc:num $id CORRECT 0]
+        }
+        # What is not a decimal number is not a number: other bases, words,
+        # separators, space around it, a second number.
+        set before [list [gcmd_state gc:num] [gcmd_state gc:num:cls]]
+        foreach bad [list 0x1p-1 0X1P-1 0x0.8 0x8 0b1 0o7 1/2 50% inf +inf -inf Inf INF infinity \
+                         nan NaN NAN -nan nan(1) 1e 1e+ 1e- e1 .e1 . + - +-0.5 --0.5 0.5.0 0..5 \
+                         0,5 1_0 1'000 0.5f 0.5d 0.5L 5e-1.0 0.5e0e0 1d0 {0.5 } { 0.5} "\t0.5" \
+                         "0.5\n" "0.5\r\n" "0.5\x00" "\x000.5" "0.5\x000" {0.5 0.5} {} \
+                         [binary format H* d9a02ed9a5] [binary format H* efbc90efbc8eefbc95] \
+                         [binary format H* c2bd]] {
+            binary scan $bad H* hex
+            set shown "the number 0x$hex"
+            assert_error "ERR *" {r gcreate gc:bad ALPHA $bad SCORE} $shown
+            assert_error "ERR *" {r gcreate gc:bad ALPHA 0.5 DELTA $bad SCORE} $shown
+            assert_error "ERR *" {r gcreate gc:bad ALPHA 0.5 AUDIT $bad SCORE} $shown
+            assert_error "ERR *" {r gcreate gc:bad ALPHA 0.5 CLASSES 2 a b CLASSALPHA 1 a $bad} $shown
+            assert_error "ERR *" {r gpredict gc:num SCORE $bad} $shown
+            assert_error "ERR *" {r gpredict gc:num:cls TEXT hello FEATURES 1 x $bad} $shown
+            assert_error "ERR *" {r gadd gc:num:cls TEXT hello FEATURES 1 x $bad LABEL a} $shown
+        }
+        assert_equal 0 [r exists gc:bad]
+        assert_equal $before [list [gcmd_state gc:num] [gcmd_state gc:num:cls]]
+        r del gc:num gc:num:cls
+    }
+
+    gcmd_test {counts are plain decimal integers} {
+        # SPEC.md does not say how a count is written. A count that is not
+        # a whole number, has a sign or an exponent, or is in another
+        # base cannot say how many arguments follow.
+        r del gc:num
+        foreach count {2.0 2. 2e0 +2 -2 0x2 0b10 { 2} {2 } "2\x00" two {} 2,0 1+1} {
+            binary scan $count H* hex
+            set shown "the count 0x$hex"
+            assert_error "ERR *" {r gcreate gc:num ALPHA 0.1 CLASSES $count a b} $shown
+            assert_error "ERR *" {r gcreate gc:num ALPHA 0.1 CLASSES 3 a b c ALWAYSDEFER $count a b} $shown
+            assert_error "ERR *" {r gcreate gc:num ALPHA 0.1 CLASSES 3 a b c CLASSALPHA $count a 0.05 b 0.05} $shown
+            gcmd_fails_unchanged gp:cls "ERR *" [list gpredict gp:cls TEXT hello FEATURES $count x 1 y 2]
+            gcmd_fails_unchanged gp:cls "ERR *" [list gadd gp:cls TEXT hello FEATURES $count x 1 y 2 LABEL a]
+        }
+        assert_equal 0 [r exists gc:num]
+    }
+
+    gcmd_test {numbers: a numeral of 1,099 bytes is read, one of 1,100 bytes is refused} {
+        # CHANGES 6: numerals of up to 1,099 bytes are numbers, so that the
+        # exact decimal expansion of any double is one.
+        set fits 0.5[string repeat 0 1096]
+        set minus -0.5[string repeat 0 1095]
+        set long 0.5[string repeat 0 1097]
+        assert_equal 1099 [string length $fits]
+        assert_equal 1099 [string length $minus]
+        assert_equal 1100 [string length $long]
+        r del gc:digits gc:digits:cls
+        assert_equal OK [r gcreate gc:digits ALPHA $fits DELTA $fits AUDIT $fits SCORE]
+        set info [r ginfo gc:digits]
+        assert {[dict get $info alpha] == 0.5 && [dict get $info delta] == 0.5 && [dict get $info audit] == 0.5}
+        assert_equal OK [r gcreate gc:digits:cls ALPHA 0.5 CLASSES 2 a b CLASSALPHA 1 b $fits]
+        assert {[lindex [gcmd_info gc:digits:cls alphas] 1] == 0.5}
+        lassign [r gpredict gc:digits SCORE $fits] action id
+        assert_equal ABSTAIN $action
+        assert_equal 1 [r glearn gc:digits $id CORRECT 1]
+        lassign [r gpredict gc:digits:cls TEXT hello FEATURES 1 x $fits] action id
+        assert_equal ABSTAIN $action
+        assert_equal 1 [r glearn gc:digits:cls $id LABEL a]
+        assert_equal 2 [r gadd gc:digits:cls TEXT hello FEATURES 1 x $minus LABEL a]
+        # it is the number, not just a numeral that was let through
+        r del gp:effect
+        r gcreate gp:effect ALPHA 0.1 CLASSES 2 a b
+        assert_equal [gcmd_effect gp:effect TEXT hello FEATURES 1 x 0.5 LABEL a] \
+            [gcmd_effect gp:effect TEXT hello FEATURES 1 x $fits LABEL a]
+        assert_equal [gcmd_effect gp:effect TEXT hello FEATURES 1 x -0.5 LABEL a] \
+            [gcmd_effect gp:effect TEXT hello FEATURES 1 x $minus LABEL a]
+        r del gp:effect
+
+        foreach args [list [list ALPHA $long SCORE] [list ALPHA 0.5 DELTA $long SCORE] \
+                           [list ALPHA 0.5 AUDIT $long SCORE] \
+                           [list ALPHA 0.5 CLASSES 2 a b CLASSALPHA 1 b $long]] {
+            gcmd_create_fails {*}$args
+        }
+        gcmd_fails_unchanged gc:digits "ERR *" [list gpredict gc:digits SCORE $long]
+        gcmd_fails_unchanged gc:digits:cls "ERR *" \
+            [list gpredict gc:digits:cls TEXT hello FEATURES 1 x $long]
+        gcmd_fails_unchanged gc:digits:cls "ERR *" \
+            [list gadd gc:digits:cls TEXT hello FEATURES 1 x $long LABEL a]
+        # a megabyte of digits is refused as well
+        gcmd_fails_unchanged gc:digits "ERR *" [list gpredict gc:digits SCORE 0.[string repeat 5 1048576]]
+
+        # The exact decimal expansions of the smallest double (2^-1074:
+        # 1,076 bytes) and of the largest (309 digits).
+        set tiny "0.[string repeat 0 323][expr {5 ** 1074}]"
+        set huge [expr {(2 ** 53 - 1) * 2 ** 971}]
+        assert_equal 1076 [string length $tiny]
+        assert_equal 309 [string length $huge]
+        r del gc:digits
+        assert_equal OK [r gcreate gc:digits ALPHA $tiny DELTA $tiny AUDIT $tiny SCORE]
+        set info [r ginfo gc:digits]
+        assert {[dict get $info alpha] == 4.9406564584124654e-324}
+        assert {[dict get $info delta] == 4.9406564584124654e-324}
+        assert {[dict get $info audit] == 4.9406564584124654e-324}
+        lassign [r gpredict gc:digits SCORE $tiny] action id
+        assert_equal ABSTAIN $action
+        assert_equal 1 [r glearn gc:digits $id CORRECT 1]
+        foreach value [list $tiny -$tiny $huge -$huge] {
+            lassign [r gpredict gc:digits:cls TEXT hello FEATURES 1 x $value] action id
+            assert_equal $action ABSTAIN "a feature value of [string length $value] bytes"
+            assert_equal 1 [r glearn gc:digits:cls $id LABEL b]
+        }
+        # one more digit than the largest double is not a finite number
+        gcmd_fails_unchanged gc:digits:cls "ERR *" \
+            [list gpredict gc:digits:cls TEXT hello FEATURES 1 x ${huge}0]
+        r del gc:digits gc:digits:cls
     }
 
     gcmd_test {numbers written with many digits are numbers} {
-        # SPEC.md gives ranges, not a way to write a number. These are the
-        # exact decimal expansions of the doubles 0.1 and 0.0001 (what an
-        # arbitrary precision decimal type prints: 57 and 68 bytes) and 0.5
-        # printed with 70 decimals.
+        # These are the exact decimal expansions of the doubles 0.1 and
+        # 0.0001 (what an arbitrary precision decimal type prints: 57 and
+        # 68 bytes) and 0.5 printed with 70 decimals.
         set tenth 0.1000000000000000055511151231257827021181583404541015625
         set small 0.000100000000000000004792173602385929598312941379845142364501953125
         set padded 0.5[string repeat 0 69]
@@ -1277,7 +1912,11 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         # while its turn as proof has not come because an older request is
         # still unanswered.
         r del gp:answered
+        # (with the longest feedback timeout, so that proof waits for the
+        # oldest answer however long this test takes)
+        r config set gate.feedback-timeout 604800000
         r gcreate gp:answered ALPHA 0.2 SCORE
+        r config set gate.feedback-timeout 60000
         set replies [gcmd_pipeline_predict gp:answered 4096 0.5]
         assert_equal {ABSTAIN {}} [r gpredict gp:answered SCORE 0.5]
         # every answer arrives but that of the oldest request
@@ -1287,38 +1926,188 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         for {set i 1} {$i < 4096} {incr i} {incr used [$rd read]}
         $rd close
         assert_equal 4095 $used
-        # one request waits for feedback: the gate takes new ones
+        # One request waits for feedback (GINFO pending); the answers of
+        # the others wait for their turn as proof (CHANGES 2).
+        set info [r ginfo gp:answered]
+        assert_equal 1 [dict get $info pending]
+        assert_equal 0 [dict get $info calibration-samples]
+        # the gate takes new requests
         set reply [r gpredict gp:answered SCORE 0.5]
         assert_equal ABSTAIN [lindex $reply 0]
         set pending [gcmd_info gp:answered pending]
         if {[lindex $reply 1] eq {}} {
             fail "4,095 of 4,096 requests have their GLEARN, yet the gate is full (pending $pending)"
         }
+        assert_equal 2 $pending
+        # ... 4,094 more of them, and is full again
+        set more [gcmd_pipeline_predict gp:answered 4096 0.5]
+        for {set i 0} {$i < 4096} {incr i} {
+            if {$i < 4094} {
+                assert {[lindex [lindex $more $i] 1] ne {}}
+            } else {
+                assert_equal [lindex $more $i] {ABSTAIN {}} "request [expr {$i + 1}]"
+            }
+        }
+        assert_equal 4096 [gcmd_info gp:answered pending]
+        # The oldest answer arrives: every answer that waited for it counts.
+        assert_equal 1 [r glearn gp:answered [lindex [lindex $replies 0] 1] CORRECT 1]
+        set info [r ginfo gp:answered]
+        assert_equal 4096 [dict get $info calibration-samples]
+        assert_equal 4095 [dict get $info pending]
+        gcmd_check_saveable gp:answered
         r del gp:answered
     }
 
-    gcmd_test {GPREDICT: a classifier never holds more than 4,096 waiting requests} {
-        r del gp:full:cls
-        r gcreate gp:full:cls ALPHA 0.2 CLASSES 2 a b
+    gcmd_test {GPREDICT: proof stops waiting for one answer when more than 16,384 answers wait behind it} {
+        # CHANGES 2: proof is counted in request order, so an answer waits
+        # for the answers of older requests; when more than 16,384 answered
+        # requests wait behind an unanswered one, proof moves on without it
+        # and counts it as a wrong guess. It stays a waiting request with a
+        # valid id until its time is up.
+        r del gp:waiting
+        # (with the longest feedback timeout: it is the number of answers
+        # that makes proof move on here, not the time they took)
+        r config set gate.feedback-timeout 604800000
+        r gcreate gp:waiting ALPHA 0.2 DELTA 0.2 SCORE
+        r config set gate.feedback-timeout 60000
+        set first [lindex [r gpredict gp:waiting SCORE 0.9] 1]
         set rd [redis_deferring_client]
-        for {set i 0} {$i < 4200} {incr i} {$rd gpredict gp:full:cls TEXT "request $i"}
-        set with_id 0
-        set without 0
-        for {set i 0} {$i < 4200} {incr i} {
+        set used 0
+        for {set chunk 0} {$chunk < 16} {incr chunk} {
+            for {set i 0} {$i < 1024} {incr i} {$rd gpredict gp:waiting SCORE 0.9}
+            set ids {}
+            for {set i 0} {$i < 1024} {incr i} {lappend ids [lindex [$rd read] 1]}
+            foreach id $ids {$rd glearn gp:waiting $id CORRECT 1}
+            for {set i 0} {$i < 1024} {incr i} {incr used [$rd read]}
+        }
+        $rd close
+        assert_equal 16384 $used
+        # 16,384 answers wait for the one that is missing: nothing counts yet
+        set info [r ginfo gp:waiting]
+        assert_equal CALIBRATING [dict get $info state]
+        assert_equal 0 [dict get $info calibration-samples]
+        assert_equal 1 [dict get $info pending]
+        assert_equal 16385 [dict get $info requests]
+        set held [dict get $info memory]
+        gcmd_check_saveable gp:waiting
+        # one more answer
+        lassign [r gpredict gp:waiting SCORE 0.9] action id
+        assert_equal ABSTAIN $action
+        assert_equal 1 [r glearn gp:waiting $id CORRECT 1]
+        set info [r ginfo gp:waiting]
+        assert_equal 16386 [dict get $info calibration-samples]
+        assert_equal ACTIVE [dict get $info state]
+        assert_equal 1 [dict get $info pending]
+        assert_equal 0 [dict get $info missing]
+        # the answers that waited are no longer held
+        assert {[dict get $info memory] < $held / 10}
+        # The late answer is still taken, once.
+        assert_equal 1 [r glearn gp:waiting $first CORRECT 1]
+        assert_equal 0 [r glearn gp:waiting $first CORRECT 1]
+        set info [r ginfo gp:waiting]
+        assert_equal 0 [dict get $info pending]
+        assert_equal 16386 [dict get $info calibration-samples]
+        assert_equal 0 [dict get $info missing]
+        gcmd_check_saveable gp:waiting
+        r del gp:waiting
+    }
+
+    gcmd_test {GPREDICT: a classifier keeps 3,072 requests for training only, 4,096 as proof} {
+        # SPEC 5, "waiting requests: 4,096 (3,072 while they are only wanted
+        # as training examples ...)". A classifier that tests nothing wants
+        # its requests as examples only.
+        r del gp:full:cls
+        gcmd_create_fast gp:full:cls ALPHA 0.2 CLASSES 2 spam ham
+        set rd [redis_deferring_client]
+        for {set i 0} {$i < 3100} {incr i} {$rd gpredict gp:full:cls TEXT "request $i"}
+        set ids {}
+        for {set i 0} {$i < 3100} {incr i} {
             set reply [$rd read]
             assert_equal 2 [llength $reply]
             assert_equal ABSTAIN [lindex $reply 0]
-            if {[lindex $reply 1] eq {}} {incr without} else {incr with_id}
+            # the first 3,072 get an id, the others none
+            if {$i < 3072} {
+                assert {[lindex $reply 1] ne {}}
+                lappend ids [lindex $reply 1]
+            } else {
+                assert_equal [lindex $reply 1] {} "request [expr {$i + 1}] of a classifier that tests nothing"
+            }
+        }
+        set info [r ginfo gp:full:cls]
+        assert_equal COLD [dict get $info state]
+        assert_equal 3072 [dict get $info pending]
+        assert_equal 3100 [dict get $info requests]
+        assert_equal 3100 [dict get $info abstained]
+        # one answer makes room for one request
+        assert_equal 1 [r glearn gp:full:cls [lindex $ids 0] LABEL spam]
+        assert {[lindex [r gpredict gp:full:cls TEXT again] 1] ne {}}
+        assert_equal {ABSTAIN {}} [r gpredict gp:full:cls TEXT again]
+
+        # With a snapshot to test, a request is proof and is kept whatever
+        # waits already, up to 4,096.
+        gcmd_teach gp:full:cls 40
+        assert_equal CALIBRATING [gcmd_info gp:full:cls state]
+        for {set i 0} {$i < 1100} {incr i} {$rd gpredict gp:full:cls TEXT [lindex [gcmd_example $i] 0]}
+        for {set i 0} {$i < 1100} {incr i} {
+            set reply [$rd read]
+            assert_equal ABSTAIN [lindex $reply 0]
+            if {$i < 1024} {
+                assert {[lindex $reply 1] ne {}}
+            } else {
+                assert_equal [lindex $reply 1] {} "request [expr {$i + 1}] behind 3,072 waiting ones"
+            }
         }
         $rd close
-        # 4,200 requests and no answer: some got no id
-        assert {$without > 0}
-        assert {$with_id <= 4096}
         set info [r ginfo gp:full:cls]
-        assert_equal $with_id [dict get $info pending]
-        assert_equal 4200 [dict get $info requests]
-        assert_equal 4200 [dict get $info abstained]
+        assert_equal 4096 [dict get $info pending]
+        assert_equal 4202 [dict get $info requests]
+        assert_equal 4202 [dict get $info abstained]
         r del gp:full:cls
+    }
+
+    gcmd_test {GPREDICT: a classifier keeps 16 MiB of clues for waiting requests} {
+        # SPEC 5, "waiting requests: ... 16 MiB of stored clues". A long
+        # message with many different words has many clues.
+        r del gp:bytes
+        r gcreate gp:bytes ALPHA 0.2 CLASSES 2 a b
+        set words {}
+        for {set i 0} {$i < 1024} {incr i} {lappend words [format %03x $i]}
+        set text [join $words " "]
+        set empty [gcmd_info gp:bytes memory]
+        set first [lindex [r gpredict gp:bytes TEXT $text] 1]
+        assert {$first ne {}}
+        # what one waiting request takes
+        set each [expr {[gcmd_info gp:bytes memory] - $empty}]
+        assert {$each > 8192 && $each < 65536}
+        # The gate is full when the requests that wait hold 16 MiB: the
+        # request that takes them there is the last to get an id.
+        set room [expr {int(ceil(16777216.0 / $each))}]
+        assert {$room < 3072}
+        set rd [redis_deferring_client]
+        for {set i 1} {$i < $room + 20} {incr i} {$rd gpredict gp:bytes TEXT $text}
+        set ids [list $first]
+        for {set i 1} {$i < $room + 20} {incr i} {
+            set reply [$rd read]
+            assert_equal ABSTAIN [lindex $reply 0]
+            if {$i < $room} {
+                assert {[lindex $reply 1] ne {}}
+                lappend ids [lindex $reply 1]
+            } else {
+                assert_equal [lindex $reply 1] {} "request [expr {$i + 1}] when $room requests fill 16 MiB"
+            }
+        }
+        $rd close
+        set info [r ginfo gp:bytes]
+        assert_equal $room [dict get $info pending]
+        assert {[dict get $info memory] - $empty >= 16777216}
+        assert {[dict get $info memory] - $empty < 16777216 + $each}
+        # a short request gets no id either: the gate is full, whatever is asked
+        assert_equal {ABSTAIN {}} [r gpredict gp:bytes TEXT hi]
+        # An answer frees the clues of its request, and a request is taken again.
+        assert_equal 1 [r glearn gp:bytes [lindex $ids 7] LABEL a]
+        assert {[lindex [r gpredict gp:bytes TEXT $text] 1] ne {}}
+        assert_equal {ABSTAIN {}} [r gpredict gp:bytes TEXT $text]
+        r del gp:bytes
     }
 
     # -------------------------------------------------------------- GLEARN
@@ -1801,15 +2590,24 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     }
 
     gcmd_test {GRESET: a paused gate stays paused} {
-        # SPEC.md does not say whether GRESET resumes. A reset that made a
-        # gate somebody paused answer again would be a surprise.
-        r del gadm:pr
+        # "GRESET forgets everything learned and proven and restarts the
+        # counters, but keeps the configuration (and a pause)"
+        r del gadm:pr gadm:pr:cls
         r gcreate gadm:pr ALPHA 0.1 SCORE
-        r gpause gadm:pr
-        assert_equal OK [r greset gadm:pr]
-        assert_equal PAUSED [gcmd_info gadm:pr state]
-        assert_equal OK [r gresume gadm:pr]
-        assert_equal CALIBRATING [gcmd_info gadm:pr state]
+        r gcreate gadm:pr:cls ALPHA 0.1 CLASSES 2 a b
+        foreach {key state} {gadm:pr CALIBRATING gadm:pr:cls COLD} {
+            r gpause $key
+            assert_equal OK [r greset $key]
+            assert_equal PAUSED [gcmd_info $key state]
+            assert_equal OK [r greset $key]
+            assert_equal PAUSED [gcmd_info $key state]
+            assert_equal OK [r gresume $key]
+            assert_equal $state [gcmd_info $key state]
+            # ... and a gate that is not paused is not paused by it
+            assert_equal OK [r greset $key]
+            assert_equal $state [gcmd_info $key state]
+        }
+        r del gadm:pr gadm:pr:cls
     }
 
     # ----------------------------------------------------- missing key, type
@@ -2256,6 +3054,35 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert {[gcmd_info p:score calibration-samples] > 0}
     }
 
+    gcmd_test {GINFO: coverage follows the share of requests the gate can answer} {
+        # "coverage | estimated share of requests the gate can answer now";
+        # a measurement of the primary, counted when requests are asked.
+        r del p:cov
+        r gcreate p:cov ALPHA 0.2 DELTA 0.2 SCORE
+        assert {[gcmd_info p:cov coverage] == 0}
+        gcmd_prove_score p:cov
+        set threshold [lindex [gcmd_info p:cov thresholds] 0]
+        assert {$threshold > 0.1 && $threshold <= 0.9}
+        # every request can be answered
+        gcmd_pipeline_predict p:cov 300 0.9
+        assert {[gcmd_info p:cov coverage] > 0.9}
+        # as many again that cannot: about half
+        gcmd_pipeline_predict p:cov 300 0.05
+        set coverage [gcmd_info p:cov coverage]
+        assert {$coverage > 0.3 && $coverage < 0.7}
+        # the estimate follows the traffic: none can be answered any more
+        gcmd_pipeline_predict p:cov 3500 0.05
+        assert {[gcmd_info p:cov coverage] < 0.1}
+        # ... all of them can again
+        gcmd_pipeline_predict p:cov 3500 0.9
+        assert {[gcmd_info p:cov coverage] > 0.9}
+        assert {[gcmd_info p:cov coverage] <= 1}
+        # a gate that was reset answers nothing
+        r greset p:cov
+        assert {[gcmd_info p:cov coverage] == 0}
+        r del p:cov
+    }
+
     gcmd_test {GPAUSE: a gate that answers stops answering; GRESUME lets it answer again} {
         foreach {key form answer} {p:score {SCORE 0.9} {CORRECT 1}
                                    p:cls {TEXT {meeting at noon tomorrow}} {LABEL ham}} {
@@ -2291,6 +3118,41 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             }
             assert {$accepts > 0}
         }
+    }
+
+    gcmd_test {GPAUSE: where the gate would have replied AUDIT it replies ABSTAIN and still checks itself} {
+        # "where it would have replied ACCEPT or AUDIT it replies ABSTAIN.
+        # Everything else keeps running": the spot check is still wanted,
+        # asked for by its id, and counted when its answer comes.
+        r del p:paudit
+        r gcreate p:paudit ALPHA 0.2 DELTA 0.2 AUDIT 1 SCORE
+        gcmd_prove_score p:paudit
+        set before [r ginfo p:paudit]
+        assert_equal ACTIVE [dict get $before state]
+        assert_equal OK [r gpause p:paudit]
+        for {set i 0} {$i < 20} {incr i} {
+            set reply [r gpredict p:paudit SCORE 0.9]
+            assert_equal ABSTAIN [lindex $reply 0]
+            assert {[lindex $reply 1] ne {}}
+            assert_equal 1 [r glearn p:paudit [lindex $reply 1] CORRECT [expr {$i != 7}]]
+        }
+        set paused [r ginfo p:paudit]
+        assert_equal PAUSED [dict get $paused state]
+        assert_equal OK [r gresume p:paudit]
+        set after [r ginfo p:paudit]
+        r del p:paudit
+        assert_equal ACTIVE [dict get $after state]
+        # 20 requests, none answered by the gate, none called AUDIT ...
+        assert_equal [expr {[dict get $before requests] + 20}] [dict get $after requests]
+        assert_equal [expr {[dict get $before abstained] + 20}] [dict get $after abstained]
+        assert_equal [dict get $before audited] [dict get $after audited]
+        assert_equal [dict get $before accepted] [dict get $after accepted]
+        # ... 20 spot checks answered, one of them a disagreement
+        assert_equal [expr {[dict get $before audit-samples] + 20}] [dict get $after audit-samples]
+        assert_equal [expr {[dict get $before audit-errors] + 1}] [dict get $after audit-errors]
+        assert_equal [dict get $before thresholds] [dict get $after thresholds]
+        assert_equal [dict get $before generation] [dict get $after generation]
+        assert_equal 0 [dict get $after pending]
     }
 
     gcmd_test {GPAUSE: a paused gate proves itself and answers as soon as it is resumed} {
@@ -2403,9 +3265,13 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
 
     # ------------------------------------------------- RESP2 and RESP3, typed
 
-    # A gate that is full, for the null id, and a string.
+    # A gate that is full, for the null id, and a string. (With the longest
+    # feedback timeout there is: its requests must still wait however slow
+    # the machine is today.)
     catch {
+        r config set gate.feedback-timeout 604800000
         r gcreate rp:full ALPHA 0.2 SCORE
+        r config set gate.feedback-timeout 60000
         gcmd_pipeline_predict rp:full 4096 0.5
         r set rp:string value
     }
@@ -2880,6 +3746,232 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert_equal {} [r keys kr:s*]
     }
 
+    gcmd_test {DUMP and RESTORE: the gate comes back with its model and without its proof} {
+        # "DUMP / RESTORE ... work as for any key". SPEC 3 "Redis": Redis
+        # cannot show that nothing was lost, so the gate keeps its model,
+        # drops its proof and its waiting requests, and proves itself again.
+        foreach kind {score classifier} {
+            r del kdr:src kdr:dst kdr:ttl
+            if {$kind eq "score"} {
+                r gcreate kdr:src ALPHA 0.2 DELTA 0.2 AUDIT 1 SCORE
+                gcmd_prove_score kdr:src
+                set ask {SCORE 0.9}
+                set answer {CORRECT 1}
+            } else {
+                gcmd_create_fast kdr:src ALPHA 0.2 DELTA 0.2 AUDIT 1 CLASSES 2 spam ham
+                gcmd_prove_classifier kdr:src
+                set ask {TEXT {buy cheap pills now}}
+                set answer {LABEL spam}
+            }
+            # a spot check that waits
+            lassign [r gpredict kdr:src {*}$ask] action waiting
+            assert_equal AUDIT $action
+            set before [r ginfo kdr:src]
+            assert_equal ACTIVE [dict get $before state]
+            assert_equal 1 [dict get $before pending]
+
+            set payload [r dump kdr:src]
+            assert_equal OK [r restore kdr:dst 0 $payload]
+            assert_equal gate-type [r type kdr:dst]
+            assert_equal [debug_digest_value kdr:src] [debug_digest_value kdr:dst]
+            assert {[r memory usage kdr:dst] > 0}
+            # A command that is refused or finds nothing to do is not a
+            # write: the copy is still what was dumped.
+            assert_error "ERR *" {r gpredict kdr:dst BOGUS x}
+            assert_error "ERR *" {r glearn kdr:dst $waiting BOGUS x}
+            assert_equal 0 [r glearn kdr:dst not-an-id {*}$answer]
+            assert_error "BUSYKEY*" {r gcreate kdr:dst ALPHA 0.2 SCORE}
+            r ginfo kdr:dst
+            assert_equal [debug_digest_value kdr:src] [debug_digest_value kdr:dst]
+
+            # GINFO shows the copy as its first write will leave it: what
+            # was configured, learned and counted is there, what was
+            # proven and what waited is not.
+            set shown [r ginfo kdr:dst]
+            foreach field {kind alpha delta audit classes alphas learned requests accepted audited
+                           abstained missing revocations} {
+                assert_equal [dict get $shown $field] [dict get $before $field] "$kind: $field after RESTORE"
+            }
+            assert_equal CALIBRATING [dict get $shown state]
+            assert_equal 0 [dict get $shown generation]
+            assert {[dict get $shown candidate] > [dict get $before generation]}
+            assert {[dict get $shown candidate] > [dict get $before candidate]}
+            foreach threshold [dict get $shown thresholds] {assert_equal {} $threshold}
+            foreach field {pending audit-samples audit-errors calibration-samples} {
+                assert_equal [dict get $shown $field] 0 "$kind: $field after RESTORE"
+            }
+            assert {[dict get $shown coverage] == 0}
+
+            # The first write: the request that waited is not known to the copy.
+            assert_equal 0 [r glearn kdr:dst $waiting {*}$answer]
+            assert_equal [dict remove [r ginfo kdr:dst] memory] [dict remove $shown memory]
+            # It answers nothing, asks for the teacher, and proves itself again.
+            lassign [r gpredict kdr:dst {*}$ask] action id
+            assert_equal ABSTAIN $action
+            assert_equal 1 [r glearn kdr:dst $id {*}$answer]
+            for {set i 0} {$i < 400 && [gcmd_info kdr:dst state] ne "ACTIVE"} {incr i} {
+                if {$kind eq "score"} {
+                    gcmd_ask_score kdr:dst 1 0.9 1
+                } else {
+                    lassign [gcmd_example $i] text label
+                    lassign [r gpredict kdr:dst TEXT $text] action id
+                    if {$id ne {}} {r glearn kdr:dst $id LABEL $label}
+                }
+            }
+            set again [r ginfo kdr:dst]
+            assert_equal ACTIVE [dict get $again state]
+            # under a snapshot number of its own
+            assert {[dict get $again generation] > [dict get $before generation]}
+
+            # The gate that was dumped is as it was.
+            assert_equal $before [r ginfo kdr:src]
+            assert_equal 1 [r glearn kdr:src $waiting {*}$answer]
+
+            # RESTORE keeps its own rules: an existing key, REPLACE, a time to live.
+            assert_error "BUSYKEY*" {r restore kdr:dst 0 $payload}
+            assert_equal ACTIVE [gcmd_info kdr:dst state]
+            assert_equal OK [r restore kdr:dst 0 $payload REPLACE]
+            assert_equal CALIBRATING [gcmd_info kdr:dst state]
+            assert_equal OK [r restore kdr:ttl 100000 $payload]
+            assert_range [r pttl kdr:ttl] 1 100000
+            assert_equal ABSTAIN [lindex [r gpredict kdr:ttl {*}$ask] 0]
+            assert_range [r pttl kdr:ttl] 1 100000
+            # a payload that is not a dump of a gate creates nothing
+            assert_error "ERR*" {r restore kdr:bad 0 [string range $payload 0 end-12]}
+            assert_error "ERR*" {r restore kdr:bad 0 garbage}
+            assert_equal 0 [r exists kdr:bad]
+        }
+        r del kdr:src kdr:dst kdr:ttl
+    }
+
+    gcmd_test {RESTORE: GINFO shows a loaded gate as its first write will leave it, whatever it was} {
+        r del kdr:a kdr:b kdr:c kdr:d kdr:e kdr:f kdr:g
+        # a new score gate; one that answers; one that answers and is paused
+        r gcreate kdr:a ALPHA 0.2 DELTA 0.2 SCORE
+        r gcreate kdr:b ALPHA 0.2 DELTA 0.2 SCORE
+        gcmd_prove_score kdr:b
+        r gcreate kdr:c ALPHA 0.2 DELTA 0.2 AUDIT 1 SCORE
+        gcmd_prove_score kdr:c
+        r gpredict kdr:c SCORE 0.9
+        r gpause kdr:c
+        # a classifier that has not learned enough for a snapshot (paused),
+        # one that tests its first snapshot with requests waiting, one that
+        # answers and tests its second
+        gcmd_create_fast kdr:d ALPHA 0.2 DELTA 0.2 CLASSES 3 spam ham other ALWAYSDEFER 1 other
+        gcmd_teach kdr:d 7
+        r gpredict kdr:d TEXT "buy cheap pills now"
+        r gpause kdr:d
+        gcmd_create_fast kdr:e ALPHA 0.2 DELTA 0.2 CLASSES 2 spam ham CLASSALPHA 1 ham 0.1
+        gcmd_teach kdr:e 45
+        for {set i 0} {$i < 9} {incr i} {r gpredict kdr:e TEXT [lindex [gcmd_example $i] 0]}
+        gcmd_create_fast kdr:f ALPHA 0.2 DELTA 0.2 CLASSES 2 spam ham
+        gcmd_prove_classifier kdr:f
+        # a gate that is full
+        r gcreate kdr:g ALPHA 0.2 SCORE
+        gcmd_pipeline_predict kdr:g 4096 0.5
+        foreach {key state} {kdr:a CALIBRATING kdr:b ACTIVE kdr:c PAUSED kdr:d PAUSED kdr:e CALIBRATING
+                             kdr:f ACTIVE kdr:g CALIBRATING} {
+            assert_equal [gcmd_info $key state] $state "the gate $key"
+            gcmd_check_saveable $key
+            gcmd_check_recovery $key
+        }
+        # (what the copies will be: a classifier is COLD again only if it
+        # has not learned enough for a snapshot)
+        r restore kdr:copy 0 [r dump kdr:d]
+        assert_equal PAUSED [gcmd_info kdr:copy state]
+        r gresume kdr:copy
+        assert_equal COLD [gcmd_info kdr:copy state]
+        assert_equal 7 [gcmd_info kdr:copy learned]
+        r del kdr:copy
+        r restore kdr:copy 0 [r dump kdr:g]
+        assert_equal 0 [gcmd_info kdr:copy pending]
+        lassign [r gpredict kdr:copy SCORE 0.5] action id
+        assert {$id ne {}}
+        r del kdr:copy kdr:a kdr:b kdr:c kdr:d kdr:e kdr:f kdr:g
+    }
+
+    gcmd_test {RESTORE: a payload at the end of what the module accepts stays a gate that can be loaded} {
+        # A DUMP payload is bytes anybody may write: the value, the RDB
+        # version and a checksum. What the module cannot hold it refuses.
+        # The two payloads here it accepts: a new gate with one waiting
+        # request, with its clock moved to the last moment the module
+        # takes (7 days before the end of 64 bits), or with its count of
+        # requests moved to the largest the module takes (2^62). Either
+        # those are refused too, or the gate must stay a gate while clients
+        # use it: a gate that its own DUMP cannot bring back turns the next
+        # RDB file into one the server cannot load.
+        r del kdr:edge kdr:edge:copy
+        assert_equal 0xe9c6d914c4b8d9ca [format 0x%x [gcmd_crc64 123456789]]
+        r config set rdbcompression no
+        r gcreate kdr:edge ALPHA 0.2 DELTA 0.2 SCORE
+        set id [lindex [r gpredict kdr:edge SCORE 0.5] 1]
+        set payload [r dump kdr:edge]
+        r config set rdbcompression yes
+        binary scan [string range $payload end-7 end] wu checksum
+        assert_equal $checksum [gcmd_crc64 [string range $payload 0 end-8]]
+        set body [string range $payload 0 end-8]
+
+        # Where things are in the value (gate_codec.c). One after the
+        # other: the number the ids of the gate start with, the time it was
+        # created, its clock. Further on: the number of the next request,
+        # how many wait, and the first of them with its number and its time.
+        set at [string first [binary format w 0x[string range $id 0 15]] $body]
+        assert {$at > 0}
+        binary scan [string range $body [expr {$at + 8}] [expr {$at + 23}]] ww created clock
+        set wall [clock milliseconds]
+        if {abs($created - $wall) > 600000 || abs($clock - $wall) > 600000 || $clock < $created} {
+            fail "the clock of a gate is not where this test looks for it in a DUMP payload"
+        }
+        # (the last such pair: a snapshot taken in the same millisecond
+        # has the number 1 and that time too)
+        set waiting [string last [binary format ww 1 $clock] $body]
+        set next_number -1
+        set waiting_count -1
+        if {$waiting >= 12} {
+            binary scan [string range $body [expr {$waiting - 12}] [expr {$waiting - 1}]] wi next_number waiting_count
+        }
+        if {$next_number != 2 || $waiting_count != 1} {
+            fail "the request counter of a gate is not where this test looks for it in a DUMP payload"
+        }
+        set last_clock [expr {9223372036854775807 - 7 * 86400 * 1000}]
+        set last_count [expr {1 << 62}]
+
+        # (one step further the module refuses both)
+        foreach {offset value} [list [expr {$at + 16}] [expr {$last_clock + 1}] \
+                                     [expr {$waiting - 12}] [expr {$last_count + 1}]] {
+            set bad [string replace $body $offset [expr {$offset + 7}] [binary format w $value]]
+            assert_error "ERR*" {r restore kdr:edge:copy 0 $bad[binary format w [gcmd_crc64 $bad]]}
+        }
+
+        set failures {}
+        foreach {what offset value} [list \
+            "the clock $last_clock"        [expr {$at + 16}]      $last_clock \
+            "the next request number 2^62" [expr {$waiting - 12}] $last_count \
+        ] {
+            r del kdr:edge:copy
+            set forged [string replace $body $offset [expr {$offset + 7}] [binary format w $value]]
+            append forged [binary format w [gcmd_crc64 $forged]]
+            if {[catch {r restore kdr:edge:copy 0 $forged}]} continue
+            if {[catch {
+                gcmd_check_saveable kdr:edge:copy "as restored"
+                # a client uses the gate
+                lassign [r gpredict kdr:edge:copy SCORE 0.5] action first
+                assert_equal ABSTAIN $action
+                after 5
+                lassign [r gpredict kdr:edge:copy SCORE 0.5] action second
+                assert_equal 1 [r glearn kdr:edge:copy $second CORRECT 1]
+                after 5
+                assert_equal OK [r gpause kdr:edge:copy]
+                gcmd_check_saveable kdr:edge:copy "after GPREDICT, GPREDICT, GLEARN and GPAUSE some milliseconds apart"
+            } err]} {
+                regsub {^assertion:} $err {} err
+                lappend failures "RESTORE of a payload with $what is accepted, and then: $err"
+            }
+        }
+        r del kdr:edge kdr:edge:copy
+        if {[llength $failures]} {fail [join $failures "\n"]}
+    }
+
     gcmd_test {a proven gate keeps answering after RENAME} {
         r del kr:proven kr:proven2
         r gcreate kr:proven ALPHA 0.2 DELTA 0.2 SCORE
@@ -3300,7 +4392,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             {_GATE.APPLY ap:gate PAUSE 0}
             {_GATE.APPLY ap:gate RESET 0 0000000000000001}
             {_GATE.APPLY ap:gate RECOVER 0 0000000000000001}
-            {_GATE.APPLY ap:new CREATE 0 0000000000000001 0000000000000002 1000 300000 ALPHA 0.1 SCORE}
+            {_GATE.APPLY ap:new CREATE 0 0000000000000001 0000000000000002 1000 60000 ALPHA 0.1 SCORE}
             {_GATE.APPLY ap:new RESTORE garbage}
             {_GATE.APPLY ap:gate}
             {_GATE.APPLY}
@@ -3325,10 +4417,74 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         # not from a script
         assert_error "*" {r eval {return redis.call('_GATE.APPLY', KEYS[1], 'PAUSE', '0')} 1 ap:gate}
         assert_error "*" {r eval {return redis.call('_gate.apply', KEYS[1], 'CREATE', '0',
-            '0000000000000001', '0000000000000002', '1000', '300000', 'ALPHA', '0.1', 'SCORE')} 1 ap:new}
+            '0000000000000001', '0000000000000002', '1000', '60000', 'ALPHA', '0.1', 'SCORE')} 1 ap:new}
 
         assert_equal $before [gcmd_state ap:gate]
         assert_equal 0 [r exists ap:new]
+    }
+
+    gcmd_test {_GATE.APPLY is not listed among the commands} {
+        assert_equal {{}} [r command info _gate.apply]
+        assert_equal {{}} [r command info _GATE.APPLY]
+        assert_equal {} [r command docs _gate.apply]
+        assert_equal {gadd gcreate ginfo glearn gpause gpredict greset gresume} \
+            [lsort [string tolower [r command list filterby module gate]]]
+        assert_equal {} [r command list filterby pattern _gate*]
+        assert_equal {} [r command list filterby pattern _GATE*]
+        foreach name [r command list] {
+            assert {![string match -nocase "_gate*" $name]}
+        }
+        # no ACL category gives it away
+        foreach category [r acl cat] {
+            foreach name [r acl cat $category] {
+                assert {![string match -nocase "_gate*" $name]}
+            }
+        }
+    }
+
+    gcmd_test {out of memory: requests are refused with an error, answers and administration are taken} {
+        # SPEC.md does not say what a gate does when the server is over
+        # its memory limit. "If Redis ... returns an error, call the
+        # teacher" covers the commands that make a gate hold more
+        # (GCREATE, GPREDICT, GADD); what lets it hold less or stop must
+        # get through: the answers it waits for, GPAUSE, GRESUME, GRESET,
+        # DEL, and GINFO.
+        foreach {name refused} {gcreate 1 gpredict 1 gadd 1 glearn 0 ginfo 0 gpause 0 gresume 0 greset 0} {
+            set flags [lindex [lindex [r command info $name] 0] 2]
+            assert_equal [expr {"denyoom" in $flags}] $refused "the denyoom flag of $name"
+        }
+        r del oom:score oom:cls oom:new
+        r gcreate oom:score ALPHA 0.2 DELTA 0.2 SCORE
+        r gcreate oom:cls ALPHA 0.2 CLASSES 2 a b
+        set score_id [lindex [r gpredict oom:score SCORE 0.5] 1]
+        set cls_id [lindex [r gpredict oom:cls TEXT hello] 1]
+        set before [list [gcmd_state oom:score] [gcmd_state oom:cls]]
+        assert_equal noeviction [lindex [r config get maxmemory-policy] 1]
+        r config set maxmemory 1
+        set rc [catch {
+            assert_error "OOM *" {r gpredict oom:score SCORE 0.5}
+            assert_error "OOM *" {r gpredict oom:cls TEXT hello}
+            assert_error "OOM *" {r gadd oom:cls TEXT hello LABEL a}
+            assert_error "OOM *" {r gcreate oom:new ALPHA 0.2 SCORE}
+            assert_equal $before [list [gcmd_state oom:score] [gcmd_state oom:cls]]
+            assert_equal 0 [r exists oom:new]
+            assert_equal 1 [r glearn oom:score $score_id CORRECT 1]
+            assert_equal 1 [r glearn oom:cls $cls_id LABEL a]
+            assert_equal 0 [r glearn oom:cls $cls_id LABEL a]
+            foreach key {oom:score oom:cls} {
+                assert_equal 0 [gcmd_info $key pending]
+                assert_equal OK [r gpause $key]
+                assert_equal PAUSED [gcmd_info $key state]
+                assert_equal OK [r gresume $key]
+                assert_equal OK [r greset $key]
+            }
+        } err]
+        r config set maxmemory 0
+        if {$rc} {error $err}
+        # with memory to spare the gates take requests again
+        assert_equal ABSTAIN [lindex [r gpredict oom:score SCORE 0.5] 0]
+        assert_equal 1 [r gadd oom:cls TEXT hello LABEL a]
+        assert_equal 2 [r del oom:score oom:cls]
     }
 
     gcmd_test {the server is still up (COMMAND and ACL)} {
@@ -3342,13 +4498,19 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
 
 start_server [list tags {"modules external:skip"} overrides [list loadmodule $gatemodule]] {
 
-    gcmd_test {CONFIG GET: the three settings and their defaults} {
+    gcmd_test {CONFIG GET: the two settings and their defaults; the testing seed is hidden} {
+        # SPEC 5: 1,000 examples, 1 minute (milliseconds).
         assert_equal {gate.snapshot-examples 1000} [r config get gate.snapshot-examples]
-        assert_equal {gate.feedback-timeout 300000} [r config get gate.feedback-timeout]
+        assert_equal {gate.feedback-timeout 60000} [r config get gate.feedback-timeout]
+        # A pattern lists the two settings of SPEC.md and not the seed ...
+        assert_equal {gate.feedback-timeout 60000 gate.snapshot-examples 1000} \
+            [lsort -stride 2 [r config get gate.*]]
+        assert {![dict exists [r config get *] gate.test-seed]}
+        assert {![dict exists [r config get *seed*] gate.test-seed]}
+        assert_equal {gate.feedback-timeout gate.snapshot-examples} \
+            [lsort [dict keys [r config get gate.feedback-timeout gate.snapshot-examples gate.t*]]]
+        # ... which is there for whoever asks for it by name: 0, not seeded.
         assert_equal {gate.test-seed 0} [r config get gate.test-seed]
-        set all [r config get gate.*]
-        assert_equal {gate.feedback-timeout gate.snapshot-examples gate.test-seed} \
-            [lsort [dict keys $all]]
     }
 
     gcmd_test {CONFIG SET: values in range are stored} {
@@ -3358,7 +4520,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             gate.snapshot-examples 1          gate.snapshot-examples 20
             gate.snapshot-examples 1000000000 gate.snapshot-examples 1000
             gate.feedback-timeout 1           gate.feedback-timeout 1000
-            gate.feedback-timeout 604800000   gate.feedback-timeout 300000
+            gate.feedback-timeout 604800000   gate.feedback-timeout 60000
             gate.test-seed 1                  gate.test-seed 9223372036854775807
             gate.test-seed 0
         } {
@@ -3370,7 +4532,9 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert_equal 7 [dict get [r config get gate.snapshot-examples] gate.snapshot-examples]
         assert_equal 7000 [dict get [r config get gate.feedback-timeout] gate.feedback-timeout]
         assert_equal 7 [dict get [r config get gate.test-seed] gate.test-seed]
-        assert_equal OK [r config set gate.snapshot-examples 1000 gate.feedback-timeout 300000 gate.test-seed 0]
+        # a seed that is set stays out of patterns all the same
+        assert_equal {gate.feedback-timeout gate.snapshot-examples} [lsort [dict keys [r config get gate.*]]]
+        assert_equal OK [r config set gate.snapshot-examples 1000 gate.feedback-timeout 60000 gate.test-seed 0]
     }
 
     gcmd_test {CONFIG SET: values out of range are refused and change nothing} {
@@ -3390,7 +4554,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         # one bad value refuses the whole command
         assert_error "ERR*" {r config set gate.snapshot-examples 5 gate.feedback-timeout 0}
         assert_equal {gate.snapshot-examples 1000} [r config get gate.snapshot-examples]
-        assert_equal {gate.feedback-timeout 300000} [r config get gate.feedback-timeout]
+        assert_equal {gate.feedback-timeout 60000} [r config get gate.feedback-timeout]
         assert_equal {gate.test-seed 0} [r config get gate.test-seed]
     }
 
@@ -3406,7 +4570,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             # with a step of one example the first snapshot is there already
             assert_equal [expr {$examples == 1 ? 1 : 0}] [gcmd_info cf:edge:cls candidate]
         }
-        r config set gate.snapshot-examples 1000 gate.feedback-timeout 300000
+        r config set gate.snapshot-examples 1000 gate.feedback-timeout 60000
         r del cf:edge:cls cf:edge:score
     }
 
@@ -3450,7 +4614,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         r config set gate.feedback-timeout 1
         r gcreate cf:fast ALPHA 0.1 SCORE
         r gcreate cf:fast:cls ALPHA 0.1 CLASSES 2 a b
-        r config set gate.feedback-timeout 300000
+        r config set gate.feedback-timeout 60000
         r gcreate cf:slow ALPHA 0.1 SCORE
 
         lassign [r gpredict cf:fast SCORE 0.5] action fast
@@ -3468,6 +4632,10 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert_equal 0 [dict get $info pending]
         assert_equal 0 [gcmd_info cf:fast:cls pending]
         assert_equal 0 [gcmd_info cf:fast:cls learned]
+        # The request of a classifier that tests nothing was wanted as an
+        # example only: it is forgotten, not missing ("requests that were
+        # needed as proof and never got their GLEARN").
+        assert_equal 0 [gcmd_info cf:fast:cls missing]
         set info [r ginfo cf:slow]
         assert_equal 0 [dict get $info missing]
         assert_equal 1 [dict get $info calibration-samples]
@@ -3541,19 +4709,22 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
 }
 
 # ============================================================================
-# 5. MULTI/EXEC and Lua
+# 5. MULTI/EXEC, WATCH, client-side caching and Lua
 # ============================================================================
 
 start_server [list tags {"modules external:skip"} overrides [list loadmodule $gatemodule]] {
     r config set gate.test-seed 77003
 
-    # A gate that answers, one that only audits, one that is full.
+    # A gate that answers, one that only audits, one that is full (and
+    # stays full: its requests wait for a week).
     catch {
         r gcreate tx:proven ALPHA 0.2 DELTA 0.2 SCORE
         gcmd_prove_score tx:proven
         r gcreate tx:audit ALPHA 0.2 DELTA 0.2 AUDIT 1 SCORE
         gcmd_prove_score tx:audit
+        r config set gate.feedback-timeout 604800000
         r gcreate tx:full ALPHA 0.2 SCORE
+        r config set gate.feedback-timeout 60000
         gcmd_pipeline_predict tx:full 4096 0.5
     }
 
@@ -3621,6 +4792,343 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert_equal OK [r discard]
         assert_equal $before [gcmd_state tx:score]
         assert_equal 0 [r exists tx:never]
+    }
+
+    gcmd_test {MULTI/EXEC: answers out of order inside one transaction} {
+        # Proof is counted in request order (SPEC 3): an answer is used at
+        # once (GLEARN replies 1, the request no longer waits for GLEARN)
+        # and counts as proof when the older answers are there.
+        catch {r discard}
+        r del tx:order
+        r gcreate tx:order ALPHA 0.2 DELTA 0.2 SCORE
+        r multi
+        for {set i 0} {$i < 4} {incr i} {r gpredict tx:order SCORE 0.9}
+        r ginfo tx:order
+        set replies [r exec]
+        set ids [lmap reply [lrange $replies 0 3] {lindex $reply 1}]
+        assert_equal 4 [llength [lsort -unique $ids]]
+        assert_equal 4 [dict get [lindex $replies 4] pending]
+        lassign $ids id1 id2 id3 id4
+
+        r multi
+        r glearn tx:order $id4 CORRECT 1
+        r ginfo tx:order
+        r glearn tx:order $id2 CORRECT 0
+        r ginfo tx:order
+        r glearn tx:order $id4 CORRECT 1
+        r glearn tx:order $id1 CORRECT 1
+        r ginfo tx:order
+        r glearn tx:order $id3 CORRECT 1
+        r ginfo tx:order
+        r glearn tx:order $id1 CORRECT 0
+        set replies [r exec]
+        assert_equal 10 [llength $replies]
+        assert_equal {1 1 0 1 1 0} [list [lindex $replies 0] [lindex $replies 2] [lindex $replies 4] \
+                                        [lindex $replies 5] [lindex $replies 7] [lindex $replies 9]]
+        foreach {at pending samples} {1 3 0  3 2 0  6 1 2  8 0 4} {
+            set info [lindex $replies $at]
+            assert_equal [dict get $info pending] $pending "pending in reply $at"
+            assert_equal [dict get $info calibration-samples] $samples "calibration-samples in reply $at"
+        }
+        r del tx:order
+    }
+
+    # --------------------------------------- WATCH and client-side caching
+
+    gcmd_test {WATCH: a command that is refused or finds nothing to do does not abort the transaction} {
+        # CHANGES 6: keys are signalled as modified only when a command
+        # changed the gate.
+        catch {r discard}
+        r del tx:w:score tx:w:cls tx:w:string tx:w:missing
+        r gcreate tx:w:score ALPHA 0.2 DELTA 0.2 SCORE
+        r gcreate tx:w:cls ALPHA 0.2 DELTA 0.2 CLASSES 2 a b
+        r set tx:w:string value
+        set score_id [lindex [r gpredict tx:w:score SCORE 0.5] 1]
+        set cls_id [lindex [r gpredict tx:w:cls TEXT hello] 1]
+        set w [redis_client]
+        foreach {key cmd pattern} [list \
+            tx:w:score {gcreate tx:w:score ALPHA 0.2 SCORE}                   {BUSYKEY*} \
+            tx:w:score {gcreate tx:w:score ALPHA 7 BOGUS}                     {BUSYKEY*} \
+            tx:w:cls   {gcreate tx:w:cls ALPHA 0.2 CLASSES 2 a b}             {BUSYKEY*} \
+            tx:w:score {gpredict tx:w:score SCORE 7}                          {ERR *} \
+            tx:w:score {gpredict tx:w:score SCORE nan}                        {ERR *} \
+            tx:w:score {gpredict tx:w:score TEXT hello}                       {ERR *} \
+            tx:w:score {gpredict tx:w:score SCORE 0.5 extra}                  {ERR *} \
+            tx:w:score {gpredict tx:w:score}                                  {ERR wrong number*} \
+            tx:w:cls   {gpredict tx:w:cls SCORE 0.5}                          {ERR *} \
+            tx:w:cls   {gpredict tx:w:cls TEXT hello FEATURES 2 x 1 x 2}      {ERR *} \
+            tx:w:cls   {gpredict tx:w:cls TEXT hello FEATURES 1 x inf}        {ERR *} \
+            tx:w:cls   [list gpredict tx:w:cls TEXT [string repeat x 1048577]] {ERR *} \
+            tx:w:score [list glearn tx:w:score $score_id CORRECT 2]           {ERR *} \
+            tx:w:score [list glearn tx:w:score $score_id LABEL a]             {ERR *} \
+            tx:w:score [list glearn tx:w:score $score_id CORRECT]             {ERR wrong number*} \
+            tx:w:cls   [list glearn tx:w:cls $cls_id LABEL nosuch]            {ERR *} \
+            tx:w:cls   [list glearn tx:w:cls $cls_id CORRECT 1]               {ERR *} \
+            tx:w:score {gadd tx:w:score TEXT hello LABEL a}                   {ERR *} \
+            tx:w:cls   {gadd tx:w:cls TEXT hello LABEL nosuch}                {ERR *} \
+            tx:w:cls   {gadd tx:w:cls TEXT hello FEATURES 1 x LABEL a}        {ERR *} \
+            tx:w:cls   {gadd tx:w:cls TEXT hello}                             {ERR wrong number*} \
+            tx:w:score {ginfo tx:w:score extra}                               {ERR wrong number*} \
+            tx:w:score {gpause tx:w:score extra}                              {ERR wrong number*} \
+            tx:w:score {gresume tx:w:score extra}                             {ERR wrong number*} \
+            tx:w:score {greset tx:w:score extra}                              {ERR wrong number*} \
+            tx:w:string {gpredict tx:w:string SCORE 0.5}                      {WRONGTYPE*} \
+            tx:w:string {glearn tx:w:string some-id CORRECT 1}                {WRONGTYPE*} \
+            tx:w:string {gadd tx:w:string TEXT hello LABEL a}                 {WRONGTYPE*} \
+            tx:w:string {ginfo tx:w:string}                                   {WRONGTYPE*} \
+            tx:w:string {gpause tx:w:string}                                  {WRONGTYPE*} \
+            tx:w:string {gresume tx:w:string}                                 {WRONGTYPE*} \
+            tx:w:string {greset tx:w:string}                                  {WRONGTYPE*} \
+            tx:w:string {gcreate tx:w:string ALPHA 0.2 SCORE}                 {BUSYKEY*} \
+            tx:w:missing {gpredict tx:w:missing SCORE 0.5}                    {ERR no such key} \
+            tx:w:missing {glearn tx:w:missing some-id CORRECT 1}              {ERR no such key} \
+            tx:w:missing {gadd tx:w:missing TEXT hello LABEL a}               {ERR no such key} \
+            tx:w:missing {ginfo tx:w:missing}                                 {ERR no such key} \
+            tx:w:missing {gpause tx:w:missing}                                {ERR no such key} \
+            tx:w:missing {gresume tx:w:missing}                               {ERR no such key} \
+            tx:w:missing {greset tx:w:missing}                                {ERR no such key} \
+            tx:w:missing {gcreate tx:w:missing ALPHA 7 SCORE}                 {ERR *} \
+            tx:w:missing {gcreate tx:w:missing ALPHA 0.2 CLASSES 1 a}         {ERR *} \
+        ] {
+            set shown "command: [string range $cmd 0 100]"
+            set aborted [gcmd_aborts_watch $w $key $cmd reply]
+            assert_match $pattern $reply $shown
+            assert_equal $aborted 0 "a WATCH on $key was aborted by a refused $shown"
+        }
+        # GLEARN with something that is not an id of any gate: reply 0,
+        # nothing to do.
+        foreach id [list garbage {} x-1 0123456789abcdef 0123456789abcdef- 0123456789abcdef-0 \
+                        0123456789abcdef-01 0123456789abcdefg-1 "$score_id " "x$score_id" \
+                        [string repeat 9 100]] {
+            set aborted [gcmd_aborts_watch $w tx:w:score [list glearn tx:w:score $id CORRECT 1] reply]
+            assert_equal $reply 0 "GLEARN with the id '$id'"
+            assert_equal $aborted 0 "a WATCH was aborted by GLEARN with the malformed id '$id'"
+        }
+        # Reading is not a change either.
+        foreach key {tx:w:score tx:w:cls} {
+            set aborted [gcmd_aborts_watch $w $key [list ginfo $key] reply]
+            assert_equal [dict get $reply pending] 1
+            assert_equal $aborted 0 "a WATCH on $key was aborted by GINFO"
+        }
+        $w close
+        # The requests that waited all along are still there.
+        assert_equal 1 [r glearn tx:w:score $score_id CORRECT 1]
+        assert_equal 1 [r glearn tx:w:cls $cls_id LABEL a]
+        assert_equal 0 [r exists tx:w:missing]
+        assert_equal value [r get tx:w:string]
+    }
+
+    gcmd_test {WATCH: a command that changes the gate aborts the transaction} {
+        catch {r discard}
+        r del tx:w:score tx:w:cls tx:w:new
+        r gcreate tx:w:score ALPHA 0.2 DELTA 0.2 SCORE
+        r gcreate tx:w:cls ALPHA 0.2 DELTA 0.2 CLASSES 2 a b
+        set w [redis_client]
+        # a request that is recorded, and its answer
+        foreach {key ask answer} {tx:w:score {SCORE 0.5} {CORRECT 1} tx:w:cls {TEXT hello} {LABEL a}} {
+            assert_equal 1 [gcmd_aborts_watch $w $key [list gpredict $key {*}$ask] reply] "GPREDICT $key"
+            assert_equal ABSTAIN [lindex $reply 0]
+            set id [lindex $reply 1]
+            assert_equal 1 [gcmd_aborts_watch $w $key [list glearn $key $id {*}$answer] reply] "GLEARN $key"
+            assert_equal 1 $reply
+        }
+        assert_equal 1 [gcmd_aborts_watch $w tx:w:cls {gadd tx:w:cls TEXT hello LABEL b} reply]
+        assert_equal 2 $reply
+        foreach key {tx:w:score tx:w:cls} {
+            assert_equal 1 [gcmd_aborts_watch $w $key [list gpause $key] reply] "GPAUSE $key"
+            assert_equal OK $reply
+            assert_equal 1 [gcmd_aborts_watch $w $key [list gresume $key] reply] "GRESUME $key"
+            assert_equal OK $reply
+            assert_equal 1 [gcmd_aborts_watch $w $key [list greset $key] reply] "GRESET $key"
+            assert_equal OK $reply
+        }
+        # GCREATE: a key that was watched while it did not exist
+        assert_equal 1 [gcmd_aborts_watch $w tx:w:new {gcreate tx:w:new ALPHA 0.2 SCORE} reply]
+        assert_equal OK $reply
+        # ... and DEL, like any key
+        assert_equal 1 [gcmd_aborts_watch $w tx:w:new {del tx:w:new} reply]
+
+        # A request the gate answers by itself: GINFO no longer shows what
+        # the transaction read (requests, accepted). Also a spot check, a
+        # request below the threshold, and a request to a full gate.
+        set seen {}
+        for {set i 0} {$i < 200 && [llength [lsort -unique $seen]] < 2} {incr i} {
+            set aborted [gcmd_aborts_watch $w tx:proven {gpredict tx:proven SCORE 0.9} reply]
+            lassign $reply action id
+            lappend seen $action
+            assert_equal $aborted 1 "a WATCH survived GPREDICT replying $action"
+            if {$action eq "AUDIT"} {r glearn tx:proven $id CORRECT 1}
+        }
+        assert_equal {ACCEPT AUDIT} [lsort -unique $seen]
+        assert_equal 1 [gcmd_aborts_watch $w tx:proven {gpredict tx:proven SCORE 0.05} reply]
+        assert_equal ABSTAIN [lindex $reply 0]
+        if {[lindex $reply 1] ne {}} {r glearn tx:proven [lindex $reply 1] CORRECT 0}
+        assert_equal 1 [gcmd_aborts_watch $w tx:full {gpredict tx:full SCORE 0.5} reply]
+        assert_equal {ABSTAIN {}} $reply
+        $w close
+    }
+
+    gcmd_test {WATCH: the transaction of the same connection sees its own gate commands} {
+        # A connection may WATCH a gate, look at it and change it in a
+        # transaction; only somebody else's change aborts it.
+        catch {r discard}
+        r del tx:w:score
+        r gcreate tx:w:score ALPHA 0.2 DELTA 0.2 SCORE
+        r watch tx:w:score
+        set pending [gcmd_info tx:w:score pending]
+        r multi
+        r gpredict tx:w:score SCORE 0.5
+        r ginfo tx:w:score
+        set replies [r exec]
+        assert_equal 2 [llength $replies]
+        assert_equal [expr {$pending + 1}] [dict get [lindex $replies 1] pending]
+        # the same, with a request of another connection in between
+        set other [redis_client]
+        r watch tx:w:score
+        $other gpredict tx:w:score SCORE 0.5
+        r multi
+        r gpredict tx:w:score SCORE 0.5
+        assert_equal {} [r exec]
+        assert_equal [expr {$pending + 2}] [gcmd_info tx:w:score pending]
+        # a refused command of the other connection changes nothing for us
+        r watch tx:w:score
+        catch {$other gpredict tx:w:score SCORE 9}
+        catch {$other gcreate tx:w:score ALPHA 0.2 SCORE}
+        $other glearn tx:w:score not-an-id CORRECT 1
+        r multi
+        r gpredict tx:w:score SCORE 0.5
+        assert_equal 1 [llength [r exec]]
+        $other close
+        r del tx:w:score
+    }
+
+    gcmd_test {an ACCEPT, a refused command and GINFO leave nothing to replicate or to save} {
+        # SPEC 3 "Redis": "An ACCEPT is not replicated and not written to
+        # the AOF". What a server has to send on or to save shows, on a
+        # server alone, in its count of changes since the last save.
+        r del tx:d:score tx:d:cls tx:d:new
+        r gcreate tx:d:score ALPHA 0.2 DELTA 0.2 SCORE
+        r gcreate tx:d:cls ALPHA 0.2 DELTA 0.2 CLASSES 2 a b
+        set waiting [lindex [r gpredict tx:d:score SCORE 0.5] 1]
+        foreach cmd [list \
+            {ginfo tx:d:score} {ginfo tx:d:cls} {ginfo tx:proven} {ginfo tx:d:new} \
+            {gcreate tx:d:score ALPHA 0.2 SCORE} {gcreate tx:d:new ALPHA 7 SCORE} \
+            {gpredict tx:d:score SCORE 7} {gpredict tx:d:score TEXT hello} {gpredict tx:d:new SCORE 0.5} \
+            {gpredict tx:d:cls TEXT hello FEATURES 2 x 1 x 2} \
+            [list glearn tx:d:score $waiting CORRECT 2] {glearn tx:d:score not-an-id CORRECT 1} \
+            {gadd tx:d:score TEXT hello LABEL a} {gadd tx:d:cls TEXT hello LABEL nosuch} \
+            {gpause tx:d:new} {gresume tx:d:new} {greset tx:d:new} {gpause tx:d:score extra} \
+        ] {
+            set before [s rdb_changes_since_last_save]
+            catch {r {*}$cmd}
+            assert_equal [expr {[s rdb_changes_since_last_save] - $before}] 0 "changes to save after: $cmd"
+        }
+        # the requests a gate answers by itself, against those it records
+        set accepts 0
+        for {set i 0} {$i < 200 && $accepts < 20} {incr i} {
+            set before [s rdb_changes_since_last_save]
+            lassign [r gpredict tx:proven SCORE 0.9] action id
+            set changes [expr {[s rdb_changes_since_last_save] - $before}]
+            if {$action eq "ACCEPT"} {
+                incr accepts
+                assert_equal $changes 0 "changes to save after an ACCEPT"
+            } else {
+                assert_equal AUDIT $action
+                assert {$changes > 0}
+                r glearn tx:proven $id CORRECT 1
+            }
+        }
+        assert_equal 20 $accepts
+        # ... and everything that changes a gate is a change to save
+        foreach cmd [list \
+            {gpredict tx:d:score SCORE 0.5} [list glearn tx:d:score $waiting CORRECT 1] \
+            {gpredict tx:d:cls TEXT hello} {gadd tx:d:cls TEXT hello LABEL a} \
+            {gpause tx:d:score} {gresume tx:d:score} {greset tx:d:score} \
+            {gcreate tx:d:new ALPHA 0.2 SCORE} {gpredict tx:full SCORE 0.5} \
+        ] {
+            set before [s rdb_changes_since_last_save]
+            r {*}$cmd
+            if {$cmd eq {gpredict tx:full SCORE 0.5}} {
+                # a full gate records nothing either
+                assert_equal [expr {[s rdb_changes_since_last_save] - $before}] 0 "changes to save after: $cmd"
+            } else {
+                assert {[s rdb_changes_since_last_save] > $before}
+            }
+        }
+        r del tx:d:score tx:d:cls tx:d:new
+    }
+
+    foreach proto [gcmd_protocols] {
+        gcmd_test "client-side caching (RESP$proto): a tracked GINFO is invalidated by what changes the gate" {
+            r del tx:t:score tx:t:other
+            r gcreate tx:t:score ALPHA 0.2 DELTA 0.2 SCORE
+            r set tx:t:other 1
+            # 'c' reads and tracks; in RESP2 the invalidations go to a
+            # second connection, in RESP3 they are pushed to 'c' itself.
+            set c [redis_client]
+            if {$proto == 2} {
+                set inv [redis_deferring_client]
+                $inv client id
+                set redirect [$inv read]
+                $inv subscribe __redis__:invalidate
+                $inv read
+                $c client tracking on redirect $redirect
+            } else {
+                $c hello 3
+                $c client tracking on
+                set inv $c
+            }
+            # requests and answers
+            set id [lindex [r gpredict tx:t:score SCORE 0.5] 1]
+            set m tx:t:other
+            assert_equal 1 [gcmd_invalidates $c $inv $proto tx:t:score $m {gpredict tx:t:score SCORE 0.5}]
+            assert_equal 1 [gcmd_invalidates $c $inv $proto tx:t:score $m [list glearn tx:t:score $id CORRECT 1]]
+            assert_equal 1 [gcmd_invalidates $c $inv $proto tx:t:score $m {gpause tx:t:score}]
+            assert_equal 1 [gcmd_invalidates $c $inv $proto tx:t:score $m {gresume tx:t:score}]
+            assert_equal 1 [gcmd_invalidates $c $inv $proto tx:t:score $m {greset tx:t:score}]
+            # A request the gate answers by itself moves the counters GINFO
+            # shows; so do a spot check, a request below the threshold and
+            # a request to a full gate.
+            set seen {}
+            for {set i 0} {$i < 200 && [llength [lsort -unique $seen]] < 2} {incr i} {
+                $c ginfo tx:proven
+                lassign [r gpredict tx:proven SCORE 0.9] action id
+                lappend seen $action
+                assert_equal [gcmd_invalidated $inv $proto] tx:proven "GPREDICT replying $action"
+                if {$action eq "AUDIT"} {r glearn tx:proven $id CORRECT 1}
+            }
+            assert_equal {ACCEPT AUDIT} [lsort -unique $seen]
+            $c ginfo tx:proven
+            lassign [r gpredict tx:proven SCORE 0.05] action id
+            assert_equal ABSTAIN $action
+            assert_equal tx:proven [gcmd_invalidated $inv $proto]
+            if {$id ne {}} {r glearn tx:proven $id CORRECT 0}
+            assert_equal 1 [gcmd_invalidates $c $inv $proto tx:full $m {gpredict tx:full SCORE 0.5}]
+
+            # what is refused or finds nothing to do invalidates nothing
+            foreach cmd {
+                {gcreate tx:t:score ALPHA 0.2 SCORE}
+                {gpredict tx:t:score SCORE 7}
+                {gpredict tx:t:score TEXT hello}
+                {glearn tx:t:score not-an-id CORRECT 1}
+                {glearn tx:t:score 0123456789abcdef-1 CORRECT 2}
+                {gadd tx:t:score TEXT hello LABEL a}
+                {ginfo tx:t:score}
+                {ginfo tx:t:score extra}
+                {gpause tx:t:score extra}
+            } {
+                assert_equal [gcmd_invalidates $c $inv $proto tx:t:score $m $cmd] 0 "command: $cmd"
+            }
+            # DEL and GCREATE: the key goes and comes
+            assert_equal 1 [gcmd_invalidates $c $inv $proto tx:t:score $m {del tx:t:score}]
+            assert_equal 0 [gcmd_invalidates $c $inv $proto tx:t:score $m {gpredict tx:t:score SCORE 0.5}]
+            assert_equal 0 [gcmd_invalidates $c $inv $proto tx:t:score $m {gcreate tx:t:score ALPHA 7 SCORE}]
+            assert_equal 1 [gcmd_invalidates $c $inv $proto tx:t:score $m {gcreate tx:t:score ALPHA 0.2 SCORE}]
+
+            if {$proto == 2} {$inv close}
+            $c close
+            r del tx:t:score tx:t:other
+        }
     }
 
     foreach proto [gcmd_protocols] {
@@ -3835,6 +5343,77 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             assert_equal {bulk {no feedback wanted}} [gcmd_raw $fd EVAL $script 1 tx:full 0.5 1]
             assert_equal [expr {$samples + 2}] [gcmd_info lua:score calibration-samples]
             assert_equal 0 [gcmd_info lua:score pending]
+        }
+
+        gcmd_test "RESP$proto: a script asks, answers out of order and reads GINFO" {
+            # An answer is used at once and no longer waits for GLEARN
+            # (pending); it counts as proof once the answers of the older
+            # requests are there (calibration-samples).
+            gcmd_lua_fresh $fd
+            set script {
+                local function field(name)
+                    local info = redis.call('GINFO', KEYS[1])
+                    for i = 1, #info, 2 do
+                        if info[i] == name then return info[i + 1] end
+                    end
+                    return 'no field ' .. name
+                end
+                local ids = {}
+                for i = 1, 3 do
+                    ids[i] = redis.call('GPREDICT', KEYS[1], 'SCORE', ARGV[1])[2]
+                end
+                local out = {field('pending')}
+                out[#out + 1] = redis.call('GLEARN', KEYS[1], ids[3], 'CORRECT', '1')
+                out[#out + 1] = field('pending')
+                out[#out + 1] = field('calibration-samples')
+                out[#out + 1] = redis.call('GLEARN', KEYS[1], ids[2], 'CORRECT', '0')
+                out[#out + 1] = field('pending')
+                out[#out + 1] = field('calibration-samples')
+                out[#out + 1] = redis.call('GLEARN', KEYS[1], ids[3], 'CORRECT', '1')
+                out[#out + 1] = redis.call('GLEARN', KEYS[1], ids[1], 'CORRECT', '1')
+                out[#out + 1] = field('pending')
+                out[#out + 1] = field('calibration-samples')
+                out[#out + 1] = redis.call('GLEARN', KEYS[1], ids[1], 'CORRECT', '1')
+                return out
+            }
+            set want {}
+            foreach n {3  1 2 0  1 1 0  0  1 0 3  0} {lappend want [list int $n]}
+            assert_equal [list array $want] [gcmd_raw $fd EVAL $script 1 lua:score 0.5]
+            set info [r ginfo lua:score]
+            assert_equal 3 [dict get $info requests]
+            assert_equal 0 [dict get $info pending]
+            # again: the gate goes on from where the script left it
+            set want {}
+            foreach n {3  1 2 3  1 1 3  0  1 0 6  0} {lappend want [list int $n]}
+            assert_equal [list array $want] [gcmd_raw $fd EVAL $script 1 lua:score 0.5]
+
+            # The same in a script that asks for RESP3 and reads the map; a
+            # classifier that tests nothing learns from each answer as it comes.
+            set script {
+                redis.setresp(3)
+                local function field(name)
+                    return redis.call('GINFO', KEYS[1]).map[name]
+                end
+                local ids = {}
+                for i = 1, 3 do
+                    ids[i] = redis.call('GPREDICT', KEYS[1], 'TEXT', ARGV[i])[2]
+                end
+                local out = {field('pending'), field('learned')}
+                out[#out + 1] = redis.call('GLEARN', KEYS[1], ids[2], 'LABEL', 'b')
+                out[#out + 1] = field('pending')
+                out[#out + 1] = field('learned')
+                out[#out + 1] = redis.call('GLEARN', KEYS[1], ids[3], 'LABEL', 'a')
+                out[#out + 1] = redis.call('GLEARN', KEYS[1], ids[1], 'LABEL', 'a')
+                out[#out + 1] = redis.call('GLEARN', KEYS[1], ids[2], 'LABEL', 'a')
+                out[#out + 1] = field('pending')
+                out[#out + 1] = field('learned')
+                out[#out + 1] = field('state')
+                return out
+            }
+            set want {}
+            foreach n {3 0  1 2 1  1 1 0  0 3} {lappend want [list int $n]}
+            lappend want {bulk COLD}
+            assert_equal [list array $want] [gcmd_raw $fd EVAL $script 1 lua:cls one two three]
         }
 
         gcmd_test "RESP$proto: errors of gate commands in a script" {
@@ -4151,8 +5730,1122 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
 }
 
 # ============================================================================
-# 8. Random arguments
+# 8. The fixed choices of SPEC.md section 5, as far as commands show them
 # ============================================================================
+#
+# (The limits on waiting requests are with GPREDICT in section 1; the
+# feedback timeout and the answers missing in a row need real time and are
+# in section 9.)
+
+# Ask the examples of gcmd_example, answer each one right, and return for
+# "spam" and for "ham" how many right answers that label had been given when
+# its threshold appeared.
+proc gcmd_count_proof {key {max 2000}} {
+    set given {spam 0 ham 0}
+    set at {}
+    for {set i 0} {$i < $max} {incr i} {
+        foreach label {spam ham} threshold [lrange [gcmd_info $key thresholds] 0 1] {
+            if {$threshold ne {} && ![dict exists $at $label]} {
+                dict set at $label [dict get $given $label]
+            }
+        }
+        if {[dict size $at] == 2} {return $at}
+        lassign [gcmd_example $i] text label
+        lassign [r gpredict $key TEXT $text] action id
+        if {$action eq "ACCEPT"} continue
+        if {$id eq {}} {fail "$key: request $i got no id: [r ginfo $key]"}
+        r glearn $key $id LABEL $label
+        # a spot check of a label that is answered already proves nothing new
+        if {$action eq "ABSTAIN"} {dict incr given $label}
+    }
+    fail "$key: a label is not proven after $max requests: [r ginfo $key]"
+}
+
+# SPEC 5, "drift detector": which of the spot-check outcomes (1 = the gate
+# was wrong) is the one that raises the alarm, 0 if none does. Two
+# likelihood ratios, for 2 and 4 times the error rate (at most halfway from
+# the error rate to 1); the alarm is their average reaching 1,000.
+proc gcmd_drift_alarm_at {alpha outcomes} {
+    set stats {1.0 1.0}
+    set n 0
+    foreach wrong $outcomes {
+        incr n
+        set next {}
+        foreach times {2 4} stat $stats {
+            set p [expr {min($times * $alpha, 0.5 * (1 + $alpha))}]
+            lappend next [expr {$stat * ($wrong ? $p / $alpha : (1 - $p) / (1 - $alpha))}]
+        }
+        set stats $next
+        if {([lindex $stats 0] + [lindex $stats 1]) / 2 >= 1000} {return $n}
+    }
+    return 0
+}
+
+start_server [list tags {"modules external:skip"} overrides [list loadmodule $gatemodule]] {
+    r config set gate.test-seed 77009
+
+    gcmd_test {SPEC 5: the helpers of these tests compute what the table says} {
+        # ALPHA 0.2: a right guess multiplies the four bets by 1.025,
+        # 1.0625, 1.125 and 1.225. DELTA 0.2, snapshot 1, one label: the bar
+        # is 32 x 1 x 2 / 0.2 = 320. After 34 right answers the average
+        # wealth is 264.3, after 35 it is 322.0.
+        assert_equal 35 [gcmd_proof_needed 0.2 0.2]
+        # two labels: 640, three: 960; snapshot 2: g (g + 1) = 6 for 2
+        assert_equal 39 [gcmd_proof_needed 0.2 0.2 1 2]
+        assert_equal 41 [gcmd_proof_needed 0.2 0.2 1 3]
+        assert_equal 41 [gcmd_proof_needed 0.2 0.2 2]
+        # a wrong answer first leaves each bet 1 - c of its wealth
+        assert_equal 47 [gcmd_proof_needed 0.2 0.2 1 1 1]
+        # 0.4 and 0.6 against 0.2: a wrong spot check multiplies by 2 and
+        # 3; (2^6 + 3^6) / 2 = 396.5, (2^7 + 3^7) / 2 = 1157.5
+        assert_equal 7 [gcmd_drift_alarm_at 0.2 {1 1 1 1 1 1 1 1 1 1}]
+        assert_equal 0 [gcmd_drift_alarm_at 0.2 {1 1 1 1 1 1}]
+        # the 32 thresholds of a score gate: 0, 0.1817, 0.3303, ... 0.998
+        assert_equal 0 [gcmd_grid_index 0 0.998 0]
+        assert_equal 1 [gcmd_grid_index 0 0.998 0.18165496569273065]
+        assert_equal 31 [gcmd_grid_index 0 0.998 0.998]
+        assert_equal -1 [gcmd_grid_index 0 0.998 0.5]
+    }
+
+    gcmd_test {SPEC 5: a score gate is proven by exactly the right answers the betting test asks for} {
+        # Nothing but right answers: every threshold is proven at the same
+        # moment, and the gate answers from the lowest one, 0.
+        foreach {alpha delta} {0.2 0.2  0.1 0.05  0.5 0.9  0.05 0.01} {
+            set shown "ALPHA $alpha DELTA $delta"
+            set need [gcmd_proof_needed $alpha $delta]
+            r del fx:score
+            r gcreate fx:score ALPHA $alpha DELTA $delta SCORE
+            assert_equal [lsort -unique [gcmd_ask_score fx:score [expr {$need - 1}] 0.7 1]] ABSTAIN $shown
+            set info [r ginfo fx:score]
+            assert_equal [dict get $info state] CALIBRATING "$shown: after [expr {$need - 1}] right answers"
+            assert_equal [dict get $info thresholds] {{}} "$shown: after [expr {$need - 1}] right answers"
+            assert_equal [dict get $info calibration-samples] [expr {$need - 1}] $shown
+            gcmd_ask_score fx:score 1 0.7 1
+            set info [r ginfo fx:score]
+            assert_equal [dict get $info state] ACTIVE "$shown: after $need right answers"
+            assert {[lindex [dict get $info thresholds] 0] == 0}
+            assert_equal [dict get $info generation] 1 $shown
+            assert_equal [dict get $info candidate] 0 $shown
+            assert_equal [dict get $info calibration-samples] $need $shown
+        }
+        r del fx:score
+    }
+
+    gcmd_test {SPEC 5: answers in any order prove what answers in request order prove; a retry changes nothing} {
+        # "Proof ... is counted in request order, so a slow teacher cannot
+        # bias it." GLEARN: "0 if the id is ... already used. Retrying is
+        # always safe", also while the answer still waits for its turn.
+        set need [gcmd_proof_needed 0.2 0.2]
+        r del fx:order
+        r gcreate fx:order ALPHA 0.2 DELTA 0.2 SCORE
+        set ids {}
+        for {set i 0} {$i < $need} {incr i} {lappend ids [lindex [r gpredict fx:order SCORE 0.7] 1]}
+        # the newest first, the oldest last; each one retried with the
+        # opposite answer
+        foreach id [lreverse [lrange $ids 1 end]] {
+            assert_equal 1 [r glearn fx:order $id CORRECT 1]
+            assert_equal 0 [r glearn fx:order $id CORRECT 0]
+        }
+        set info [r ginfo fx:order]
+        assert_equal 1 [dict get $info pending]
+        assert_equal 0 [dict get $info calibration-samples]
+        assert_equal CALIBRATING [dict get $info state]
+        gcmd_check_saveable fx:order
+        assert_equal 1 [r glearn fx:order [lindex $ids 0] CORRECT 1]
+        assert_equal 0 [r glearn fx:order [lindex $ids 0] CORRECT 0]
+        # exactly the right answers a threshold needs, and it is proven:
+        # none of them was turned into a wrong one
+        set info [r ginfo fx:order]
+        assert_equal $need [dict get $info calibration-samples]
+        assert_equal ACTIVE [dict get $info state]
+        assert {[lindex [dict get $info thresholds] 0] == 0}
+        assert_equal 0 [dict get $info pending]
+        r del fx:order
+    }
+
+    gcmd_test {SPEC 5: a wrong answer costs each bet its stake; a later snapshot has a higher bar} {
+        r del fx:score
+        r gcreate fx:score ALPHA 0.2 DELTA 0.2 SCORE
+        # snapshot 1 after one and after three wrong answers; snapshots 2
+        # and 3 (GRESET never hands budget back: g (g + 1) is 6, then 12)
+        foreach {generation errors} {1 1  2 0  3 3  4 1} {
+            set shown "snapshot $generation after $errors wrong answers"
+            assert_equal [gcmd_info fx:score candidate] $generation $shown
+            set need [gcmd_proof_needed 0.2 0.2 $generation 1 $errors]
+            assert {$need > [gcmd_proof_needed 0.2 0.2]}
+            gcmd_ask_score fx:score $errors 0.7 0
+            gcmd_ask_score fx:score [expr {$need - 1}] 0.7 1
+            assert_equal [gcmd_info fx:score thresholds] {{}} "$shown and [expr {$need - 1}] right ones"
+            gcmd_ask_score fx:score 1 0.7 1
+            set info [r ginfo fx:score]
+            assert_equal [dict get $info generation] $generation "$shown and $need right ones"
+            assert {[lindex [dict get $info thresholds] 0] == 0}
+            assert_equal OK [r greset fx:score]
+        }
+        r del fx:score
+    }
+
+    gcmd_test {SPEC 5: the thresholds of a score gate are 32 steps from 0 to 0.998, even in log(1 - threshold)} {
+        # The cheap result is wrong at the score 'wrong' and right at
+        # 'right': the gate answers from the lowest of the 32 thresholds
+        # above 'wrong', which is step 'step'. Only right answers count for
+        # that threshold, so it takes as many as for a gate that is never
+        # wrong.
+        set need [gcmd_proof_needed 0.2 0.2]
+        foreach {wrong right step} {
+            0.1 0.9 1      0.18 0.19 1    0.19 0.9 2    0.5 0.9 4
+            0.95 0.999 15  0.9975 1 30    0.9976 0.998 31
+        } {
+            set shown "wrong at $wrong, right at $right"
+            r del fx:grid
+            r gcreate fx:grid ALPHA 0.2 DELTA 0.2 SCORE
+            for {set n 1} {$n <= $need} {incr n} {
+                assert_equal [gcmd_info fx:grid thresholds] {{}} "$shown: after [expr {$n - 1}] right answers"
+                gcmd_ask_score fx:grid 1 $wrong 0
+                gcmd_ask_score fx:grid 1 $right 1
+            }
+            set threshold [lindex [gcmd_info fx:grid thresholds] 0]
+            assert {$threshold ne {}}
+            assert_equal [gcmd_grid_index 0 0.998 $threshold] $step "$shown: the threshold $threshold"
+            assert {$threshold > $wrong && $threshold <= $right}
+            # "lowest score the gate currently answers at": it answers
+            # there, and not a hair below.
+            foreach action [gcmd_ask_score fx:grid 20 $threshold 1] {
+                assert {$action in {ACCEPT AUDIT}}
+            }
+            foreach action [gcmd_ask_score fx:grid 20 [expr {$threshold - 1e-9}] 0] {
+                assert_equal $action ABSTAIN "$shown: just below the threshold $threshold"
+            }
+        }
+        # the top step is 0.998 itself
+        assert {$threshold == 0.998}
+        r del fx:grid
+    }
+
+    gcmd_test {SPEC 3: a gate keeps testing lower thresholds, and answers from one as soon as it is proven} {
+        # "The gate answers at the lowest proven threshold of each label,
+        # and keeps testing lower ones, so coverage grows over time."
+        # With AUDIT 1 every request is proof. At first the cheap result
+        # is wrong at 0.5 and right at 0.9: the threshold is step 4.
+        set need [gcmd_proof_needed 0.2 0.2]
+        r del fx:down
+        r gcreate fx:down ALPHA 0.2 DELTA 0.2 AUDIT 1 SCORE
+        for {set n 0} {$n < $need} {incr n} {
+            gcmd_ask_score fx:down 1 0.5 0
+            gcmd_ask_score fx:down 1 0.9 1
+        }
+        set first [lindex [gcmd_info fx:down thresholds] 0]
+        assert_equal 4 [gcmd_grid_index 0 0.998 $first]
+        assert_equal ABSTAIN [gcmd_ask_score fx:down 1 0.5 1]
+        # Then it is right at 0.5 as well. Every threshold below 0.5 has
+        # seen the same answers: $need wrong ones, and one right one more
+        # than the wrong ones so far. They are proven together when the
+        # bets have made up for the wrong answers.
+        set more [expr {[gcmd_proof_needed 0.2 0.2 1 1 $need] - $need - 1}]
+        assert {$more > 100 && $more < 1000}
+        assert_equal ABSTAIN [lsort -unique [gcmd_ask_score fx:down [expr {$more - 1}] 0.5 1]]
+        set info [r ginfo fx:down]
+        assert_equal [lindex [dict get $info thresholds] 0] $first "after [expr {$more - 1}] right answers at 0.5"
+        assert_equal 1 [dict get $info generation]
+        gcmd_ask_score fx:down 1 0.5 1
+        set info [r ginfo fx:down]
+        # the same snapshot answers, from 0 up now
+        assert {[lindex [dict get $info thresholds] 0] == 0}
+        assert_equal 1 [dict get $info generation]
+        assert_equal ACTIVE [dict get $info state]
+        assert_equal 0 [dict get $info revocations]
+        foreach score {0.5 0.3 0} {
+            assert_equal AUDIT [lsort -unique [gcmd_ask_score fx:down 5 $score 1]]
+        }
+        r del fx:down
+    }
+
+    gcmd_test {SPEC 5: a classifier label is proven by exactly the right guesses the betting test asks for} {
+        # The bar counts the labels the gate may answer: 2 here, also with
+        # a third label that is always deferred, 3 with a third label that
+        # is not. A label with a stricter error rate needs more.
+        foreach {labels options spam ham} [list \
+            {spam ham}       {}                          [gcmd_proof_needed 0.2 0.2 1 2] [gcmd_proof_needed 0.2 0.2 1 2] \
+            {spam ham other} {ALWAYSDEFER 1 other}       [gcmd_proof_needed 0.2 0.2 1 2] [gcmd_proof_needed 0.2 0.2 1 2] \
+            {spam ham other} {}                          [gcmd_proof_needed 0.2 0.2 1 3] [gcmd_proof_needed 0.2 0.2 1 3] \
+            {spam ham}       {CLASSALPHA 1 spam 0.1}     [gcmd_proof_needed 0.1 0.2 1 2] [gcmd_proof_needed 0.2 0.2 1 2] \
+            {spam ham}       {CLASSALPHA 2 ham 0.05 spam 0.1} [gcmd_proof_needed 0.1 0.2 1 2] [gcmd_proof_needed 0.05 0.2 1 2] \
+        ] {
+            set shown "CLASSES $labels $options"
+            r del fx:cls
+            gcmd_create_fast fx:cls ALPHA 0.2 DELTA 0.2 CLASSES [llength $labels] {*}$labels {*}$options
+            gcmd_teach fx:cls 40
+            set at [gcmd_count_proof fx:cls]
+            assert_equal [dict get $at spam] $spam "$shown: right guesses of spam"
+            assert_equal [dict get $at ham] $ham "$shown: right guesses of ham"
+            # with nothing but right guesses the lowest threshold is proven
+            set lowest [expr {max(1.0 / [llength $labels], 0.25)}]
+            foreach threshold [lrange [gcmd_info fx:cls thresholds] 0 1] {
+                assert_equal [gcmd_grid_index $lowest 0.999 $threshold] 0 "$shown: the threshold $threshold"
+            }
+            assert_equal [lindex [gcmd_info fx:cls thresholds] 2] {} $shown
+        }
+        r del fx:cls
+    }
+
+    gcmd_test {SPEC 5: the lowest threshold of a classifier is max(1 / classes, 0.25)} {
+        foreach {classes lowest} {2 0.5  3 0.3333333333333333  4 0.25  5 0.25  16 0.25} {
+            set labels {spam ham}
+            for {set i 2} {$i < $classes} {incr i} {lappend labels extra$i}
+            r del fx:cls
+            gcmd_create_fast fx:cls ALPHA 0.2 DELTA 0.2 CLASSES $classes {*}$labels
+            gcmd_teach fx:cls 40
+            set at [gcmd_count_proof fx:cls]
+            assert_equal [dict get $at spam] [gcmd_proof_needed 0.2 0.2 1 $classes] "$classes labels"
+            lassign [gcmd_info fx:cls thresholds] spam ham
+            assert {abs($spam - $lowest) < 1e-12 && abs($ham - $lowest) < 1e-12}
+            assert_equal ACTIVE [gcmd_info fx:cls state]
+        }
+        r del fx:cls
+    }
+
+    gcmd_test {SPEC 5: the first snapshot is taken after 1,000 examples, the next after 1,000 more} {
+        # (the default of gate.snapshot-examples)
+        assert_equal {gate.snapshot-examples 1000} [r config get gate.snapshot-examples]
+        r del fx:default
+        r gcreate fx:default ALPHA 0.2 DELTA 0.2 CLASSES 2 spam ham
+        assert_equal 999 [gcmd_teach_fast fx:default 999]
+        set info [r ginfo fx:default]
+        assert_equal COLD [dict get $info state]
+        assert_equal 0 [dict get $info candidate]
+        assert_equal 1000 [r gadd fx:default TEXT "buy cheap pills now" LABEL spam]
+        set info [r ginfo fx:default]
+        assert_equal CALIBRATING [dict get $info state]
+        assert_equal 1 [dict get $info candidate]
+        # While a snapshot is being tested no other is taken.
+        assert_equal 2500 [gcmd_teach_fast fx:default 1500]
+        assert_equal 1 [gcmd_info fx:default candidate]
+        # It takes over; every answer on the way was an example too.
+        gcmd_count_proof fx:default
+        set info [r ginfo fx:default]
+        assert_equal ACTIVE [dict get $info state]
+        assert_equal 1 [dict get $info generation]
+        # 2,500 examples and the answers since the snapshot at 1,000: the
+        # next one was due, and is taken as soon as nothing is being tested.
+        assert_equal 2 [dict get $info candidate]
+        set learned [dict get $info learned]
+        assert {$learned > 2500 && $learned < 3000}
+        # the one after that needs 1,000 examples more than the gate had then
+        r greset fx:default
+        assert_equal 1000 [gcmd_teach_fast fx:default 1000]
+        assert_equal 3 [gcmd_info fx:default candidate]
+        gcmd_count_proof fx:default
+        set info [r ginfo fx:default]
+        assert_equal 3 [dict get $info generation]
+        assert_equal 0 [dict get $info candidate]
+        set learned [dict get $info learned]
+        gcmd_teach_fast fx:default [expr {1999 - $learned}]
+        assert_equal 0 [gcmd_info fx:default candidate]
+        assert_equal 2000 [r gadd fx:default TEXT "meeting at noon tomorrow" LABEL ham]
+        set info [r ginfo fx:default]
+        assert_equal 4 [dict get $info candidate]
+        assert_equal 3 [dict get $info generation]
+        assert_equal ACTIVE [dict get $info state]
+        r del fx:default
+    }
+
+    gcmd_test {SPEC 5: a snapshot that proves nothing is dropped after 10 times the proof a flawless threshold needs, per label} {
+        # ALPHA 0.2, DELTA 0.2, two labels: a threshold without a wrong
+        # guess needs 39 right answers (the betting test, as above). The
+        # snapshot here guesses "a" and the teacher says "b" every time.
+        set need [gcmd_proof_needed 0.2 0.2 1 2]
+        set budget [expr {10 * $need * 2}]
+        r config set gate.snapshot-examples 4
+        r del fx:budget
+        r gcreate fx:budget ALPHA 0.2 DELTA 0.2 CLASSES 2 a b
+        r config set gate.snapshot-examples 1000
+        for {set i 0} {$i < 4} {incr i} {r gadd fx:budget TEXT "alpha one" LABEL a}
+        assert_equal 1 [gcmd_info fx:budget candidate]
+        set dropped_at 0
+        for {set n 1} {$n <= $budget + 10} {incr n} {
+            lassign [r gpredict fx:budget TEXT "alpha one"] action id
+            assert_equal ABSTAIN $action
+            assert_equal 1 [r glearn fx:budget $id LABEL b]
+            if {[gcmd_info fx:budget candidate] != 1} {
+                set dropped_at $n
+                break
+            }
+        }
+        set info [r ginfo fx:budget]
+        r del fx:budget
+        # the next snapshot is taken at once: the gate has learned since
+        assert_equal 2 [dict get $info candidate]
+        assert_equal 0 [dict get $info generation]
+        assert_equal 0 [dict get $info calibration-samples]
+        assert_equal $dropped_at $budget "pieces of proof before the snapshot was dropped\
+            (a flawless threshold needs $need right answers; 10 times that for each of 2 labels)"
+    }
+
+    gcmd_test {SPEC 5: the drift detector stops a gate at the wrong spot check the table says} {
+        foreach {alpha outcomes} {
+            0.2 {1 1 1 1 1 1 1 1 1 1}
+            0.1 {1 1 1 1 1 1 1 1 1 1}
+            0.5 {1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1}
+            0.2 {1 1 1 0 1 1 1 1 1 1 1 1}
+            0.2 {1 1 1 1 1 1 0 1 1 1 1 1}
+        } {
+            set shown "ALPHA $alpha, spot checks $outcomes"
+            set alarm [gcmd_drift_alarm_at $alpha $outcomes]
+            assert {$alarm > 0}
+            r del fx:drift
+            r gcreate fx:drift ALPHA $alpha DELTA 0.2 AUDIT 1 SCORE
+            gcmd_prove_all fx:drift
+            assert_equal ACTIVE [gcmd_info fx:drift state]
+            set n 0
+            foreach wrong [lrange $outcomes 0 [expr {$alarm - 1}]] {
+                incr n
+                set info [r ginfo fx:drift]
+                assert_equal [dict get $info state] ACTIVE "$shown: before spot check $n"
+                assert_equal [dict get $info revocations] 0 "$shown: before spot check $n"
+                assert_equal [dict get $info audit-samples] [expr {$n - 1}] $shown
+                lassign [r gpredict fx:drift SCORE 0.9] action id
+                assert_equal $action AUDIT "$shown: spot check $n"
+                assert_equal 1 [r glearn fx:drift $id CORRECT [expr {!$wrong}]]
+            }
+            # "the gate stops answering at once ... and starts over by itself"
+            set info [r ginfo fx:drift]
+            assert_equal [dict get $info revocations] 1 "$shown: after spot check $alarm"
+            assert_equal [dict get $info state] CALIBRATING $shown
+            assert_equal [dict get $info generation] 0 $shown
+            assert_equal [dict get $info candidate] 2 $shown
+            assert_equal [dict get $info thresholds] {{}} $shown
+            assert_equal [dict get $info audit-samples] 0 $shown
+            assert_equal [dict get $info calibration-samples] 0 $shown
+            lassign [r gpredict fx:drift SCORE 0.9] action id
+            assert_equal ABSTAIN $action
+            assert_equal 1 [r glearn fx:drift $id CORRECT 1]
+            gcmd_check_saveable fx:drift $shown
+        }
+        # GRESET "restarts the counters": this one too
+        assert_equal 1 [gcmd_info fx:drift revocations]
+        assert_equal OK [r greset fx:drift]
+        set info [r ginfo fx:drift]
+        assert_equal 0 [dict get $info revocations]
+        assert_equal 0 [dict get $info requests]
+        assert_equal 3 [dict get $info candidate]
+        r del fx:drift
+    }
+
+    gcmd_test {SPEC 3: a spot check counts the moment its answer arrives, whatever still waits} {
+        # "Every spot-check answer reaches a drift detector ... the moment
+        # it arrives." CHANGES 6: one unanswered spot check used to hide
+        # every later one from the detector.
+        r del fx:drift
+        r gcreate fx:drift ALPHA 0.2 DELTA 0.2 AUDIT 1 SCORE
+        gcmd_prove_all fx:drift
+        lassign [r gpredict fx:drift SCORE 0.9] action waiting
+        assert_equal AUDIT $action
+        set alarm [gcmd_drift_alarm_at 0.2 {1 1 1 1 1 1 1 1 1 1}]
+        for {set n 1} {$n <= $alarm} {incr n} {
+            set info [r ginfo fx:drift]
+            assert_equal [dict get $info state] ACTIVE "before spot check $n"
+            # counted when answered, not when the older request lets them through
+            assert_equal [dict get $info audit-samples] [expr {$n - 1}] "before spot check $n"
+            assert_equal [dict get $info audit-errors] [expr {$n - 1}] "before spot check $n"
+            assert_equal [dict get $info pending] 1 "before spot check $n"
+            lassign [r gpredict fx:drift SCORE 0.9] action id
+            assert_equal $action AUDIT "spot check $n"
+            assert_equal 1 [r glearn fx:drift $id CORRECT 0]
+        }
+        set info [r ginfo fx:drift]
+        assert_equal 1 [dict get $info revocations]
+        assert_equal CALIBRATING [dict get $info state]
+        assert_equal 2 [dict get $info candidate]
+        # The request that still waited was proof for what the gate has
+        # dropped: nothing waits any more, its answer is not used.
+        assert_equal 0 [dict get $info pending]
+        assert_equal 0 [dict get $info missing]
+        assert_equal 0 [r glearn fx:drift $waiting CORRECT 1]
+        gcmd_check_saveable fx:drift
+        r del fx:drift
+    }
+
+    gcmd_test {SPEC 3: a classifier that got worse forgets its model and learns again} {
+        r del fx:drift
+        gcmd_create_fast fx:drift ALPHA 0.2 DELTA 0.2 AUDIT 1 CLASSES 2 spam ham
+        gcmd_teach fx:drift 40
+        gcmd_count_proof fx:drift
+        set before [r ginfo fx:drift]
+        assert_equal ACTIVE [dict get $before state]
+        # The teacher changes its mind about one message. Seven wrong spot
+        # checks in a row are the fewest that can raise the alarm (above);
+        # the right ones that came before may cost a few more.
+        for {set n 0} {$n < 40 && [gcmd_info fx:drift revocations] == 0} {incr n} {
+            lassign [r gpredict fx:drift TEXT "buy cheap pills now"] action id
+            assert_equal $action AUDIT "spot check [expr {$n + 1}]"
+            assert_equal 1 [r glearn fx:drift $id LABEL ham]
+        }
+        set alarm $n
+        assert {$alarm >= [gcmd_drift_alarm_at 0.2 {1 1 1 1 1 1 1 1 1 1}] && $alarm < 40}
+        set info [r ginfo fx:drift]
+        assert_equal 1 [dict get $info revocations]
+        assert_equal COLD [dict get $info state]
+        assert_equal 0 [dict get $info learned]
+        assert_equal 0 [dict get $info generation]
+        assert_equal 0 [dict get $info candidate]
+        assert_equal {{} {}} [dict get $info thresholds]
+        # the counters of requests go on, the configuration stays
+        assert_equal [expr {[dict get $before requests] + $alarm}] [dict get $info requests]
+        assert_equal [dict get $before classes] [dict get $info classes]
+        # it starts over by itself: 40 examples, a snapshot with a new number
+        lassign [r gpredict fx:drift TEXT "buy cheap pills now"] action id
+        assert_equal ABSTAIN $action
+        assert_equal 1 [r glearn fx:drift $id LABEL ham]
+        gcmd_teach fx:drift 39
+        set info [r ginfo fx:drift]
+        assert_equal CALIBRATING [dict get $info state]
+        assert {[dict get $info candidate] > [dict get $before candidate]}
+        assert {[dict get $info candidate] > [dict get $before generation]}
+        gcmd_check_saveable fx:drift
+        r del fx:drift
+    }
+
+    gcmd_test {SPEC 3: a model copy is one weight per bucket and label, 8,192 buckets} {
+        # Four bytes a weight: 32 KiB for each label and copy of the model
+        # (two labels share one set of weights).
+        unset -nocomplain cold
+        r config set gate.snapshot-examples 1
+        foreach n {2 3 4 5} {
+            set labels {}
+            for {set i 0} {$i < $n} {incr i} {lappend labels label$i}
+            r del fx:mem:$n
+            r gcreate fx:mem:$n ALPHA 0.2 CLASSES $n {*}$labels
+            set cold($n) [gcmd_info fx:mem:$n memory]
+        }
+        r config set gate.snapshot-examples 1000
+        r del fx:mem:score
+        r gcreate fx:mem:score ALPHA 0.2 SCORE
+        # a score gate has no model
+        assert {[gcmd_info fx:mem:score memory] < 32768 + 8192}
+        assert {$cold(2) > [gcmd_info fx:mem:score memory] + 32768 - 8192}
+        assert {$cold(2) < [gcmd_info fx:mem:score memory] + 32768 + 8192}
+        # one more label, one more set of weights
+        foreach n {4 5} {
+            set more [expr {$cold($n) - $cold([expr {$n - 1}])}]
+            assert {$more >= 32768 && $more < 32768 + 1024}
+        }
+        assert {$cold(3) - $cold(2) >= 2 * 32768 && $cold(3) - $cold(2) < 2 * 32768 + 1024}
+        # The first snapshot is a second copy.
+        foreach n {2 3 4 5} {
+            r gadd fx:mem:$n TEXT hello LABEL label0
+            assert_equal 1 [gcmd_info fx:mem:$n candidate]
+            set copies [expr {$n == 2 ? 1 : $n}]
+            set more [expr {[gcmd_info fx:mem:$n memory] - $cold($n)}]
+            assert {$more >= $copies * 32768 && $more < $copies * 32768 + $n * 4096}
+            r del fx:mem:$n
+        }
+        r del fx:mem:score
+        # "up to three copies" (README): the model that learns, the
+        # snapshot that answers and the snapshot being tested.
+        r del fx:mem:three
+        gcmd_create_fast fx:mem:three ALPHA 0.2 DELTA 0.2 CLASSES 3 spam ham other
+        set none [gcmd_info fx:mem:three memory]
+        gcmd_teach fx:mem:three 40
+        gcmd_count_proof fx:mem:three
+        set info [r ginfo fx:mem:three]
+        assert_equal 1 [dict get $info generation]
+        assert_equal 2 [dict get $info candidate]
+        assert_equal 0 [dict get $info pending]
+        set more [expr {[dict get $info memory] - $none}]
+        assert {$more >= 2 * 3 * 32768 && $more < 2 * 3 * 32768 + 32768}
+        r del fx:mem:three
+    }
+
+    gcmd_test {the server is still up (fixed choices)} {
+        assert_equal PONG [r ping]
+    }
+}
+
+# ============================================================================
+# 9. Late and lost answers (real time)
+# ============================================================================
+#
+# SPEC 3, "Late and lost answers" and "No answers at all"; SPEC 5, "feedback
+# timeout" and "answers missing in a row"; CHANGES 2 and 3. A gate does its
+# bookkeeping when it is written to, so each moment below is a write at a
+# known time after the requests were made:
+#
+#   early   less than a quarter of the feedback timeout
+#   late    more than a quarter of it, less than the whole
+#   lost    more than the feedback timeout
+#
+# All gates of these tests are set up and visited in ONE run that takes a
+# little longer than their feedback timeout; the tests then look at what the
+# run saw. The run measures itself. If the machine was too slow for "early"
+# to be early or for "late" to be before the timeout, the run is void and is
+# done again with new gates, at most twice.
+
+# Right answers "a" to the text "alpha one" until the classifier has a
+# threshold for "a"; returns how many it took.
+proc gcmd_prove_label {key {max 2000}} {
+    for {set n 0} {$n < $max} {incr n} {
+        if {[lindex [gcmd_info $key thresholds] 0] ne {}} {return $n}
+        lassign [r gpredict $key TEXT "alpha one"] action id
+        if {$id ne {}} {r glearn $key $id LABEL a}
+    }
+    fail "classifier $key proved nothing in $max right answers: [r ginfo $key]"
+}
+
+proc gcmd_late_run {timeout k} {
+    set grace [expr {$timeout / 4}]
+    set seen [dict create valid 1 why {}]
+
+    r config set gate.feedback-timeout $timeout
+    r config set gate.snapshot-examples 1
+    foreach name {early late wrong flip gone lost idle} {
+        r gcreate $k:$name ALPHA 0.2 DELTA 0.2 SCORE
+    }
+    foreach name {blind b31} {
+        r gcreate $k:$name ALPHA 0.2 DELTA 0.2 AUDIT 1 SCORE
+    }
+    r gcreate $k:cls ALPHA 0.2 DELTA 0.2 CLASSES 2 a b
+    r gcreate $k:bcls ALPHA 0.2 DELTA 0.2 AUDIT 1 CLASSES 2 a b
+    r config set gate.feedback-timeout 60000
+    r config set gate.snapshot-examples 1000
+    # two score gates and a classifier that answer (every request a spot
+    # check), and a classifier that tests its first snapshot
+    gcmd_prove_all $k:blind
+    gcmd_prove_all $k:b31
+    r gadd $k:bcls TEXT "alpha one" LABEL a
+    gcmd_prove_label $k:bcls
+    r gadd $k:cls TEXT "alpha one" LABEL a
+
+    # ---- the requests. In each gate the first gets no answer for now and
+    # the second gets its answer at once.
+    set t0 [clock milliseconds]
+    foreach name {early late wrong gone lost} {
+        dict set seen $name first [lindex [r gpredict $k:$name SCORE 0.7] 1]
+        set id [lindex [r gpredict $k:$name SCORE 0.7] 1]
+        dict set seen $name second [r glearn $k:$name $id CORRECT 1]
+        dict set seen $name start [r ginfo $k:$name]
+    }
+    dict set seen cls first [lindex [r gpredict $k:cls TEXT "alpha one"] 1]
+    set id [lindex [r gpredict $k:cls TEXT "alpha one"] 1]
+    dict set seen cls second [r glearn $k:cls $id LABEL a]
+    dict set seen cls start [r ginfo $k:cls]
+    dict set seen idle first [lindex [r gpredict $k:idle SCORE 0.7] 1]
+    dict set seen idle start [gcmd_state $k:idle]
+    # one request without an answer and 39 right answers behind it: four
+    # more than a gate that is never wrong needs
+    dict set seen flip first [lindex [r gpredict $k:flip SCORE 0.7] 1]
+    gcmd_ask_score $k:flip 39 0.7 1
+    dict set seen flip start [r ginfo $k:flip]
+    # spot checks nobody answers: 32 and 31
+    foreach {name n ask} {blind 32 {SCORE 0.9} b31 31 {SCORE 0.9} bcls 32 {TEXT {alpha one}}} {
+        set actions {}
+        for {set i 0} {$i < $n} {incr i} {
+            lassign [r gpredict $k:$name {*}$ask] action id
+            lappend actions $action
+            if {$id eq {}} {lappend actions "no id"}
+        }
+        dict set seen $name asked [lsort -unique $actions]
+        dict set seen $name start [r ginfo $k:$name]
+    }
+    set t1 [clock milliseconds]
+
+    # ---- early: a request, answered at once
+    gcmd_sleep_until [expr {$t1 + $grace / 3}]
+    set id [lindex [r gpredict $k:early SCORE 0.7] 1]
+    r glearn $k:early $id CORRECT 1
+    dict set seen early waiting [r ginfo $k:early]
+    set took [expr {[clock milliseconds] - $t0}]
+    if {$took >= $grace} {
+        dict set seen valid 0
+        dict set seen why "the early write came after $took ms, a quarter of the timeout is $grace ms"
+    }
+
+    # ---- late: a request, answered at once; then the answers that were late
+    gcmd_sleep_until [expr {$t1 + $grace + 20}]
+    foreach name {early late wrong gone} {
+        set id [lindex [r gpredict $k:$name SCORE 0.7] 1]
+        dict set seen $name third [r glearn $k:$name $id CORRECT 1]
+        dict set seen $name moved [r ginfo $k:$name]
+    }
+    set id [lindex [r gpredict $k:cls TEXT "alpha one"] 1]
+    dict set seen cls third [r glearn $k:cls $id LABEL a]
+    dict set seen cls moved [r ginfo $k:cls]
+    dict set seen late answer [r glearn $k:late [dict get $seen late first] CORRECT 1]
+    dict set seen late again [r glearn $k:late [dict get $seen late first] CORRECT 1]
+    dict set seen late after [r ginfo $k:late]
+    dict set seen wrong answer [r glearn $k:wrong [dict get $seen wrong first] CORRECT 0]
+    dict set seen wrong after [r ginfo $k:wrong]
+    dict set seen cls answer [r glearn $k:cls [dict get $seen cls first] LABEL a]
+    dict set seen cls after [r ginfo $k:cls]
+    r gresume $k:flip
+    dict set seen flip moved [r ginfo $k:flip]
+    dict set seen flip answer [r glearn $k:flip [dict get $seen flip first] CORRECT 1]
+    dict set seen flip after [r ginfo $k:flip]
+    set took [expr {[clock milliseconds] - $t0}]
+    if {$took >= $timeout} {
+        dict set seen valid 0
+        dict set seen why "the late answers came after $took ms, the timeout is $timeout ms"
+    }
+
+    # ---- lost
+    gcmd_sleep_until [expr {$t1 + $timeout + 20}]
+    # the gate nobody wrote to since its request
+    dict set seen idle waited [gcmd_state $k:idle]
+    r gresume $k:idle
+    dict set seen idle after [r ginfo $k:idle]
+    dict set seen idle answer [r glearn $k:idle [dict get $seen idle first] CORRECT 1]
+    # the request proof had moved on without
+    r gresume $k:gone
+    dict set seen gone after [r ginfo $k:gone]
+    dict set seen gone answer [r glearn $k:gone [dict get $seen gone first] CORRECT 1]
+    # the request proof still waited for
+    set id [lindex [r gpredict $k:lost SCORE 0.7] 1]
+    dict set seen lost third [r glearn $k:lost $id CORRECT 1]
+    dict set seen lost after [r ginfo $k:lost]
+    dict set seen lost answer [r glearn $k:lost [dict get $seen lost first] CORRECT 1]
+    # the spot checks
+    foreach {name ask answer} {blind {SCORE 0.9} {CORRECT 1} b31 {SCORE 0.9} {CORRECT 1}
+                               bcls {TEXT {alpha one}} {LABEL a}} {
+        set reply [r gpredict $k:$name {*}$ask]
+        dict set seen $name reply $reply
+        dict set seen $name after [r ginfo $k:$name]
+        dict set seen $name answer [r glearn $k:$name [lindex $reply 1] {*}$answer]
+        dict set seen $name again [r ginfo $k:$name]
+    }
+
+    # ---- how many right answers each gate still needs (time no longer matters)
+    foreach name {late wrong gone lost} {
+        dict set seen $name more [gcmd_prove_all $k:$name 0.7]
+    }
+    dict set seen cls more [gcmd_prove_label $k:cls]
+    r greset $k:lost
+    dict set seen lost reset [r ginfo $k:lost]
+    foreach name {early late wrong flip gone lost idle blind b31 cls bcls} {
+        gcmd_check_saveable $k:$name
+        r del $k:$name
+    }
+    return $seen
+}
+
+start_server [list tags {"modules external:skip"} overrides [list loadmodule $gatemodule]] {
+    r config set gate.test-seed 77010
+
+    # The run. (Between the tests, so that each of them finds it when it is
+    # run alone.)
+    set late [dict create valid 0 why "the run did not start"]
+    for {set attempt 1} {$attempt <= 3} {incr attempt} {
+        if {[catch {gcmd_late_run 2000 lt$attempt} late]} {
+            set late [dict create valid 0 why "the run failed: $late"]
+            break
+        }
+        if {[dict get $late valid]} break
+    }
+
+    # What the tests below read: a field of what the run saw at a moment.
+    proc gcmd_late {late gate moment {field {}}} {
+        if {![dict get $late valid]} {
+            fail "no valid run of the gates with a short feedback timeout: [dict get $late why]"
+        }
+        set value [dict get $late $gate $moment]
+        if {$field eq {}} {return $value}
+        dict get $value $field
+    }
+
+    gcmd_test {late answers: proof waits for an answer for a quarter of the feedback timeout} {
+        # "Proof waits for a late answer for a quarter of the feedback
+        # timeout ..., then moves on and counts the request as a wrong
+        # guess until its answer arrives."
+        assert {[gcmd_late $late early first] ne {}}
+        assert_equal 1 [gcmd_late $late early second]
+        # at once: one request waits for GLEARN, the answer of the other
+        # waits for its turn
+        assert_equal 1 [gcmd_late $late early start pending]
+        assert_equal 0 [gcmd_late $late early start calibration-samples]
+        # less than a quarter of the timeout later, with one answer more
+        assert_equal 1 [gcmd_late $late early waiting pending]
+        assert_equal 0 [gcmd_late $late early waiting calibration-samples]
+        assert_equal 0 [gcmd_late $late early waiting missing]
+        assert_equal 3 [gcmd_late $late early waiting requests]
+        # more than a quarter later: the request without an answer counts
+        # (as a wrong guess), and so do the three answers behind it
+        assert_equal 1 [gcmd_late $late early third]
+        assert_equal 4 [gcmd_late $late early moved calibration-samples]
+        assert_equal 1 [gcmd_late $late early moved pending]
+        assert_equal 0 [gcmd_late $late early moved missing]
+        assert_equal CALIBRATING [gcmd_late $late early moved state]
+    }
+
+    gcmd_test {late answers: the answer of a request proof moved on without is still taken and sets the count right} {
+        assert_equal 1 [gcmd_late $late late start pending]
+        assert_equal 0 [gcmd_late $late late start calibration-samples]
+        assert_equal 3 [gcmd_late $late late moved calibration-samples]
+        # the request keeps waiting for its GLEARN, with its id
+        assert_equal 1 [gcmd_late $late late moved pending]
+        assert_equal 0 [gcmd_late $late late moved missing]
+        assert_equal 1 [gcmd_late $late late answer]
+        assert_equal 0 [gcmd_late $late late again]
+        assert_equal 0 [gcmd_late $late late after pending]
+        assert_equal 0 [gcmd_late $late late after missing]
+        # it had been counted already: the count does not move ...
+        assert_equal 3 [gcmd_late $late late after calibration-samples]
+        # ... the wrong guess became a right one: with the three right
+        # answers so far the gate needs what a gate that was never wrong
+        # needs, 35 in all (SPEC 5).
+        assert_equal [expr {[gcmd_proof_needed 0.2 0.2] - 3}] [gcmd_late $late late more]
+    }
+
+    gcmd_test {late answers: a late answer that says the guess was wrong leaves it counted as wrong} {
+        assert_equal 3 [gcmd_late $late wrong moved calibration-samples]
+        assert_equal 1 [gcmd_late $late wrong answer]
+        assert_equal 0 [gcmd_late $late wrong after pending]
+        assert_equal 0 [gcmd_late $late wrong after missing]
+        assert_equal 3 [gcmd_late $late wrong after calibration-samples]
+        # one wrong guess and two right ones so far
+        assert_equal [expr {[gcmd_proof_needed 0.2 0.2 1 1 1] - 2}] [gcmd_late $late wrong more]
+    }
+
+    gcmd_test {late answers: a late answer that was right can be the one that proves a threshold} {
+        # CHANGES 2: when the answer arrives the wrong guess is taken back,
+        # and what that proves is proven at once.
+        assert_equal 1 [gcmd_late $late flip start pending]
+        assert_equal 0 [gcmd_late $late flip start calibration-samples]
+        # proof moved on: one wrong guess (for now) and 39 right ones, where
+        # 47 right ones are needed after a wrong one
+        assert_equal 40 [gcmd_late $late flip moved calibration-samples]
+        assert_equal CALIBRATING [gcmd_late $late flip moved state]
+        assert_equal {{}} [gcmd_late $late flip moved thresholds]
+        assert_equal 1 [gcmd_late $late flip moved pending]
+        assert {[gcmd_proof_needed 0.2 0.2 1 1 1] > 39 + 1}
+        # the answer: 40 right guesses, 35 were needed
+        assert_equal 1 [gcmd_late $late flip answer]
+        assert_equal ACTIVE [gcmd_late $late flip after state]
+        assert_equal 1 [gcmd_late $late flip after generation]
+        assert {[lindex [gcmd_late $late flip after thresholds] 0] == 0}
+        assert_equal 40 [gcmd_late $late flip after calibration-samples]
+        assert_equal 0 [gcmd_late $late flip after pending]
+        assert_equal 0 [gcmd_late $late flip after missing]
+    }
+
+    gcmd_test {late answers: after the feedback timeout the answer is lost, GLEARN replies 0} {
+        # "An answer that has not arrived after the feedback timeout ... is
+        # lost: the request stays a wrong guess and its id is forgotten."
+        # The request proof had moved on without:
+        assert_equal 3 [gcmd_late $late gone moved calibration-samples]
+        assert_equal 1 [gcmd_late $late gone moved pending]
+        assert_equal 0 [gcmd_late $late gone after pending]
+        assert_equal 1 [gcmd_late $late gone after missing]
+        assert_equal 3 [gcmd_late $late gone after calibration-samples]
+        assert_equal 0 [gcmd_late $late gone answer]
+        assert_equal [expr {[gcmd_proof_needed 0.2 0.2 1 1 1] - 2}] [gcmd_late $late gone more]
+        # The request proof still waited for (nothing was written to the
+        # gate in between): it counts now, and so do the answers behind it.
+        assert_equal 1 [gcmd_late $late lost start pending]
+        assert_equal 1 [gcmd_late $late lost third]
+        assert_equal 0 [gcmd_late $late lost after pending]
+        assert_equal 1 [gcmd_late $late lost after missing]
+        assert_equal 3 [gcmd_late $late lost after calibration-samples]
+        assert_equal 0 [gcmd_late $late lost answer]
+        assert_equal [expr {[gcmd_proof_needed 0.2 0.2 1 1 1] - 2}] [gcmd_late $late lost more]
+        # GRESET "restarts the counters": the lost answers too
+        assert_equal 0 [gcmd_late $late lost reset missing]
+        assert_equal 0 [gcmd_late $late lost reset requests]
+        assert_equal 2 [gcmd_late $late lost reset candidate]
+    }
+
+    gcmd_test {late answers: GINFO shows an idle gate as of its last write} {
+        # "A gate does its bookkeeping when it is written to, so GINFO
+        # shows an idle gate as of its last write."
+        set start [gcmd_late $late idle start]
+        assert_equal 1 [dict get [lindex $start 0] pending]
+        assert_equal 0 [dict get [lindex $start 0] missing]
+        # the feedback timeout has passed and nothing was written: GINFO
+        # and the value are what they were
+        assert_equal $start [gcmd_late $late idle waited]
+        # the first write does the bookkeeping
+        assert_equal 0 [gcmd_late $late idle after pending]
+        assert_equal 1 [gcmd_late $late idle after missing]
+        assert_equal 1 [gcmd_late $late idle after calibration-samples]
+        assert_equal CALIBRATING [gcmd_late $late idle after state]
+        assert_equal 0 [gcmd_late $late idle answer]
+    }
+
+    gcmd_test {late answers: 32 answers missing in a row stop the gate, 31 do not} {
+        # "When 32 requests in a row end without an answer and no answer
+        # arrives in between, ... the gate ... stops answering, keeps its
+        # model, and proves itself again as soon as answers arrive."
+        foreach gate {blind b31} n {32 31} {
+            assert_equal AUDIT [gcmd_late $late $gate asked]
+            assert_equal ACTIVE [gcmd_late $late $gate start state]
+            assert_equal $n [gcmd_late $late $gate start pending]
+            assert_equal 0 [gcmd_late $late $gate start missing]
+            assert_equal 1 [gcmd_late $late $gate start generation]
+        }
+        # 31: the gate still answers (here: asks for a spot check)
+        assert_equal AUDIT [lindex [gcmd_late $late b31 reply] 0]
+        assert_equal ACTIVE [gcmd_late $late b31 after state]
+        assert_equal 31 [gcmd_late $late b31 after missing]
+        assert_equal 0 [gcmd_late $late b31 after revocations]
+        # an answer that is missing is not a spot check that disagreed
+        assert_equal 0 [gcmd_late $late b31 after audit-samples]
+        assert_equal 0 [gcmd_late $late b31 after audit-errors]
+        assert_equal 1 [gcmd_late $late b31 after generation]
+        assert_equal 1 [gcmd_late $late b31 after pending]
+        assert_equal 1 [gcmd_late $late b31 answer]
+        assert_equal ACTIVE [gcmd_late $late b31 again state]
+        # 32: it stopped by itself. Nothing is tested (GINFO revocations
+        # counts the stop); the request that found it so gets an id.
+        lassign [gcmd_late $late blind reply] action id
+        assert_equal ABSTAIN $action
+        assert {$id ne {}}
+        assert_equal COLD [gcmd_late $late blind after state]
+        assert_equal 32 [gcmd_late $late blind after missing]
+        assert_equal 1 [gcmd_late $late blind after revocations]
+        assert_equal 0 [gcmd_late $late blind after generation]
+        assert_equal 0 [gcmd_late $late blind after candidate]
+        assert_equal {{}} [gcmd_late $late blind after thresholds]
+        assert_equal 1 [gcmd_late $late blind after pending]
+        # An answer arrives: a new snapshot, with a new number, is tested.
+        assert_equal 1 [gcmd_late $late blind answer]
+        assert_equal CALIBRATING [gcmd_late $late blind again state]
+        assert_equal 2 [gcmd_late $late blind again candidate]
+        assert_equal 0 [gcmd_late $late blind again pending]
+        assert_equal 32 [gcmd_late $late blind again missing]
+        assert_equal 1 [gcmd_late $late blind again revocations]
+    }
+
+    gcmd_test {late answers: a classifier whose answers stop arriving keeps its model} {
+        # CHANGES 3: missing answers say nothing about the model. (A gate
+        # that got worse forgets it: section 8.)
+        assert_equal AUDIT [gcmd_late $late bcls asked]
+        assert_equal ACTIVE [gcmd_late $late bcls start state]
+        assert_equal 32 [gcmd_late $late bcls start pending]
+        set learned [gcmd_late $late bcls start learned]
+        assert {$learned >= 40}
+        set numbers [expr {max([gcmd_late $late bcls start generation], [gcmd_late $late bcls start candidate])}]
+        lassign [gcmd_late $late bcls reply] action id
+        assert_equal ABSTAIN $action
+        assert {$id ne {}}
+        assert_equal COLD [gcmd_late $late bcls after state]
+        assert_equal $learned [gcmd_late $late bcls after learned]
+        assert_equal 32 [gcmd_late $late bcls after missing]
+        assert_equal 1 [gcmd_late $late bcls after revocations]
+        assert_equal 0 [gcmd_late $late bcls after generation]
+        assert_equal 0 [gcmd_late $late bcls after candidate]
+        assert_equal {{} {}} [gcmd_late $late bcls after thresholds]
+        # an answer arrives: the model it kept is tested again, as a new snapshot
+        assert_equal 1 [gcmd_late $late bcls answer]
+        assert_equal CALIBRATING [gcmd_late $late bcls again state]
+        assert_equal [expr {$learned + 1}] [gcmd_late $late bcls again learned]
+        assert_equal [expr {$numbers + 1}] [gcmd_late $late bcls again candidate]
+    }
+
+    gcmd_test {late answers: a classifier learns from a late answer and counts it for its snapshot} {
+        assert_equal 1 [gcmd_late $late cls start candidate]
+        assert_equal 1 [gcmd_late $late cls start pending]
+        assert_equal 0 [gcmd_late $late cls start calibration-samples]
+        assert_equal 2 [gcmd_late $late cls start learned]
+        assert_equal 3 [gcmd_late $late cls moved calibration-samples]
+        assert_equal 1 [gcmd_late $late cls moved pending]
+        assert_equal 3 [gcmd_late $late cls moved learned]
+        assert_equal 1 [gcmd_late $late cls answer]
+        assert_equal 0 [gcmd_late $late cls after pending]
+        assert_equal 0 [gcmd_late $late cls after missing]
+        assert_equal 3 [gcmd_late $late cls after calibration-samples]
+        # the example was learned when its label came
+        assert_equal 4 [gcmd_late $late cls after learned]
+        # three right guesses of "a" so far, of the 39 a label of two needs
+        assert_equal [expr {[gcmd_proof_needed 0.2 0.2 1 2] - 3}] [gcmd_late $late cls more]
+    }
+
+    gcmd_test {the server is still up (late and lost answers)} {
+        assert_equal PONG [r ping]
+    }
+}
+
+# ============================================================================
+# 10. Random arguments and random sessions
+# ============================================================================
+
+# A random session of valid commands on the gate 'key' ('kind' is score or
+# cls, a classifier of "spam" and "ham"): requests, answers in any order and
+# mostly right, examples, pauses, now and then a reset. With 'timed' the
+# session also sleeps a millisecond now and then: for gates created with a
+# feedback timeout of a few milliseconds. After every command the GINFO of
+# the gate must make sense, by itself and against the GINFO before; every
+# 50 commands the gate must survive DUMP and RESTORE. From step 'flaky' on
+# (if it is not negative) the teacher of a score gate disagrees with half
+# of the confident results: a gate that got worse (such a session has no
+# resets). Returns how many requests
+# the session made, how many of them the gate answered, how often the gate
+# stopped answering by itself, and the last GINFO.
+proc gcmd_session {key kind steps timed {flaky -1}} {
+    set asked 0
+    set accepts 0
+    set stops 0
+    set ids {}                ;# requests the session has not answered: {id what}
+    set last [r ginfo $key]
+    set top [expr {max([dict get $last generation], [dict get $last candidate])}]
+    set classes [llength [dict get $last classes]]
+    set did {}
+    for {set step 0} {$step < $steps} {incr step} {
+        set roll [gcmd_rnd 1000]
+        set reset 0
+        if {$roll < 450} {
+            if {$kind eq "score"} {
+                set what [gcmd_pick {0.9 0.9 0.95 0.999 1 0.5 0.1 0}]
+                set cmd [list gpredict $key SCORE $what]
+            } else {
+                set what [gcmd_rnd 10]
+                set cmd [list gpredict $key TEXT [lindex [gcmd_example $what] 0]]
+            }
+            lassign [r {*}$cmd] action arg
+            incr asked
+            if {$action eq "ACCEPT"} {incr accepts}
+            if {$action ni {ACCEPT AUDIT ABSTAIN}} {fail "$key: '$cmd' replied '$action $arg'"}
+            if {$action ne "ACCEPT" && $arg ne {}} {lappend ids [list $arg $what]}
+            if {$action eq "AUDIT" && $arg eq {}} {fail "$key: '$cmd' replied AUDIT without an id"}
+        } elseif {$roll < 850} {
+            if {[llength $ids] == 0} continue
+            set at [expr {[gcmd_rnd 3] ? 0 : [gcmd_rnd [llength $ids]]}]
+            lassign [lindex $ids $at] id what
+            set ids [lreplace $ids $at $at]
+            if {$kind eq "score"} {
+                set right [expr {$what >= 0.5 ? [gcmd_rnd 40] > 0 : [gcmd_rnd 3] == 0}]
+                if {$flaky >= 0 && $step >= $flaky} {set right [gcmd_rnd 2]}
+                set cmd [list glearn $key $id CORRECT $right]
+            } else {
+                set label [lindex [gcmd_example $what] 1]
+                if {[gcmd_rnd 40] == 0} {set label [gcmd_pick {spam ham}]}
+                set cmd [list glearn $key $id LABEL $label]
+            }
+            set used [r {*}$cmd]
+            # Without timeouts every id the session holds is one the gate
+            # still waits for.
+            if {$used ni {0 1} || (!$timed && $used != 1)} {
+                fail "$key: '$cmd' replied '$used' (step $step, after: [join [lrange $did end-8 end] {; }])"
+            }
+        } elseif {$roll < 920} {
+            if {$kind ne "cls"} continue
+            lassign [gcmd_example [gcmd_rnd 10]] text label
+            set cmd [list gadd $key TEXT $text LABEL $label]
+            r {*}$cmd
+        } elseif {$roll < 950} {
+            set cmd [list [gcmd_pick {gpause gresume gresume}] $key]
+            r {*}$cmd
+        } elseif {$roll < 953} {
+            # (a gate that is to get worse is left to get there)
+            if {$flaky >= 0} continue
+            set cmd [list greset $key]
+            r {*}$cmd
+            set ids {}
+            set reset 1
+        } else {
+            if {!$timed} continue
+            after 1
+            set cmd {after 1}
+        }
+        lappend did $cmd
+        set info [r ginfo $key]
+        set shown "$key, step $step, after: [join [lrange $did end-8 end] {; }]\n$info\n"
+
+        # ---- GINFO by itself
+        if {[dict get $info requests] != [dict get $info accepted] + [dict get $info audited] +
+                [dict get $info abstained]} {
+            fail "the request counters do not add up ($shown)"
+        }
+        set generation [dict get $info generation]
+        set candidate [dict get $info candidate]
+        switch [dict get $info state] {
+            ACTIVE {set fits [expr {$generation > 0}]}
+            CALIBRATING {set fits [expr {$generation == 0 && $candidate > 0}]}
+            COLD {set fits [expr {$generation == 0 && $candidate == 0}]}
+            PAUSED {set fits 1}
+            default {set fits 0}
+        }
+        if {!$fits} {fail "the state does not fit generation and candidate ($shown)"}
+        if {$generation > 0 && $candidate > 0 && $candidate <= $generation} {
+            fail "the snapshot being tested is not newer than the one answering ($shown)"
+        }
+        set proven 0
+        foreach alpha [dict get $info alphas] threshold [dict get $info thresholds] {
+            if {$threshold eq {}} continue
+            incr proven
+            if {$alpha == 0} {fail "a threshold for a label that is always deferred ($shown)"}
+        }
+        if {($generation > 0) != ($proven > 0)} {
+            fail "a gate answers exactly when it has a threshold ($shown)"
+        }
+        if {$generation == 0 && ([dict get $info coverage] != 0 || [dict get $info audit-samples] != 0)} {
+            fail "coverage or spot checks without a snapshot that answers ($shown)"
+        }
+        if {[dict get $info coverage] < 0 || [dict get $info coverage] > 1 ||
+            [dict get $info audit-errors] > [dict get $info audit-samples] ||
+            [dict get $info pending] > 4096 || [dict get $info memory] <= 0} {
+            fail "a value out of its range ($shown)"
+        }
+
+        # ---- against the GINFO before
+        # Snapshot numbers are never reused; a snapshot answers only after
+        # it was the one being tested.
+        if {$candidate != 0 && $candidate != [dict get $last candidate] && $candidate <= $top} {
+            fail "the snapshot number $candidate was used before ($shown)"
+        }
+        if {$generation != 0 && $generation != [dict get $last generation] &&
+            $generation != [dict get $last candidate]} {
+            fail "the snapshot $generation answers without having been tested ($shown)"
+        }
+        set top [expr {max($top, $generation, $candidate)}]
+        if {$generation != 0 && $generation == [dict get $last generation]} {
+            # the same snapshot answers: its thresholds only move down, on its grid
+            set lowest [expr {$kind eq "score" ? 0.0 : max(1.0 / $classes, 0.25)}]
+            set highest [expr {$kind eq "score" ? 0.998 : 0.999}]
+            foreach old [dict get $last thresholds] threshold [dict get $info thresholds] {
+                if {$old eq $threshold} continue
+                if {$threshold eq {} || ($old ne {} && $threshold > $old)} {
+                    fail "a threshold moved up ($shown)"
+                }
+                if {[gcmd_grid_index $lowest $highest $threshold] < 0} {
+                    fail "the threshold $threshold is not one of the 32 ($shown)"
+                }
+            }
+        }
+        if {!$reset} {
+            foreach field {requests accepted audited abstained missing revocations} {
+                if {[dict get $info $field] < [dict get $last $field]} {
+                    fail "the counter $field went down ($shown)"
+                }
+            }
+            if {[dict get $info revocations] > [dict get $last revocations]} {
+                incr stops
+                # a gate that stops answering answers nothing
+                if {$generation != 0} {fail "the gate stopped and still answers ($shown)"}
+            }
+            if {[dict get $info learned] < [dict get $last learned] &&
+                [dict get $info revocations] == [dict get $last revocations]} {
+                fail "the gate forgot examples without stopping ($shown)"
+            }
+        }
+        # GINFO pending is what the session knows to be waiting. (A score
+        # gate that stops by itself drops the requests that were proof for
+        # what it dropped.)
+        if {!$timed} {
+            if {$kind eq "score" && [dict get $info revocations] > [dict get $last revocations] && !$reset} {
+                set ids {}
+            }
+            if {[dict get $info pending] != [llength $ids]} {
+                fail "pending is [dict get $info pending], the session waits for [llength $ids] answers ($shown)"
+            }
+        } elseif {[dict get $info pending] > [llength $ids]} {
+            fail "pending is [dict get $info pending], the session holds only [llength $ids] ids ($shown)"
+        }
+        set last $info
+        if {$step % 50 == 49} {
+            gcmd_check_saveable $key "($shown)"
+            gcmd_check_recovery $key "($shown)"
+        }
+    }
+    gcmd_check_saveable $key
+    list $asked $accepts $stops $last
+}
 
 start_server [list tags {"modules external:skip"} overrides [list loadmodule $gatemodule]] {
     r config set gate.test-seed 77008
@@ -4171,6 +6864,13 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         set ids {}
         set seen {}
         for {set it 0} {$it < 8000} {incr it} {
+            # Whatever the commands so far made of the gates, each of them
+            # can be saved and loaded.
+            if {$it % 400 == 399} {
+                foreach key {rnd:1 rnd:2 rnd:3 rnd:4} {
+                    if {[r type $key] eq "gate-type"} {gcmd_check_saveable $key "(after $it random commands)"}
+                }
+            }
             set key [gcmd_pick $keys]
             switch [gcmd_rnd 14] {
                 0 {set cmd [list GCREATE $key {*}[gcmd_picks $words 0 12]]}
@@ -4245,4 +6945,459 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert_equal value [r get rnd:string]
         assert_equal PONG [r ping]
     }
+
+    gcmd_test {random sessions: GINFO stays consistent and every gate can be saved and loaded} {
+        # (the same draws whether or not the test above ran)
+        expr {srand(20261129)}
+        gcmd_seed 77108
+        set n 0
+        set accepted 0
+        set stopped 0
+        set snapshots 0
+        foreach {kind flaky options} {
+            score -1  {ALPHA 0.2 DELTA 0.2 SCORE}
+            score -1  {ALPHA 0.2 DELTA 0.2 SCORE AUDIT 1}
+            score 600 {ALPHA 0.3 DELTA 0.9 SCORE AUDIT 0.3}
+            score 300 {ALPHA 0.2 DELTA 0.5 SCORE AUDIT 1}
+            cls   -1  {ALPHA 0.2 DELTA 0.2 CLASSES 2 spam ham}
+            cls   -1  {ALPHA 0.2 DELTA 0.5 CLASSES 3 spam ham other ALWAYSDEFER 1 other AUDIT 0.5}
+            cls   -1  {ALPHA 0.2 DELTA 0.2 CLASSES 2 spam ham CLASSALPHA 1 spam 0.1 AUDIT 1}
+        } {
+            incr n
+            r del rs:$n
+            assert_equal OK [r gcreate rs:$n {*}$options]
+            lassign [gcmd_session rs:$n $kind 1200 0 $flaky] asked accepts stops end
+            assert {$asked > 300}
+            incr accepted $accepts
+            incr stopped $stops
+            incr snapshots [expr {max([dict get $end generation], [dict get $end candidate])}]
+        }
+        # The sessions got somewhere: gates answered by themselves, gates
+        # stopped by themselves, snapshots were taken one after the other.
+        assert {$accepted > 100}
+        assert {$stopped > 0}
+        assert {$snapshots > 14}
+    }
+
+    gcmd_test {random sessions with feedback timeouts of a few milliseconds} {
+        # The same sessions with real time in them: requests time out,
+        # proof moves on without late answers, answers stop arriving. What
+        # happens when depends on the clock; what must hold does not.
+        expr {srand(20261130)}
+        gcmd_seed 77109
+        set n 0
+        foreach {kind timeout options} {
+            score 4  {ALPHA 0.2 DELTA 0.2 SCORE AUDIT 0.5}
+            score 12 {ALPHA 0.2 DELTA 0.2 SCORE AUDIT 1}
+            score 40 {ALPHA 0.3 DELTA 0.9 SCORE AUDIT 0.3}
+            cls   4  {ALPHA 0.2 DELTA 0.2 CLASSES 2 spam ham AUDIT 0.5}
+            cls   12 {ALPHA 0.2 DELTA 0.5 CLASSES 3 spam ham other ALWAYSDEFER 1 other AUDIT 1}
+            cls   40 {ALPHA 0.2 DELTA 0.2 CLASSES 2 spam ham}
+        } {
+            incr n
+            r del rt:$n
+            r config set gate.feedback-timeout $timeout
+            assert_equal OK [r gcreate rt:$n {*}$options]
+            r config set gate.feedback-timeout 60000
+            lassign [gcmd_session rt:$n $kind 800 1] asked accepts stops end
+            assert {$asked > 200}
+        }
+        assert_equal PONG [r ping]
+    }
+}
+
+# ============================================================================
+# 11. The internal command, called the way a replication link calls it
+# ============================================================================
+#
+# Clients cannot call _GATE.APPLY (section 3); replicas and the AOF loader
+# get it from a primary that realized every value it carries. DEBUG
+# MARK-INTERNAL-CLIENT turns a test connection into such a caller, so that
+# these tests can also send what no primary sends. The contract (gate.c,
+# CHANGES 5 and 8): the values are checked before they are used; an
+# operation that does not fit its gate is skipped and counted
+# (gate_apply_mismatches in INFO) and the reply is OK all the same; a gate
+# that was changed this way is not trusted by this server any more.
+#
+#   _GATE.APPLY key CREATE now lineage epoch snapshot-examples timeout <GCREATE arguments>
+#   _GATE.APPLY key PREDICT now draw has-serving label score has-candidate label score
+#                           request-number [TEXT text [FEATURES ...]]
+#   _GATE.APPLY key LEARN now id answer
+#   _GATE.APPLY key ADD now TEXT text [FEATURES ...] LABEL label
+#   _GATE.APPLY key PAUSE | RESUME | TICK now
+#   _GATE.APPLY key RESET | RECOVER now epoch
+#
+# (draw and scores are the 16 hex digits of a double, epochs 16 hex digits)
+
+# The 16 hex digits a double travels as.
+proc gcmd_bits {value} {
+    binary scan [binary format Q $value] H16 hex
+    return $hex
+}
+
+# Operations that did not fit their gate, as INFO counts them.
+proc gcmd_mismatches {} {
+    if {![regexp {gate_apply_mismatches:(\d+)} [r info gate] -> n]} {
+        fail "INFO gate has no gate_apply_mismatches: [r info gate]"
+    }
+    return $n
+}
+
+# Send one operation over the marked connection: the reply must be OK.
+# Returns 1 if it was applied, 0 if it was counted as a mismatch.
+proc gcmd_apply {key args} {
+    set before [gcmd_mismatches]
+    set reply [$::gcmd_internal _gate.apply $key {*}$args]
+    if {$reply ne "OK"} {fail "_GATE.APPLY $key [string range $args 0 200] replied '$reply'"}
+    set counted [expr {[gcmd_mismatches] - $before}]
+    if {$counted ni {0 1}} {fail "one operation, $counted mismatches"}
+    expr {!$counted}
+}
+
+start_server [list tags {"modules external:skip needs:debug"} overrides [list loadmodule $gatemodule]] {
+    r config set gate.test-seed 77011
+
+    set ::gcmd_internal {}
+    catch {
+        set ::gcmd_internal [redis_client]
+        $::gcmd_internal debug mark-internal-client
+    }
+
+    gcmd_test {_GATE.APPLY: no mismatch is counted for what clients do} {
+        assert_equal 0 [gcmd_mismatches]
+        r del ia:score ia:cls
+        r gcreate ia:score ALPHA 0.2 DELTA 0.2 SCORE
+        gcmd_prove_score ia:score
+        gcmd_create_fast ia:cls ALPHA 0.2 DELTA 0.2 CLASSES 2 spam ham
+        gcmd_prove_classifier ia:cls
+        foreach {key answer} {ia:score {CORRECT 1} ia:cls {LABEL spam}} {
+            r gpause $key
+            r gresume $key
+            assert_error "ERR *" {r gpredict $key BOGUS x}
+            assert_equal 0 [r glearn $key not-an-id {*}$answer]
+            assert_equal 0 [r glearn $key 0123456789abcdef-1 {*}$answer]
+            r greset $key
+        }
+        assert_equal 0 [gcmd_mismatches]
+        # the counter is one line of INFO, in a section of the module
+        assert_match "*# gate*gate_apply_mismatches:0*" [r info gate]
+        assert_match "*gate_apply_mismatches:0*" [r info everything]
+        r del ia:score ia:cls
+    }
+
+    gcmd_test {_GATE.APPLY: what fits is applied, and the gate is no longer trusted by this server} {
+        set now [expr {[clock milliseconds] + 1000}]
+        set half [gcmd_bits 0.5]
+        r del ia:score ia:cls ia:new
+        # CREATE: the gate is there; GINFO shows it as its first write will
+        # leave it.
+        assert_equal 1 [gcmd_apply ia:new CREATE $now 00000000000000aa 00000000000000bb 1000 60000 \
+                            ALPHA 0.3 DELTA 0.2 CLASSES 2 x y]
+        set info [r ginfo ia:new]
+        assert_equal classifier [dict get $info kind]
+        assert_equal {x y} [dict get $info classes]
+        assert {[dict get $info alpha] == 0.3}
+        assert_equal COLD [dict get $info state]
+        gcmd_check_saveable ia:new
+        r del ia:new
+
+        # A gate of this server that answers; then one operation from
+        # outside (here: the clock, which changes nothing).
+        r gcreate ia:score ALPHA 0.2 DELTA 0.2 AUDIT 1 SCORE
+        gcmd_prove_all ia:score
+        lassign [r gpredict ia:score SCORE 0.9] action waiting
+        assert_equal AUDIT $action
+        set before [r ginfo ia:score]
+        assert_equal ACTIVE [dict get $before state]
+        set digest [debug_digest_value ia:score]
+        assert_equal 1 [gcmd_apply ia:score TICK $now]
+        assert_equal $digest [debug_digest_value ia:score]
+        # GINFO shows that the gate will start over (CHANGES 8: a node must
+        # not answer on proof it does not hold alone) ...
+        set shown [r ginfo ia:score]
+        assert_equal CALIBRATING [dict get $shown state]
+        assert_equal 0 [dict get $shown generation]
+        assert_equal 2 [dict get $shown candidate]
+        assert_equal {{}} [dict get $shown thresholds]
+        assert_equal 0 [dict get $shown pending]
+        assert_equal [dict get $before requests] [dict get $shown requests]
+        # ... and its first write makes it so
+        lassign [r gpredict ia:score SCORE 0.9] action id
+        assert_equal ABSTAIN $action
+        assert_equal 0 [r glearn ia:score $waiting CORRECT 1]
+        assert_equal 1 [r glearn ia:score $id CORRECT 1]
+        set after [r ginfo ia:score]
+        assert_equal CALIBRATING [dict get $after state]
+        assert_equal 2 [dict get $after candidate]
+        assert_equal 1 [dict get $after calibration-samples]
+
+        # PAUSE and RESUME; a request and its answer (the request counters
+        # and what the gate holds show them; proof is not shown for a gate
+        # this server does not trust)
+        assert_equal 1 [gcmd_apply ia:score PAUSE $now]
+        assert_equal PAUSED [gcmd_info ia:score state]
+        assert_equal 1 [gcmd_apply ia:score RESUME $now]
+        assert_equal CALIBRATING [gcmd_info ia:score state]
+        set info [r ginfo ia:score]
+        set epoch [string range $id 0 15]
+        set seq [expr {[lindex [split $id -] 1] + 1}]
+        assert_equal 1 [gcmd_apply ia:score PREDICT $now $half 0 -1 $half 1 -1 [gcmd_bits 0.9] $seq]
+        assert_equal [expr {[dict get $info requests] + 1}] [gcmd_info ia:score requests]
+        assert {[gcmd_info ia:score memory] > [dict get $info memory]}
+        set digest [debug_digest_value ia:score]
+        assert_equal 1 [gcmd_apply ia:score LEARN $now $epoch-$seq 1]
+        assert {[gcmd_info ia:score memory] == [dict get $info memory]}
+        if {[gcmd_has_digest]} {assert {$digest ne [debug_digest_value ia:score]}}
+        gcmd_check_saveable ia:score
+
+        # the same for a classifier: its request carries the text
+        r gcreate ia:cls ALPHA 0.2 CLASSES 2 a b
+        assert_equal 1 [gcmd_apply ia:cls ADD $now TEXT hello LABEL b]
+        assert_equal 1 [gcmd_info ia:cls learned]
+        assert_equal 1 [gcmd_apply ia:cls PREDICT $now $half 0 -1 $half 0 -1 $half 1 TEXT hello]
+        assert_equal 1 [gcmd_info ia:cls requests]
+        assert_equal 1 [gcmd_apply ia:cls PREDICT $now $half 0 -1 $half 0 -1 $half 5 TEXT hello FEATURES 1 x 1]
+        assert_equal 2 [gcmd_info ia:cls requests]
+        # RESET and RECOVER set the number ids start with
+        assert_equal 1 [gcmd_apply ia:cls RECOVER $now 00000000000000ee]
+        assert_equal 1 [gcmd_info ia:cls learned]
+        assert_equal 1 [gcmd_apply ia:cls PREDICT $now $half 0 -1 $half 0 -1 $half 6 TEXT hello]
+        assert_equal 1 [gcmd_apply ia:cls LEARN $now 00000000000000ee-6 0]
+        assert_equal 2 [gcmd_info ia:cls learned]
+        assert_equal 1 [gcmd_apply ia:cls RESET $now 00000000000000ff]
+        assert_equal 0 [gcmd_info ia:cls learned]
+        assert_equal 0 [gcmd_info ia:cls requests]
+        gcmd_check_saveable ia:cls
+        r del ia:score ia:cls
+    }
+
+    gcmd_test {_GATE.APPLY: what does not fit is skipped, counted and answered OK} {
+        set now [expr {[clock milliseconds] + 1000}]
+        set half [gcmd_bits 0.5]
+        r del ia:score ia:cls ia:none ia:string
+        r set ia:string value
+        r gcreate ia:score ALPHA 0.2 DELTA 0.2 SCORE
+        r gcreate ia:cls ALPHA 0.2 CLASSES 2 a b
+        set id [lindex [r gpredict ia:score SCORE 0.9] 1]
+        set epoch [string range $id 0 15]
+        r gpredict ia:cls TEXT hello
+        set before [list [debug_digest_value ia:score] [debug_digest_value ia:cls]]
+        foreach op [list \
+            [list ia:score PREDICT $now [gcmd_bits 1.5] 0 -1 $half 1 -1 $half 2] \
+            [list ia:score PREDICT $now [gcmd_bits 1.0] 0 -1 $half 1 -1 $half 2] \
+            [list ia:score PREDICT $now [gcmd_bits -0.5] 0 -1 $half 1 -1 $half 2] \
+            [list ia:score PREDICT $now $half 0 -1 $half 1 -1 [gcmd_bits 1.5] 2] \
+            [list ia:score PREDICT $now $half 0 -1 [gcmd_bits 1.5] 1 -1 $half 2] \
+            [list ia:score PREDICT $now $half 0 -1 $half 1 -1 7ff8000000000000 2] \
+            [list ia:score PREDICT $now $half 0 -1 $half 1 -1 7ff0000000000000 2] \
+            [list ia:score PREDICT $now $half 0 -1 $half 1 -1 0.5 2] \
+            [list ia:score PREDICT $now $half 0 -1 $half 1 64 $half 2] \
+            [list ia:score PREDICT $now $half 0 -1 $half 1 -2 $half 2] \
+            [list ia:score PREDICT $now $half 0 64 $half 1 -1 $half 2] \
+            [list ia:score PREDICT $now $half 0 -1 $half 1 5 $half 2] \
+            [list ia:score PREDICT $now $half 0 -1 $half 1 0 $half 2] \
+            [list ia:score PREDICT $now $half 0 0 $half 1 -1 $half 2] \
+            [list ia:score PREDICT $now $half 0 -1 $half 1 -1 $half 2 TEXT hello] \
+            [list ia:score PREDICT $now $half 0 -1 $half 0 -1 $half 2] \
+            [list ia:score PREDICT $now $half 0 -1 $half 1 -1 $half 1] \
+            [list ia:score PREDICT $now $half 0 -1 $half 1 -1 $half 0] \
+            [list ia:score PREDICT $now $half 0 -1 $half 1 -1 $half -1] \
+            [list ia:score PREDICT $now $half 0 -1 $half 1 -1 $half two] \
+            [list ia:score PREDICT $now $half 0 -1 $half 1 -1 $half] \
+            [list ia:score PREDICT -1 $half 0 -1 $half 1 -1 $half 2] \
+            [list ia:score PREDICT 9223372036854775807 $half 0 -1 $half 1 -1 $half 2] \
+            [list ia:score PREDICT soon $half 0 -1 $half 1 -1 $half 2] \
+            [list ia:score LEARN $now $id 2] \
+            [list ia:score LEARN $now $id -1] \
+            [list ia:score LEARN $now $id yes] \
+            [list ia:score LEARN $now garbage 1] \
+            [list ia:score LEARN $now $id] \
+            [list ia:score LEARN $now $id 1 extra] \
+            [list ia:score ADD $now TEXT hello LABEL a] \
+            [list ia:score BOGUS $now] \
+            [list ia:score PAUSE] \
+            [list ia:score PAUSE now] \
+            [list ia:score PAUSE $now extra] \
+            [list ia:score TICK -5] \
+            [list ia:score RESET $now nothex] \
+            [list ia:score RESET $now] \
+            [list ia:score RECOVER $now 123] \
+            [list ia:cls PREDICT $now $half 0 -1 $half 0 -1 $half 2] \
+            [list ia:cls PREDICT $now $half 0 -1 $half 0 -1 $half 2 TEXT] \
+            [list ia:cls PREDICT $now $half 0 -1 $half 0 -1 $half 2 TEXT hello extra] \
+            [list ia:cls PREDICT $now $half 0 -1 $half 0 -1 $half 2 TEXT hello FEATURES 2 x 1 x 2] \
+            [list ia:cls PREDICT $now $half 0 -1 $half 0 -1 $half 2 TEXT hello FEATURES 1 x nan] \
+            [list ia:cls PREDICT $now $half 0 -1 $half 0 -1 $half 1 TEXT hello] \
+            [list ia:cls LEARN $now $epoch-1 2] \
+            [list ia:cls ADD $now TEXT hello LABEL nosuch] \
+            [list ia:cls ADD $now TEXT hello] \
+            [list ia:cls ADD $now TEXT hello FEATURES 2 x 1 x 2 LABEL a] \
+            [list ia:cls ADD $now TEXT [string repeat x 1048577] LABEL a] \
+            [list ia:none PAUSE $now] \
+            [list ia:none PREDICT $now $half 0 -1 $half 1 -1 $half 1] \
+            [list ia:none CREATE $now 00000000000000aa 00000000000000bb 1000 60000 ALPHA 7 SCORE] \
+            [list ia:none CREATE $now 00000000000000aa 00000000000000bb 0 60000 ALPHA 0.2 SCORE] \
+            [list ia:none CREATE $now 00000000000000aa 00000000000000bb 1000000001 60000 ALPHA 0.2 SCORE] \
+            [list ia:none CREATE $now 00000000000000aa 00000000000000bb 4294967297 60000 ALPHA 0.2 SCORE] \
+            [list ia:none CREATE $now 00000000000000aa 00000000000000bb 1000 0 ALPHA 0.2 SCORE] \
+            [list ia:none CREATE $now 00000000000000aa 00000000000000bb 1000 604800001 ALPHA 0.2 SCORE] \
+            [list ia:none CREATE $now 00000000000000aa nothex 1000 60000 ALPHA 0.2 SCORE] \
+            [list ia:none CREATE $now 00000000000000aa 00000000000000bb 1000 60000] \
+            [list ia:none RESTORE garbage] \
+            [list ia:none RESTORE] \
+            [list ia:string PAUSE $now] \
+            [list ia:string LEARN $now $id 1] \
+            [list ia:string TICK $now] \
+        ] {
+            assert_equal [gcmd_apply {*}$op] 0 "_GATE.APPLY [string range $op 0 160] was applied"
+        }
+        # nothing of it changed a gate or made a key
+        assert_equal $before [list [debug_digest_value ia:score] [debug_digest_value ia:cls]]
+        assert_equal 0 [r exists ia:none]
+        assert_equal value [r get ia:string]
+        # a wrong number of arguments is the one error, and is not counted
+        set mismatches [gcmd_mismatches]
+        assert_error "ERR wrong number of arguments*" {$::gcmd_internal _gate.apply ia:score}
+        assert_error "ERR wrong number of arguments*" {$::gcmd_internal _gate.apply}
+        assert_equal $mismatches [gcmd_mismatches]
+        gcmd_check_saveable ia:score
+        gcmd_check_saveable ia:cls
+        # the gates go on working for their clients
+        assert_equal 1 [r glearn ia:cls [lindex [r gpredict ia:cls TEXT hello] 1] LABEL a]
+        assert_equal 1 [r glearn ia:score [lindex [r gpredict ia:score SCORE 0.5] 1] CORRECT 1]
+        r del ia:score ia:cls ia:string
+    }
+
+    gcmd_test {_GATE.APPLY: a request number no primary sends does not leave a gate that cannot be loaded} {
+        # The request number of a PREDICT operation is taken over by the
+        # gate (CHANGES 8). The module itself refuses to load a gate whose
+        # request counter is above 2^62 (CHANGES 5), so an operation with
+        # such a number does not fit: either it is skipped, or what it
+        # leaves is still a gate. A gate that its own DUMP cannot bring
+        # back also stops the next restart of the server at its RDB file.
+        set now [expr {[clock milliseconds] + 1000}]
+        set half [gcmd_bits 0.5]
+        set failures {}
+        foreach seq {4611686018427387903 4611686018427387904 4611686018427387905 9223372036854775807} {
+            r del ia:odd
+            r gcreate ia:odd ALPHA 0.2 DELTA 0.2 SCORE
+            set applied [gcmd_apply ia:odd PREDICT $now $half 0 -1 $half 1 -1 $half $seq]
+            if {[catch {gcmd_check_saveable ia:odd} err]} {
+                regsub {^assertion:} $err {} err
+                lappend failures "_GATE.APPLY key PREDICT $now $half 0 -1 $half 1 -1 $half $seq on a\
+                    new score gate ([expr {$applied ? "applied" : "counted as a mismatch"}]): $err"
+            }
+        }
+        r del ia:odd
+        if {[llength $failures]} {fail [join $failures "\n"]}
+    }
+
+    gcmd_test {_GATE.APPLY: random operations are answered OK, the gates stay gates, the server stays up} {
+        expr {srand(20261201)}
+        set now [clock milliseconds]
+        set keys {ir:score ir:cls ir:string ir:none}
+        r del {*}$keys
+        r set ir:string value
+        set texts {hello "buy cheap pills now" {} "a b c d e f"}
+        set bits [list [gcmd_bits 0.0] [gcmd_bits 0.5] [gcmd_bits 0.9] [gcmd_bits 0.999] [gcmd_bits 1.0] \
+                      [gcmd_bits 0.04] [gcmd_bits 0.3]]
+        set wild [list [gcmd_bits 1.5] [gcmd_bits -0.5] 7ff0000000000000 7ff8000000000000 fff0000000000000 \
+                      0000000000000001 8000000000000000 zz {} 0.5 3fe 3FE0000000000000]
+        set junk [list {} x -1 0 1 2 63 64 65 4294967296 9223372036854775807 -9223372036854775808 \
+                      18446744073709551616 TEXT LABEL FEATURES ALPHA SCORE CLASSES a b nosuch 0.5 nan \
+                      00000000000000bb 00000000000000bb-1 "a\x00b" [binary format H* ff] [string repeat z 300]]
+        set epochs {00000000000000bb 00000000000000dd 00000000000000ee}
+        set seen {}
+        set applied 0
+        for {set it 0} {$it < 5000} {incr it} {
+            # (re)create the two gates now and then, the way a primary does
+            if {$it % 1250 == 0} {
+                gcmd_apply ir:score CREATE $now 00000000000000aa 00000000000000bb 1000 [gcmd_pick {5 60000}] \
+                    ALPHA 0.2 DELTA 0.2 AUDIT [gcmd_pick {1 0.5 0.05}] SCORE
+                gcmd_apply ir:cls CREATE $now 00000000000000cc 00000000000000dd [gcmd_pick {1 3 1000}] \
+                    [gcmd_pick {5 60000}] ALPHA 0.2 DELTA 0.2 CLASSES 3 a b c ALWAYSDEFER 1 c
+                # the number the next request of each gate gets
+                unset -nocomplain ir_next
+                array set ir_next {ir:score 1 ir:cls 1 ir:string 1 ir:none 1}
+            }
+            set key [gcmd_pick {ir:score ir:score ir:cls ir:cls ir:string ir:none}]
+            set classifier [expr {$key eq "ir:cls"}]
+            incr now [gcmd_pick {0 0 0 1 1 2 7 30 -5}]
+            set t [expr {[gcmd_rnd 20] ? $now : [gcmd_pick {0 -1 x 9223372036854775807 9223372036854775000}]}]
+            set slabel [gcmd_pick {-1 -1 -1 0 1 2 3 63 64 -2 x}]
+            set clabel [gcmd_pick {-1 -1 -1 0 1 2 3 63 64 -2 x}]
+            # Request numbers stay small: the test above is about the large ones.
+            set seq [expr {$ir_next($key) + [gcmd_pick {0 0 0 0 0 0 1 3 -1 -100}]}]
+            set recorded 0
+            switch [gcmd_rnd 12] {
+                0 - 1 - 2 {
+                    set op [list PREDICT $t [gcmd_pick $bits] [gcmd_rnd 2] $slabel [gcmd_pick $bits] \
+                                [gcmd_rnd 2] $clabel [gcmd_pick $bits] $seq]
+                    if {[gcmd_rnd 5] ? $classifier : !$classifier} {lappend op TEXT [gcmd_pick $texts]}
+                    if {$classifier && [gcmd_rnd 5] == 0} {lappend op FEATURES 1 x [gcmd_pick {1 -1 nan}]}
+                    set recorded 1
+                }
+                3 {
+                    set op [list PREDICT $t [gcmd_pick [concat $bits $wild]] [gcmd_pick {0 1 2 -1 x}] $slabel \
+                                [gcmd_pick [concat $bits $wild]] [gcmd_pick {0 1 2 -1 x}] $clabel \
+                                [gcmd_pick [concat $bits $wild]] $seq]
+                    if {$classifier && [gcmd_rnd 2]} {lappend op TEXT [gcmd_pick $texts]}
+                    set recorded 1
+                }
+                4 - 5 - 6 {
+                    set op [list LEARN $t [gcmd_pick $epochs]-[expr {1 + [gcmd_rnd $ir_next($key)]}] \
+                                [gcmd_pick {0 1 0 1 0 1 2 3 -1 x}]]
+                }
+                7 {
+                    set op [list ADD $t TEXT [gcmd_pick $texts] {*}[gcmd_pick {{} {FEATURES 1 x 1} {FEATURES 1 x nan}}] \
+                                LABEL [gcmd_pick {a b c a b nosuch}]]
+                }
+                8 {set op [list [gcmd_pick {PAUSE RESUME TICK TICK TICK}] $t]}
+                9 {
+                    set op [list [gcmd_pick {RESET RECOVER RECOVER}] $t [gcmd_pick [concat $epochs {zz {}}]]]
+                }
+                10 {set op [gcmd_picks $junk 1 8]}
+                11 {
+                    set op [list [gcmd_pick {PREDICT LEARN ADD PAUSE RESUME TICK RESET RECOVER CREATE RESTORE}] \
+                                {*}[gcmd_picks $junk 0 10]]
+                }
+            }
+            set shown "_GATE.APPLY $key [string range $op 0 200]"
+            if {[catch {gcmd_apply $key {*}$op} fits]} {
+                fail "$shown: $fits"
+            }
+            dict incr seen [lindex $op 0]
+            incr applied $fits
+            # a request that was applied took its number
+            if {$fits && $recorded} {set ir_next($key) [expr {$seq + 1}]}
+            if {$it % 50 == 49} {
+                foreach gate {ir:score ir:cls} {
+                    set info [r ginfo $gate]
+                    assert_equal [dict get $info requests] [expr {[dict get $info accepted] +
+                        [dict get $info audited] + [dict get $info abstained]}] $shown
+                    assert {[dict get $info pending] <= 4096}
+                    assert {[dict get $info state] in {COLD CALIBRATING ACTIVE PAUSED}}
+                    gcmd_check_saveable $gate "(after $shown)"
+                }
+                assert_equal value [r get ir:string]
+                assert_equal 0 [r exists ir:none]
+            }
+        }
+        # the loop did what it was meant to: operations of every kind, and
+        # a good share of them applied
+        foreach name {PREDICT LEARN ADD PAUSE RESET RECOVER TICK} {assert {[dict exists $seen $name]}}
+        assert {$applied > 1000}
+        # public commands find working gates
+        foreach gate {ir:score ir:cls} {
+            assert_equal OK [r greset $gate]
+            gcmd_check_saveable $gate
+        }
+        lassign [r gpredict ir:score SCORE 0.5] action id
+        assert_equal ABSTAIN $action
+        assert_equal 1 [r glearn ir:score $id CORRECT 1]
+        assert_equal 1 [r gadd ir:cls TEXT hello LABEL a]
+        assert_equal PONG [r ping]
+    }
+
+    catch {$::gcmd_internal close}
 }

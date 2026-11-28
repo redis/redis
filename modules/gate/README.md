@@ -108,14 +108,24 @@ If Redis is unreachable or replies with an error, call the teacher.
   nothing random is ever replayed. An `ACCEPT` writes nothing.
 * After a restart or a failover a gate keeps its model but proves itself
   again before answering.
+* Send `GLEARN` for every id you are given, once the teacher has answered.
+  If the teacher fails, send nothing: an id that gets no `GLEARN` within
+  `gate.feedback-timeout` counts as a wrong guess, which is the safe
+  reading. If no answers arrive at all, the gate stops answering by itself
+  and resumes when they do.
 * Keep gates out of reach of eviction (`noeviction` or a `volatile-*`
   policy): an evicted gate is simply gone.
 * Suggested ACLs: application servers `+gpredict +glearn`, operators the
   rest. All commands are in the `@gate` category. Whoever may call `GLEARN`
   can teach the gate anything.
+* `INFO gate` shows `gate_apply_mismatches`: replicated operations that did
+  not fit the gate they were sent to. It should stay 0.
 * Two server settings are read when a gate is created:
   `gate.snapshot-examples` (default 1000) and `gate.feedback-timeout`
-  (milliseconds, default 300000).
+  (milliseconds, default 60000; use about ten times your teacher's usual
+  response time, or more).
+* Size: a score gate takes about 36 KB, a classifier gate about 32 KB per
+  label and model copy (up to three copies), plus what waits for feedback.
 
 ## Tests
 
@@ -123,7 +133,12 @@ If Redis is unreachable or replies with an error, call the teacher.
 make -C modules/gate test-unit    # C unit tests of every layer
 make -C modules/gate sim          # Monte Carlo of the statistics and the protocol
 make -C modules/gate test         # unit tests + Redis integration tests
+python3 modules/gate/tests/bench.py   # rough performance numbers
 ```
+
+For tests only: `CONFIG SET gate.test-seed N` (non-zero) makes every random
+draw and id come from a seeded sequence. Set it to 0 and then to N again to
+restart the sequence.
 
 ## Status
 

@@ -18,6 +18,19 @@
  * implementation is libm rounding only, which is why the tolerances can be
  * a few ulps. The handful of values a person can verify with pencil and
  * paper are derived in the comments next to them.
+ *
+ * The expected values of the gateRegionFlip() tests come from a model of a
+ * region that is two integers and one rule (an update adds a sample and
+ * possibly an error; a flip takes one error back if there is one), from the
+ * closed form of the log wealths for those two counts in 80 digit decimals,
+ * and, for the numbers of certified paths, from exact rational arithmetic
+ * (the mixture wealth and the threshold are both rational numbers, so no
+ * logarithm is involved). The same scripts reproduce the older constants
+ * of the e-process tests they were run against, to their 20 digits: the
+ * increments, the hand computed, short and 1000 sample streams, every
+ * count of zero_error_certification_n and the five probabilities of
+ * exhaustive_certification_probability. What "up to rounding" means for a
+ * flip is derived, not tuned: see the comment above flipSlack().
  */
 
 #include <float.h>
@@ -376,8 +389,10 @@ TEST(zero_error_certification_n) {
         {0.001, 0.01, 6556}, {0.001, 0.05, 4637}, {0.001, 1e-6, 16881}
     };
     /* The same through the budget: threshold of generation g of a gate with
-     * 'nregions' regions. 8 is the first snapshot of a classifier with two
-     * labels (2 rows x 4 entry points), 32 that of a score gate. */
+     * 'nregions' regions. Every threshold of every tested row is a region
+     * (gateBar()): 32 is the first snapshot of a score gate, 64 that of a
+     * classifier with two labels, 2048 that of one with 64 labels, and
+     * (2, 32) the second snapshot of a score gate. 8 is no gate's bar. */
     static const struct {
         double alpha, delta_total;
         uint64_t g;
@@ -391,22 +406,34 @@ TEST(zero_error_certification_n) {
         {0.01, 0.01, 1, 1, 732},  {0.01, 0.01, 1, 32, 1121},
         {0.01, 0.01, 5, 64, 1498}, {0.01, 0.05, 3, 256, 1372},
         {0.05, 0.01, 1, 8, 189},  {0.02, 0.01, 1, 8, 481},
-        {0.01, 0.01, 1, 8, 966}
+        {0.01, 0.01, 1, 8, 966},
+        {0.05, 0.01, 1, 64, 235},  {0.02, 0.01, 1, 64, 596},
+        {0.01, 0.01, 1, 64, 1198},
+        {0.05, 0.01, 2, 32, 243},  {0.02, 0.01, 2, 32, 618},
+        {0.01, 0.01, 2, 32, 1243},
+        {0.05, 0.01, 1, 2048, 310}, {0.02, 0.01, 1, 2048, 787},
+        {0.01, 0.01, 1, 2048, 1581}
     };
     size_t i, total = COUNTOF(direct) + COUNTOF(budget);
+    int late;
 
-    for (i = 0; i < total; i++) {
+    /* Every case twice: with correct samples, and with samples that are
+     * first counted as errors and then set right by gateRegionFlip(), which
+     * is what the gate does with an answer that is late and right. Once the
+     * answer is in it must have cost nothing: the same n, to the sample. */
+    for (i = 0; i < 2 * total; i++) {
         double alpha, thr, lw = 0.0, prev = 0.0;
         int expected, n = 0, monotone = 1;
         gateBets b;
         gateRegion r;
 
-        if (i < COUNTOF(direct)) {
-            alpha = direct[i].alpha;
-            thr = -log(direct[i].delta_region);
-            expected = direct[i].n;
+        late = i >= total;
+        if (i % total < COUNTOF(direct)) {
+            alpha = direct[i % total].alpha;
+            thr = -log(direct[i % total].delta_region);
+            expected = direct[i % total].n;
         } else {
-            size_t k = i - COUNTOF(direct);
+            size_t k = i % total - COUNTOF(direct);
 
             alpha = budget[k].alpha;
             thr = gateBudgetLogThreshold(budget[k].delta_total, budget[k].g, budget[k].nregions);
@@ -416,7 +443,13 @@ TEST(zero_error_certification_n) {
         gateRegionInit(&r);
         CHECK(!gateRegionCertifies(&r, thr)); /* never with zero samples */
         while (!gateRegionCertifies(&r, thr) && n < expected + 1000) {
-            lw = gateRegionUpdate(&r, &b, 0);
+            if (late) {
+                gateRegionUpdate(&r, &b, 1);
+                gateRegionFlip(&r, &b);
+                lw = gateRegionLogWealth(&r);
+            } else {
+                lw = gateRegionUpdate(&r, &b, 0);
+            }
             if (!(lw > prev)) monotone = 0;
             prev = lw;
             n++;
@@ -907,6 +940,1106 @@ TEST(certifies_agrees_with_log_wealth) {
     }
     CHECK_EQ_INT(mismatches, 0);
     CHECK(yes > 20000 && no > 20000);   /* both answers well represented */
+}
+
+/* ------------------ Taking an error back: gateRegionFlip ----------------- */
+
+/* The gate counts a request whose answer is late as an error and takes the
+ * error back when the answer arrives and the guess turns out to have been
+ * right (gate_core.h, "WHICH REQUESTS ARE PROOF" and "MISSING"). The
+ * contract of gateRegionFlip(): 'n' unchanged, one error less, and the
+ * wealth of a region in which that sample was correct from the start, up to
+ * rounding; nothing at all if the region holds no error.
+ *
+ * WHAT "UP TO ROUNDING" IS. Let u = 2^-53 (DBL_EPSILON / 2): a floating
+ * point addition is off by at most u times its result. With a = inc_ok[j]
+ * and e = inc_err[j] a flip adds d = fl(a - e) to a log wealth. So where
+ * "correct" computes fl(L + a) from a log wealth L, "error, then flip"
+ * computes fl(fl(L + e) + d). Four roundings separate the two:
+ *
+ *     u |L + e|  +  u (a - e)  +  u |L + a|  +  u |L + a|
+ *                                        <=  u (3 |L| + 3 a + 2 |e|)
+ *
+ * plus terms in u^2. In a fresh region L = 0, two of the four additions are
+ * exact and u (2 a + |e|) is left: under three ulps of the larger of the
+ * two increments. Mind that this is an absolute error of the size of an ulp
+ * of |e| whatever 'a' is: at alpha = 1e-9 the log wealth 1e-10 of a correct
+ * sample comes back from a flip right to about 1e-7 of itself. That is
+ * harmless (thresholds are a few units) and it is why nothing below
+ * compares a flipped wealth with a relative tolerance.
+ *
+ * Over a stream every addition contributes u times the log wealth it
+ * produced, and every flip u (a - e) more for the rounding of d. After
+ * 'ops' additions whose results never exceeded 'peak' in magnitude, 'flips'
+ * of them made by flips, a log wealth is within
+ *
+ *     u (ops * peak + flips * (a - e))
+ *
+ * of the exact sum of the increments it stands for. flipSlack() and
+ * trackedSlack() are these two bounds with 1% on top for the u^2 terms and
+ * for their own evaluation. They are derived, not tuned: no tolerance of
+ * the flip tests was widened to make a test pass. */
+#define U_ROUND (0.5 * DBL_EPSILON)
+
+static double flipSlack(double before, double ok, double err) {
+    return 1.01 * U_ROUND * (3.0 * fabs(before) + 3.0 * ok + 2.0 * fabs(err));
+}
+
+/* gateRegionLogWealth() adds a rounding of its own: the four differences
+ * logw[j] - max, four exp(), three additions, one log() and the final
+ * addition. With a libm that is within one ulp that is at most
+ * 24 u + u |result|; 32 is allowed. The log of a mean of exponentials moves
+ * by no more than its arguments do, so two regions whose log wealths agree
+ * within 'slack' report mixtures within slack plus one mixSlack() each. */
+static double mixSlack(double lw) {
+    return U_ROUND * (32.0 + fabs(lw));
+}
+
+/* A region together with what bounds the rounding of its log wealths. */
+typedef struct tracked {
+    gateRegion r;
+    double peak;        /* largest magnitude any of its log wealths has had */
+    uint64_t ops;       /* additions made to each log wealth */
+    uint64_t flips;     /* ... of which by a flip */
+} tracked;
+
+static void trackedInit(tracked *t) {
+    gateRegionInit(&t->r);
+    t->peak = 0.0;
+    t->ops = t->flips = 0;
+}
+
+static void trackedPeak(tracked *t) {
+    int j;
+
+    for (j = 0; j < GATE_NBETS; j++) {
+        if (fabs(t->r.logw[j]) > t->peak) t->peak = fabs(t->r.logw[j]);
+    }
+}
+
+static double trackedUpdate(tracked *t, const gateBets *b, int error) {
+    double lw = gateRegionUpdate(&t->r, b, error);
+
+    t->ops++;
+    trackedPeak(t);
+    return lw;
+}
+
+/* The whole model of a flip: it acts if and only if there is an error. */
+static void trackedFlip(tracked *t, const gateBets *b) {
+    if (t->r.errors > 0) {
+        t->ops++;
+        t->flips++;
+    }
+    gateRegionFlip(&t->r, b);
+    trackedPeak(t);
+}
+
+static double trackedSlack(const tracked *t, const gateBets *b) {
+    /* a - e is largest for the 0.9 bet: one bound for the four bets. */
+    double d = b->inc_ok[GATE_NBETS - 1] - b->inc_err[GATE_NBETS - 1];
+
+    return 1.01 * U_ROUND * ((double)t->ops * t->peak + (double)t->flips * d);
+}
+
+/* What separates the exact sum of the library's increments from a closed
+ * form in the reference increments: the library's are within 1e-14
+ * (relative) of the reference ones, which bets_increments checks, and a
+ * closed form evaluated in doubles adds a few u. */
+static double refSlack(uint64_t ops, const gateBets *b) {
+    return 1.5e-14 * (double)ops * (b->inc_ok[GATE_NBETS - 1] - b->inc_err[GATE_NBETS - 1]);
+}
+
+/* 1 if two regions that hold the same samples, accounted by different
+ * routes, agree: same counters, log wealths and mixture within the rounding
+ * of the two routes. */
+static int trackedAgree(const tracked *x, const tracked *y, const gateBets *b) {
+    double slack = trackedSlack(x, b) + trackedSlack(y, b), lx, ly;
+    int j;
+
+    if (x->r.n != y->r.n || x->r.errors != y->r.errors) return 0;
+    for (j = 0; j < GATE_NBETS; j++) {
+        if (!(fabs(x->r.logw[j] - y->r.logw[j]) <= slack)) return 0;
+    }
+    lx = gateRegionLogWealth(&x->r);
+    ly = gateRegionLogWealth(&y->r);
+    return fabs(lx - ly) <= slack + mixSlack(lx) + mixSlack(ly);
+}
+
+/* The log wealths that the counts (n, errors) stand for, in the reference
+ * increments of risk target ref_inc_ok[a]. */
+static void countsLogw(size_t a, uint64_t n, uint64_t errors, double *logw) {
+    int j;
+
+    for (j = 0; j < GATE_NBETS; j++)
+        logw[j] = (double)(n - errors) * ref_inc_ok[a].inc_ok[j] + (double)errors * ref_inc_err[j];
+}
+
+/* log((1/4) sum_j exp(logw[j])) the plain way: good enough for the handful
+ * of samples of the tests that use it. */
+static double plainLogMixture(const double *logw) {
+    double sum = 0.0;
+    int j;
+
+    for (j = 0; j < GATE_NBETS; j++) sum += exp(logw[j]);
+    return log(0.25 * sum);
+}
+
+/* Play a string of samples: 'C' correct, 'E' error, 'F' flip. */
+static void play(gateRegion *r, const gateBets *b, const char *ops) {
+    for (; *ops; ops++) {
+        if (*ops == 'F') gateRegionFlip(r, b); else gateRegionUpdate(r, b, *ops == 'E');
+    }
+}
+
+/* "Error, then flip" against "correct": the contract in its simplest form,
+ * for every risk target of the reference table and then from any state. */
+TEST(flip_error_then_flip_is_correct) {
+    uint64_t rng = 0xf11b;
+    size_t i;
+    int j, k, trial, beyond = 0, counters = 0;
+
+    for (i = 0; i < COUNTOF(ref_inc_ok); i++) {
+        gateBets b;
+        gateRegion flipped, correct;
+        double worst = 0.0, lw;
+
+        gateBetsInit(&b, ref_inc_ok[i].alpha);
+        gateRegionInit(&flipped);
+        gateRegionInit(&correct);
+        gateRegionUpdate(&flipped, &b, 1);
+        gateRegionFlip(&flipped, &b);
+        lw = gateRegionUpdate(&correct, &b, 0);
+
+        CHECK_EQ_INT(flipped.n, 1);
+        CHECK_EQ_INT(flipped.errors, 0);
+        CHECK_EQ_INT(flipped.certified_at, 0);
+        for (j = 0; j < GATE_NBETS; j++) {
+            /* A fresh region: u (2 a + |e|). */
+            double slack = 1.01 * U_ROUND * (2.0 * b.inc_ok[j] + fabs(b.inc_err[j]));
+
+            CHECK_NEAR(flipped.logw[j], correct.logw[j], slack);
+            /* The reference value itself; the library's inc_ok is within
+             * 1e-14 of it. */
+            CHECK_NEAR(flipped.logw[j], ref_inc_ok[i].inc_ok[j], slack + 1e-14 * ref_inc_ok[i].inc_ok[j]);
+            /* Still a gain, like any correct sample: even where the gain
+             * (1e-10 at alpha = 1e-9) is a billion times smaller than the
+             * error that was taken back. */
+            CHECK(flipped.logw[j] > 0.0);
+            if (slack > worst) worst = slack;
+        }
+        CHECK_NEAR(gateRegionLogWealth(&flipped), lw, worst + 2.0 * mixSlack(lw));
+    }
+
+    /* From any state: u (3 |L| + 3 a + 2 |e|) for the log wealth that was L
+     * before the sample. */
+    for (trial = 0; trial < 3000; trial++) {
+        int len = (int)(gate_test_rand64(&rng) % 300);
+        double p = 0.5 * gate_test_uniform(&rng), worst = 0.0, lw;
+        gateBets b;
+        gateRegion start, flipped, correct;
+
+        gateBetsInit(&b, ref_inc_ok[trial % COUNTOF(ref_inc_ok)].alpha);
+        gateRegionInit(&start);
+        for (k = 0; k < len; k++) gateRegionUpdate(&start, &b, gate_test_uniform(&rng) < p);
+        flipped = correct = start;
+        gateRegionUpdate(&flipped, &b, 1);
+        gateRegionFlip(&flipped, &b);
+        lw = gateRegionUpdate(&correct, &b, 0);
+
+        if (flipped.n != correct.n || flipped.errors != correct.errors || flipped.certified_at != 0)
+            counters++;
+        for (j = 0; j < GATE_NBETS; j++) {
+            double slack = flipSlack(start.logw[j], b.inc_ok[j], b.inc_err[j]);
+
+            if (!(fabs(flipped.logw[j] - correct.logw[j]) <= slack)) beyond++;
+            if (slack > worst) worst = slack;
+        }
+        if (!(fabs(gateRegionLogWealth(&flipped) - lw) <= worst + 2.0 * mixSlack(lw))) beyond++;
+    }
+    CHECK_EQ_INT(beyond, 0);
+    CHECK_EQ_INT(counters, 0);
+}
+
+TEST(flip_counters) {
+    const double thr = gateBudgetLogThreshold(0.01, 1, 32);
+    gateBets b;
+    gateRegion r, before;
+    int i, j;
+
+    /* 3 errors, then 40 correct samples. Three flips take the errors back
+     * one at a time: 'n' stays, every bet gains log(1 + c_j alpha / (1 -
+     * alpha)) - log(1 - c_j), and so does the mixture. */
+    gateBetsInit(&b, 0.05);
+    gateRegionInit(&r);
+    feed(&r, &b, 40, 3, 1);
+    for (i = 3; i > 0; i--) {
+        before = r;
+        gateRegionFlip(&r, &b);
+        CHECK_EQ_INT(r.n, 43);
+        CHECK_EQ_INT(r.errors, i - 1);
+        CHECK_EQ_INT(r.certified_at, 0);
+        for (j = 0; j < GATE_NBETS; j++) {
+            CHECK(r.logw[j] > before.logw[j]);
+            /* Log wealths below 8 in magnitude (3e-15 of rounding) and an
+             * increment within 1e-14 of the reference (3e-14). */
+            CHECK_NEAR(r.logw[j] - before.logw[j], ref_inc_ok[0].inc_ok[j] - ref_inc_err[j], 1e-13);
+        }
+        CHECK(gateRegionLogWealth(&r) > gateRegionLogWealth(&before));
+    }
+    /* All three taken back: 43 correct samples (46 additions below 8 in
+     * magnitude, increments within 1e-14: 2e-13). */
+    for (j = 0; j < GATE_NBETS; j++) CHECK_NEAR(r.logw[j], 43.0 * ref_inc_ok[0].inc_ok[j], 1e-12);
+
+    /* Nothing is left to take back. */
+    before = r;
+    gateRegionFlip(&r, &b);
+    CHECK(memcmp(&r, &before, sizeof(r)) == 0);
+
+    /* A flip never latches a certification, not even the flip that takes
+     * the region over the threshold: latching is the caller's decision.
+     * 219 correct samples and one error are far below the bar of a first
+     * score gate snapshot, the same 220 samples without the error are
+     * above it (zero_error_certification_n). */
+    gateRegionInit(&r);
+    feed(&r, &b, 219, 1, 1);
+    CHECK(!gateRegionCertifies(&r, thr));
+    gateRegionFlip(&r, &b);
+    CHECK(gateRegionCertifies(&r, thr));
+    CHECK_EQ_INT(r.certified_at, 0);
+    CHECK_EQ_INT(r.n, 220);
+    CHECK_EQ_INT(r.errors, 0);
+
+    /* ... and it never clears or moves one. */
+    gateRegionInit(&r);
+    feed(&r, &b, 10, 2, 0);
+    r.certified_at = 7;
+    gateRegionFlip(&r, &b);
+    CHECK_EQ_INT(r.certified_at, 7);
+    gateRegionFlip(&r, &b);
+    gateRegionFlip(&r, &b); /* no error left */
+    CHECK_EQ_INT(r.certified_at, 7);
+    CHECK_EQ_INT(r.n, 12);
+    CHECK_EQ_INT(r.errors, 0);
+
+    /* The counters are 64 bit: across 2^32, and well above it. */
+    r.n = 0x100000000ull;
+    r.errors = 0x100000000ull;
+    gateRegionFlip(&r, &b);
+    CHECK(r.n == 0x100000000ull);
+    CHECK(r.errors == 0xffffffffull);
+    r.n = 0x300000000ull;
+    r.errors = 0x200000001ull;
+    gateRegionFlip(&r, &b);
+    CHECK(r.n == 0x300000000ull);
+    CHECK(r.errors == 0x200000000ull);
+    gateRegionFlip(&r, &b);     /* the low 32 bits are zero: still an error to take back */
+    CHECK(r.errors == 0x1ffffffffull);
+}
+
+/* "Does nothing if the region holds no error": not one bit changes,
+ * whatever the bets are. A flip with nothing to take back must never be a
+ * way to gain wealth. */
+TEST(flip_without_an_error_does_nothing) {
+    static const double alphas[] = {0.05, 0.5, 1e-9, 0.999};
+    gateBets b, poisoned;
+    gateRegion r, before;
+    size_t i;
+    int k;
+
+    gateBetsInit(&poisoned, 2.0);   /* not a risk target: NaN increments */
+    CHECK(isnan(poisoned.inc_ok[0]) && isnan(poisoned.inc_err[0]));
+    for (i = 0; i < COUNTOF(alphas); i++) {
+        gateBetsInit(&b, alphas[i]);
+
+        /* A fresh region. */
+        gateRegionInit(&r);
+        before = r;
+        gateRegionFlip(&r, &b);
+        gateRegionFlip(&r, &poisoned);
+        CHECK(memcmp(&r, &before, sizeof(r)) == 0);
+        CHECK(gateRegionLogWealth(&r) == 0.0);
+
+        /* Correct samples only. */
+        for (k = 0; k < 100; k++) gateRegionUpdate(&r, &b, 0);
+        r.certified_at = 55;
+        before = r;
+        for (k = 0; k < 5; k++) gateRegionFlip(&r, &b);
+        gateRegionFlip(&r, &poisoned);
+        CHECK(memcmp(&r, &before, sizeof(r)) == 0);
+
+        /* Errors that were all taken back already. */
+        gateRegionUpdate(&r, &b, 1);
+        gateRegionUpdate(&r, &b, 1);
+        gateRegionFlip(&r, &b);
+        gateRegionFlip(&r, &b);
+        CHECK_EQ_INT(r.errors, 0);
+        CHECK_EQ_INT(r.n, 102);
+        before = r;
+        gateRegionFlip(&r, &b);
+        gateRegionFlip(&r, &poisoned);
+        CHECK(memcmp(&r, &before, sizeof(r)) == 0);
+    }
+}
+
+/* alpha = 0.5 once more: a correct sample multiplies wealth j by 1 + c_j,
+ * an error by 1 - c_j. "Error, error, correct" and one flip leave one error
+ * and two correct samples, (1 + c_j)^2 (1 - c_j):
+ *
+ *     1.1^2 * 0.9 = 1.089      1.25^2 * 0.75 = 1.171875
+ *     1.5^2 * 0.5 = 1.125      1.9^2 * 0.1   = 0.361
+ *     mean = 3.746875 / 4 = 0.93671875
+ *
+ * and a second flip leaves three correct samples, (1 + c_j)^3:
+ *
+ *     1.331   1.953125   3.375   6.859     mean = 13.518125 / 4 = 3.37953125
+ */
+TEST(flip_hand_computed) {
+    static const double wealth1[GATE_NBETS] = {1.089, 1.171875, 1.125, 0.361};
+    static const double logw1[GATE_NBETS] = {
+        8.5259843950823422785e-2, 1.5860503017663858409e-1,
+        1.1778303565638345454e-1, -1.0188773206492563307e+0
+    };
+    static const double wealth0[GATE_NBETS] = {1.331, 1.953125, 3.375, 6.859};
+    static const double logw0[GATE_NBETS] = {
+        2.8593053941297459527e-1, 6.6943065394262926730e-1,
+        1.2163953243244931459e+0, 1.9255616585171843630e+0
+    };
+    /* 3 correct samples and 1 error at alpha = 0.05: the numbers of
+     * hand_computed_alpha_005, reached here through flips, one of which
+     * (in the third and fourth string) has nothing to take back. */
+    static const double logw_005[GATE_NBETS] = {
+        -8.9612447999395119137e-2, -2.4846582774972261419e-1,
+        -6.1522072135016333085e-1, -2.1637428353020271406e+0
+    };
+    static const char *routes[] = {"ECECF", "EEEFCF", "FCCEC", "EFFEFEFE", "CCEEF", "EFEFEFE"};
+    gateBets b;
+    gateRegion r;
+    double lw;
+    size_t i;
+    int j;
+
+    gateBetsInit(&b, 0.5);
+    gateRegionInit(&r);
+    play(&r, &b, "EECF");
+    lw = gateRegionLogWealth(&r);
+    for (j = 0; j < GATE_NBETS; j++) {
+        CHECK_NEAR(exp(r.logw[j]), wealth1[j], 1e-14);
+        CHECK_NEAR(r.logw[j], logw1[j], 1e-12);
+    }
+    CHECK_NEAR(exp(lw), 0.93671875, 1e-14);
+    CHECK_NEAR(lw, -6.5372201886148623500e-2, 1e-12);
+    CHECK_EQ_INT(r.n, 3);
+    CHECK_EQ_INT(r.errors, 1);
+
+    gateRegionFlip(&r, &b);
+    lw = gateRegionLogWealth(&r);
+    for (j = 0; j < GATE_NBETS; j++) {
+        CHECK_NEAR(exp(r.logw[j]), wealth0[j], 1e-13);
+        CHECK_NEAR(r.logw[j], logw0[j], 1e-12);
+    }
+    CHECK_NEAR(exp(lw), 3.37953125, 1e-13);
+    CHECK_NEAR(lw, 1.2177370164455384246e+0, 1e-12);
+    CHECK_EQ_INT(r.n, 3);
+    CHECK_EQ_INT(r.errors, 0);
+
+    gateBetsInit(&b, 0.05);
+    for (i = 0; i < COUNTOF(routes); i++) {
+        gateRegionInit(&r);
+        play(&r, &b, routes[i]);
+        lw = gateRegionLogWealth(&r);
+        for (j = 0; j < GATE_NBETS; j++) CHECK_NEAR(r.logw[j], logw_005[j], 1e-12);
+        CHECK_NEAR(lw, -5.3200762558875099968e-1, 1e-12);
+        CHECK_NEAR(exp(lw), 0.587424456690, 1e-11);
+        CHECK_EQ_INT(r.n, 4);
+        CHECK_EQ_INT(r.errors, 1);
+    }
+}
+
+/* A flip may come any time after its error: what was accounted in between
+ * does not matter. Three regions receive the same samples; in one the first
+ * sample is correct from the start, in the others it is an error that is
+ * taken back after everything else, or somewhere in the middle. */
+TEST(flip_commutes_with_later_updates) {
+    uint64_t rng = 0xc0221;
+    int trial, i, disagree = 0, flips = 0, loose = 0;
+
+    for (trial = 0; trial < 1200; trial++) {
+        int len = 1 + (int)(gate_test_rand64(&rng) % 400);
+        int mid = (int)(gate_test_rand64(&rng) % (uint64_t)(len + 1));
+        double p = 0.02 + 0.4 * gate_test_uniform(&rng);
+        tracked late, middle, never;
+        gateBets b;
+
+        gateBetsInit(&b, ref_inc_ok[trial % COUNTOF(ref_inc_ok)].alpha);
+        trackedInit(&late);
+        trackedInit(&middle);
+        trackedInit(&never);
+        trackedUpdate(&late, &b, 1);
+        trackedUpdate(&middle, &b, 1);
+        trackedUpdate(&never, &b, 0);
+        for (i = 0; i < len; i++) {
+            int e = gate_test_uniform(&rng) < p;
+
+            if (i == mid) trackedFlip(&middle, &b);
+            trackedUpdate(&late, &b, e);
+            trackedUpdate(&middle, &b, e);
+            trackedUpdate(&never, &b, e);
+        }
+        if (mid == len) trackedFlip(&middle, &b);
+        trackedFlip(&late, &b);
+
+        if (!trackedAgree(&late, &never, &b)) disagree++;
+        if (!trackedAgree(&middle, &never, &b)) disagree++;
+        if (!trackedAgree(&late, &middle, &b)) disagree++;
+        flips += (int)(late.flips + middle.flips);
+        /* The bound that was applied is a million times below the smallest
+         * thing a wrong flip could add or leave out, one increment. (Not
+         * at alpha = 1e-9, where that increment is 1e-10 and the log
+         * wealths are in the hundreds: flip_depends_only_on_the_counts
+         * covers that corner with short streams.) */
+        if (b.alpha >= 0.01 && !(trackedSlack(&late, &b) + trackedSlack(&never, &b) < 1e-6 * b.inc_ok[0]))
+            loose++;
+    }
+    CHECK_EQ_INT(disagree, 0);
+    CHECK_EQ_INT(loose, 0);
+    CHECK_EQ_INT(flips, 2400);  /* every flip had its error to take back */
+}
+
+/* Long streams of updates and flips against the model: the counters must be
+ * exactly those of the model, the log wealths and the mixture the closed
+ * form for those counters. A flip is tried with probability P(flip),
+ * whether there is an error to take back or not; otherwise a sample is
+ * accounted, an error with probability P(error). The reference values were
+ * computed for the five marks of each stream from the counters alone.
+ *
+ * The four streams differ in what the flips meet: in the first errors pile
+ * up faster than flips remove them, in the second flips outnumber errors
+ * and most of them find nothing to take back, the third is a good region
+ * with rare late answers, the fourth mostly errors at alpha = 0.5. */
+TEST(flip_long_random_sequences) {
+    static const struct {
+        double alpha;
+        uint64_t seed;
+        double p_flip, p_err;
+        int idle;               /* flips that found no error, in the model */
+        struct {
+            int ops;
+            uint64_t n, errors;
+            double logw[GATE_NBETS], mix;
+        } at[5];
+    } cases[] = {
+        {0.05, 0xf11b05, 0.20, 0.30, 8, {
+            {10, 9, 1, {-6.3365668568676472039e-2, -1.8310541991295875878e-1,
+                        -4.8534328933386003325e-1, -1.9323390724819958649e+0}, -4.5745251773038843669e-1},
+            {100, 75, 4, {-4.8737794715100440797e-2, -2.2261049852507696289e-1,
+                          -9.2832918760827441170e-1, -5.9244069399317395092e+0}, -6.2048040930516295033e-1},
+            {1000, 806, 53, {-1.6313423475985660391e+0, -5.4038724197277525290e+0,
+                             -1.7177259308021824780e+1, -8.7187603247987722900e+1},
+                             -2.9949030958270639270e+0},
+            {10000, 8016, 454, {-8.1380448976342616873e+0, -3.1756580080786886130e+1,
+                                -1.1826219179275806318e+2, -6.9539858133028153997e+2},
+                                -9.5243392586988681736e+0},
+            {100000, 79927, 3612, {2.0042411894990088337e+1, -4.1511740883305984736e+1,
+                                   -5.2132837131768522629e+2, -4.7850217239723564516e+3},
+                                   1.8656117533870197718e+1}}},
+        {0.02, 0xf11b02, 0.15, 0.10, 6649, {
+            {10, 9, 1, {-8.9050622139040030101e-2, -2.4696951639201070470e-1,
+                        -6.1192820884780124990e-1, -2.1569794558192749310e+0}, -5.3020301442400760152e-1},
+            {100, 83, 0, {1.6921514525740762693e-1, 4.2239276912011606092e-1,
+                          8.4264683151349461744e-1, 1.5106584856882488664e+0}, 8.7152359436396406921e-1},
+            {1000, 862, 0, {1.7573910266492213785e+0, 4.3867779154402415002e+0,
+                            8.7513442019835224125e+0, 1.5689007405581572564e+1}, 1.4303696331518957148e+1},
+            {10000, 8525, 7, {1.6628435514522904598e+1, 4.1334919557477878170e+1,
+                              8.1625869866585770200e+1, 1.3891550653087907437e+2}, 1.3752921216975918375e+2},
+            {100000, 84768, 2, {1.7260483322036404503e+2, 4.3080470172540677574e+2,
+                                8.5918962515783052796e+2, 1.5381957599085914673e+3},
+                                1.5368094655474715767e+3}}},
+        {0.01, 0xf11b01, 0.01, 0.02, 0, {
+            {10, 10, 1, {-9.6274194845654895898e-2, -2.6498344755739212039e-1,
+                         -6.4780703429033087620e-1, -2.2211365733147847332e+0}, -5.5029818132829064724e-1},
+            {100, 100, 3, {-2.1815120044229815383e-1, -6.1840548238248563972e-1,
+                           -1.5907755207739914814e+0, -6.0299212335501006330e+0}, -9.4869773818906802893e-1},
+            {1000, 997, 20, {-1.1208397094352518109e+0, -3.2895796132780780506e+0,
+                             -8.9410188439307616049e+0, -3.7210012556921121912e+1},
+                             -2.3985280084792006471e+0},
+            {10000, 9901, 113, {-2.0238595904972865428e+0, -7.8220585796870622049e+0,
+                                -2.9015703438053145263e+1, -1.7161232543937070295e+2},
+                                -3.4071255296005604766e+0},
+            {100000, 98967, 950, {-1.1353890919788541664e+0, -2.6092289243268803270e+1,
+                                  -1.6470036409763716612e+2, -1.3004181101885500130e+3},
+                                  -2.5216834530842451867e+0}}},
+        {0.5, 0xf11b50, 0.30, 0.50, 6, {
+            {10, 5, 1, {2.7588020355947315297e-1, 6.0489213280505809563e-1,
+                        9.2871325187271221849e-1, 2.6483045169553324465e-1}, 5.5721357457275343053e-1},
+            {100, 68, 8, {4.8757266629968814463e+0, 1.1087156499238337926e+1,
+                          1.8782729042010300443e+1, 2.0090552426391320012e+1}, 1.8943693168633322680e+1},
+            {1000, 702, 56, {5.5670187276755589634e+1, 1.2804053809167977029e+2,
+                             2.2311421772651725343e+2, 2.8569284525970046210e+2}, 2.8430655089858057148e+2},
+            {10000, 6960, 425, {5.7807380586668681272e+2, 1.3359782270463538598e+3,
+                                2.3551269297488774797e+3, 3.2159164816141304274e+3},
+                                3.2145301872530105368e+3},
+            {100000, 70052, 5110, {5.6512414618409729579e+3, 1.3021333119218809420e+4,
+                                   2.2789732958099090763e+4, 2.9917065250608087721e+4},
+                                   2.9915678956246967831e+4}}}
+    };
+    size_t c;
+    int i, j;
+
+    for (c = 0; c < COUNTOF(cases); c++) {
+        uint64_t rng = cases[c].seed;
+        tracked t;
+        gateBets b;
+        int m = 0, idle = 0;
+
+        gateBetsInit(&b, cases[c].alpha);
+        trackedInit(&t);
+        for (i = 1; i <= cases[c].at[4].ops; i++) {
+            if (gate_test_uniform(&rng) < cases[c].p_flip) {
+                if (t.r.errors == 0) idle++;
+                trackedFlip(&t, &b);
+            } else {
+                trackedUpdate(&t, &b, gate_test_uniform(&rng) < cases[c].p_err);
+            }
+            if (i == cases[c].at[m].ops) {
+                /* Rounding of this route, plus what separates the library's
+                 * increments from the reference ones. */
+                double slack = trackedSlack(&t, &b) + refSlack(t.ops, &b);
+
+                CHECK_EQ_INT(t.r.n, cases[c].at[m].n);
+                CHECK_EQ_INT(t.r.errors, cases[c].at[m].errors);
+                for (j = 0; j < GATE_NBETS; j++) CHECK_NEAR(t.r.logw[j], cases[c].at[m].logw[j], slack);
+                CHECK_NEAR(gateRegionLogWealth(&t.r), cases[c].at[m].mix,
+                           slack + mixSlack(cases[c].at[m].mix));
+                /* After 100000 operations the bound is still a thousand
+                 * times below the smallest increment there is here (1e-3):
+                 * one sample or one flip accounted wrongly cannot hide. */
+                CHECK(slack < 1e-6);
+                m++;
+            }
+        }
+        CHECK_EQ_INT(m, 5);
+        CHECK_EQ_INT(idle, cases[c].idle);
+        CHECK_EQ_INT(t.r.certified_at, 0);
+    }
+}
+
+/* Every string of up to 9 operations over {correct, error, flip}: 29524 of
+ * them per risk target. The state of a region is a function of two
+ * counters and of nothing else about the way they were reached. */
+typedef struct flipWalk {
+    size_t a;               /* index into ref_inc_ok */
+    const gateBets *b;
+    long nodes, bad;
+    double lo[10][10], hi[10][10];  /* mixture seen at (n, errors) */
+    long seen[10][10];
+    double slack;                   /* largest bound applied */
+} flipWalk;
+
+static void flipWalkFrom(flipWalk *w, const tracked *t, int n, int errors, int left) {
+    double expect[GATE_NBETS], mix, lw = gateRegionLogWealth(&t->r);
+    double slack = trackedSlack(t, w->b) + refSlack(t->ops, w->b);
+    int j, op;
+
+    w->nodes++;
+    if (t->r.n != (uint64_t)n || t->r.errors != (uint64_t)errors || t->r.certified_at != 0) w->bad++;
+    countsLogw(w->a, (uint64_t)n, (uint64_t)errors, expect);
+    for (j = 0; j < GATE_NBETS; j++) {
+        if (!(fabs(t->r.logw[j] - expect[j]) <= slack)) w->bad++;
+    }
+    mix = plainLogMixture(expect);
+    if (!(fabs(lw - mix) <= slack + 2.0 * mixSlack(mix))) w->bad++;
+    if (lw < w->lo[n][errors]) w->lo[n][errors] = lw;
+    if (lw > w->hi[n][errors]) w->hi[n][errors] = lw;
+    w->seen[n][errors]++;
+    if (slack > w->slack) w->slack = slack;
+    if (left == 0) return;
+
+    for (op = 0; op < 3; op++) {
+        tracked next = *t;
+
+        if (op == 2) {
+            trackedFlip(&next, w->b);
+            flipWalkFrom(w, &next, n, errors > 0 ? errors - 1 : 0, left - 1);
+        } else {
+            trackedUpdate(&next, w->b, op);
+            flipWalkFrom(w, &next, n + 1, errors + op, left - 1);
+        }
+    }
+}
+
+TEST(flip_depends_only_on_the_counts) {
+    size_t a;
+    int n, k;
+
+    for (a = 0; a < COUNTOF(ref_inc_ok); a++) {
+        gateBets b;
+        tracked start;
+        flipWalk w;
+        int cells = 0, crowded = 0, spread = 0;
+
+        gateBetsInit(&b, ref_inc_ok[a].alpha);
+        memset(&w, 0, sizeof(w));
+        w.a = a;
+        w.b = &b;
+        for (n = 0; n < 10; n++) {
+            for (k = 0; k < 10; k++) {
+                w.lo[n][k] = INFINITY;
+                w.hi[n][k] = -INFINITY;
+            }
+        }
+        trackedInit(&start);
+        flipWalkFrom(&w, &start, 0, 0, 9);
+
+        CHECK_EQ_INT(w.nodes, 29524);   /* (3^10 - 1) / 2 */
+        CHECK_EQ_INT(w.bad, 0);
+        /* Every pair of counters with errors <= n <= 9 was reached: 43 of
+         * the 55 by ten strings or more ((5, 0) by 2885; the pairs with
+         * n = 9 only by the strings without a flip). All the strings that
+         * reach a pair report the same mixture. */
+        for (n = 0; n < 10; n++) {
+            for (k = 0; k <= n; k++) {
+                if (w.seen[n][k] == 0) continue;
+                cells++;
+                crowded += w.seen[n][k] >= 10;
+                if (!(w.hi[n][k] - w.lo[n][k] <= 2.0 * (w.slack + 2.0 * mixSlack(w.hi[n][k])))) spread++;
+            }
+        }
+        CHECK_EQ_INT(cells, 55);
+        CHECK_EQ_INT(crowded, 43);
+        CHECK_EQ_INT(w.seen[5][0], 2885);
+        CHECK_EQ_INT(spread, 0);
+        /* The bound that was applied is below a hundredth of the smallest
+         * increment, at alpha = 1e-9 too: one sample or one flip accounted
+         * wrongly cannot hide in it. */
+        CHECK(w.slack < 0.01 * ref_inc_ok[a].inc_ok[0]);
+    }
+}
+
+/* Corrupted evidence stays corrupted: a flip never turns a NaN or an
+ * infinite log wealth into a number, so it can never turn a region that
+ * certifies nothing into one that does (see
+ * non_finite_wealth_never_certifies for why such a region certifies
+ * nothing). The other three bets are far above the threshold throughout. */
+TEST(flip_never_cures_a_non_finite_wealth) {
+    static const double thresholds[] = {-DBL_MAX, -1.0, 0.0, 1.0, 4.6};
+    double poison[3];
+    gateBets b, bad;
+    gateRegion r;
+    size_t v, k;
+    int j, i, f;
+
+    poison[0] = NAN;
+    poison[1] = INFINITY;
+    poison[2] = -INFINITY;
+    gateBetsInit(&b, 0.05);
+    for (v = 0; v < COUNTOF(poison); v++) {
+        for (j = 0; j < GATE_NBETS; j++) {
+            gateRegionInit(&r);
+            for (i = 0; i < GATE_NBETS; i++) r.logw[i] = 100.0;
+            CHECK(gateRegionCertifies(&r, 4.6)); /* healthy: it would */
+            r.n = 500;
+            r.errors = 3;
+            r.logw[j] = poison[v];
+            /* Five flips for three errors: the last two have nothing to
+             * take back. */
+            for (f = 0; f < 5; f++) {
+                gateRegionFlip(&r, &b);
+                /* Not finite, and of the same kind as before. */
+                CHECK(!isfinite(r.logw[j]));
+                CHECK(isnan(poison[v]) ? isnan(r.logw[j]) : r.logw[j] == poison[v]);
+                CHECK(isnan(gateRegionLogWealth(&r)));
+                for (k = 0; k < COUNTOF(thresholds); k++) CHECK(!gateRegionCertifies(&r, thresholds[k]));
+                CHECK(!gateRegionCertifies(&r, -INFINITY));
+            }
+            CHECK_EQ_INT(r.n, 500);
+            CHECK_EQ_INT(r.errors, 0);
+            /* The healthy bets were flipped three times, as usual. */
+            for (i = 0; i < GATE_NBETS; i++) {
+                if (i == j) continue;
+                CHECK_NEAR(r.logw[i], 100.0 + 3.0 * (ref_inc_ok[0].inc_ok[i] - ref_inc_err[i]), 1e-12);
+            }
+        }
+        /* All four slots. */
+        for (i = 0; i < GATE_NBETS; i++) r.logw[i] = poison[v];
+        r.errors = 2;
+        gateRegionFlip(&r, &b);
+        gateRegionFlip(&r, &b);
+        for (i = 0; i < GATE_NBETS; i++) CHECK(!isfinite(r.logw[i]));
+        CHECK(isnan(gateRegionLogWealth(&r)));
+        CHECK(!gateRegionCertifies(&r, -DBL_MAX));
+    }
+
+    /* Bets that are not a risk target (the caller validates alpha; if it
+     * did not, every increment is NaN): a flip poisons a rich region
+     * instead of adding to it, and no later flip heals it. */
+    gateBetsInit(&bad, 1.0);
+    gateRegionInit(&r);
+    for (i = 0; i < GATE_NBETS; i++) r.logw[i] = 100.0;
+    r.n = 10;
+    r.errors = 2;
+    CHECK(gateRegionCertifies(&r, 4.6));
+    gateRegionFlip(&r, &bad);
+    for (i = 0; i < GATE_NBETS; i++) CHECK(isnan(r.logw[i]));
+    CHECK(isnan(gateRegionLogWealth(&r)));
+    CHECK(!gateRegionCertifies(&r, -DBL_MAX));
+    gateRegionFlip(&r, &b);
+    for (i = 0; i < GATE_NBETS; i++) CHECK(isnan(r.logw[i]));
+    CHECK(!gateRegionCertifies(&r, -DBL_MAX));
+    CHECK_EQ_INT(r.n, 10);
+    CHECK_EQ_INT(r.errors, 0);
+
+    /* The other way round: the largest and smallest finite values stay
+     * finite, a flip cannot push a log wealth to infinity. */
+    for (i = 0; i < GATE_NBETS; i++) r.logw[i] = DBL_MAX;
+    r.errors = 1;
+    gateRegionFlip(&r, &b);
+    for (i = 0; i < GATE_NBETS; i++) CHECK(r.logw[i] == DBL_MAX);
+    CHECK(gateRegionLogWealth(&r) == DBL_MAX);
+    for (i = 0; i < GATE_NBETS; i++) r.logw[i] = -DBL_MAX;
+    r.errors = 1;
+    gateRegionFlip(&r, &b);
+    for (i = 0; i < GATE_NBETS; i++) CHECK(r.logw[i] == -DBL_MAX);
+    CHECK(!gateRegionCertifies(&r, 0.0));
+}
+
+/* 'late' counts every request whose answer is outstanding as an error,
+ * 'truth' holds the same requests with their true answers, and
+ * 'outstanding' of the answers that are not in yet are correct ones.
+ * Returns a mask of what is wrong: 1 the counters, 2 the log wealths (each
+ * outstanding correct answer is one e in the place of one a, nothing
+ * else), 4 "late is never above truth". */
+static int lateVersusTruth(const tracked *late, const tracked *truth, const gateBets *b,
+                           uint64_t outstanding) {
+    double slack = trackedSlack(late, b) + trackedSlack(truth, b), ll, lt;
+    int j, bad = 0;
+
+    if (late->r.n != truth->r.n || late->r.errors != truth->r.errors + outstanding) bad |= 1;
+    for (j = 0; j < GATE_NBETS; j++) {
+        double gap = (double)outstanding * (b->inc_ok[j] - b->inc_err[j]);
+        double expect = truth->r.logw[j] - gap;
+
+        /* 2 u (gap + |expect|): the rounding of d, counted once per
+         * outstanding answer, and that of the two lines above. */
+        if (!(fabs(late->r.logw[j] - expect) <= slack + 2.0 * U_ROUND * (gap + fabs(expect)))) bad |= 2;
+        if (!(late->r.logw[j] <= truth->r.logw[j] + slack)) bad |= 4;
+    }
+    ll = gateRegionLogWealth(&late->r);
+    lt = gateRegionLogWealth(&truth->r);
+    if (!(ll <= lt + slack + mixSlack(ll) + mixSlack(lt))) bad |= 4;
+    return bad;
+}
+
+/* The argument that makes late answers safe (gate_core.h, MISSING). A
+ * region in which every request counts as an error until its answer
+ * arrives never holds more wealth than the same requests with their true
+ * answers: bet by bet, hence for the mixture, at every moment and whatever
+ * the teacher does. So if it reaches a threshold, the true answers reached
+ * it too, and "ever reaches the threshold" keeps the probability that
+ * Ville's inequality gives the true answers.
+ *
+ * 600 requests per trial, of which a good region gets about half as many
+ * wrong as its target allows; four teachers:
+ *   0  every answer is 0 to 30 requests late;
+ *   1  wrong answers never arrive, correct ones are 0 to 5 requests late;
+ *   2  one answer in ten never arrives, the others are 0 to 100 late;
+ *   3  answers arrive together, every 50 requests.
+ * The two regions are compared after every answer and every request. */
+TEST(flip_outstanding_answers_never_add_wealth) {
+    enum { N = 600, NEVER = -1 };
+    static const double alphas[] = {0.05, 0.02, 0.3};
+    static unsigned char wrong[N];
+    static int due[N];
+    const double thr = log(20.0);
+    uint64_t rng = 0x1a7e;
+    int trial, n, i, problems = 0, unsafe = 0, proven_true = 0, proven_late = 0, held_back = 0;
+
+    for (trial = 0; trial < 240; trial++) {
+        double alpha = alphas[trial % 3], p = 0.5 * alpha;
+        int mode = (trial / 3) % 4, first_late = 0, first_true = 0;
+        uint64_t outstanding = 0;
+        tracked late, truth;
+        gateBets b;
+
+        gateBetsInit(&b, alpha);
+        trackedInit(&late);
+        trackedInit(&truth);
+        for (i = 0; i < N; i++) {
+            int lag;
+
+            wrong[i] = gate_test_uniform(&rng) < p;
+            switch (mode) {
+            case 0: lag = (int)(gate_test_rand64(&rng) % 31); break;
+            case 1: lag = wrong[i] ? NEVER : (int)(gate_test_rand64(&rng) % 6); break;
+            case 2: lag = gate_test_uniform(&rng) < 0.1 ? NEVER : (int)(gate_test_rand64(&rng) % 101); break;
+            default: lag = 49 - i % 50; break;
+            }
+            due[i] = lag == NEVER ? NEVER : i + lag;
+        }
+
+        for (n = 0; n < N; n++) {
+            trackedUpdate(&truth, &b, wrong[n]);
+            trackedUpdate(&late, &b, 1);    /* asked: wrong until answered */
+            if (!wrong[n]) outstanding++;
+            problems += lateVersusTruth(&late, &truth, &b, outstanding) != 0;
+            for (i = n > 100 ? n - 100 : 0; i <= n; i++) {
+                if (due[i] != n || wrong[i]) continue;  /* a wrong answer changes nothing */
+                trackedFlip(&late, &b);
+                outstanding--;
+                problems += lateVersusTruth(&late, &truth, &b, outstanding) != 0;
+                /* Reaching the threshold with outstanding answers counted
+                 * as errors implies that the true answers are there. */
+                if (gateRegionCertifies(&late.r, thr) &&
+                    !(gateRegionLogWealth(&truth.r) >=
+                      thr - trackedSlack(&late, &b) - trackedSlack(&truth, &b)))
+                    unsafe++;
+            }
+            if (!first_late && gateRegionCertifies(&late.r, thr)) first_late = n + 1;
+            if (!first_true && gateRegionCertifies(&truth.r, thr)) first_true = n + 1;
+        }
+        proven_true += first_true != 0;
+        proven_late += first_late != 0;
+        held_back += first_true != 0 && (first_late == 0 || first_late > first_true);
+        if (first_late != 0 && (first_true == 0 || first_true > first_late)) unsafe++;
+
+        /* The correct answers that are still out arrive after all: the two
+         * regions end up equal. */
+        for (i = 0; i < N; i++) {
+            if (wrong[i] || (due[i] != NEVER && due[i] < N)) continue;
+            trackedFlip(&late, &b);
+            outstanding--;
+        }
+        problems += outstanding != 0;
+        problems += !trackedAgree(&late, &truth, &b);
+    }
+    CHECK_EQ_INT(problems, 0);
+    CHECK_EQ_INT(unsafe, 0);
+    /* The trials did exercise it: most streams were proven on their true
+     * answers, fewer with late answers counted as errors, and in many the
+     * late answers held the proof back. */
+    CHECK(proven_true > 120);
+    CHECK(proven_late > 30 && proven_late < proven_true);
+    CHECK(held_back > 60);
+}
+
+/* Is the stream certified at some request when every request counts as an
+ * error until its answer arrives, 'lag' requests later? Bit i of 'pattern'
+ * says that request i is wrong. Request i is asked (an error for now), then
+ * the answer of request i - lag arrives and is set right if it is correct,
+ * then the region is tested. */
+static int lateCertifies(const gateBets *b, double thr, unsigned pattern, int n, int lag) {
+    gateRegion r;
+    int i;
+
+    gateRegionInit(&r);
+    for (i = 0; i < n; i++) {
+        gateRegionUpdate(&r, b, 1);
+        if (i >= lag && !((pattern >> (i - lag)) & 1u)) gateRegionFlip(&r, b);
+        if (gateRegionCertifies(&r, thr)) return 1;
+    }
+    return 0;
+}
+
+/* The rule the gate does NOT use: a request is ignored until its answer
+ * arrives. Correct answers arrive at once, wrong ones 'lag' requests late
+ * (never if lag < 0). The answers of one moment arrive in the order of
+ * their requests, as in table (E) of sim_certify: the wrong answer of
+ * request i - lag comes before the correct answer of request i, and the
+ * region is tested after every correct answer. */
+static int ignoringCertifies(const gateBets *b, double thr, unsigned pattern, int n, int lag) {
+    gateRegion r;
+    int i;
+
+    gateRegionInit(&r);
+    for (i = 0; i < n; i++) {
+        if (lag >= 0 && i >= lag && ((pattern >> (i - lag)) & 1u)) gateRegionUpdate(&r, b, 1);
+        if (!((pattern >> i) & 1u)) {
+            gateRegionUpdate(&r, b, 0);
+            if (gateRegionCertifies(&r, thr)) return 1;
+        }
+    }
+    return 0;
+}
+
+/* The same rule against exact probabilities: all 65536 streams of 16
+ * requests, walked through the library. As in
+ * exhaustive_certification_probability no reachable state is closer than
+ * 0.03 to the threshold, so no path depends on rounding.
+ *
+ * alpha = 0.5, delta = 0.1, error rate 0.5 (the boundary of H0: every
+ * stream is equally likely). Without errors the threshold is reached at
+ * sample 6, with one error at sample 10, with two at sample 13, with three
+ * not within 16. So when every answer is one request late (one error is
+ * always outstanding) a stream is certified if its first 9 requests are
+ * correct (2^7 streams), or if exactly one of the first 12 is wrong and it
+ * is one of the first 9 (9 * 2^4): 272. Two requests late: the first 11
+ * must be correct, 2^5 = 32. Three late: never. With every answer at once
+ * the rule is the plain test again: the 1720 streams of
+ * exhaustive_certification_probability. All are at most delta = 0.1 of the
+ * 65536, as they must: a late answer only ever costs.
+ *
+ * Ignoring a request until its answer arrives is another matter. If the
+ * wrong answers never arrive, every stream with 6 correct requests is
+ * certified: 65536 - (1 + 16 + 120 + 560 + 1820 + 4368) = 58651 of them,
+ * 89% where 10% were promised. A teacher that is merely slower on the
+ * requests the gate gets wrong does the same on a smaller scale: 23669
+ * streams (36%) when the wrong answers are 9 requests late, and 6390
+ * where 1720 are due when they are 5 late (these counts come from the
+ * exact enumeration). A wrong answer that is one request late is in before
+ * the next correct one is looked at and changes nothing. This is why the
+ * gate does not do it. */
+TEST(flip_exhaustive_late_answers) {
+    static const struct {
+        int lag;
+        long paths;
+    } counted[] = {{0, 1720}, {1, 272}, {2, 32}, {3, 0}, {8, 0}},
+      ignored[] = {{-1, 58651}, {9, 23669}, {5, 6390}, {2, 2388}, {1, 1720}, {0, 1720}};
+    /* alpha = 0.3, delta = 0.25, error rate 0.3: the boundary of H0 again,
+     * streams weighted by their probability. */
+    static const struct {
+        int lag;
+        double pr;
+    } counted03[] = {{0, 1.0270099218547001259e-1}, {1, 9.6889010407000019977e-3}, {2, 0.0}},
+      ignored03[] = {{-1, 9.9287047756316350206e-1}, {5, 2.5910494619636622139e-1},
+                     {1, 1.0270099218547001259e-1}};
+    const int n = 16;
+    static unsigned char plain[1 << 16];    /* certified with every answer at once */
+    double weight[17], thr;
+    gateBets b;
+    gateRegion r;
+    unsigned pattern;
+    size_t i;
+    int k;
+
+    /* The four certification times the comment relies on. */
+    gateBetsInit(&b, 0.5);
+    thr = -log(0.1);
+    for (k = 0; k <= 3; k++) {
+        static const int first[] = {6, 10, 13, 0};
+        int at = 0, m;
+
+        gateRegionInit(&r);
+        for (m = 0; m < k; m++) gateRegionUpdate(&r, &b, 1);
+        for (m = k + 1; m <= n && !at; m++) {
+            gateRegionUpdate(&r, &b, 0);
+            if (gateRegionCertifies(&r, thr)) at = m;
+        }
+        CHECK_EQ_INT(at, first[k]);
+    }
+
+    for (i = 0; i < COUNTOF(counted); i++) {
+        long paths = 0, outside = 0;
+
+        for (pattern = 0; pattern < (1u << n); pattern++) {
+            int c = lateCertifies(&b, thr, pattern, n, counted[i].lag);
+
+            if (counted[i].lag == 0) plain[pattern] = (unsigned char)c;
+            paths += c;
+            /* Whatever is certified with late answers is certified with
+             * prompt ones. */
+            if (c && !plain[pattern]) outside++;
+        }
+        CHECK_EQ_INT(paths, counted[i].paths);
+        CHECK_EQ_INT(outside, 0);
+        CHECK(paths <= 6553);   /* delta = 0.1 of the 65536 streams */
+    }
+    for (i = 0; i < COUNTOF(ignored); i++) {
+        long paths = 0;
+
+        for (pattern = 0; pattern < (1u << n); pattern++)
+            paths += ignoringCertifies(&b, thr, pattern, n, ignored[i].lag);
+        CHECK_EQ_INT(paths, ignored[i].paths);
+    }
+
+    gateBetsInit(&b, 0.3);
+    thr = -log(0.25);
+    for (k = 0; k <= n; k++) weight[k] = pow(0.3, k) * pow(0.7, n - k);
+    for (i = 0; i < COUNTOF(counted03) + COUNTOF(ignored03); i++) {
+        int late = i < COUNTOF(counted03);
+        int lag = late ? counted03[i].lag : ignored03[i - COUNTOF(counted03)].lag;
+        double expected = late ? counted03[i].pr : ignored03[i - COUNTOF(counted03)].pr, pr = 0.0;
+
+        for (pattern = 0; pattern < (1u << n); pattern++) {
+            unsigned bits = pattern;
+            int errors = 0;
+
+            if (!(late ? lateCertifies(&b, thr, pattern, n, lag)
+                       : ignoringCertifies(&b, thr, pattern, n, lag)))
+                continue;
+            for (; bits; bits &= bits - 1) errors++;
+            pr += weight[errors];
+        }
+        /* A plain sum of up to 50000 weights; the smallest weight of one
+         * stream is 0.3^16 = 4e-9, so 1e-11 still tells every stream. */
+        CHECK_NEAR(pr, expected, 1e-11);
+        /* The guarantee holds for the rule in use and, with wrong answers
+         * that never arrive or are 5 requests late, not for the other. */
+        if (late) CHECK(pr <= 0.25);
+        if (!late && lag != 1) CHECK(pr > 0.25);
+    }
+}
+
+/* What an outstanding answer costs. If 'k' answers are outstanding at any
+ * moment (the teacher is k requests behind) and every guess is right, the
+ * region holds n - k correct samples and k errors after n requests, and it
+ * is certified at the first n with
+ *
+ *     log((1/4) sum_j (1 - c_j)^k (1 + c_j alpha / (1 - alpha))^(n - k)) >= threshold.
+ *
+ * The reference n come from that expression in high precision; each clears
+ * the threshold by more than 8e-5 at n and misses it by more than 8e-4 at
+ * n - 1, far beyond the rounding of the few thousand updates and flips.
+ *
+ * There is a closed form on either side of it. Bet j alone is there once
+ * (n - k) a_j >= threshold + k |e_j|, and the mixture is between a quarter
+ * of its best bet and its best bet:
+ *
+ *     k + min_j ceil((thr + k |e_j|) / a_j)  <=  n  <=  k + min_j ceil((thr + log 4 + k |e_j|) / a_j)
+ *
+ * with a_j = inc_ok[j] and e_j = inc_err[j]. For a few outstanding answers
+ * the 0.9 bet decides and each costs about 1 + log(10) / a_3 samples (51 at
+ * alpha = 0.05); for many the 0.1 bet takes over, at 1 + |e_0| / a_0 (21). */
+TEST(flip_cost_of_outstanding_answers) {
+    static const struct {
+        double alpha;
+        uint32_t nregions;
+        int k, n;
+    } cases[] = {
+        {0.05, 32, 0, 220},  {0.05, 32, 1, 270},   {0.05, 32, 3, 371},
+        {0.05, 32, 10, 665}, {0.05, 32, 30, 1220}, {0.05, 32, 100, 3069},
+        {0.02, 64, 0, 596},  {0.02, 64, 1, 723},   {0.02, 64, 3, 976},
+        {0.02, 64, 10, 1749}, {0.01, 32, 30, 6165}, {0.01, 64, 100, 15708}
+    };
+    size_t i;
+    int j;
+
+    for (i = 0; i < COUNTOF(cases); i++) {
+        const double thr = gateBudgetLogThreshold(0.01, 1, cases[i].nregions);
+        double lo = INFINITY, hi = INFINITY;
+        int k = cases[i].k, n = 0;
+        gateBets b;
+        gateRegion r;
+
+        gateBetsInit(&b, cases[i].alpha);
+        gateRegionInit(&r);
+        while (!gateRegionCertifies(&r, thr) && n < 100000) {
+            gateRegionUpdate(&r, &b, 1);            /* request n is asked */
+            n++;
+            if (n > k) gateRegionFlip(&r, &b);      /* the answer of request n - k */
+        }
+        CHECK_EQ_INT(n, cases[i].n);
+        CHECK_EQ_INT(r.n, (uint64_t)n);
+        CHECK_EQ_INT(r.errors, (uint64_t)k);
+
+        for (j = 0; j < GATE_NBETS; j++) {
+            double need = (thr + k * fabs(b.inc_err[j])) / b.inc_ok[j];
+            double diluted = (thr + log(4.0) + k * fabs(b.inc_err[j])) / b.inc_ok[j];
+
+            if (ceil(need) < lo) lo = ceil(need);
+            if (ceil(diluted) < hi) hi = ceil(diluted);
+        }
+        CHECK(k + lo <= n && n <= k + hi);
+    }
 }
 
 /* ----------------------------- Error budget ------------------------------ */
@@ -1934,6 +3067,54 @@ TEST(drift_fails_closed) {
     }
 }
 
+/* An alternative has to be a probability above alpha and below 1. For the
+ * largest double below 1 there is none: halfway between alpha and 1 rounds
+ * to 1 itself, and an alternative of 1 would make a correct spot check
+ * impossible under it (log 0), which reads as an alarm on every correct
+ * answer. Such an alternative stays silent instead: both its increments
+ * are 0, and the detector of this alpha never moves, whatever it is fed.
+ *
+ * One step further down there is exactly one double between alpha and 1,
+ * and it is the alternative: with alpha = 1 - 2^-52 and p1 = 1 - 2^-53 a
+ * correct answer multiplies by (1 - p1) / (1 - alpha) = 1/2 and an error by
+ * p1 / alpha, which is above 1 by about 2^-53. */
+TEST(drift_alpha_next_to_one) {
+    const double top = 1.0 - DBL_EPSILON / 2, second = 1.0 - DBL_EPSILON;
+    gateDriftBets b;
+    gateDrift d;
+    int k, n, alarms = 0;
+
+    CHECK(top < 1.0 && nextafter(top, 2.0) == 1.0);
+    CHECK(second < top && nextafter(second, 2.0) == top);
+
+    gateDriftBetsInit(&b, top);
+    for (k = 0; k < ALTS; k++) {
+        CHECK(b.inc_err[k] == 0.0);
+        CHECK(b.inc_ok[k] == 0.0);
+    }
+    gateDriftInit(&d);
+    for (n = 0; n < 2000; n++) alarms += gateDriftPush(&d, &b, n >= 1000, log(1000.0));
+    CHECK_EQ_INT(alarms, 0);            /* not on a correct answer, not on an error */
+    CHECK(gateDriftLogStat(&d) == 0.0);
+    CHECK_EQ_INT(d.n, 2000);
+    CHECK_EQ_INT(d.errors, 1000);
+
+    gateDriftBetsInit(&b, second);
+    for (k = 0; k < ALTS; k++) {
+        CHECK(b.inc_err[k] > 0.0 && b.inc_err[k] < 4.0 * DBL_EPSILON);
+        /* The difference of two logarithms near -36: 1e-13. */
+        CHECK_NEAR(b.inc_ok[k], -0.69314718055994530942, 1e-13);
+    }
+    gateDriftInit(&d);
+    alarms = 0;
+    for (n = 0; n < 2000; n++) alarms += gateDriftPush(&d, &b, n >= 1000, log(1000.0));
+    CHECK_EQ_INT(alarms, 0);
+    CHECK(isfinite(gateDriftLogStat(&d)));
+    /* A thousand errors in a row move it, by a thousand times next to
+     * nothing. */
+    CHECK(gateDriftLogStat(&d) > 0.0 && gateDriftLogStat(&d) < 1e-11);
+}
+
 /* No hidden state: the same spot checks give the same detector, bit for
  * bit, and the same alarms. */
 TEST(drift_determinism) {
@@ -1982,6 +3163,17 @@ int main(void) {
     RUN(invalid_alpha_never_certifies);
     RUN(certifies_boundary);
     RUN(certifies_agrees_with_log_wealth);
+    RUN(flip_error_then_flip_is_correct);
+    RUN(flip_counters);
+    RUN(flip_without_an_error_does_nothing);
+    RUN(flip_hand_computed);
+    RUN(flip_commutes_with_later_updates);
+    RUN(flip_long_random_sequences);
+    RUN(flip_depends_only_on_the_counts);
+    RUN(flip_never_cures_a_non_finite_wealth);
+    RUN(flip_outstanding_answers_never_add_wealth);
+    RUN(flip_exhaustive_late_answers);
+    RUN(flip_cost_of_outstanding_answers);
     RUN(budget_generation_delta);
     RUN(budget_sum_never_exceeds_total);
     RUN(budget_log_threshold);
@@ -2000,6 +3192,7 @@ int main(void) {
     RUN(drift_matches_linear_reference);
     RUN(drift_history_never_delays_the_alarm);
     RUN(drift_fails_closed);
+    RUN(drift_alpha_next_to_one);
     RUN(drift_determinism);
     return TEST_REPORT();
 }

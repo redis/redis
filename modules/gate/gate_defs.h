@@ -57,17 +57,33 @@
 #define GATE_DEFAULT_DELTA 0.01
 #define GATE_DEFAULT_AUDIT 0.05
 #define GATE_DEFAULT_SNAPSHOT_EXAMPLES 1000u /* gate.snapshot-examples */
-#define GATE_DEFAULT_FEEDBACK_TIMEOUT_MS 300000ll /* gate.feedback-timeout */
+#define GATE_MAX_SNAPSHOT_EXAMPLES 1000000000ll
+#define GATE_DEFAULT_FEEDBACK_TIMEOUT_MS 60000ll /* gate.feedback-timeout */
 #define GATE_MAX_FEEDBACK_TIMEOUT_MS (7ll * 86400 * 1000)
+
+/* No counter, request number or snapshot number goes above this, and the
+ * clock stays below GATE_MAX_CLOCK_MS: the encoding refuses anything
+ * larger, so the gate must never get there by itself (not even one that
+ * was restored from a forged payload at the limit). */
+#define GATE_COUNT_MAX ((uint64_t)1 << 62)
+#define GATE_MAX_CLOCK_MS (INT64_MAX - GATE_MAX_FEEDBACK_TIMEOUT_MS)
 
 #define GATE_MAX_PENDING 4096u      /* requests waiting for feedback */
 #define GATE_TRAIN_PENDING 3072u    /* ... of which may be training-only */
+#define GATE_MAX_WAITING 16384u     /* answers waiting for an older answer */
+#define GATE_GRACE_DIVISOR 4        /* proof waits timeout / this for a late
+                                     * answer before moving on without it */
 #define GATE_MAX_PENDING_BYTES (16u << 20)
 
-#define GATE_CANDIDATE_BUDGET_FACTOR 20 /* a classifier snapshot is dropped
+#define GATE_CANDIDATE_BUDGET_FACTOR 10 /* a classifier snapshot is dropped
                                          * after this many times the proof a
-                                         * flawless threshold would need */
+                                         * flawless threshold needs, for each
+                                         * label it may answer */
 #define GATE_DRIFT_ALARM 1000.0     /* drift detector alarm level */
+#define GATE_LOST_ALARM 1e9         /* ... with lost answers counted as
+                                     * disagreements: cannot be checked */
+#define GATE_MISSING_RUN 32u        /* this many answers missing in a row
+                                     * make a gate drop its proof */
 
 /* ----------------------------- Sparse vector -----------------------------
  * Coalesced sparse feature vector: idx strictly increasing and < GATE_DIM,

@@ -46,7 +46,9 @@ static const gateArg *gateArgShown(const gateArg *a) {
 /* --------------------------- Scalar helpers ------------------------------ */
 
 int gateParseDouble(const char *s, size_t len, double *out) {
-    char buf[64], *end;
+    /* Room for the exact decimal expansion of any double (the longest has
+     * about 1,080 characters): a number written out in full is a number. */
+    char buf[1100], *end;
     double v;
     size_t i;
 

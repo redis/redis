@@ -980,7 +980,9 @@ TEST(loss_is_stable_for_extreme_logits) {
         {1000.0f, -2.0f, 0.0f, 0.0, 0.0, 0},
         {1000.0f, -2.0f, 0.0f, 1.0, 2000.0, 0},
         {1000.0f, -2.0f, 0.0f, 0.3, 600.0, 0},
-        {1e6f, 1e6f, 0.0f, 0.0, 1e12, 0}, /* weight at the clamp, feature at its bound */
+        /* A logit of 1e12. The weight is planted: learned weights saturate
+         * at GATE_MAX_WEIGHT, far below it, and no clue is this large. */
+        {1e6f, 1e6f, 0.0f, 0.0, 1e12, 0},
         {1e6f, 1e6f, 0.0f, 1.0, 0.0, 0},
         {1e6f, 1e6f, 0.0f, 0.5, 5e11, 0},
     };
