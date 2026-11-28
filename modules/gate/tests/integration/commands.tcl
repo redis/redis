@@ -389,6 +389,20 @@ proc gcmd_many_answer {i} {
     list LABEL yes$i
 }
 
+# rp:cls and rp:score as new gates, for the typed reply tests; lua:cls and
+# lua:score for the script tests.
+proc gcmd_typed_fresh {fd} {
+    gcmd_raw $fd DEL rp:cls rp:score
+    gcmd_raw $fd GCREATE rp:cls ALPHA 0.1 CLASSES 3 a b c ALWAYSDEFER 1 b CLASSALPHA 1 c 0.05
+    gcmd_raw $fd GCREATE rp:score ALPHA 0.1 SCORE
+}
+
+proc gcmd_lua_fresh {fd} {
+    gcmd_raw $fd DEL lua:cls lua:score
+    gcmd_raw $fd GCREATE lua:cls ALPHA 0.1 CLASSES 2 a b
+    gcmd_raw $fd GCREATE lua:score ALPHA 0.1 SCORE
+}
+
 # Random choices for the random argument test. Tcl's rand() is the same
 # sequence everywhere for the same srand().
 proc gcmd_rnd {n} {expr {int(rand() * $n)}}
@@ -414,6 +428,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     # ------------------------------------------------------------- GCREATE
 
     gcmd_test {GCREATE: a classifier gate; the reply is OK} {
+        r del gc:cls
         assert_equal OK [r gcreate gc:cls ALPHA 0.05 CLASSES 2 ignore respond]
         assert_equal 1 [r exists gc:cls]
         set info [r ginfo gc:cls]
@@ -425,6 +440,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     }
 
     gcmd_test {GCREATE: a score gate; the reply is OK} {
+        r del gc:score
         assert_equal OK [r gcreate gc:score ALPHA 0.05 SCORE]
         set info [r ginfo gc:score]
         assert_equal score [dict get $info kind]
@@ -436,6 +452,9 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     }
 
     gcmd_test {GCREATE: AUDIT defaults to 0.05 and DELTA to 0.01} {
+        r del gc:cls gc:score
+        r gcreate gc:cls ALPHA 0.05 CLASSES 2 ignore respond
+        r gcreate gc:score ALPHA 0.05 SCORE
         foreach key {gc:cls gc:score} {
             set info [r ginfo $key]
             assert {[dict get $info alpha] == 0.05}
@@ -447,7 +466,15 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert_equal 2 [llength [gcmd_info gc:cls alphas]]
     }
 
+    # The two gates the option order and option case tests compare with.
+    catch {
+        r gcreate gc:ref ALPHA 0.1 CLASSES 3 a b c AUDIT 0.25 DELTA 0.02 \
+            ALWAYSDEFER 1 b CLASSALPHA 1 c 0.03
+        r gcreate gc:ref:score ALPHA 0.3 SCORE AUDIT 1 DELTA 0.5
+    }
+
     gcmd_test {GCREATE: every option is stored} {
+        r del gc:all gc:all:score
         assert_equal OK [r gcreate gc:all ALPHA 0.1 CLASSES 3 a b c AUDIT 0.25 DELTA 0.02 \
                              ALWAYSDEFER 1 b CLASSALPHA 1 c 0.03]
         set info [r ginfo gc:all]
@@ -469,12 +496,15 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert {[dict get $info delta] == 0.5}
         assert_equal 1 [llength [dict get $info alphas]]
         assert {[lindex [dict get $info alphas] 0] == 0.3}
+        # the gates the next tests compare with are made the same way
+        assert_equal [gcmd_config_of gc:all] [gcmd_config_of gc:ref]
+        assert_equal [gcmd_config_of gc:all:score] [gcmd_config_of gc:ref:score]
     }
 
     gcmd_test {GCREATE: options may come in any order (classifier, all 720 orders)} {
         set groups {{ALPHA 0.1} {CLASSES 3 a b c} {AUDIT 0.25} {DELTA 0.02}
                     {ALWAYSDEFER 1 b} {CLASSALPHA 1 c 0.03}}
-        set want [gcmd_config_of gc:all]
+        set want [gcmd_config_of gc:ref]
         set n 0
         foreach order [gcmd_permutations $groups] {
             set args [concat {*}$order]
@@ -489,7 +519,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
 
     gcmd_test {GCREATE: options may come in any order (score gate, all 24 orders)} {
         set groups {{ALPHA 0.3} SCORE {AUDIT 1} {DELTA 0.5}}
-        set want [gcmd_config_of gc:all:score]
+        set want [gcmd_config_of gc:ref:score]
         foreach order [gcmd_permutations $groups] {
             set args [concat {*}$order]
             r del gc:order
@@ -502,7 +532,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     gcmd_test {GCREATE: option words are case-insensitive} {
         # SPEC.md does not say so in as many words; it is how every Redis
         # command reads its option words.
-        set want [gcmd_config_of gc:all]
+        set want [gcmd_config_of gc:ref]
         foreach args {
             {alpha 0.1 classes 3 a b c audit 0.25 delta 0.02 alwaysdefer 1 b classalpha 1 c 0.03}
             {Alpha 0.1 Classes 3 a b c Audit 0.25 Delta 0.02 AlwaysDefer 1 b ClassAlpha 1 c 0.03}
@@ -512,7 +542,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             assert_equal OK [r gcreate gc:case {*}$args] "GCREATE key $args"
             assert_equal [gcmd_config_of gc:case] $want "GCREATE key $args"
         }
-        set want [gcmd_config_of gc:all:score]
+        set want [gcmd_config_of gc:ref:score]
         foreach args {
             {alpha 0.3 score audit 1 delta 0.5}
             {Alpha 0.3 Score Audit 1 Delta 0.5}
@@ -526,6 +556,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
 
     gcmd_test {GCREATE: labels may spell option words} {
         set words {ALPHA SCORE CLASSES AUDIT DELTA ALWAYSDEFER CLASSALPHA}
+        r del gc:words gc:words2 gc:words3
         assert_equal OK [r gcreate gc:words ALPHA 0.1 CLASSES 7 {*}$words]
         assert_equal $words [gcmd_info gc:words classes]
 
@@ -554,6 +585,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     }
 
     gcmd_test {GCREATE: labels are compared byte for byte} {
+        r del gc:bytes
         assert_equal OK [r gcreate gc:bytes ALPHA 0.1 CLASSES 4 a A {a } aa]
         assert_equal {a A {a } aa} [gcmd_info gc:bytes classes]
         assert_equal 1 [r gadd gc:bytes TEXT x LABEL A]
@@ -858,6 +890,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     }
 
     gcmd_test {GCREATE: BUSYKEY on an existing key of any type; nothing is overwritten} {
+        foreach type {string list hash set zset stream volatile score gate} {r del gc:busy:$type}
         r set gc:busy:string value
         r rpush gc:busy:list a b
         r hset gc:busy:hash f v
@@ -901,11 +934,20 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
 
     # ------------------------------------------------------------ GPREDICT
 
-    gcmd_test {GPREDICT: the reply is the action and its argument} {
+    # The two gates most GPREDICT tests ask. (Set-up that later tests rely on
+    # is done here, between the tests, so that a test still finds it when it
+    # is run alone with --only.)
+    catch {
         r gcreate gp:cls ALPHA 0.1 CLASSES 2 a b
         r gcreate gp:score ALPHA 0.1 SCORE
-        foreach {key form answer} {gp:cls {TEXT {thanks everyone!}} {LABEL a}
-                                   gp:score {SCORE 0.93} {CORRECT 1}} {
+    }
+
+    gcmd_test {GPREDICT: the reply is the action and its argument} {
+        r del gp:new:cls gp:new:score
+        r gcreate gp:new:cls ALPHA 0.1 CLASSES 2 a b
+        r gcreate gp:new:score ALPHA 0.1 SCORE
+        foreach {key form answer} {gp:new:cls {TEXT {thanks everyone!}} {LABEL a}
+                                   gp:new:score {SCORE 0.93} {CORRECT 1}} {
             set reply [r gpredict $key {*}$form]
             assert_equal 2 [llength $reply]
             lassign $reply action id
@@ -917,22 +959,24 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             assert_equal 1 [r glearn $key $id {*}$answer]
             assert_equal 0 [gcmd_info $key pending]
         }
+        r del gp:new:cls gp:new:score
     }
 
     gcmd_test {GPREDICT: a retried request is a new request} {
         foreach {key form a1 a2} {gp:cls {TEXT same} {LABEL a} {LABEL b}
                                   gp:score {SCORE 0.5} {CORRECT 1} {CORRECT 0}} {
             set requests [gcmd_info $key requests]
+            set pending [gcmd_info $key pending]
             lassign [r gpredict $key {*}$form] action1 id1
             lassign [r gpredict $key {*}$form] action2 id2
             assert {$id1 ne {} && $id2 ne {}}
             assert {$id1 ne $id2}
             assert_equal [expr {$requests + 2}] [gcmd_info $key requests]
-            assert_equal 2 [gcmd_info $key pending]
+            assert_equal [expr {$pending + 2}] [gcmd_info $key pending]
             # Each one takes its own answer.
             assert_equal 1 [r glearn $key $id1 {*}$a1]
             assert_equal 1 [r glearn $key $id2 {*}$a2]
-            assert_equal 0 [gcmd_info $key pending]
+            assert_equal $pending [gcmd_info $key pending]
         }
     }
 
@@ -1121,18 +1165,21 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         set tenth 0.1000000000000000055511151231257827021181583404541015625
         set small 0.000100000000000000004792173602385929598312941379845142364501953125
         set padded 0.5[string repeat 0 69]
+        r del gc:digits gc:digits:cls
+        r gcreate gc:digits ALPHA 0.1 SCORE
+        r gcreate gc:digits:cls ALPHA 0.1 CLASSES 2 a b
         foreach score [list $tenth $small $padded] {
             set shown "SCORE of [string length $score] bytes"
-            set rc [catch {r gpredict gp:score SCORE $score} reply]
+            set rc [catch {r gpredict gc:digits SCORE $score} reply]
             assert_equal $rc 0 "$shown: $reply"
             assert_equal [lindex $reply 0] ABSTAIN $shown
-            assert_equal [r glearn gp:score [lindex $reply 1] CORRECT 1] 1 $shown
+            assert_equal [r glearn gc:digits [lindex $reply 1] CORRECT 1] 1 $shown
         }
         foreach value [list $tenth $small $padded -$small] {
             set shown "feature value of [string length $value] bytes"
-            set rc [catch {r gpredict gp:cls TEXT hello FEATURES 1 x $value} reply]
+            set rc [catch {r gpredict gc:digits:cls TEXT hello FEATURES 1 x $value} reply]
             assert_equal $rc 0 "$shown: $reply"
-            assert_equal [r glearn gp:cls [lindex $reply 1] LABEL a] 1 $shown
+            assert_equal [r glearn gc:digits:cls [lindex $reply 1] LABEL a] 1 $shown
         }
         foreach {alpha value} [list $tenth 0.1 $small 0.0001 $padded 0.5] {
             set shown "ALPHA of [string length $alpha] bytes"
@@ -1143,7 +1190,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             assert {[gcmd_info gc:digits delta] == $value}
             assert {[gcmd_info gc:digits audit] == $value}
         }
-        r del gc:digits
+        r del gc:digits gc:digits:cls
     }
 
     gcmd_test {GPREDICT: bad arguments on a score gate are errors and change nothing} {
@@ -1189,6 +1236,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     gcmd_test {GPREDICT: a full gate abstains without an id} {
         # SPEC 3 "Full": at most 4,096 requests wait for feedback; while full
         # the gate answers ABSTAIN to everything.
+        r del gp:full
         r gcreate gp:full ALPHA 0.2 SCORE
         set replies [gcmd_pipeline_predict gp:full 4096 0.5]
         set ids {}
@@ -1223,7 +1271,34 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert_equal 4096 [gcmd_info gp:full pending]
     }
 
+    gcmd_test {GPREDICT: requests that got their GLEARN do not keep a gate full} {
+        # SPEC 3 "Full": a gate holds at most 4,096 requests waiting for
+        # feedback. A request whose GLEARN replied 1 has its feedback, also
+        # while its turn as proof has not come because an older request is
+        # still unanswered.
+        r del gp:answered
+        r gcreate gp:answered ALPHA 0.2 SCORE
+        set replies [gcmd_pipeline_predict gp:answered 4096 0.5]
+        assert_equal {ABSTAIN {}} [r gpredict gp:answered SCORE 0.5]
+        # every answer arrives but that of the oldest request
+        set rd [redis_deferring_client]
+        foreach reply [lrange $replies 1 end] {$rd glearn gp:answered [lindex $reply 1] CORRECT 1}
+        set used 0
+        for {set i 1} {$i < 4096} {incr i} {incr used [$rd read]}
+        $rd close
+        assert_equal 4095 $used
+        # one request waits for feedback: the gate takes new ones
+        set reply [r gpredict gp:answered SCORE 0.5]
+        assert_equal ABSTAIN [lindex $reply 0]
+        set pending [gcmd_info gp:answered pending]
+        if {[lindex $reply 1] eq {}} {
+            fail "4,095 of 4,096 requests have their GLEARN, yet the gate is full (pending $pending)"
+        }
+        r del gp:answered
+    }
+
     gcmd_test {GPREDICT: a classifier never holds more than 4,096 waiting requests} {
+        r del gp:full:cls
         r gcreate gp:full:cls ALPHA 0.2 CLASSES 2 a b
         set rd [redis_deferring_client]
         for {set i 0} {$i < 4200} {incr i} {$rd gpredict gp:full:cls TEXT "request $i"}
@@ -1248,23 +1323,30 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
 
     # -------------------------------------------------------------- GLEARN
 
-    gcmd_test {GLEARN: 1 when the feedback is used, 0 when it is sent again} {
+    catch {
         r gcreate gl:cls ALPHA 0.1 CLASSES 2 a b
         r gcreate gl:score ALPHA 0.1 SCORE
-        lassign [r gpredict gl:cls TEXT hello] action id
-        assert_equal 1 [r glearn gl:cls $id LABEL a]
-        assert_equal 0 [r glearn gl:cls $id LABEL a]
-        # A retry with another answer is not used either.
-        assert_equal 0 [r glearn gl:cls $id LABEL b]
-        assert_equal 1 [gcmd_info gl:cls learned]
-        assert_equal 0 [gcmd_info gl:cls pending]
+    }
 
-        lassign [r gpredict gl:score SCORE 0.7] action id
-        assert_equal 1 [r glearn gl:score $id CORRECT 1]
-        assert_equal 0 [r glearn gl:score $id CORRECT 1]
-        assert_equal 0 [r glearn gl:score $id CORRECT 0]
-        assert_equal 0 [gcmd_info gl:score pending]
-        assert_equal 1 [gcmd_info gl:score calibration-samples]
+    gcmd_test {GLEARN: 1 when the feedback is used, 0 when it is sent again} {
+        r del gl:new:cls gl:new:score
+        r gcreate gl:new:cls ALPHA 0.1 CLASSES 2 a b
+        r gcreate gl:new:score ALPHA 0.1 SCORE
+        lassign [r gpredict gl:new:cls TEXT hello] action id
+        assert_equal 1 [r glearn gl:new:cls $id LABEL a]
+        assert_equal 0 [r glearn gl:new:cls $id LABEL a]
+        # A retry with another answer is not used either.
+        assert_equal 0 [r glearn gl:new:cls $id LABEL b]
+        assert_equal 1 [gcmd_info gl:new:cls learned]
+        assert_equal 0 [gcmd_info gl:new:cls pending]
+
+        lassign [r gpredict gl:new:score SCORE 0.7] action id
+        assert_equal 1 [r glearn gl:new:score $id CORRECT 1]
+        assert_equal 0 [r glearn gl:new:score $id CORRECT 1]
+        assert_equal 0 [r glearn gl:new:score $id CORRECT 0]
+        assert_equal 0 [gcmd_info gl:new:score pending]
+        assert_equal 1 [gcmd_info gl:new:score calibration-samples]
+        r del gl:new:cls gl:new:score
     }
 
     gcmd_test {GLEARN: LABEL and CORRECT in any case} {
@@ -1279,6 +1361,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     }
 
     gcmd_test {GLEARN: an id the gate never issued gets 0, and costs nothing} {
+        r del gl:ids gl:ids:score
         r gcreate gl:ids ALPHA 0.1 CLASSES 2 a b
         r gcreate gl:ids:score ALPHA 0.1 SCORE
         foreach {key answer} {gl:ids {LABEL a} gl:ids:score {CORRECT 1}} {
@@ -1309,6 +1392,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     }
 
     gcmd_test {GLEARN: the id of another gate gets 0} {
+        r del gl:x1 gl:x2 gl:x3 gl:x4
         r gcreate gl:x1 ALPHA 0.1 CLASSES 2 a b
         r gcreate gl:x2 ALPHA 0.1 CLASSES 2 a b
         r gcreate gl:x3 ALPHA 0.1 SCORE
@@ -1334,13 +1418,14 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
 
     gcmd_test {GLEARN: an unknown label is an error and the request can still be answered} {
         lassign [r gpredict gl:cls TEXT hello] action id
+        set pending [gcmd_info gl:cls pending]
         foreach label [list nosuch A B {} {a } { a} ab "a\x00" "a\x00b" 0 1 [string repeat a 65] \
                            [string repeat a 100000]] {
             gcmd_fails_unchanged gl:cls "ERR *" [list glearn gl:cls $id LABEL $label]
         }
-        assert_equal 1 [gcmd_info gl:cls pending]
+        assert_equal $pending [gcmd_info gl:cls pending]
         assert_equal 1 [r glearn gl:cls $id LABEL a]
-        assert_equal 0 [gcmd_info gl:cls pending]
+        assert_equal [expr {$pending - 1}] [gcmd_info gl:cls pending]
     }
 
     gcmd_test {GLEARN: CORRECT on a classifier and LABEL on a score gate are errors} {
@@ -1361,10 +1446,11 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
 
     gcmd_test {GLEARN: CORRECT takes 0 or 1 and nothing else} {
         lassign [r gpredict gl:score SCORE 0.7] action id
+        set pending [gcmd_info gl:score pending]
         foreach value [list 2 -1 10 11 yes no true false {} { 1} {1 } 0.5 "1\x00" "0\x000" a] {
             gcmd_fails_unchanged gl:score "ERR *" [list glearn gl:score $id CORRECT $value]
         }
-        assert_equal 1 [gcmd_info gl:score pending]
+        assert_equal $pending [gcmd_info gl:score pending]
         assert_equal 1 [r glearn gl:score $id CORRECT 0]
         assert_equal 0 [r glearn gl:score $id CORRECT 0]
     }
@@ -1372,6 +1458,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     # ---------------------------------------------------------------- GADD
 
     gcmd_test {GADD: the reply counts the examples the gate has learned from} {
+        r del ga:cls
         r gcreate ga:cls ALPHA 0.1 CLASSES 2 a b
         assert_equal 1 [r gadd ga:cls TEXT "first example" LABEL a]
         assert_equal 2 [r gadd ga:cls TEXT "second example" LABEL b]
@@ -1410,6 +1497,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     }
 
     gcmd_test {GADD: refused on a score gate} {
+        r del ga:score
         r gcreate ga:score ALPHA 0.1 SCORE
         foreach form {{TEXT hello LABEL a} {TEXT hello LABEL 1} {TEXT hello CORRECT 1}
                       {TEXT hello FEATURES 1 x 1 LABEL a} {SCORE 0.5 CORRECT 1} {SCORE 0.5 LABEL a}} {
@@ -1419,6 +1507,9 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     }
 
     gcmd_test {GADD: a bad label or bad syntax is an error and teaches nothing} {
+        r del ga:bad
+        r gcreate ga:bad ALPHA 0.1 CLASSES 2 a b
+        assert_equal 1 [r gadd ga:bad TEXT hello LABEL b]
         foreach form {
             {TEXT hello LABEL nosuch}
             {TEXT hello LABEL {}}
@@ -1444,14 +1535,16 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             {BOGUS hello LABEL a}
             {hello TEXT LABEL a}
         } {
-            gcmd_fails_unchanged ga:cls "ERR *" [list gadd ga:cls {*}$form]
+            gcmd_fails_unchanged ga:bad "ERR *" [list gadd ga:bad {*}$form]
         }
-        gcmd_fails_unchanged ga:cls "ERR *" [list gadd ga:cls TEXT hello LABEL "a\x00"]
-        gcmd_fails_unchanged ga:cls "ERR *" [list gadd ga:cls TEXT hello "LABEL\x00" a]
-        assert_equal 8 [r gadd ga:cls TEXT hello LABEL a]
+        gcmd_fails_unchanged ga:bad "ERR *" [list gadd ga:bad TEXT hello LABEL "a\x00"]
+        gcmd_fails_unchanged ga:bad "ERR *" [list gadd ga:bad TEXT hello "LABEL\x00" a]
+        assert_equal 2 [r gadd ga:bad TEXT hello LABEL a]
+        r del ga:bad
     }
 
     gcmd_test {GADD: a label that is always deferred can still be taught} {
+        r del ga:defer
         r gcreate ga:defer ALPHA 0.1 CLASSES 3 a b c ALWAYSDEFER 1 b
         assert_equal 1 [r gadd ga:defer TEXT hello LABEL b]
         lassign [r gpredict ga:defer TEXT hello] action id
@@ -1463,6 +1556,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     # --------------------------------------------------------------- GINFO
 
     gcmd_test {GINFO: a new classifier gate} {
+        r del gi:cls
         r gcreate gi:cls ALPHA 0.1 CLASSES 3 a b c ALWAYSDEFER 1 b CLASSALPHA 1 c 0.05 \
             AUDIT 0.2 DELTA 0.02
         set info [r ginfo gi:cls]
@@ -1491,6 +1585,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     }
 
     gcmd_test {GINFO: a new score gate} {
+        r del gi:score
         r gcreate gi:score ALPHA 0.3 SCORE AUDIT 0.5 DELTA 0.25
         set info [r ginfo gi:score]
         assert_equal 23 [dict size $info]
@@ -1515,6 +1610,9 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     }
 
     gcmd_test {GINFO: counters follow the commands} {
+        r del gi:cls gi:score
+        r gcreate gi:cls ALPHA 0.1 CLASSES 3 a b c
+        r gcreate gi:score ALPHA 0.3 SCORE
         # classifier: three requests, two answers, one example
         lassign [r gpredict gi:cls TEXT one] action id1
         lassign [r gpredict gi:cls TEXT two] action id2
@@ -1560,6 +1658,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         # request is still unanswered.
         foreach {key form answer} {gi:order:cls {TEXT hello} {LABEL a}
                                    gi:order:score {SCORE 0.5} {CORRECT 1}} {
+            r del $key
             if {$key eq "gi:order:cls"} {
                 r gcreate $key ALPHA 0.1 CLASSES 2 a b
             } else {
@@ -1581,6 +1680,12 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     }
 
     gcmd_test {GINFO: reading changes nothing} {
+        r del gi:cls gi:score
+        r gcreate gi:cls ALPHA 0.1 CLASSES 3 a b c
+        r gcreate gi:score ALPHA 0.3 SCORE
+        r gadd gi:cls TEXT hello LABEL a
+        r gpredict gi:cls TEXT hello
+        r gpredict gi:score SCORE 0.5
         foreach key {gi:cls gi:score} {
             set digest [debug_digest_value $key]
             set first [r ginfo $key]
@@ -1592,6 +1697,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     # ---------------------------------------------- GPAUSE, GRESUME, GRESET
 
     gcmd_test {GPAUSE and GRESUME: OK, and again OK} {
+        r del gadm:cls gadm:score
         r gcreate gadm:cls ALPHA 0.1 CLASSES 2 a b
         r gcreate gadm:score ALPHA 0.1 SCORE
         foreach {key state} {gadm:cls COLD gadm:score CALIBRATING} {
@@ -1617,6 +1723,9 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     }
 
     gcmd_test {GPAUSE: everything but answering keeps running} {
+        r del gadm:cls gadm:score
+        r gcreate gadm:cls ALPHA 0.1 CLASSES 2 a b
+        r gcreate gadm:score ALPHA 0.1 SCORE
         r gpause gadm:cls
         r gpause gadm:score
         # requests are asked and answered, examples are learned
@@ -1637,6 +1746,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     }
 
     gcmd_test {GRESET: forgets what was learned, keeps the configuration} {
+        r del gadm:reset
         r gcreate gadm:reset ALPHA 0.1 CLASSES 3 a b c ALWAYSDEFER 1 b CLASSALPHA 1 c 0.05 \
             AUDIT 0.2 DELTA 0.02
         set fresh [r ginfo gadm:reset]
@@ -1671,6 +1781,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     gcmd_test {GRESET: a score gate starts a new test under a new snapshot number} {
         # SPEC 3: snapshots are numbered 1, 2, 3, ... and a number is never
         # reused; GRESET never hands budget back.
+        r del gadm:rs
         r gcreate gadm:rs ALPHA 0.1 SCORE
         assert_equal 1 [gcmd_info gadm:rs candidate]
         lassign [r gpredict gadm:rs SCORE 0.5] action id
@@ -1692,6 +1803,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     gcmd_test {GRESET: a paused gate stays paused} {
         # SPEC.md does not say whether GRESET resumes. A reset that made a
         # gate somebody paused answer again would be a surprise.
+        r del gadm:pr
         r gcreate gadm:pr ALPHA 0.1 SCORE
         r gpause gadm:pr
         assert_equal OK [r greset gadm:pr]
@@ -1744,6 +1856,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     }
 
     gcmd_test {arity: too few or too many arguments} {
+        r del ar:cls ar:score
         r gcreate ar:cls ALPHA 0.1 CLASSES 2 a b
         r gcreate ar:score ALPHA 0.1 SCORE
         set before [list [gcmd_state ar:cls] [gcmd_state ar:score]]
@@ -1786,24 +1899,30 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
 
     # ---------------------------------------- gates that answer by themselves
 
-    gcmd_test {setup: gates that answer by themselves} {
-        # a score gate answering from a threshold between 0.1 and 0.9
+    # Three gates that answer by themselves, for the tests below:
+    #   p:score  a score gate with a threshold between 0.1 and 0.9
+    #   p:audit  the same with AUDIT 1: all it could answer is a spot check
+    #   p:cls    a classifier answering both of its labels
+    catch {
         r gcreate p:score ALPHA 0.2 DELTA 0.2 SCORE
         gcmd_prove_score p:score
+        r gcreate p:audit ALPHA 0.2 DELTA 0.2 AUDIT 1 SCORE
+        gcmd_prove_score p:audit
+        gcmd_create_fast p:cls ALPHA 0.2 DELTA 0.2 CLASSES 2 spam ham
+        gcmd_prove_classifier p:cls
+    }
+
+    gcmd_test {a teacher that is right makes a gate answer by itself} {
+        # (the three gates set up above)
         set info [r ginfo p:score]
         assert_equal ACTIVE [dict get $info state]
         assert_equal 1 [dict get $info generation]
+        assert_equal 0 [dict get $info candidate]
         set threshold [lindex [dict get $info thresholds] 0]
         assert {$threshold > 0.1 && $threshold <= 0.9}
 
-        # the same with AUDIT 1: everything it could answer is a spot check
-        r gcreate p:audit ALPHA 0.2 DELTA 0.2 AUDIT 1 SCORE
-        gcmd_prove_score p:audit
         assert_equal ACTIVE [gcmd_info p:audit state]
 
-        # a classifier answering both of its labels
-        gcmd_create_fast p:cls ALPHA 0.2 DELTA 0.2 CLASSES 2 spam ham
-        gcmd_prove_classifier p:cls
         set info [r ginfo p:cls]
         assert_equal ACTIVE [dict get $info state]
         assert_equal 1 [dict get $info generation]
@@ -1857,6 +1976,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     }
 
     gcmd_test {GPREDICT: with AUDIT 1 nothing is accepted: AUDIT and an id} {
+        set before [r ginfo p:audit]
         for {set i 0} {$i < 60} {incr i} {
             set reply [r gpredict p:audit SCORE 0.9]
             assert_equal 2 [llength $reply]
@@ -1868,8 +1988,8 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         }
         set info [r ginfo p:audit]
         assert_equal 0 [dict get $info accepted]
-        assert_equal 60 [dict get $info audited]
-        assert_equal 60 [dict get $info audit-samples]
+        assert_equal [expr {[dict get $before audited] + 60}] [dict get $info audited]
+        assert_equal [expr {[dict get $before audit-samples] + 60}] [dict get $info audit-samples]
         assert_equal 0 [dict get $info audit-errors]
         assert_equal ACTIVE [dict get $info state]
     }
@@ -1926,6 +2046,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     }
 
     gcmd_test {GCREATE: an ALWAYSDEFER label is never answered} {
+        r del p:defer
         gcmd_create_fast p:defer ALPHA 0.2 DELTA 0.2 CLASSES 2 spam ham ALWAYSDEFER 1 ham
         gcmd_teach p:defer 40
         for {set i 0} {$i < 600} {incr i} {
@@ -1968,6 +2089,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     }
 
     gcmd_test {GCREATE: a CLASSALPHA label needs more proof than the others} {
+        r del p:strict
         gcmd_create_fast p:strict ALPHA 0.2 DELTA 0.2 CLASSES 2 spam ham CLASSALPHA 1 spam 0.02
         gcmd_teach p:strict 40
         # The teacher is always right about both labels, and they are asked
@@ -2003,6 +2125,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         set yes "yes please"
         set no [binary format H* e38184e38184e38188]
         set text "the same text every time"
+        r del p:feat
         gcmd_create_fast p:feat ALPHA 0.2 DELTA 0.2 CLASSES 2 $yes $no
         for {set i 0} {$i < 40} {incr i} {
             if {$i % 2} {
@@ -2044,6 +2167,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     }
 
     gcmd_test {GPREDICT: a gate that is full abstains even where it would answer} {
+        r del p:busy
         r gcreate p:busy ALPHA 0.2 DELTA 0.2 AUDIT 1 SCORE
         gcmd_prove_score p:busy
         assert_equal 0 [gcmd_info p:busy pending]
@@ -2069,6 +2193,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
 
     gcmd_test {GINFO: audit-samples and audit-errors count the spot checks and those that disagreed} {
         # a score gate
+        r del p:errors
         r gcreate p:errors ALPHA 0.2 DELTA 0.2 AUDIT 1 SCORE
         gcmd_prove_score p:errors
         assert_equal 0 [gcmd_info p:errors audit-samples]
@@ -2105,6 +2230,13 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     }
 
     gcmd_test {GINFO: a gate that answers} {
+        # one request each, answered if it is a spot check
+        foreach {key form answer} {p:score {SCORE 0.9} {CORRECT 1} p:audit {SCORE 0.9} {CORRECT 1}
+                                   p:cls {TEXT {buy cheap pills now}} {LABEL spam}} {
+            lassign [r gpredict $key {*}$form] action arg
+            assert {$action in {ACCEPT AUDIT}}
+            if {$action eq "AUDIT"} {assert_equal 1 [r glearn $key $arg {*}$answer]}
+        }
         foreach key {p:score p:audit p:cls} {
             set info [r ginfo $key]
             assert_equal ACTIVE [dict get $info state]
@@ -2120,8 +2252,6 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             assert_equal 0 [dict get $info revocations]
             assert_equal 0 [dict get $info pending]
         }
-        assert {[gcmd_info p:score accepted] > 0}
-        assert {[gcmd_info p:cls accepted] > 0}
         assert {[gcmd_info p:cls learned] >= 40}
         assert {[gcmd_info p:score calibration-samples] > 0}
     }
@@ -2165,6 +2295,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
 
     gcmd_test {GPAUSE: a paused gate proves itself and answers as soon as it is resumed} {
         # "a paused gate keeps learning and proving itself (shadow mode)"
+        r del p:shadow
         r gcreate p:shadow ALPHA 0.2 DELTA 0.2 SCORE
         r gpause p:shadow
         set actions {}
@@ -2194,6 +2325,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
 
     gcmd_test {GRESET: a gate that answers forgets its proof} {
         foreach {key kind} {p:reset:score score p:reset:cls classifier} {
+            r del $key
             if {$kind eq "score"} {
                 r gcreate $key ALPHA 0.2 DELTA 0.2 SCORE AUDIT 0.5
                 gcmd_prove_score $key
@@ -2271,20 +2403,22 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
 
     # ------------------------------------------------- RESP2 and RESP3, typed
 
-    gcmd_test {setup: a full gate and a string for the typed replies} {
+    # A gate that is full, for the null id, and a string.
+    catch {
         r gcreate rp:full ALPHA 0.2 SCORE
         gcmd_pipeline_predict rp:full 4096 0.5
-        assert_equal 4096 [gcmd_info rp:full pending]
         r set rp:string value
     }
 
     foreach proto [gcmd_protocols] {
-        set fd {}
-        gcmd_test "RESP$proto: HELLO $proto" {
+        # The test client and a raw connection, both speaking this protocol.
+        if {[catch {
             r hello $proto
             set fd [gcmd_raw_open $proto]
+        } err]} {
+            gcmd_test "RESP$proto: HELLO $proto" {fail "cannot switch to RESP$proto: $err"}
+            continue
         }
-        if {$fd eq {}} continue
 
         gcmd_test "RESP$proto: GCREATE replies the simple string OK; BUSYKEY is an error" {
             gcmd_raw $fd DEL rp:cls rp:score
@@ -2302,6 +2436,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         }
 
         gcmd_test "RESP$proto: GPREDICT replies an array of two, ABSTAIN and an id" {
+            gcmd_typed_fresh $fd
             foreach {key form} {rp:cls {TEXT hello} rp:cls {TEXT hello FEATURES 1 x 0.5}
                                 rp:score {SCORE 0.5}} {
                 lassign [gcmd_check_predict [gcmd_raw $fd GPREDICT $key {*}$form]] action id
@@ -2316,6 +2451,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         }
 
         gcmd_test "RESP$proto: GLEARN replies the integer 1, then 0" {
+            gcmd_typed_fresh $fd
             lassign [gcmd_check_predict [gcmd_raw $fd GPREDICT rp:cls TEXT hello]] action id
             assert_equal {int 1} [gcmd_raw $fd GLEARN rp:cls $id LABEL a]
             assert_equal {int 0} [gcmd_raw $fd GLEARN rp:cls $id LABEL a]
@@ -2329,6 +2465,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         }
 
         gcmd_test "RESP$proto: GADD replies an integer" {
+            gcmd_typed_fresh $fd
             set learned [r gadd rp:cls TEXT hello LABEL a]
             assert_equal [list int [expr {$learned + 1}]] [gcmd_raw $fd GADD rp:cls TEXT hello LABEL b]
             assert_equal [list int [expr {$learned + 2}]] \
@@ -2336,6 +2473,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         }
 
         gcmd_test "RESP$proto: GPAUSE, GRESUME and GRESET reply the simple string OK" {
+            gcmd_typed_fresh $fd
             foreach key {rp:cls rp:score} {
                 assert_equal {status OK} [gcmd_raw $fd GPAUSE $key]
                 assert_equal {status OK} [gcmd_raw $fd GPAUSE $key]
@@ -2350,6 +2488,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         }
 
         gcmd_test "RESP$proto: GINFO of a classifier: every field, in order, typed" {
+            gcmd_typed_fresh $fd
             set info [gcmd_check_info $proto [gcmd_raw $fd GINFO rp:cls]]
             assert_equal classifier [dict get $info kind]
             assert_equal COLD [dict get $info state]
@@ -2370,6 +2509,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         }
 
         gcmd_test "RESP$proto: GINFO of a score gate: every field, in order, typed" {
+            gcmd_typed_fresh $fd
             set info [gcmd_check_info $proto [gcmd_raw $fd GINFO rp:score]]
             assert_equal score [dict get $info kind]
             assert_equal CALIBRATING [dict get $info state]
@@ -2377,11 +2517,19 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             assert_equal 1 [llength [dict get $info alphas]]
             assert {[lindex [dict get $info alphas] 0] == 0.1}
             assert_equal {{}} [dict get $info thresholds]
-            assert {[dict get $info candidate] >= 1}
+            assert_equal 0 [dict get $info generation]
+            assert_equal 1 [dict get $info candidate]
             assert_equal [dict keys $info] [dict keys [r ginfo rp:score]]
         }
 
         gcmd_test "RESP$proto: GINFO of gates that answer: thresholds are numbers" {
+            # one request each, so that there is a coverage to report
+            foreach {key form answer} {p:score {SCORE 0.9} {CORRECT 1}
+                                       p:cls {TEXT {buy cheap pills now}} {LABEL spam}} {
+                lassign [gcmd_check_predict [gcmd_raw $fd GPREDICT $key {*}$form]] action arg
+                assert {$action in {ACCEPT AUDIT}}
+                if {$action eq "AUDIT"} {gcmd_raw $fd GLEARN $key $arg {*}$answer}
+            }
             set info [gcmd_check_info $proto [gcmd_raw $fd GINFO p:cls]]
             assert_equal ACTIVE [dict get $info state]
             assert_equal {spam ham} [dict get $info classes]
@@ -2473,6 +2621,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         }
 
         gcmd_test "RESP$proto: errors are error replies" {
+            gcmd_typed_fresh $fd
             foreach form $::gcmd_forms {
                 set cmd [gcmd_form $form rp:missing]
                 assert_equal {error {ERR no such key}} [gcmd_raw $fd {*}$cmd] "command: $cmd"
@@ -2518,6 +2667,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     r config set gate.test-seed 77001
 
     gcmd_test {TYPE returns gate-type; SCAN finds gates by type} {
+        r del kt:cls kt:score kt:string
         r gcreate kt:cls ALPHA 0.1 CLASSES 2 a b
         r gcreate kt:score ALPHA 0.1 SCORE
         r set kt:string value
@@ -2531,11 +2681,16 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             lappend found {*}$keys
             if {$cursor == 0} break
         }
-        assert_equal {kt:cls kt:score} [lsort $found]
+        assert {"kt:cls" in $found && "kt:score" in $found}
+        assert {"kt:string" ni $found}
+        foreach key $found {assert_equal gate-type [r type $key]}
         assert_equal {kt:cls kt:score kt:string} [lsort [r keys kt:*]]
+        r del kt:cls kt:score kt:string
     }
 
     gcmd_test {commands of other types reply WRONGTYPE on a gate and leave it alone} {
+        r del kt:cls
+        r gcreate kt:cls ALPHA 0.1 CLASSES 2 a b
         lassign [r gpredict kt:cls TEXT hello] action id
         set before [gcmd_state kt:cls]
         foreach cmd {
@@ -2555,6 +2710,8 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     gcmd_test {a key of another module's type is the wrong type too} {
         # Vector sets are a module type like a gate; skip where they are not built in.
         if {[r command info vadd] ne {{}} && [r command info vadd] ne {}} {
+            r del kt:vset kt:score
+            r gcreate kt:score ALPHA 0.1 SCORE
             r vadd kt:vset VALUES 3 1 0 0 element
             set digest [debug_digest_value kt:vset]
             foreach form $::gcmd_forms {
@@ -2574,6 +2731,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     }
 
     gcmd_test {SET over a gate replaces it like any key} {
+        r del kt:over
         r gcreate kt:over ALPHA 0.1 SCORE
         assert_equal OK [r set kt:over value]
         assert_equal string [r type kt:over]
@@ -2586,6 +2744,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     }
 
     gcmd_test {DEL then GCREATE: a new gate; ids of the old one are refused} {
+        r del kd:cls kd:score
         r gcreate kd:cls ALPHA 0.1 CLASSES 2 a b AUDIT 0.5
         r gcreate kd:score ALPHA 0.1 SCORE AUDIT 0.5
         r gadd kd:cls TEXT hello LABEL a
@@ -2630,6 +2789,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     }
 
     gcmd_test {EXPIRE, TTL and PERSIST work on a gate} {
+        r del ke:gate
         r gcreate ke:gate ALPHA 0.1 SCORE
         assert_equal -1 [r ttl ke:gate]
         assert_equal 1 [r expire ke:gate 100]
@@ -2649,6 +2809,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     }
 
     gcmd_test {a gate that expired is gone and its name is free} {
+        r del ke:gone
         r gcreate ke:gone ALPHA 0.1 CLASSES 2 a b
         lassign [r gpredict ke:gone TEXT hello] action id
         assert_equal 1 [r pexpire ke:gone 1]
@@ -2668,6 +2829,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
 
     gcmd_test {GCREATE over a key that expired but was not collected yet} {
         if {[lsearch $::denytags "needs:debug"] < 0} {
+            r del ke:lazy ke:lazy:gate
             r debug set-active-expire 0
             r set ke:lazy value px 1
             r gcreate ke:lazy:gate ALPHA 0.1 SCORE
@@ -2683,6 +2845,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     }
 
     gcmd_test {RENAME keeps the whole state of a gate} {
+        r del kr:src kr:dst kr:other kr:string kr:final
         r gcreate kr:src ALPHA 0.2 DELTA 0.2 CLASSES 2 spam ham AUDIT 0.5
         gcmd_teach kr:src 10
         lassign [r gpredict kr:src TEXT "buy cheap pills now"] action id
@@ -2718,6 +2881,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     }
 
     gcmd_test {a proven gate keeps answering after RENAME} {
+        r del kr:proven kr:proven2
         r gcreate kr:proven ALPHA 0.2 DELTA 0.2 SCORE
         gcmd_prove_score kr:proven
         set before [gcmd_state kr:proven]
@@ -2733,6 +2897,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         r select 10
         r del km:gate
         r select 9
+        r del km:gate
         r gcreate km:gate ALPHA 0.1 CLASSES 2 a b
         r gadd km:gate TEXT hello LABEL a
         lassign [r gpredict km:gate TEXT hello] action id
@@ -2754,6 +2919,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         r select 12
         set empty [r dbsize]
         r select 9
+        r del ks:gate
         r gcreate ks:gate ALPHA 0.1 CLASSES 2 a b
         r gadd ks:gate TEXT hello LABEL a
         lassign [r gpredict ks:gate TEXT hello] action id
@@ -2779,6 +2945,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         r select 10
         r del kdb:gate
         r select 9
+        r del kdb:gate
         r gcreate kdb:gate ALPHA 0.1 SCORE
         lassign [r gpredict kdb:gate SCORE 0.5] action id9
         r select 10
@@ -2797,6 +2964,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     }
 
     gcmd_test {MEMORY USAGE is positive and grows with the requests that wait} {
+        r del kmem:score kmem:cls
         r gcreate kmem:score ALPHA 0.1 SCORE
         r gcreate kmem:cls ALPHA 0.1 CLASSES 2 a b
         foreach key {kmem:score kmem:cls} {
@@ -2836,6 +3004,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     }
 
     gcmd_test {OBJECT, TOUCH, RANDOMKEY, DBSIZE and friends take a gate} {
+        r del ko:gate
         r gcreate ko:gate ALPHA 0.1 CLASSES 2 a b
         r gpredict ko:gate TEXT hello
         assert {[r object encoding ko:gate] ne {}}
@@ -2863,6 +3032,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     }
 
     gcmd_test {COPY is refused and creates nothing} {
+        r del kc:cls kc:score kc:string kc:dst
         r gcreate kc:cls ALPHA 0.1 CLASSES 2 a b
         r gcreate kc:score ALPHA 0.1 SCORE
         r gadd kc:cls TEXT hello LABEL a
@@ -3030,6 +3200,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
 
     gcmd_test {ACL: a user limited to +@gate runs every gate command and nothing else} {
         r acl setuser gate-only on nopass ~* +@gate
+        r del acl:cls acl:score
         set c [gcmd_login gate-only]
         assert_equal OK [$c gcreate acl:cls ALPHA 0.1 CLASSES 2 a b]
         assert_equal OK [$c gcreate acl:score ALPHA 0.1 SCORE]
@@ -3076,6 +3247,9 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
 
     gcmd_test {ACL: read permission on the key allows GINFO and no command that writes} {
         r acl setuser gate-reader on nopass %R~* +@gate
+        r del acl:cls acl:score
+        r gcreate acl:cls ALPHA 0.1 CLASSES 2 a b
+        r gcreate acl:score ALPHA 0.1 SCORE
         set before [list [gcmd_state acl:cls] [gcmd_state acl:score]]
         set c [gcmd_login gate-reader]
         assert_equal classifier [dict get [$c ginfo acl:cls] kind]
@@ -3096,6 +3270,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
 
     gcmd_test {ACL: +gpredict +glearn on a key pattern, the application server of the README} {
         r acl setuser app on nopass ~app:* +gpredict +glearn
+        r del app:gate other:gate
         r gcreate app:gate ALPHA 0.1 SCORE
         r gcreate other:gate ALPHA 0.1 SCORE
         set c [gcmd_login app]
@@ -3116,6 +3291,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     }
 
     gcmd_test {_GATE.APPLY is an unknown command to a client} {
+        r del ap:gate
         r gcreate ap:gate ALPHA 0.1 SCORE
         set before [gcmd_state ap:gate]
         set attempts {
@@ -3371,13 +3547,17 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
 start_server [list tags {"modules external:skip"} overrides [list loadmodule $gatemodule]] {
     r config set gate.test-seed 77003
 
-    gcmd_test {setup: a gate that answers, one that only audits, one that is full} {
+    # A gate that answers, one that only audits, one that is full.
+    catch {
         r gcreate tx:proven ALPHA 0.2 DELTA 0.2 SCORE
         gcmd_prove_score tx:proven
         r gcreate tx:audit ALPHA 0.2 DELTA 0.2 AUDIT 1 SCORE
         gcmd_prove_score tx:audit
         r gcreate tx:full ALPHA 0.2 SCORE
         gcmd_pipeline_predict tx:full 4096 0.5
+    }
+
+    gcmd_test {the gates the transaction and script tests use are ready} {
         assert_equal ACTIVE [gcmd_info tx:proven state]
         assert_equal ACTIVE [gcmd_info tx:audit state]
         assert_equal 4096 [gcmd_info tx:full pending]
@@ -3385,6 +3565,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
 
     gcmd_test {MULTI/EXEC: gate commands are queued and reply as usual} {
         catch {r discard}
+        r del tx:cls tx:score
         r multi
         assert_equal QUEUED [r gcreate tx:cls ALPHA 0.1 CLASSES 2 a b]
         assert_equal QUEUED [r gcreate tx:score ALPHA 0.1 SCORE]
@@ -3429,6 +3610,8 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
 
     gcmd_test {MULTI/EXEC: DISCARD drops the queued gate commands} {
         catch {r discard}
+        r del tx:score tx:never
+        r gcreate tx:score ALPHA 0.1 SCORE
         set before [gcmd_state tx:score]
         r multi
         r gpredict tx:score SCORE 0.5
@@ -3441,11 +3624,10 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     }
 
     foreach proto [gcmd_protocols] {
-        set fd {}
-        gcmd_test "RESP$proto: a connection for transactions and scripts" {
-            set fd [gcmd_raw_open $proto]
+        if {[catch {set fd [gcmd_raw_open $proto]} err]} {
+            gcmd_test "RESP$proto: a connection for transactions and scripts" {fail $err}
+            continue
         }
-        if {$fd eq {}} continue
 
         gcmd_test "RESP$proto: EXEC carries each reply in the shape it has outside" {
             gcmd_raw $fd DEL tx:t:cls tx:t:score
@@ -3510,6 +3692,9 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         }
 
         gcmd_test "RESP$proto: an error inside EXEC is one reply; the other commands run" {
+            gcmd_raw $fd DEL tx:t:cls tx:t:score
+            gcmd_raw $fd GCREATE tx:t:cls ALPHA 0.1 CLASSES 2 a b
+            gcmd_raw $fd GCREATE tx:t:score ALPHA 0.1 SCORE
             assert_equal {status OK} [gcmd_raw $fd MULTI]
             foreach cmd {
                 {GPREDICT tx:t:score TEXT wrong-form}
@@ -3595,6 +3780,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         }
 
         gcmd_test "RESP$proto: GINFO from a script" {
+            gcmd_lua_fresh $fd
             # A script speaks RESP2 to Redis unless it asks for RESP3: it
             # gets, and returns, the flat field/value array with numbers as
             # strings, whatever the protocol of the client.
@@ -3642,6 +3828,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
                 if reply[2] then return redis.call('GLEARN', KEYS[1], reply[2], 'CORRECT', ARGV[2]) end
                 return 'no feedback wanted'
             }
+            gcmd_lua_fresh $fd
             set samples [gcmd_info lua:score calibration-samples]
             assert_equal {int 1} [gcmd_raw $fd EVAL $script 1 lua:score 0.5 1]
             assert_equal {int 1} [gcmd_raw $fd EVAL $script 1 lua:score 0.6 0]
@@ -3651,6 +3838,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         }
 
         gcmd_test "RESP$proto: errors of gate commands in a script" {
+            gcmd_lua_fresh $fd
             foreach {script key pattern} {
                 {return redis.pcall('GPREDICT', KEYS[1], 'SCORE', '0.5')} lua:missing {ERR no such key*}
                 {return redis.call('GPREDICT', KEYS[1], 'SCORE', '0.5')} lua:missing {ERR no such key*}
@@ -3677,6 +3865,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         }
 
         gcmd_test "RESP$proto: a read-only script may run GINFO and no other gate command" {
+            gcmd_lua_fresh $fd
             set reply [gcmd_raw $fd EVAL_RO {return redis.call('GINFO', KEYS[1])} 1 lua:score]
             assert_equal array [lindex $reply 0]
             assert_equal 46 [llength [lindex $reply 1]]

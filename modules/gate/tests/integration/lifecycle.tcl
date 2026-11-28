@@ -60,7 +60,7 @@ proc lc_threshold {key} {
 proc lc_assert_counters {key} {
     set i [r ginfo $key]
     set sum [expr {[dict get $i accepted] + [dict get $i audited] + [dict get $i abstained]}]
-    assert_equal [dict get $i requests] $sum "requests of $key = accepted + audited + abstained"
+    assert_equal $sum [dict get $i requests] "requests of $key = accepted + audited + abstained"
 }
 
 # 1 if every label the gate may answer has a threshold.
@@ -215,25 +215,25 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
 
     test {gate lifecycle: a score gate starts its first test at GCREATE} {
         lc_seed 1
-        assert_equal OK [r gcreate s:new ALPHA 0.2 DELTA 0.2 SCORE]
-        assert_equal gate-type [r type s:new]
+        assert_equal [r gcreate s:new ALPHA 0.2 DELTA 0.2 SCORE] OK
+        assert_equal [r type s:new] gate-type
 
         set i [r ginfo s:new]
-        assert_equal score [dict get $i kind]
-        assert_equal CALIBRATING [dict get $i state]
+        assert_equal [dict get $i kind] score
+        assert_equal [dict get $i state] CALIBRATING
         assert {[dict get $i alpha] == 0.2}
         assert {[dict get $i delta] == 0.2}
         assert {[dict get $i audit] == 0.05}
-        assert_equal 0 [llength [dict get $i classes]]
-        assert_equal 1 [llength [dict get $i alphas]]
+        assert_equal [llength [dict get $i classes]] 0
+        assert_equal [llength [dict get $i alphas]] 1
         assert {[lindex [dict get $i alphas] 0] == 0.2}
-        assert_equal 1 [llength [dict get $i thresholds]]
-        assert_equal {} [lindex [dict get $i thresholds] 0]
-        assert_equal 0 [dict get $i generation]
-        assert_equal 1 [dict get $i candidate]
+        assert_equal [llength [dict get $i thresholds]] 1
+        assert_equal [lindex [dict get $i thresholds] 0] {}
+        assert_equal [dict get $i generation] 0
+        assert_equal [dict get $i candidate] 1
         foreach field {learned requests accepted audited abstained audit-samples
                        audit-errors calibration-samples pending missing revocations} {
-            assert_equal 0 [dict get $i $field] $field
+            assert_equal [dict get $i $field] 0 $field
         }
         assert {[dict get $i coverage] == 0}
         assert_morethan [dict get $i memory] 0
@@ -247,33 +247,33 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         # second stream does, the thresholds above 0.3 see correct answers
         # only, and SPEC section 3 says how many they need.
         set need [lc_proof_needed 0.2 0.2 1]
-        assert_equal 35 $need
+        assert_equal $need 35
         set seen [dict create]
         for {set n 1} {$n <= $need} {incr n} {
             foreach {score correct} {0.9 1 0.3 0} {
                 if {$n == $need && $score == 0.3} break
-                assert_equal CALIBRATING [lc_get s:warm state] "before answer $n at $score"
+                assert_equal [lc_get s:warm state] CALIBRATING "before answer $n at $score"
                 lassign [r gpredict s:warm SCORE $score] action id
-                assert_equal ABSTAIN $action
+                assert_equal $action ABSTAIN
                 assert {$id ne {}}
                 assert {![dict exists $seen $id]}
                 dict set seen $id 1
-                assert_equal 1 [r glearn s:warm $id CORRECT $correct]
+                assert_equal [r glearn s:warm $id CORRECT $correct] 1
             }
         }
 
         # Nothing was wasted while warming up: every answer counted as proof.
         set i [r ginfo s:warm]
-        assert_equal ACTIVE [dict get $i state]
-        assert_equal 1 [dict get $i generation]
-        assert_equal 0 [dict get $i candidate]
-        assert_equal [expr {2 * $need - 1}] [dict get $i calibration-samples]
-        assert_equal [expr {2 * $need - 1}] [dict get $i requests]
-        assert_equal [expr {2 * $need - 1}] [dict get $i abstained]
-        assert_equal 0 [dict get $i accepted]
-        assert_equal 0 [dict get $i audited]
-        assert_equal 0 [dict get $i pending]
-        assert_equal 0 [dict get $i missing]
+        assert_equal [dict get $i state] ACTIVE
+        assert_equal [dict get $i generation] 1
+        assert_equal [dict get $i candidate] 0
+        assert_equal [dict get $i calibration-samples] [expr {2 * $need - 1}]
+        assert_equal [dict get $i requests] [expr {2 * $need - 1}]
+        assert_equal [dict get $i abstained] [expr {2 * $need - 1}]
+        assert_equal [dict get $i accepted] 0
+        assert_equal [dict get $i audited] 0
+        assert_equal [dict get $i pending] 0
+        assert_equal [dict get $i missing] 0
     }
 
     test {gate lifecycle: the proof a score gate needs is the betting test of SPEC section 3} {
@@ -291,18 +291,18 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             r gcreate s:bet {*}$options SCORE
             for {set k 0} {$k < $errors} {incr k} {
                 lassign [r gpredict s:bet SCORE 0.9] action id
-                assert_equal 1 [r glearn s:bet $id CORRECT 0]
+                assert_equal [r glearn s:bet $id CORRECT 0] 1
             }
             set need [lc_proof_needed $alpha $delta 1 $errors]
             for {set n 1} {$n <= $need} {incr n} {
-                assert_equal CALIBRATING [lc_get s:bet state] \
+                assert_equal [lc_get s:bet state] CALIBRATING \
                     "$options, $errors wrong: after [expr {$n - 1}] of $need correct answers"
                 lassign [r gpredict s:bet SCORE 0.9] action id
-                assert_equal ABSTAIN $action
-                assert_equal 1 [r glearn s:bet $id CORRECT 1]
+                assert_equal $action ABSTAIN
+                assert_equal [r glearn s:bet $id CORRECT 1] 1
             }
-            assert_equal ACTIVE [lc_get s:bet state] "$options, $errors wrong: after $need correct answers"
-            assert_equal [expr {$errors + $need}] [lc_get s:bet calibration-samples]
+            assert_equal [lc_get s:bet state] ACTIVE "$options, $errors wrong: after $need correct answers"
+            assert_equal [lc_get s:bet calibration-samples] [expr {$errors + $need}]
         }
     }
 
@@ -310,8 +310,8 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         lc_seed 4
         lc_gate_between s:thr
         set i [r ginfo s:thr]
-        assert_equal 1 [dict get $i generation]
-        assert_equal 0 [dict get $i candidate]
+        assert_equal [dict get $i generation] 1
+        assert_equal [dict get $i candidate] 0
 
         # Half of the answers at or above any score up to 0.3 were wrong, and
         # nothing above 0.9 was ever seen: the lowest proven threshold lies
@@ -328,32 +328,32 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             for {set k 0} {$k < 20} {incr k} {
                 lassign [r gpredict s:thr SCORE $score] action id
                 if {$action eq "ACCEPT"} {
-                    assert_equal {} $id
+                    assert_equal $id {}
                 } else {
-                    assert_equal AUDIT $action "score $score"
+                    assert_equal $action AUDIT "score $score"
                     assert {$id ne {}}
-                    assert_equal 1 [r glearn s:thr $id CORRECT 1]
+                    assert_equal [r glearn s:thr $id CORRECT 1] 1
                 }
             }
         }
         foreach score {0.33 0.3 0.1 0} {
             for {set k 0} {$k < 25} {incr k} {
                 lassign [r gpredict s:thr SCORE $score] action id
-                assert_equal ABSTAIN $action "score $score"
-                if {$id ne {}} {assert_equal 1 [r glearn s:thr $id CORRECT 0]}
+                assert_equal $action ABSTAIN "score $score"
+                if {$id ne {}} {assert_equal [r glearn s:thr $id CORRECT 0] 1}
             }
         }
 
         # 100 requests the gate could answer and 100 it could not.
         set i [r ginfo s:thr]
-        assert_equal ACTIVE [dict get $i state]
-        assert_equal $thr [lindex [dict get $i thresholds] 0]
-        assert_equal [expr {$asked + 200}] [dict get $i requests]
-        assert_equal 100 [expr {[dict get $i accepted] + [dict get $i audited]}]
-        assert_equal [expr {$asked + 100}] [dict get $i abstained]
+        assert_equal [dict get $i state] ACTIVE
+        assert_equal [lindex [dict get $i thresholds] 0] $thr
+        assert_equal [dict get $i requests] [expr {$asked + 200}]
+        assert_equal [expr {[dict get $i accepted] + [dict get $i audited]}] 100
+        assert_equal [dict get $i abstained] [expr {$asked + 100}]
         assert_morethan [dict get $i accepted] 0
         assert_range [dict get $i coverage] 0.45 0.55
-        assert_equal 0 [dict get $i pending]
+        assert_equal [dict get $i pending] 0
         lc_assert_counters s:thr
     }
 
@@ -367,22 +367,22 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             lassign [r gpredict s:acc SCORE 0.9] action id
             if {$action eq "ACCEPT"} {
                 incr accepts
-                assert_equal {} $id
+                assert_equal $id {}
                 # Nothing waits for an answer and nothing was added to the
                 # proof: the gate simply answered.
                 set after [r ginfo s:acc]
-                assert_equal [dict get $before pending] [dict get $after pending]
-                assert_equal [dict get $before calibration-samples] [dict get $after calibration-samples]
-                assert_equal [expr {[dict get $before accepted] + 1}] [dict get $after accepted]
-                assert_equal [expr {[dict get $before requests] + 1}] [dict get $after requests]
+                assert_equal [dict get $after pending] [dict get $before pending]
+                assert_equal [dict get $after calibration-samples] [dict get $before calibration-samples]
+                assert_equal [dict get $after accepted] [expr {[dict get $before accepted] + 1}]
+                assert_equal [dict get $after requests] [expr {[dict get $before requests] + 1}]
             } else {
-                assert_equal AUDIT $action
-                assert_equal 1 [r glearn s:acc $id CORRECT 1]
+                assert_equal $action AUDIT
+                assert_equal [r glearn s:acc $id CORRECT 1] 1
             }
         }
-        assert_equal 100 $accepts
-        assert_equal ACTIVE [lc_get s:acc state]
-        assert_equal 0 [lc_get s:acc pending]
+        assert_equal $accepts 100
+        assert_equal [lc_get s:acc state] ACTIVE
+        assert_equal [lc_get s:acc pending] 0
         lc_assert_counters s:acc
     }
 
@@ -392,18 +392,18 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert {[lc_get s:audit1 audit] == 1}
         for {set k 0} {$k < 50} {incr k} {
             lassign [r gpredict s:audit1 SCORE 0.9] action id
-            assert_equal AUDIT $action
+            assert_equal $action AUDIT
             assert {$id ne {}}
-            assert_equal 1 [r glearn s:audit1 $id CORRECT 1]
-            assert_equal ABSTAIN [lc_score s:audit1 0.3 0]
+            assert_equal [r glearn s:audit1 $id CORRECT 1] 1
+            assert_equal [lc_score s:audit1 0.3 0] ABSTAIN
         }
         set i [r ginfo s:audit1]
-        assert_equal ACTIVE [dict get $i state]
-        assert_equal 0 [dict get $i accepted]
-        assert_equal 50 [dict get $i audited]
-        assert_equal 50 [dict get $i audit-samples]
-        assert_equal 0 [dict get $i audit-errors]
-        assert_equal 0 [dict get $i pending]
+        assert_equal [dict get $i state] ACTIVE
+        assert_equal [dict get $i accepted] 0
+        assert_equal [dict get $i audited] 50
+        assert_equal [dict get $i audit-samples] 50
+        assert_equal [dict get $i audit-errors] 0
+        assert_equal [dict get $i pending] 0
         lc_assert_counters s:audit1
     }
 
@@ -418,10 +418,10 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             lassign [r gpredict s:share SCORE 0.9] action id
             if {$action eq "ACCEPT"} {
                 incr accepts
-                assert_equal {} $id
+                assert_equal $id {}
             } elseif {$action eq "AUDIT"} {
                 incr audits
-                assert_equal 1 [r glearn s:share $id CORRECT 1]
+                assert_equal [r glearn s:share $id CORRECT 1] 1
             } else {
                 fail "request $k: $action from a gate that answers every score"
             }
@@ -429,13 +429,13 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         # 3000 draws at 0.1: 300 expected, with a standard deviation of 16.
         assert_range $audits 235 365
         set i [r ginfo s:share]
-        assert_equal $accepts [dict get $i accepted]
-        assert_equal $audits [dict get $i audited]
-        assert_equal $audits [dict get $i audit-samples]
-        assert_equal 0 [dict get $i audit-errors]
-        assert_equal $asked [dict get $i abstained]
+        assert_equal [dict get $i accepted] $accepts
+        assert_equal [dict get $i audited] $audits
+        assert_equal [dict get $i audit-samples] $audits
+        assert_equal [dict get $i audit-errors] 0
+        assert_equal [dict get $i abstained] $asked
         assert {[dict get $i coverage] > 0.999}
-        assert_equal 0 [dict get $i pending]
+        assert_equal [dict get $i pending] 0
         lc_assert_counters s:share
     }
 
@@ -450,22 +450,22 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             set action [lc_score s:low 0.9 1]
             assert {$action eq "ACCEPT" || $action eq "AUDIT"}
             lassign [r gpredict s:low SCORE 0.3] action id
-            assert_equal ABSTAIN $action
+            assert_equal $action ABSTAIN
             if {$id eq {}} {
                 incr without
             } else {
                 incr with
-                assert_equal 1 [r glearn s:low $id CORRECT 0]
+                assert_equal [r glearn s:low $id CORRECT 0] 1
             }
         }
         # 400 draws at 0.25: 100 expected, with a standard deviation of 9.
         assert_range $with 65 135
-        assert_equal 400 [expr {$with + $without}]
+        assert_equal [expr {$with + $without}] 400
         # The lower thresholds are still wrong half of the time: none of
         # them was proven, so the gate answers where it answered before.
-        assert_equal $thr [lc_threshold s:low]
-        assert_equal ACTIVE [lc_get s:low state]
-        assert_equal 0 [lc_get s:low pending]
+        assert_equal [lc_threshold s:low] $thr
+        assert_equal [lc_get s:low state] ACTIVE
+        assert_equal [lc_get s:low pending] 0
         lc_assert_counters s:low
     }
 
@@ -476,12 +476,12 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         # a cheap result that is right at 0.9.
         for {set k 0} {$k < 2} {incr k} {
             lassign [r gpredict s:down SCORE 0.5] action id
-            assert_equal 1 [r glearn s:down $id CORRECT 0]
+            assert_equal [r glearn s:down $id CORRECT 0] 1
         }
         lc_calibrate s:down
         set first [lc_threshold s:down]
         assert {$first > 0.5 && $first <= 0.9}
-        assert_equal ABSTAIN [lc_score s:down 0.5 1]
+        assert_equal [lc_score s:down 0.5 1] ABSTAIN
 
         # From now on the cheap result is right at 0.5. The thresholds at
         # and below 0.5 are tested on the requests drawn as proof, and
@@ -499,9 +499,9 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             assert {$action eq "ACCEPT" || $action eq "AUDIT"}
         }
         # The same snapshot all along.
-        assert_equal ACTIVE [lc_get s:down state]
-        assert_equal 1 [lc_get s:down generation]
-        assert_equal 0 [lc_get s:down revocations]
+        assert_equal [lc_get s:down state] ACTIVE
+        assert_equal [lc_get s:down generation] 1
+        assert_equal [lc_get s:down revocations] 0
         assert_morethan [lc_get s:down coverage] 0
         lc_assert_counters s:down
     }
@@ -520,30 +520,30 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             set ids {}
             for {set k 0} {$k < 120} {incr k} {
                 lassign [r gpredict $key SCORE [expr {$k % 2 ? 0.3 : 0.9}]] action id
-                assert_equal ABSTAIN $action
+                assert_equal $action ABSTAIN
                 lappend ids $id
             }
-            assert_equal 120 [lc_get $key pending]
+            assert_equal [lc_get $key pending] 120
             for {set j 0} {$j < 120} {incr j} {
                 switch $key {
                     f:fwd {set k $j}
                     f:rev {set k [expr {119 - $j}]}
                     f:mix {set k [expr {($j * 37 + 5) % 120}]}
                 }
-                assert_equal 1 [r glearn $key [lindex $ids $k] CORRECT [expr {$k % 2 ? 0 : 1}]]
+                assert_equal [r glearn $key [lindex $ids $k] CORRECT [expr {$k % 2 ? 0 : 1}]] 1
             }
         }
         set fwd [r ginfo f:fwd]
-        assert_equal ACTIVE [dict get $fwd state]
-        assert_equal 1 [dict get $fwd generation]
-        assert_equal 120 [dict get $fwd calibration-samples]
-        assert_equal 0 [dict get $fwd pending]
+        assert_equal [dict get $fwd state] ACTIVE
+        assert_equal [dict get $fwd generation] 1
+        assert_equal [dict get $fwd calibration-samples] 120
+        assert_equal [dict get $fwd pending] 0
         assert {[lindex [dict get $fwd thresholds] 0] > 0.3}
         foreach key {f:rev f:mix} {
             set other [r ginfo $key]
             foreach field {state thresholds generation candidate calibration-samples audit-samples
                            pending missing revocations requests abstained} {
-                assert_equal [dict get $fwd $field] [dict get $other $field] "$field of $key"
+                assert_equal [dict get $other $field] [dict get $fwd $field] "$field of $key"
             }
         }
     }
@@ -559,19 +559,19 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         # Every answer but the oldest, newest first: far more than a proof
         # needs, but none of it may be used before the oldest request.
         for {set k 59} {$k >= 1} {incr k -1} {
-            assert_equal 1 [r glearn f:wait [lindex $ids $k] CORRECT 1]
+            assert_equal [r glearn f:wait [lindex $ids $k] CORRECT 1] 1
         }
-        assert_equal CALIBRATING [lc_get f:wait state]
-        assert_equal 0 [lc_get f:wait calibration-samples]
+        assert_equal [lc_get f:wait state] CALIBRATING
+        assert_equal [lc_get f:wait calibration-samples] 0
         # An answer that waits for its turn is used: it cannot be given twice.
-        assert_equal 0 [r glearn f:wait [lindex $ids 59] CORRECT 0]
+        assert_equal [r glearn f:wait [lindex $ids 59] CORRECT 0] 0
 
-        assert_equal 1 [r glearn f:wait [lindex $ids 0] CORRECT 1]
+        assert_equal [r glearn f:wait [lindex $ids 0] CORRECT 1] 1
         set i [r ginfo f:wait]
-        assert_equal ACTIVE [dict get $i state]
-        assert_equal 60 [dict get $i calibration-samples]
-        assert_equal 0 [dict get $i pending]
-        assert_equal 0 [dict get $i missing]
+        assert_equal [dict get $i state] ACTIVE
+        assert_equal [dict get $i calibration-samples] 60
+        assert_equal [dict get $i pending] 0
+        assert_equal [dict get $i missing] 0
     }
 
     test {gate lifecycle: an id is good for one GLEARN, on the gate that issued it} {
@@ -584,22 +584,22 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         lassign [r gpredict f:b SCORE 0.9] action other
         assert {$first ne $second}
 
-        assert_equal 0 [r glearn f:a $other CORRECT 1]
-        assert_equal 1 [r glearn f:a $first CORRECT 1]
+        assert_equal [r glearn f:a $other CORRECT 1] 0
+        assert_equal [r glearn f:a $first CORRECT 1] 1
         # Retrying is always safe, with the same answer or with another one.
-        assert_equal 0 [r glearn f:a $first CORRECT 1]
-        assert_equal 0 [r glearn f:a $first CORRECT 0]
-        assert_equal 1 [lc_get f:a calibration-samples]
-        assert_equal 1 [lc_get f:a pending]
-        assert_equal 1 [r glearn f:a $second CORRECT 1]
-        assert_equal 2 [lc_get f:a calibration-samples]
-        assert_equal 0 [lc_get f:a pending]
+        assert_equal [r glearn f:a $first CORRECT 1] 0
+        assert_equal [r glearn f:a $first CORRECT 0] 0
+        assert_equal [lc_get f:a calibration-samples] 1
+        assert_equal [lc_get f:a pending] 1
+        assert_equal [r glearn f:a $second CORRECT 1] 1
+        assert_equal [lc_get f:a calibration-samples] 2
+        assert_equal [lc_get f:a pending] 0
 
         # The other gate saw none of this.
-        assert_equal 1 [lc_get f:b pending]
-        assert_equal 0 [lc_get f:b calibration-samples]
-        assert_equal 1 [r glearn f:b $other CORRECT 1]
-        assert_equal 1 [lc_get f:b calibration-samples]
+        assert_equal [lc_get f:b pending] 1
+        assert_equal [lc_get f:b calibration-samples] 0
+        assert_equal [r glearn f:b $other CORRECT 1] 1
+        assert_equal [lc_get f:b calibration-samples] 1
     }
 
     test {gate lifecycle: pending counts the requests waiting for GLEARN and returns to 0} {
@@ -609,13 +609,13 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         for {set k 1} {$k <= 5} {incr k} {
             lassign [r gpredict f:pend SCORE 0.9] action id
             lappend ids $id
-            assert_equal $k [lc_get f:pend pending]
+            assert_equal [lc_get f:pend pending] $k
         }
         set left 5
         foreach id $ids {
-            assert_equal 1 [r glearn f:pend $id CORRECT 1]
+            assert_equal [r glearn f:pend $id CORRECT 1] 1
             incr left -1
-            assert_equal $left [lc_get f:pend pending]
+            assert_equal [lc_get f:pend pending] $left
         }
 
         # A classifier that is still learning waits for its labels too.
@@ -625,17 +625,17 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         set ids {}
         foreach label {ignore respond ignore} {
             lassign [r gpredict f:cpend TEXT [lc_message $label]] action id
-            assert_equal ABSTAIN $action
+            assert_equal $action ABSTAIN
             lappend ids $id
         }
-        assert_equal 3 [lc_get f:cpend pending]
+        assert_equal [lc_get f:cpend pending] 3
         set left 3
         foreach id [lreverse $ids] label {ignore respond ignore} {
-            assert_equal 1 [r glearn f:cpend $id LABEL $label]
+            assert_equal [r glearn f:cpend $id LABEL $label] 1
             incr left -1
-            assert_equal $left [lc_get f:cpend pending]
+            assert_equal [lc_get f:cpend pending] $left
         }
-        assert_equal 3 [lc_get f:cpend learned]
+        assert_equal [lc_get f:cpend learned] 3
     }
 
     test {gate lifecycle: a request never answered in time counts as missing and the gate keeps working} {
@@ -648,15 +648,15 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             lassign [r gpredict f:late SCORE 0.9] action id
             lappend lost $id
         }
-        assert_equal 3 [lc_get f:late pending]
+        assert_equal [lc_get f:late pending] 3
         after 260
 
         # Too old: the answer is refused.
-        assert_equal 0 [r glearn f:late [lindex $lost 0] CORRECT 1]
+        assert_equal [r glearn f:late [lindex $lost 0] CORRECT 1] 0
         set i [r ginfo f:late]
-        assert_equal 3 [dict get $i missing]
-        assert_equal 0 [dict get $i pending]
-        assert_equal CALIBRATING [dict get $i state]
+        assert_equal [dict get $i missing] 3
+        assert_equal [dict get $i pending] 0
+        assert_equal [dict get $i state] CALIBRATING
 
         # The cautious reading: each of them counted as a wrong guess. The
         # proof takes longer than after a clean start, but it comes.
@@ -665,7 +665,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             incr n
             lc_score f:late 0.9 1
         }
-        assert_equal ACTIVE [lc_get f:late state]
+        assert_equal [lc_get f:late state] ACTIVE
         assert_morethan_equal $n [lc_proof_needed 0.2 0.2 1 3]
         assert_morethan $n [lc_proof_needed 0.2 0.2 1]
         assert_morethan_equal [lc_get f:late missing] 3
@@ -691,10 +691,10 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert {$action eq "ACCEPT" || $action eq "AUDIT"}
         if {$id ne {}} {r glearn f:held $id CORRECT 1}
         set i [r ginfo f:held]
-        assert_equal ACTIVE [dict get $i state]
+        assert_equal [dict get $i state] ACTIVE
         assert_morethan_equal [dict get $i missing] 1
-        assert_equal 0 [dict get $i pending]
-        assert_equal 0 [r glearn f:held $lost CORRECT 1]
+        assert_equal [dict get $i pending] 0
+        assert_equal [r glearn f:held $lost CORRECT 1] 0
         lc_assert_counters f:held
     }
 
@@ -708,29 +708,29 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         set ids {}
         for {set k 0} {$k < 10} {incr k} {
             lassign [r gpredict f:deaf SCORE 0.9] action id
-            assert_equal AUDIT $action
+            assert_equal $action AUDIT
             lappend ids $id
         }
-        assert_equal ACTIVE [lc_get f:deaf state]
+        assert_equal [lc_get f:deaf state] ACTIVE
         after 260
 
         # Each lost spot check counts as a wrong guess (SPEC section 3), and
         # that many wrong guesses in a row are what the drift detector is
         # there for.
         lassign [r gpredict f:deaf SCORE 0.9] action id
-        assert_equal ABSTAIN $action
+        assert_equal $action ABSTAIN
         set i [r ginfo f:deaf]
-        assert_equal 1 [dict get $i revocations]
-        assert_equal 0 [dict get $i generation]
+        assert_equal [dict get $i revocations] 1
+        assert_equal [dict get $i generation] 0
         assert_morethan_equal [dict get $i missing] 1
         assert {[dict get $i state] ne "ACTIVE"}
         # The answers that come back when the feedback path is repaired are
         # too old, and they are not proof for the new test.
         foreach old $ids {
-            assert_equal 0 [r glearn f:deaf $old CORRECT 1]
+            assert_equal [r glearn f:deaf $old CORRECT 1] 0
         }
-        assert_equal 0 [lc_get f:deaf calibration-samples]
-        assert_equal 1 [lc_get f:deaf pending]
+        assert_equal [lc_get f:deaf calibration-samples] 0
+        assert_equal [lc_get f:deaf pending] 1
         lc_assert_counters f:deaf
     }
 
@@ -747,26 +747,26 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             dict set seen $id 1
             lappend ids $id
         }
-        assert_equal 4096 [lc_get f:full pending]
+        assert_equal [lc_get f:full pending] 4096
 
         for {set k 0} {$k < 5} {incr k} {
-            assert_equal {ABSTAIN {}} [r gpredict f:full SCORE 0.9]
+            assert_equal [r gpredict f:full SCORE 0.9] {ABSTAIN {}}
         }
         set i [r ginfo f:full]
-        assert_equal 4096 [dict get $i pending]
-        assert_equal 4101 [dict get $i requests]
-        assert_equal 4101 [dict get $i abstained]
-        assert_equal CALIBRATING [dict get $i state]
+        assert_equal [dict get $i pending] 4096
+        assert_equal [dict get $i requests] 4101
+        assert_equal [dict get $i abstained] 4101
+        assert_equal [dict get $i state] CALIBRATING
 
         # The oldest answers arrive: there is room again.
         for {set k 0} {$k < 10} {incr k} {
-            assert_equal 1 [r glearn f:full [lindex $ids $k] CORRECT 1]
+            assert_equal [r glearn f:full [lindex $ids $k] CORRECT 1] 1
         }
-        assert_equal 4086 [lc_get f:full pending]
+        assert_equal [lc_get f:full pending] 4086
         lassign [r gpredict f:full SCORE 0.9] action id
-        assert_equal ABSTAIN $action
+        assert_equal $action ABSTAIN
         assert {$id ne {} && ![dict exists $seen $id]}
-        assert_equal 4087 [lc_get f:full pending]
+        assert_equal [lc_get f:full pending] 4087
         lc_assert_counters f:full
     }
 
@@ -774,7 +774,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         lc_seed 19
         r gcreate f:busy ALPHA 0.2 DELTA 0.2 AUDIT 0.5 SCORE
         lc_calibrate f:busy 1
-        assert_equal ACTIVE [lc_get f:busy state]
+        assert_equal [lc_get f:busy state] ACTIVE
 
         # The gate answers, but its spot checks are never answered: they
         # pile up until 4096 of them wait.
@@ -790,24 +790,24 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
                 break
             }
         }
-        assert_equal {ABSTAIN {}} [list $action $id]
-        assert_equal 4096 [llength $audits]
+        assert_equal [list $action $id] {ABSTAIN {}}
+        assert_equal [llength $audits] 4096
         assert_morethan $accepts 1000
-        assert_equal 4096 [lc_get f:busy pending]
-        assert_equal $accepts [lc_get f:busy accepted]
+        assert_equal [lc_get f:busy pending] 4096
+        assert_equal [lc_get f:busy accepted] $accepts
 
         for {set k 0} {$k < 50} {incr k} {
-            assert_equal {ABSTAIN {}} [r gpredict f:busy SCORE 1]
+            assert_equal [r gpredict f:busy SCORE 1] {ABSTAIN {}}
         }
-        assert_equal $accepts [lc_get f:busy accepted]
-        assert_equal 4096 [lc_get f:busy audited]
-        assert_equal 4096 [lc_get f:busy pending]
+        assert_equal [lc_get f:busy accepted] $accepts
+        assert_equal [lc_get f:busy audited] 4096
+        assert_equal [lc_get f:busy pending] 4096
 
         # Some answers arrive: the gate answers again.
         for {set k 0} {$k < 100} {incr k} {
-            assert_equal 1 [r glearn f:busy [lindex $audits $k] CORRECT 1]
+            assert_equal [r glearn f:busy [lindex $audits $k] CORRECT 1] 1
         }
-        assert_equal 3996 [lc_get f:busy pending]
+        assert_equal [lc_get f:busy pending] 3996
         set again 0
         for {set k 0} {$k < 50} {incr k} {
             lassign [r gpredict f:busy SCORE 1] action id
@@ -815,7 +815,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             if {$action eq "ACCEPT"} {incr again}
         }
         assert_morethan $again 0
-        assert_equal [expr {$accepts + $again}] [lc_get f:busy accepted]
+        assert_equal [lc_get f:busy accepted] [expr {$accepts + $again}]
         lc_assert_counters f:busy
     }
 
@@ -834,7 +834,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             if {$action eq "ABSTAIN" && $id eq {}} {
                 fail "request $k: the gate is full (pending [lc_get f:one pending]) although one request is waiting for its answer"
             }
-            if {$id ne {}} {assert_equal 1 [r glearn f:one $id CORRECT 1]}
+            if {$id ne {}} {assert_equal [r glearn f:one $id CORRECT 1] 1}
         }
         assert_lessthan_equal [lc_get f:one pending] 1
         lc_assert_counters f:one
@@ -851,11 +851,11 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         lc_calibrate p:s
         set before [r ginfo p:s]
 
-        assert_equal OK [r gpause p:s]
+        assert_equal [r gpause p:s] OK
         set i [r ginfo p:s]
-        assert_equal PAUSED [dict get $i state]
-        assert_equal 1 [dict get $i generation]
-        assert_equal [dict get $before thresholds] [dict get $i thresholds]
+        assert_equal [dict get $i state] PAUSED
+        assert_equal [dict get $i generation] 1
+        assert_equal [dict get $i thresholds] [dict get $before thresholds]
 
         # Shadow mode: nothing is answered, but the requests drawn as spot
         # checks still want their answer, and their answers still count.
@@ -865,23 +865,23 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             assert {$action ne "ACCEPT"}
             if {$id ne {}} {
                 incr ids
-                assert_equal 1 [r glearn p:s $id CORRECT 1]
+                assert_equal [r glearn p:s $id CORRECT 1] 1
             }
         }
         assert_morethan $ids 0
         set i [r ginfo p:s]
-        assert_equal PAUSED [dict get $i state]
-        assert_equal [dict get $before accepted] [dict get $i accepted]
-        assert_equal [expr {[dict get $before requests] + 60}] [dict get $i requests]
-        assert_equal [expr {[dict get $before audit-samples] + $ids}] [dict get $i audit-samples]
-        assert_equal 0 [dict get $i audit-errors]
-        assert_equal 0 [dict get $i pending]
+        assert_equal [dict get $i state] PAUSED
+        assert_equal [dict get $i accepted] [dict get $before accepted]
+        assert_equal [dict get $i requests] [expr {[dict get $before requests] + 60}]
+        assert_equal [dict get $i audit-samples] [expr {[dict get $before audit-samples] + $ids}]
+        assert_equal [dict get $i audit-errors] 0
+        assert_equal [dict get $i pending] 0
         # Pausing twice changes nothing.
-        assert_equal OK [r gpause p:s]
-        assert_equal PAUSED [lc_get p:s state]
+        assert_equal [r gpause p:s] OK
+        assert_equal [lc_get p:s state] PAUSED
 
-        assert_equal OK [r gresume p:s]
-        assert_equal ACTIVE [lc_get p:s state]
+        assert_equal [r gresume p:s] OK
+        assert_equal [lc_get p:s state] ACTIVE
         set accepts 0
         for {set k 0} {$k < 60} {incr k} {
             set action [lc_score p:s 0.9 1]
@@ -889,45 +889,45 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             if {$action eq "ACCEPT"} {incr accepts}
         }
         assert_morethan $accepts 0
-        assert_equal OK [r gresume p:s]
-        assert_equal ACTIVE [lc_get p:s state]
+        assert_equal [r gresume p:s] OK
+        assert_equal [lc_get p:s state] ACTIVE
         lc_assert_counters p:s
     }
 
     test {gate lifecycle: a paused calibrating gate proves itself and GRESUME makes it ACTIVE at once} {
         lc_seed 22
         r gcreate p:shadow ALPHA 0.2 DELTA 0.2 SCORE
-        assert_equal OK [r gpause p:shadow]
+        assert_equal [r gpause p:shadow] OK
         set i [r ginfo p:shadow]
-        assert_equal PAUSED [dict get $i state]
-        assert_equal 1 [dict get $i candidate]
-        assert_equal 0 [dict get $i generation]
+        assert_equal [dict get $i state] PAUSED
+        assert_equal [dict get $i candidate] 1
+        assert_equal [dict get $i generation] 0
 
         # Feedback is accepted as before, and the proof is the proof of a
         # gate that was never paused.
         set need [lc_proof_needed 0.2 0.2 1]
         for {set n 1} {$n <= $need} {incr n} {
-            assert_equal {} [lc_threshold p:shadow] "after [expr {$n - 1}] answers"
+            assert_equal [lc_threshold p:shadow] {} "after [expr {$n - 1}] answers"
             lassign [r gpredict p:shadow SCORE 0.9] action id
-            assert_equal ABSTAIN $action
+            assert_equal $action ABSTAIN
             assert {$id ne {}}
-            assert_equal 1 [r glearn p:shadow $id CORRECT 1]
+            assert_equal [r glearn p:shadow $id CORRECT 1] 1
         }
         set i [r ginfo p:shadow]
-        assert_equal PAUSED [dict get $i state]
-        assert_equal 1 [dict get $i generation]
+        assert_equal [dict get $i state] PAUSED
+        assert_equal [dict get $i generation] 1
         assert {[lindex [dict get $i thresholds] 0] ne {}}
-        assert_equal $need [dict get $i calibration-samples]
+        assert_equal [dict get $i calibration-samples] $need
 
         # Proven, but still paused: nothing is answered.
         for {set k 0} {$k < 40} {incr k} {
             assert {[lc_score p:shadow 0.9 1] ne "ACCEPT"}
         }
-        assert_equal 0 [lc_get p:shadow accepted]
-        assert_equal PAUSED [lc_get p:shadow state]
+        assert_equal [lc_get p:shadow accepted] 0
+        assert_equal [lc_get p:shadow state] PAUSED
 
-        assert_equal OK [r gresume p:shadow]
-        assert_equal ACTIVE [lc_get p:shadow state]
+        assert_equal [r gresume p:shadow] OK
+        assert_equal [lc_get p:shadow state] ACTIVE
         set accepts 0
         for {set k 0} {$k < 40} {incr k} {
             set action [lc_score p:shadow 0.9 1]
@@ -943,27 +943,27 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         lc_srand 23
         r config set gate.snapshot-examples 20
         r gcreate p:c ALPHA 0.2 DELTA 0.2 CLASSES 2 ignore respond
-        assert_equal OK [r gpause p:c]
-        assert_equal PAUSED [lc_get p:c state]
+        assert_equal [r gpause p:c] OK
+        assert_equal [lc_get p:c state] PAUSED
         for {set k 1} {$k <= 20} {incr k} {
             set label [lc_pick {ignore respond}]
             lassign [r gpredict p:c TEXT [lc_message $label]] action id
-            assert_equal ABSTAIN $action
-            assert_equal 1 [r glearn p:c $id LABEL $label]
-            assert_equal $k [lc_get p:c learned]
+            assert_equal $action ABSTAIN
+            assert_equal [r glearn p:c $id LABEL $label] 1
+            assert_equal [lc_get p:c learned] $k
         }
         # Its first snapshot was taken on time, pause or not.
         set i [r ginfo p:c]
-        assert_equal PAUSED [dict get $i state]
-        assert_equal 1 [dict get $i candidate]
-        assert_equal OK [r gresume p:c]
-        assert_equal CALIBRATING [lc_get p:c state]
+        assert_equal [dict get $i state] PAUSED
+        assert_equal [dict get $i candidate] 1
+        assert_equal [r gresume p:c] OK
+        assert_equal [lc_get p:c state] CALIBRATING
     }
 
     test {gate lifecycle: GRESET takes a score gate back to the start, under a new snapshot number} {
         lc_seed 24
         r gcreate r:s ALPHA 0.2 DELTA 0.2 AUDIT 0.5 SCORE
-        assert_equal [lc_proof_needed 0.2 0.2 1] [lc_calibrate r:s]
+        assert_equal [lc_calibrate r:s] [lc_proof_needed 0.2 0.2 1]
         # A spot check that is still waiting for its answer.
         set old {}
         for {set k 0} {$k < 100 && $old eq {}} {incr k} {
@@ -971,52 +971,52 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         }
         assert {$old ne {}}
         set before [r ginfo r:s]
-        assert_equal ACTIVE [dict get $before state]
-        assert_equal 1 [dict get $before generation]
-        assert_equal 1 [dict get $before pending]
+        assert_equal [dict get $before state] ACTIVE
+        assert_equal [dict get $before generation] 1
+        assert_equal [dict get $before pending] 1
 
-        assert_equal OK [r greset r:s]
+        assert_equal [r greset r:s] OK
         set i [r ginfo r:s]
-        assert_equal CALIBRATING [dict get $i state]
-        assert_equal 0 [dict get $i generation]
-        assert_equal {} [lindex [dict get $i thresholds] 0]
+        assert_equal [dict get $i state] CALIBRATING
+        assert_equal [dict get $i generation] 0
+        assert_equal [lindex [dict get $i thresholds] 0] {}
         foreach field {learned requests accepted audited abstained audit-samples
                        audit-errors calibration-samples pending missing revocations} {
-            assert_equal 0 [dict get $i $field] $field
+            assert_equal [dict get $i $field] 0 $field
         }
         assert {[dict get $i coverage] == 0}
         # The configuration is kept.
         foreach field {kind alpha delta audit classes alphas} {
-            assert_equal [dict get $before $field] [dict get $i $field] $field
+            assert_equal [dict get $i $field] [dict get $before $field] $field
         }
         # A snapshot number is never reused.
-        assert_equal 2 [dict get $i candidate]
+        assert_equal [dict get $i candidate] 2
 
         # Ids from before the reset are refused, and teach nothing.
-        assert_equal 0 [r glearn r:s $old CORRECT 1]
-        assert_equal 0 [lc_get r:s calibration-samples]
+        assert_equal [r glearn r:s $old CORRECT 1] 0
+        assert_equal [lc_get r:s calibration-samples] 0
 
         # GRESET hands no budget back: snapshot 2 has a smaller share of
         # DELTA than snapshot 1 had, so its proof takes more answers.
         set second [lc_calibrate r:s]
-        assert_equal [lc_proof_needed 0.2 0.2 2] $second
+        assert_equal $second [lc_proof_needed 0.2 0.2 2]
         assert_morethan $second [lc_proof_needed 0.2 0.2 1]
-        assert_equal 2 [lc_get r:s generation]
+        assert_equal [lc_get r:s generation] 2
 
-        assert_equal OK [r greset r:s]
-        assert_equal 3 [lc_get r:s candidate]
-        assert_equal OK [r greset r:s]
-        assert_equal 4 [lc_get r:s candidate]
-        assert_equal [lc_proof_needed 0.2 0.2 4] [lc_calibrate r:s]
-        assert_equal 4 [lc_get r:s generation]
+        assert_equal [r greset r:s] OK
+        assert_equal [lc_get r:s candidate] 3
+        assert_equal [r greset r:s] OK
+        assert_equal [lc_get r:s candidate] 4
+        assert_equal [lc_calibrate r:s] [lc_proof_needed 0.2 0.2 4]
+        assert_equal [lc_get r:s generation] 4
 
         # The numbers and the budget belong to the key: a new key starts
         # from 1 again.
         r del r:s
         r gcreate r:s ALPHA 0.2 DELTA 0.2 SCORE
-        assert_equal 1 [lc_get r:s candidate]
-        assert_equal 0 [r glearn r:s $old CORRECT 1]
-        assert_equal 0 [lc_get r:s calibration-samples]
+        assert_equal [lc_get r:s candidate] 1
+        assert_equal [r glearn r:s $old CORRECT 1] 0
+        assert_equal [lc_get r:s calibration-samples] 0
     }
 
     test {gate lifecycle: GRESET makes a classifier forget its model} {
@@ -1031,35 +1031,35 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         lassign [r gpredict r:c TEXT [lc_message ignore]] action old
         assert {$old ne {}}
         set before [r ginfo r:c]
-        assert_equal CALIBRATING [dict get $before state]
-        assert_equal 1 [dict get $before candidate]
-        assert_equal 120 [dict get $before learned]
-        assert_equal 1 [dict get $before pending]
+        assert_equal [dict get $before state] CALIBRATING
+        assert_equal [dict get $before candidate] 1
+        assert_equal [dict get $before learned] 120
+        assert_equal [dict get $before pending] 1
 
-        assert_equal OK [r greset r:c]
+        assert_equal [r greset r:c] OK
         set i [r ginfo r:c]
-        assert_equal COLD [dict get $i state]
-        assert_equal 0 [dict get $i generation]
-        assert_equal 0 [dict get $i candidate]
-        assert_equal {{} {}} [dict get $i thresholds]
+        assert_equal [dict get $i state] COLD
+        assert_equal [dict get $i generation] 0
+        assert_equal [dict get $i candidate] 0
+        assert_equal [dict get $i thresholds] {{} {}}
         foreach field {learned requests accepted audited abstained audit-samples
                        audit-errors calibration-samples pending missing revocations} {
-            assert_equal 0 [dict get $i $field] $field
+            assert_equal [dict get $i $field] 0 $field
         }
         foreach field {kind alpha delta audit classes alphas} {
-            assert_equal [dict get $before $field] [dict get $i $field] $field
+            assert_equal [dict get $i $field] [dict get $before $field] $field
         }
-        assert_equal 0 [r glearn r:c $old LABEL ignore]
-        assert_equal 0 [lc_get r:c learned]
+        assert_equal [r glearn r:c $old LABEL ignore] 0
+        assert_equal [lc_get r:c learned] 0
 
         # It learns from nothing again, and its next snapshot gets a new number.
         lc_history r:c {ignore respond} 99
-        assert_equal COLD [lc_get r:c state]
+        assert_equal [lc_get r:c state] COLD
         lc_history r:c {ignore respond} 1
         set i [r ginfo r:c]
-        assert_equal CALIBRATING [dict get $i state]
-        assert_equal 2 [dict get $i candidate]
-        assert_equal 100 [dict get $i learned]
+        assert_equal [dict get $i state] CALIBRATING
+        assert_equal [dict get $i candidate] 2
+        assert_equal [dict get $i learned] 100
     }
 
     test {gate lifecycle: GRESET does not resume a paused gate} {
@@ -1070,13 +1070,13 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         r gcreate r:p ALPHA 0.2 DELTA 0.2 SCORE
         lc_calibrate r:p
         r gpause r:p
-        assert_equal OK [r greset r:p]
+        assert_equal [r greset r:p] OK
         set i [r ginfo r:p]
-        assert_equal PAUSED [dict get $i state]
-        assert_equal 0 [dict get $i generation]
-        assert_equal 2 [dict get $i candidate]
+        assert_equal [dict get $i state] PAUSED
+        assert_equal [dict get $i generation] 0
+        assert_equal [dict get $i candidate] 2
         r gresume r:p
-        assert_equal CALIBRATING [lc_get r:p state]
+        assert_equal [lc_get r:p state] CALIBRATING
     }
 
     test {gate lifecycle: what happens to one gate leaves another gate alone} {
@@ -1085,21 +1085,21 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         r gcreate x:b ALPHA 0.1 DELTA 0.05 AUDIT 0.5 SCORE
         lassign [r gpredict x:b SCORE 0.7] action id
         set b [r ginfo x:b]
-        assert_equal 1 [dict get $b pending]
+        assert_equal [dict get $b pending] 1
 
         lc_calibrate x:a
         for {set k 0} {$k < 50} {incr k} {
             lc_score x:a 0.9 1
         }
-        assert_equal $b [r ginfo x:b]
+        assert_equal [r ginfo x:b] $b
         r gpause x:a
-        assert_equal $b [r ginfo x:b]
+        assert_equal [r ginfo x:b] $b
         r greset x:a
-        assert_equal $b [r ginfo x:b]
+        assert_equal [r ginfo x:b] $b
         r del x:a
-        assert_equal $b [r ginfo x:b]
-        assert_equal 1 [r glearn x:b $id CORRECT 1]
-        assert_equal 1 [lc_get x:b calibration-samples]
+        assert_equal [r ginfo x:b] $b
+        assert_equal [r glearn x:b $id CORRECT 1] 1
+        assert_equal [lc_get x:b calibration-samples] 1
     }
 
     test {gate lifecycle: a score gate whose spot checks start to fail stops answering and calibrates again} {
@@ -1109,13 +1109,13 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         for {set k 0} {$k < 40} {incr k} {
             lc_score d:s 0.9 1
         }
-        assert_equal 0 [lc_get d:s audit-errors]
+        assert_equal [lc_get d:s audit-errors] 0
 
         # One wrong spot check is what an error rate of 0.2 allows.
         for {set k 0} {$k < 100} {incr k} {
             lassign [r gpredict d:s SCORE 0.9] action id
             if {$action eq "AUDIT"} {
-                assert_equal 1 [r glearn d:s $id CORRECT 0]
+                assert_equal [r glearn d:s $id CORRECT 0] 1
                 break
             }
         }
@@ -1123,9 +1123,9 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             lc_score d:s 0.9 1
         }
         set i [r ginfo d:s]
-        assert_equal ACTIVE [dict get $i state]
-        assert_equal 1 [dict get $i audit-errors]
-        assert_equal 0 [dict get $i revocations]
+        assert_equal [dict get $i state] ACTIVE
+        assert_equal [dict get $i audit-errors] 1
+        assert_equal [dict get $i revocations] 0
 
         # Now the cheap result is wrong every time.
         set wrong_audits 0
@@ -1136,33 +1136,33 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
                 incr wrong_accepts
             } elseif {$action eq "AUDIT"} {
                 incr wrong_audits
-                assert_equal 1 [r glearn d:s $id CORRECT 0]
+                assert_equal [r glearn d:s $id CORRECT 0] 1
             } else {
                 break
             }
         }
         # A gross failure is caught after a handful of spot checks, not
         # after one.
-        assert_equal ABSTAIN $action
+        assert_equal $action ABSTAIN
         assert_range $wrong_audits 2 10
         assert_lessthan $wrong_accepts 60
         set i [r ginfo d:s]
-        assert_equal CALIBRATING [dict get $i state]
-        assert_equal 1 [dict get $i revocations]
-        assert_equal 0 [dict get $i generation]
-        assert_equal 2 [dict get $i candidate]
-        assert_equal {} [lindex [dict get $i thresholds] 0]
+        assert_equal [dict get $i state] CALIBRATING
+        assert_equal [dict get $i revocations] 1
+        assert_equal [dict get $i generation] 0
+        assert_equal [dict get $i candidate] 2
+        assert_equal [lindex [dict get $i thresholds] 0] {}
         assert {[dict get $i coverage] == 0}
 
         # It starts over by itself: that ABSTAIN was the first request of
         # the new test. The cheap result is right again.
         assert {$id ne {}}
-        assert_equal 1 [r glearn d:s $id CORRECT 1]
-        assert_equal [expr {[lc_proof_needed 0.2 0.2 2] - 1}] [lc_calibrate d:s]
+        assert_equal [r glearn d:s $id CORRECT 1] 1
+        assert_equal [lc_calibrate d:s] [expr {[lc_proof_needed 0.2 0.2 2] - 1}]
         set i [r ginfo d:s]
-        assert_equal ACTIVE [dict get $i state]
-        assert_equal 2 [dict get $i generation]
-        assert_equal 1 [dict get $i revocations]
+        assert_equal [dict get $i state] ACTIVE
+        assert_equal [dict get $i generation] 2
+        assert_equal [dict get $i revocations] 1
         set action [lc_score d:s 0.9 1]
         assert {$action eq "ACCEPT" || $action eq "AUDIT"}
         lc_assert_counters d:s
@@ -1196,15 +1196,15 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
                 incr wrong_accepts
             } elseif {$action eq "AUDIT"} {
                 incr wrong_audits
-                assert_equal 1 [r glearn d:lost $id CORRECT 0]
+                assert_equal [r glearn d:lost $id CORRECT 0] 1
             } else {
                 break
             }
         }
-        assert_equal ABSTAIN $action \
+        assert_equal $action ABSTAIN \
             "still answering after $wrong_audits failed spot checks in a row and $wrong_accepts wrong answers"
         assert_lessthan_equal $wrong_audits 40
-        assert_equal 1 [lc_get d:lost revocations]
+        assert_equal [lc_get d:lost revocations] 1
         assert {[lc_get d:lost state] ne "ACTIVE"}
     }
 }
@@ -1217,58 +1217,58 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         lc_seed 31
         lc_srand 31
         r config set gate.snapshot-examples 20
-        assert_equal OK [r gcreate c:cold ALPHA 0.2 DELTA 0.2 CLASSES 2 ignore respond]
+        assert_equal [r gcreate c:cold ALPHA 0.2 DELTA 0.2 CLASSES 2 ignore respond] OK
         set i [r ginfo c:cold]
-        assert_equal classifier [dict get $i kind]
-        assert_equal COLD [dict get $i state]
-        assert_equal {ignore respond} [dict get $i classes]
-        assert_equal 2 [llength [dict get $i alphas]]
+        assert_equal [dict get $i kind] classifier
+        assert_equal [dict get $i state] COLD
+        assert_equal [dict get $i classes] {ignore respond}
+        assert_equal [llength [dict get $i alphas]] 2
         foreach alpha [dict get $i alphas] {assert {$alpha == 0.2}}
-        assert_equal {{} {}} [dict get $i thresholds]
-        assert_equal 0 [dict get $i generation]
-        assert_equal 0 [dict get $i candidate]
-        assert_equal 0 [dict get $i learned]
+        assert_equal [dict get $i thresholds] {{} {}}
+        assert_equal [dict get $i generation] 0
+        assert_equal [dict get $i candidate] 0
+        assert_equal [dict get $i learned] 0
 
         # Ten examples from history: GADD replies with the number learned.
         for {set k 1} {$k <= 10} {incr k} {
             set label [lc_pick {ignore respond}]
-            assert_equal $k [r gadd c:cold TEXT [lc_message $label] LABEL $label]
+            assert_equal [r gadd c:cold TEXT [lc_message $label] LABEL $label] $k
         }
         # Nine live requests: the gate knows nothing, asks, and learns.
         for {set k 11} {$k <= 19} {incr k} {
             set label [lc_pick {ignore respond}]
             lassign [r gpredict c:cold TEXT [lc_message $label]] action id
-            assert_equal ABSTAIN $action
+            assert_equal $action ABSTAIN
             assert {$id ne {}}
-            assert_equal 1 [r glearn c:cold $id LABEL $label]
+            assert_equal [r glearn c:cold $id LABEL $label] 1
             set i [r ginfo c:cold]
-            assert_equal $k [dict get $i learned]
-            assert_equal COLD [dict get $i state]
-            assert_equal 0 [dict get $i candidate]
-            assert_equal 0 [dict get $i calibration-samples]
+            assert_equal [dict get $i learned] $k
+            assert_equal [dict get $i state] COLD
+            assert_equal [dict get $i candidate] 0
+            assert_equal [dict get $i calibration-samples] 0
         }
         # The twentieth example: the first snapshot is taken and tested.
         set label [lc_pick {ignore respond}]
         lassign [r gpredict c:cold TEXT [lc_message $label]] action id
-        assert_equal 1 [r glearn c:cold $id LABEL $label]
+        assert_equal [r glearn c:cold $id LABEL $label] 1
         set i [r ginfo c:cold]
-        assert_equal 20 [dict get $i learned]
-        assert_equal CALIBRATING [dict get $i state]
-        assert_equal 1 [dict get $i candidate]
-        assert_equal 0 [dict get $i generation]
-        assert_equal {{} {}} [dict get $i thresholds]
+        assert_equal [dict get $i learned] 20
+        assert_equal [dict get $i state] CALIBRATING
+        assert_equal [dict get $i candidate] 1
+        assert_equal [dict get $i generation] 0
+        assert_equal [dict get $i thresholds] {{} {}}
 
         # While it is tested every request goes to the teacher, and every
         # teacher answer counts as proof.
         for {set k 1} {$k <= 6} {incr k} {
             set label [lc_pick {ignore respond}]
             lassign [r gpredict c:cold TEXT [lc_message $label]] action id
-            assert_equal ABSTAIN $action
+            assert_equal $action ABSTAIN
             assert {$id ne {}}
-            assert_equal 1 [r glearn c:cold $id LABEL $label]
-            assert_equal $k [lc_get c:cold calibration-samples]
+            assert_equal [r glearn c:cold $id LABEL $label] 1
+            assert_equal [lc_get c:cold calibration-samples] $k
         }
-        assert_equal 26 [lc_get c:cold learned]
+        assert_equal [lc_get c:cold learned] 26
         lc_assert_counters c:cold
     }
 
@@ -1278,16 +1278,16 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         r config set gate.snapshot-examples 20
         r gcreate c:add ALPHA 0.2 DELTA 0.2 CLASSES 2 ignore respond
         lc_history c:add {ignore respond} 20
-        assert_equal CALIBRATING [lc_get c:add state]
+        assert_equal [lc_get c:add state] CALIBRATING
         lc_history c:add {ignore respond} 1000
         set i [r ginfo c:add]
-        assert_equal 1020 [dict get $i learned]
-        assert_equal CALIBRATING [dict get $i state]
-        assert_equal 1 [dict get $i candidate]
-        assert_equal 0 [dict get $i generation]
-        assert_equal 0 [dict get $i calibration-samples]
-        assert_equal 0 [dict get $i requests]
-        assert_equal {{} {}} [dict get $i thresholds]
+        assert_equal [dict get $i learned] 1020
+        assert_equal [dict get $i state] CALIBRATING
+        assert_equal [dict get $i candidate] 1
+        assert_equal [dict get $i generation] 0
+        assert_equal [dict get $i calibration-samples] 0
+        assert_equal [dict get $i requests] 0
+        assert_equal [dict get $i thresholds] {{} {}}
     }
 
     test {gate lifecycle: a classifier becomes ACTIVE on a learnable problem, through the client loop alone} {
@@ -1309,7 +1309,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
                 incr by_gate
                 if {$decision ne $label} {incr wrong}
             } else {
-                assert_equal $label $decision
+                assert_equal $decision $label
             }
             if {$n % 5 == 0} {
                 set state [lc_get c:live state]
@@ -1318,22 +1318,22 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             }
         }
         # COLD until 20 examples, then CALIBRATING, then ACTIVE: never back.
-        assert_equal {COLD CALIBRATING ACTIVE} $states
+        assert_equal $states {COLD CALIBRATING ACTIVE}
         assert {[lc_all_proven c:live]}
         set i [r ginfo c:live]
-        assert_equal ACTIVE [dict get $i state]
+        assert_equal [dict get $i state] ACTIVE
         assert_morethan [dict get $i generation] 0
         foreach threshold [dict get $i thresholds] {
             # SPEC section 5: two labels, thresholds from 0.5 to 0.999.
             assert {$threshold >= 0.5 && $threshold <= 0.999}
         }
         assert_morethan $by_gate 0
-        assert_equal $by_gate [dict get $i accepted]
+        assert_equal [dict get $i accepted] $by_gate
         assert {$wrong <= 0.2 * $by_gate}
-        assert_equal 0 [dict get $i pending]
-        assert_equal 0 [dict get $i missing]
-        assert_equal 0 [dict get $i revocations]
-        assert_equal $asked [dict get $i requests]
+        assert_equal [dict get $i pending] 0
+        assert_equal [dict get $i missing] 0
+        assert_equal [dict get $i revocations] 0
+        assert_equal [dict get $i requests] $asked
         lc_assert_counters c:live
     }
 
@@ -1361,7 +1361,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             }
         }
         assert_morethan_equal $accepts 15
-        assert_equal 0 $wrong
+        assert_equal $wrong 0
         lc_assert_counters c:new
     }
 
@@ -1371,15 +1371,15 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         set labels {ignore respond escalate}
         lc_trained_gate c:defer $labels 300 2000 ALWAYSDEFER 1 escalate
         set i [r ginfo c:defer]
-        assert_equal ACTIVE [dict get $i state]
-        assert_equal $labels [dict get $i classes]
+        assert_equal [dict get $i state] ACTIVE
+        assert_equal [dict get $i classes] $labels
         lassign [dict get $i alphas] a_ignore a_respond a_escalate
         assert {$a_ignore == 0.2 && $a_respond == 0.2 && $a_escalate == 0}
         lassign [dict get $i thresholds] t_ignore t_respond t_escalate
         # SPEC section 5: three labels, thresholds from 1/3 to 0.999.
         assert {$t_ignore >= 0.333 && $t_ignore <= 0.999}
         assert {$t_respond >= 0.333 && $t_respond <= 0.999}
-        assert_equal {} $t_escalate
+        assert_equal $t_escalate {}
 
         foreach label $labels {
             set acc_by($label) 0
@@ -1397,14 +1397,14 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             } elseif {$arg ne {}} {
                 # Deferred or spot-checked: the teacher is asked, and the
                 # gate learns from the answer.
-                assert_equal 1 [r glearn c:defer $arg LABEL $label]
+                assert_equal [r glearn c:defer $arg LABEL $label] 1
             }
         }
-        assert_equal 0 $acc_by(escalate)
+        assert_equal $acc_by(escalate) 0
         assert_morethan $acc_by(ignore) [expr {$req_by(ignore) / 2}]
         assert_morethan $acc_by(respond) [expr {$req_by(respond) / 2}]
         assert {$wrong <= 0.2 * ($acc_by(ignore) + $acc_by(respond))}
-        assert_equal {} [lindex [lc_get c:defer thresholds] 2]
+        assert_equal [lindex [lc_get c:defer thresholds] 2] {}
         lc_assert_counters c:defer
     }
 
@@ -1434,8 +1434,8 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             if {$first_at(ignore) == $n} {
                 # The label with the plain error rate is answered; the
                 # strict one is not yet.
-                assert_equal 0 $first_at(respond)
-                assert_equal ACTIVE [lc_get c:strict state]
+                assert_equal $first_at(respond) 0
+                assert_equal [lc_get c:strict state] ACTIVE
             }
         }
         assert_morethan $first_at(ignore) 0
@@ -1489,7 +1489,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
                 }
             }
             assert_morethan [llength $answers] 0
-            assert_equal $label [lsort -unique $answers] "mentioned $mentioned"
+            assert_equal [lsort -unique $answers] $label "mentioned $mentioned"
         }
         lc_assert_counters c:feat
     }
@@ -1506,7 +1506,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             for {set k 0} {$k < 150} {incr k} {
                 set label [lc_pick {ignore respond}]
                 lassign [r gpredict $key TEXT [lc_message $label]] action id
-                assert_equal ABSTAIN $action
+                assert_equal $action ABSTAIN
                 lappend ids $id
                 lappend labels $label
             }
@@ -1515,17 +1515,17 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             # requests were asked, in the order they were asked.
             for {set j 0} {$j < 150} {incr j} {
                 set k [expr {$key eq "c:fwd" ? $j : 149 - $j}]
-                assert_equal 1 [r glearn $key [lindex $ids $k] LABEL [lindex $labels $k]]
+                assert_equal [r glearn $key [lindex $ids $k] LABEL [lindex $labels $k]] 1
             }
         }
         set fwd [r ginfo c:fwd]
         set rev [r ginfo c:rev]
-        assert_equal ACTIVE [dict get $fwd state]
-        assert_equal 150 [dict get $fwd calibration-samples]
-        assert_equal 550 [dict get $fwd learned]
+        assert_equal [dict get $fwd state] ACTIVE
+        assert_equal [dict get $fwd calibration-samples] 150
+        assert_equal [dict get $fwd learned] 550
         foreach field {state thresholds generation candidate calibration-samples learned
                        pending missing requests abstained} {
-            assert_equal [dict get $fwd $field] [dict get $rev $field] $field
+            assert_equal [dict get $rev $field] [dict get $fwd $field] $field
         }
     }
 
@@ -1544,11 +1544,11 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         }
         set i [r ginfo c:coin]
         assert {[dict get $i state] ne "ACTIVE"}
-        assert_equal 0 [dict get $i generation]
-        assert_equal {{} {}} [dict get $i thresholds]
-        assert_equal 0 [dict get $i accepted]
-        assert_equal 0 [dict get $i audited]
-        assert_equal 3000 [dict get $i abstained]
+        assert_equal [dict get $i generation] 0
+        assert_equal [dict get $i thresholds] {{} {}}
+        assert_equal [dict get $i accepted] 0
+        assert_equal [dict get $i audited] 0
+        assert_equal [dict get $i abstained] 3000
         # A snapshot that proves nothing is dropped and the next one is
         # tried, under a new number.
         assert_morethan [dict get $i candidate] 1
@@ -1591,8 +1591,8 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             }
         }
         set i [r ginfo c:noisy]
-        assert_equal ACTIVE [dict get $i state]
-        assert_equal $accepts [dict get $i accepted]
+        assert_equal [dict get $i state] ACTIVE
+        assert_equal [dict get $i accepted] $accepts
         # The gate is useful, and it disagrees with the teacher about as
         # often as the teacher disagrees with itself: far less than ALPHA.
         assert_morethan $accepts 2000
@@ -1602,8 +1602,8 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert_morethan [dict get $i audit-samples] 0
         assert_morethan [dict get $i audit-errors] 0
         assert {[dict get $i audit-errors] < 0.2 * [dict get $i audit-samples]}
-        assert_equal 0 [dict get $i revocations]
-        assert_equal 0 [dict get $i pending]
+        assert_equal [dict get $i revocations] 0
+        assert_equal [dict get $i pending] 0
         lc_assert_counters c:noisy
     }
 
@@ -1611,7 +1611,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         lc_seed 41
         lc_srand 41
         lc_trained_gate d:c {ignore respond} 300 1500 AUDIT 0.3
-        assert_equal ACTIVE [lc_get d:c state]
+        assert_equal [lc_get d:c state] ACTIVE
         set first [lc_get d:c generation]
 
         # From now on the teacher answers the other label.
@@ -1628,12 +1628,12 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         }
         # The gate stopped answering at once and forgot its model.
         set i [r ginfo d:c]
-        assert_equal 1 [dict get $i revocations]
-        assert_equal COLD [dict get $i state]
-        assert_equal 0 [dict get $i generation]
-        assert_equal 0 [dict get $i candidate]
-        assert_equal {{} {}} [dict get $i thresholds]
-        assert_equal 0 [dict get $i learned]
+        assert_equal [dict get $i revocations] 1
+        assert_equal [dict get $i state] COLD
+        assert_equal [dict get $i generation] 0
+        assert_equal [dict get $i candidate] 0
+        assert_equal [dict get $i thresholds] {{} {}}
+        assert_equal [dict get $i learned] 0
         assert_lessthan $wrong 100
 
         # It starts over by itself, and what it answers now is what the
@@ -1651,12 +1651,12 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             }
             if {$accepts >= 200} break
         }
-        assert_equal 200 $accepts
+        assert_equal $accepts 200
         assert {$wrong <= 0.2 * $accepts}
         set i [r ginfo d:c]
-        assert_equal ACTIVE [dict get $i state]
+        assert_equal [dict get $i state] ACTIVE
         assert_morethan [dict get $i generation] $first
-        assert_equal 1 [dict get $i revocations]
+        assert_equal [dict get $i revocations] 1
         lc_assert_counters d:c
     }
 
@@ -1690,7 +1690,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             if {$answering} {
                 # Only a drift alarm or a GRESET stops a gate that answers:
                 # a change of snapshot does not.
-                assert_equal ACTIVE [dict get $i state] "request $n"
+                assert_equal [dict get $i state] ACTIVE "request $n"
             } elseif {[dict get $i state] eq "ACTIVE"} {
                 set answering 1
             }
@@ -1710,10 +1710,31 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert_morethan $takeovers 0
         assert {[lc_all_proven c:next]}
         set i [r ginfo c:next]
-        assert_equal ACTIVE [dict get $i state]
-        assert_equal 0 [dict get $i revocations]
+        assert_equal [dict get $i state] ACTIVE
+        assert_equal [dict get $i revocations] 0
         assert {$wrong <= 0.2 * $accepts}
         lc_assert_counters c:next
+    }
+
+    test {gate lifecycle: requests for an ALWAYSDEFER label do not use up a snapshot} {
+        # SPEC section 3: a snapshot that has not taken over after a
+        # generous amount of proof is dropped. A request whose label is
+        # never tested is proof of nothing, however many of them there are.
+        lc_seed 45
+        r config set gate.snapshot-examples 1
+        r gcreate c:only ALPHA 0.2 DELTA 0.2 CLASSES 2 respond escalate ALWAYSDEFER 1 escalate
+        assert_equal [r gadd c:only TEXT "the site is down" LABEL escalate] 1
+        assert_equal [lc_get c:only candidate] 1
+        for {set n 1} {$n <= 1000} {incr n} {
+            lassign [r gpredict c:only TEXT "the site is down"] action id
+            assert_equal $action ABSTAIN
+            if {$id ne {}} {assert_equal [r glearn c:only $id LABEL escalate] 1}
+            if {$n % 100 == 0} {
+                assert_equal [lc_get c:only candidate] 1 \
+                    "after $n requests for a label that is never tested"
+            }
+        }
+        assert_equal [lc_get c:only state] CALIBRATING
     }
 
     test {gate lifecycle: a gate proves its labels when most requests carry an ALWAYSDEFER label} {
@@ -1748,7 +1769,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             if {$n % 50 == 0 && [lc_all_proven c:rare]} break
         }
         set i [r ginfo c:rare]
-        assert_equal ACTIVE [dict get $i state] "after $n requests, candidate [dict get $i candidate]"
+        assert_equal [dict get $i state] ACTIVE "after $n requests, candidate [dict get $i candidate]"
         assert {[lc_all_proven c:rare]}
         assert {$wrong <= 0.2 * $accepts}
     }
@@ -1769,7 +1790,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             r gadd c:many TEXT "[lc_pick $::lc_fillers] alpha${topic}word beta${topic}term [lc_pick $::lc_fillers]" \
                 LABEL topic$topic
         }
-        assert_equal CALIBRATING [lc_get c:many state]
+        assert_equal [lc_get c:many state] CALIBRATING
         set accepts 0
         set wrong 0
         for {set n 1} {$n <= 4000} {incr n} {
@@ -1785,8 +1806,8 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             if {$accepts >= 100} break
         }
         set i [r ginfo c:many]
-        assert_equal ACTIVE [dict get $i state] "after $n requests, candidate [dict get $i candidate]"
-        assert_equal 100 $accepts
+        assert_equal [dict get $i state] ACTIVE "after $n requests, candidate [dict get $i candidate]"
+        assert_equal $accepts 100
         assert {$wrong <= 0.2 * $accepts}
     }
 }
@@ -1797,8 +1818,8 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
 
     test {gate lifecycle: with the default settings a classifier wants 1000 examples and then its proof} {
         # Nothing was configured on this server.
-        assert_equal {gate.snapshot-examples 1000} [r config get gate.snapshot-examples]
-        assert_equal {gate.feedback-timeout 300000} [r config get gate.feedback-timeout]
+        assert_equal [r config get gate.snapshot-examples] {gate.snapshot-examples 1000}
+        assert_equal [r config get gate.feedback-timeout] {gate.feedback-timeout 300000}
         lc_seed 50
         lc_srand 50
         r gcreate c:default ALPHA 0.05 CLASSES 2 ignore respond
@@ -1822,14 +1843,14 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             if {$n == 999 || $n == 1000} {
                 # SPEC section 3: the first snapshot after 1,000 examples.
                 set i [r ginfo c:default]
-                assert_equal $n [dict get $i learned]
-                assert_equal [expr {$n == 999 ? "COLD" : "CALIBRATING"}] [dict get $i state]
-                assert_equal [expr {$n == 999 ? 0 : 1}] [dict get $i candidate]
+                assert_equal [dict get $i learned] $n
+                assert_equal [dict get $i state] [expr {$n == 999 ? "COLD" : "CALIBRATING"}]
+                assert_equal [dict get $i candidate] [expr {$n == 999 ? 0 : 1}]
             }
         }
         set i [r ginfo c:default]
-        assert_equal ACTIVE [dict get $i state]
-        assert_equal 1 [dict get $i generation]
+        assert_equal [dict get $i state] ACTIVE
+        assert_equal [dict get $i generation] 1
         assert {[lc_all_proven c:default]}
         # At an error rate of 0.05 a correct answer grows a bet by at most
         # 1 + 0.9 * 0.05 / 0.95, and no share of the budget is larger than
@@ -1837,11 +1858,11 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         # prove nothing.
         assert_morethan $first_by_gate 1100
         assert_morethan $by_gate 1000
-        assert_equal $by_gate [dict get $i accepted]
+        assert_equal [dict get $i accepted] $by_gate
         assert {$wrong <= 0.05 * $by_gate}
-        assert_equal 4000 [dict get $i requests]
-        assert_equal 0 [dict get $i pending]
-        assert_equal 0 [dict get $i revocations]
+        assert_equal [dict get $i requests] 4000
+        assert_equal [dict get $i pending] 0
+        assert_equal [dict get $i revocations] 0
         lc_assert_counters c:default
     }
 
@@ -1855,7 +1876,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             lc_srand 51
             set labels {ignore respond}
             r config set gate.snapshot-examples 200
-            assert_equal OK [r gcreate loop:$proto ALPHA 0.2 DELTA 0.2 CLASSES 2 {*}$labels]
+            assert_equal [r gcreate loop:$proto ALPHA 0.2 DELTA 0.2 CLASSES 2 {*}$labels] OK
             lc_history loop:$proto $labels 200
 
             set ::lc_teacher_calls 0
@@ -1868,29 +1889,28 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             }
 
             set i [r ginfo loop:$proto]
-            assert_equal 23 [dict size $i]
-            assert_equal ACTIVE [dict get $i state]
-            assert_equal 2000 [dict get $i requests]
+            assert_equal [dict size $i] 23
+            assert_equal [dict get $i state] ACTIVE
+            assert_equal [dict get $i requests] 2000
             # The teacher was called for every ABSTAIN and every AUDIT and
             # for nothing else, and the gate spared most of the calls.
-            assert_equal $::lc_teacher_calls [expr {[dict get $i audited] + [dict get $i abstained]}]
-            assert_equal [expr {2000 - $::lc_teacher_calls}] [dict get $i accepted]
+            assert_equal [expr {[dict get $i audited] + [dict get $i abstained]}] $::lc_teacher_calls
+            assert_equal [dict get $i accepted] [expr {2000 - $::lc_teacher_calls}]
             assert_lessthan $::lc_teacher_calls 1000
             # Every id was used, at once: nothing waits, nothing was lost,
             # and every teacher answer taught the model.
-            assert_equal 0 [dict get $i pending]
-            assert_equal 0 [dict get $i missing]
-            assert_equal [expr {200 + $::lc_teacher_calls}] [dict get $i learned]
-            assert_equal 0 [dict get $i revocations]
+            assert_equal [dict get $i pending] 0
+            assert_equal [dict get $i missing] 0
+            assert_equal [dict get $i learned] [expr {200 + $::lc_teacher_calls}]
+            assert_equal [dict get $i revocations] 0
             # What the caller got is what the teacher would have said.
             assert {$wrong <= 0.2 * [dict get $i accepted]}
             lc_assert_counters loop:$proto
-            r hello 2
+            r hello [expr {$::force_resp3 ? 3 : 2}]
         }
     }
 
     test {gate lifecycle: the client loop of a score gate} {
-        r hello 2
         lc_seed 52
         lc_srand 52
         r gcreate loop:score ALPHA 0.2 DELTA 0.2 SCORE
@@ -1902,7 +1922,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             set cheap_is_right [expr {$similarity >= 0.6 ? 1 : ([lc_rand 100] < 30)}]
             lassign [r gpredict loop:score SCORE $similarity] action arg
             if {$action eq "ACCEPT"} {
-                assert_equal {} $arg
+                assert_equal $arg {}
                 if {!$cheap_is_right} {incr wrong}
                 continue
             }
@@ -1912,8 +1932,8 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             }
         }
         set i [r ginfo loop:score]
-        assert_equal ACTIVE [dict get $i state]
-        assert_equal [expr {2000 - $teacher_calls}] [dict get $i accepted]
+        assert_equal [dict get $i state] ACTIVE
+        assert_equal [dict get $i accepted] [expr {2000 - $teacher_calls}]
         assert_morethan [dict get $i accepted] 200
         assert_lessthan $teacher_calls 2000
         # The cheap result is wrong 70 times in 100 below 0.6: the gate
@@ -1921,8 +1941,8 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         set thr [lindex [dict get $i thresholds] 0]
         assert {$thr > 0.3 && $thr < 0.998}
         assert {$wrong <= 0.2 * [dict get $i accepted]}
-        assert_equal 0 [dict get $i pending]
-        assert_equal 0 [dict get $i missing]
+        assert_equal [dict get $i pending] 0
+        assert_equal [dict get $i missing] 0
         lc_assert_counters loop:score
     }
 }
