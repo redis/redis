@@ -151,6 +151,12 @@ proc lc_message {label} {
     return $text
 }
 
+# A message about one of many topics: two words of its own between two
+# filler words.
+proc lc_topic_message {topic} {
+    return "[lc_pick $::lc_fillers] alpha${topic}word beta${topic}term [lc_pick $::lc_fillers]"
+}
+
 # The teacher: the expensive call a gate stands in front of.
 set ::lc_teacher_calls 0
 proc lc_teacher {text} {
@@ -505,6 +511,54 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert_morethan [lc_get s:down coverage] 0
         lc_assert_counters s:down
     }
+
+    test {gate lifecycle: a score gate answers when the cheap result is right often enough, and only then} {
+        # Two caches with the same traffic, scores spread over the whole
+        # range. The cheap result of the first is wrong one time in twenty
+        # whatever the score. The second is wrong three times in ten: more
+        # than an ALPHA of 0.2 allows, at every threshold. With DELTA 0.01
+        # a proof of the second would be a one in a hundred accident at the
+        # very most.
+        lc_seed 10
+        lc_srand 10
+        r gcreate s:good ALPHA 0.2 DELTA 0.01 SCORE
+        r gcreate s:bad ALPHA 0.2 DELTA 0.01 SCORE
+        set wrong 0
+        for {set n 1} {$n <= 3000} {incr n} {
+            set score [expr {[lc_rand 1000] / 1000.0}]
+            set draw [lc_rand 100]
+            foreach key {s:good s:bad} errors {5 30} {
+                set correct [expr {$draw >= $errors}]
+                lassign [r gpredict $key SCORE $score] action id
+                if {$key eq "s:bad" && $action ne "ABSTAIN"} {
+                    fail "request $n: $action from a gate whose cheap result is wrong 30 times in 100"
+                }
+                if {$action eq "ACCEPT" && !$correct} {incr wrong}
+                if {$id ne {}} {r glearn $key $id CORRECT $correct}
+            }
+        }
+        set i [r ginfo s:bad]
+        assert_equal [dict get $i state] CALIBRATING
+        assert_equal [dict get $i generation] 0
+        assert_equal [lindex [dict get $i thresholds] 0] {}
+        assert_equal [dict get $i accepted] 0
+        assert_equal [dict get $i audited] 0
+        assert_equal [dict get $i calibration-samples] 3000
+        # A score gate has no other snapshot to try: it goes on testing.
+        assert_equal [dict get $i candidate] 1
+        lc_assert_counters s:bad
+
+        set i [r ginfo s:good]
+        assert_equal [dict get $i state] ACTIVE
+        assert_equal [dict get $i generation] 1
+        assert_morethan [dict get $i accepted] 2000
+        assert_morethan $wrong 0
+        assert {$wrong <= 0.2 * [dict get $i accepted]}
+        assert_morethan [dict get $i audit-samples] 0
+        assert_equal [dict get $i revocations] 0
+        assert_equal [dict get $i pending] 0
+        lc_assert_counters s:good
+    }
 }
 
 # =============================== Feedback =================================
@@ -832,7 +886,8 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         for {set k 1} {$k <= 4500} {incr k} {
             lassign [r gpredict f:one SCORE 0.9] action id
             if {$action eq "ABSTAIN" && $id eq {}} {
-                fail "request $k: the gate is full (pending [lc_get f:one pending]) although one request is waiting for its answer"
+                fail "request $k: the gate is full (pending [lc_get f:one pending])\
+                      although one request is waiting for its answer"
             }
             if {$id ne {}} {assert_equal [r glearn f:one $id CORRECT 1] 1}
         }
@@ -1787,16 +1842,14 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         r gcreate c:many ALPHA 0.2 DELTA 0.2 CLASSES 32 {*}$labels
         for {set k 0} {$k < 960} {incr k} {
             set topic [expr {$k % 32}]
-            r gadd c:many TEXT "[lc_pick $::lc_fillers] alpha${topic}word beta${topic}term [lc_pick $::lc_fillers]" \
-                LABEL topic$topic
+            r gadd c:many TEXT [lc_topic_message $topic] LABEL topic$topic
         }
         assert_equal [lc_get c:many state] CALIBRATING
         set accepts 0
         set wrong 0
         for {set n 1} {$n <= 4000} {incr n} {
             set topic [lc_rand 32]
-            set text "[lc_pick $::lc_fillers] alpha${topic}word beta${topic}term [lc_pick $::lc_fillers]"
-            lassign [r gpredict c:many TEXT $text] action arg
+            lassign [r gpredict c:many TEXT [lc_topic_message $topic]] action arg
             if {$action eq "ACCEPT"} {
                 incr accepts
                 if {$arg ne "topic$topic"} {incr wrong}

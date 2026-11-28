@@ -19,6 +19,9 @@
 # answers) and a small snapshot step. Every scenario seeds the module's test
 # sequence (gate.test-seed), so runs repeat exactly; the assertions do not
 # depend on what is drawn.
+#
+# Each test builds the gates it needs. The exceptions are the tests around a
+# restart, which follow from the test that saved the dataset.
 
 set gatemodule [file normalize modules/gate/gate.so]
 
@@ -451,9 +454,87 @@ proc gp_zoo {p} {
     return $waiting
 }
 
+# A classifier whose answering snapshot took over from an older one. The
+# first snapshot is taken from a model that knows little more than one topic,
+# so it proves itself for that topic alone. The next one knows both, answers
+# more, and takes over. Whether and how soon depends on what the first model
+# makes of the other topic, so a few starting points are tried. Returns the
+# key.
+proc gp_takeover {p seed} {
+    foreach ham {1 2 4} {
+        gp_begin [expr {$seed + $ham}]
+        set key $p$ham
+        gp_classifier $key 20 0.5
+        for {set i 0} {$i < 20} {incr i} {
+            if {$i < $ham} {
+                r gadd $key TEXT "meeting notes project schedule [expr {1000 + $i}]" LABEL ham
+            } else {
+                r gadd $key TEXT "buy cheap pills now offer [expr {1000 + $i}]" LABEL spam
+            }
+        }
+        set first 0
+        for {set n 0} {$n < 600} {incr n} {
+            gp_ask $key classifier
+            set info [gp_info $key]
+            set generation [dict get $info generation]
+            if {$first == 0} { set first $generation }
+            if {$generation > $first || [dict get $info revocations] > 0} break
+        }
+        if {$first > 0 && $generation > $first && [dict get $info revocations] == 0} {
+            return $key
+        }
+    }
+    fail "no snapshot took over from an older one: the scenario of gp_takeover needs new numbers"
+}
+
 # ============================ RDB: DEBUG RELOAD =============================
 
 start_server [list tags {"modules external:skip"} overrides [list loadmodule $gatemodule]] {
+
+    gp_test {DEBUG DIGEST-VALUE follows what a gate holds, and nothing else} {
+        gp_begin 100
+        gp_classifier t:c
+        set digest [debug_digest_value t:c]
+        if {$digest ne "dummy-digest-value"} {
+            # Whatever changes the gate changes the digest.
+            set seen [list $digest]
+            set changed {
+                set digest [debug_digest_value t:c]
+                assert {$digest ni $seen}
+                lappend seen $digest
+            }
+            assert_equal 1 [r gadd t:c TEXT "an example" LABEL spam]
+            eval $changed
+            lassign [r gpredict t:c TEXT "a request"] action id
+            eval $changed
+            assert_equal 1 [r glearn t:c $id LABEL ham]
+            eval $changed
+            assert_equal 0 [r glearn t:c $id LABEL ham]
+            assert_equal OK [r gpause t:c]
+            eval $changed
+            assert_equal OK [r gresume t:c]
+            assert {[debug_digest_value t:c] ne $digest}
+            lappend seen [debug_digest_value t:c]
+            assert_equal OK [r greset t:c]
+            eval $changed
+            # Reading it does not.
+            r ginfo t:c
+            r dump t:c
+            r memory usage t:c
+            assert_equal $digest [debug_digest_value t:c]
+            # A request the gate answers by itself changes nothing that is
+            # saved.
+            assert_equal OK [r gcreate t:s ALPHA 0.2 DELTA 0.2 AUDIT 0.000000001 SCORE]
+            gp_prove t:s
+            set digest [debug_digest_value t:s]
+            set accepted [gp_info t:s accepted]
+            for {set i 0} {$i < 20} {incr i} {
+                assert_equal {ACCEPT {}} [r gpredict t:s SCORE 0.9]
+            }
+            assert_equal [expr {$accepted + 20}] [gp_info t:s accepted]
+            assert_equal $digest [debug_digest_value t:s]
+        }
+    }
 
     gp_test {DEBUG RELOAD keeps the digest: classifier, COLD, training requests waiting} {
         gp_begin 101
@@ -519,6 +600,14 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert_equal ACTIVE [gp_info g:cand state]
         assert {[gp_info g:cand candidate] > [gp_info g:cand generation]}
         gp_reload_check g:cand
+    }
+
+    gp_test {DEBUG RELOAD keeps the digest: classifier, ACTIVE with a snapshot that took over from an older one} {
+        set key [gp_takeover g:took 130]
+        assert_equal ACTIVE [gp_info $key state]
+        assert {[gp_info $key generation] >= 2}
+        gp_collect $key 3
+        gp_reload_check $key
     }
 
     gp_test {DEBUG RELOAD keeps the digest: classifier, PAUSED} {
@@ -672,17 +761,22 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         r gpredict o:odd TEXT "bin\x00 ary \xff\xfe\r\n text" FEATURES 1 depth -0.25
         r gpredict o:odd TEXT "" FEATURES 0
         r gpredict o:odd TEXT [string repeat "long text " 1000]
+        # As many named features as a request can have.
+        set features {}
+        for {set i 0} {$i < 64} {incr i} { lappend features "feature-$i" [expr {($i - 32) / 16.0}] }
+        r gpredict o:odd TEXT "sixty-four features" FEATURES 64 {*}$features
         # Three classes, extreme settings.
         r config set gate.snapshot-examples 1
         assert_equal OK [r gcreate o:three ALPHA 0.999 DELTA 0.000001 AUDIT 0.000001 CLASSES 3 a b c]
         foreach label {a b c a b c} { r gadd o:three TEXT "word-$label" LABEL $label }
         r gpredict o:three TEXT "word-a"
-        # The largest number of classes.
+        # The largest number of classes, with the longest labels.
         set labels {}
-        for {set i 0} {$i < 64} {incr i} { lappend labels "class-$i" }
+        for {set i 0} {$i < 64} {incr i} { lappend labels [format "class-%058d" $i] }
+        assert_equal 64 [string length [lindex $labels 0]]
         r config set gate.snapshot-examples 5
         assert_equal OK [r gcreate o:64 ALPHA 0.05 CLASSES 64 {*}$labels]
-        for {set i 0} {$i < 8} {incr i} { r gadd o:64 TEXT "word$i" LABEL class-[expr {$i * 9}] }
+        for {set i 0} {$i < 8} {incr i} { r gadd o:64 TEXT "word$i" LABEL [lindex $labels [expr {$i * 9}]] }
         for {set i 0} {$i < 3} {incr i} { r gpredict o:64 TEXT "word$i" }
         r config set gate.snapshot-examples 1000
         assert_equal 64 [llength [gp_info o:64 classes]]
@@ -717,6 +811,37 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert_equal 0 [r glearn s:full [lindex $ids end] CORRECT 1]
         assert_equal 1 [r glearn s:full $id CORRECT 1]
         r del s:full
+    }
+
+    gp_test {DEBUG RELOAD keeps the digest: a classifier holding hundreds of long waiting requests} {
+        gp_begin 114
+        gp_classifier g:long
+        gp_teach g:long 20
+        set rd [redis_deferring_client]
+        fconfigure [$rd channel] -buffersize 1000000
+        for {set i 0} {$i < 300} {incr i} {
+            # About 4,000 bytes of words the gate has never seen.
+            set words {}
+            for {set j 0} {$j < 560} {incr j} {
+                lappend words [format "w%x" [expr {($i * 7919 + $j * 104729) & 0xffffff}]]
+            }
+            $rd gpredict g:long TEXT [join $words " "] FEATURES 2 depth 0.5 urgent 1
+        }
+        for {set i 0} {$i < 300} {incr i} {
+            lassign [$rd read] action id
+            assert_equal ABSTAIN $action
+            assert {$id ne {}}
+        }
+        $rd close
+        assert_equal 300 [gp_info g:long pending]
+        # The gate keeps what it needs to learn from them.
+        assert {[gp_info g:long memory] > 1000000}
+        gp_reload_check g:long
+        # The same through DUMP and RESTORE.
+        assert_equal OK [r restore g:long:copy 0 [r dump g:long]]
+        assert_equal [debug_digest_value g:long] [debug_digest_value g:long:copy]
+        assert_equal [gp_info g:long memory] [gp_info g:long:copy memory]
+        r del g:long g:long:copy
     }
 
     gp_test {DEBUG RELOAD keeps the digest: many gates at once, with and without RDB compression} {
@@ -1182,7 +1307,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         gp_begin 301
         # Settings that are not the defaults: after the restart the server
         # has the defaults again, the gates must not.
-        r config set gate.feedback-timeout 200
+        r config set gate.feedback-timeout 500
         gp_classifier r:cold
         gp_score r:late
         r config set gate.feedback-timeout 300000
@@ -1257,15 +1382,44 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         gp_teach r:cold 1
         assert_equal CALIBRATING [gp_info r:cold state]
         assert {[gp_info r:cold candidate] > 0}
-        # Created with a feedback window of 200 milliseconds.
+        # Created with a feedback window of half a second.
         set waiting [gp_collect r:late 2]
         set waitingc [gp_collect r:cold 2]
         assert_equal 1 [gp_answer r:late [lindex $waiting 0]]
         assert_equal 1 [gp_answer r:cold [lindex $waitingc 0]]
-        after 300
+        after 650
         assert_equal 0 [gp_answer r:late [lindex $waiting 1]] "late feedback for r:late"
         assert_equal 0 [gp_answer r:cold [lindex $waitingc 1]] "late feedback for r:cold"
         assert {[gp_info r:late missing] >= 1}
+    }
+
+    gp_test {The two settings survive CONFIG REWRITE and a restart, and are for new gates only} {
+        gp_begin 305
+        # A gate created with a snapshot step of 30, 10 examples so far.
+        gp_classifier r:thirty 30
+        gp_teach r:thirty 10
+        r config set gate.snapshot-examples 7
+        r config set gate.feedback-timeout 86400000
+        assert_equal OK [r config rewrite]
+        assert_equal OK [r save]
+        restart_server 0 true false
+        assert_equal 7 [lindex [r config get gate.snapshot-examples] 1]
+        assert_equal 86400000 [lindex [r config get gate.feedback-timeout] 1]
+        gp_begin 306
+        # A gate created now takes its first snapshot after 7 examples ...
+        assert_equal OK [r gcreate r:seven ALPHA 0.2 DELTA 0.2 CLASSES 2 spam ham]
+        gp_teach r:seven 6
+        assert_equal COLD [gp_info r:seven state]
+        gp_teach r:seven 1
+        assert_equal CALIBRATING [gp_info r:seven state]
+        # ... the one that was there after 30.
+        gp_teach r:thirty 19
+        assert_equal COLD [gp_info r:thirty state]
+        assert_equal 29 [gp_info r:thirty learned]
+        gp_teach r:thirty 1
+        assert_equal CALIBRATING [gp_info r:thirty state]
+        r config set gate.snapshot-examples 1000
+        r config set gate.feedback-timeout 300000
     }
 
     gp_test {redis-check-rdb accepts an RDB file with gates} {
@@ -1411,10 +1565,12 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
     }
 
     gp_test {AOF: the file holds what happened (_GATE.APPLY), never the commands} {
+        gp_begin 411
+        gp_zoo f
         set names [gp_aof_commands [get_last_incr_aof_path r]]
         gp_assert_realized $names
         assert {[dict get $names _gate.apply] > 100}
-        # Besides that, only what the test did to the keys as keys.
+        # Besides that, only what the tests did to the keys as keys.
         foreach name [dict keys $names] {
             assert {$name in {select _gate.apply set del rename restore pexpireat multi exec}}
         }
@@ -1454,10 +1610,43 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         gp_assert_realized [gp_aof_commands [get_last_incr_aof_path r]]
     }
 
+    gp_test {AOF: a request the gate answers by itself writes nothing} {
+        gp_begin 409
+        assert_equal OK [r gcreate a:quiet ALPHA 0.2 DELTA 0.2 AUDIT 0.000000001 SCORE]
+        for {set i 0} {$i < 200 && [gp_info a:quiet state] ne "ACTIVE"} {incr i} {
+            lassign [r gpredict a:quiet SCORE 0.9] action id
+            assert_equal 1 [r glearn a:quiet $id CORRECT 1]
+        }
+        assert_equal ACTIVE [gp_info a:quiet state]
+        # Every write is in the file before its reply is sent.
+        r config set appendfsync always
+        assert_equal OK [r gpause a:quiet]
+        assert_equal OK [r gresume a:quiet]
+        set path [get_last_incr_aof_path r]
+        set size [file size $path]
+        set changes [s rdb_changes_since_last_save]
+        set digest [debug_digest_value a:quiet]
+        for {set i 0} {$i < 50} {incr i} {
+            assert_equal {ACCEPT {}} [r gpredict a:quiet SCORE 0.9]
+        }
+        assert_equal 50 [gp_info a:quiet accepted]
+        assert_equal $size [file size $path] "size of the AOF"
+        assert_equal $changes [s rdb_changes_since_last_save]
+        assert_equal $digest [debug_digest_value a:quiet]
+        r config set appendfsync everysec
+        # The gate is loaded from the file as it is, and its counters still
+        # add up.
+        assert_equal OK [r debug loadaof]
+        assert_equal $digest [debug_digest_value a:quiet]
+        set info [gp_info a:quiet]
+        assert_equal [dict get $info requests] \
+            [expr {[dict get $info accepted] + [dict get $info audited] + [dict get $info abstained]}]
+    }
+
     gp_test {AOF: a request that times out while the gate answers by itself is in the file} {
         gp_begin 403
         # Nearly no spot checks, so that the gate answers whatever is drawn.
-        r config set gate.feedback-timeout 250
+        r config set gate.feedback-timeout 1000
         assert_equal OK [r gcreate a:tick ALPHA 0.2 DELTA 0.2 AUDIT 0.000000001 SCORE]
         r config set gate.feedback-timeout 300000
         # More requests than the proof needs, answered in order until the
@@ -1474,7 +1663,7 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         set waiting [expr {45 - $answered}]
         assert {$waiting >= 1}
         assert_equal $waiting [gp_info a:tick pending]
-        after 320
+        after 1100
         # This request is answered by the gate: nothing about it goes to
         # the file. That the waiting requests are now too old must.
         assert_equal {ACCEPT {}} [r gpredict a:tick SCORE 0.9]
@@ -1519,9 +1708,62 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
             set before [gp_digests $keys]
             assert_equal OK [r debug loadaof]
             assert_equal $before [gp_digests $keys]
+            # Another rewrite, this time while the gates are in use: what
+            # they do meanwhile goes on top of the snapshot.
+            r config set rdb-key-save-delay 15000
+            r bgrewriteaof
+            wait_for_condition 100 10 {
+                [s aof_rewrite_in_progress] == 1
+            } else {
+                fail "the rewrite did not start"
+            }
+            r config set rdb-key-save-delay 0
+            foreach key [list rw$preamble:score rw$preamble:classifier rw$preamble:copy] {
+                for {set i 0} {$i < 6} {incr i} { gp_ask $key }
+                gp_collect $key 1
+            }
+            assert_equal OK [r greset rw$preamble:reset]
+            assert_equal 1 [s aof_rewrite_in_progress] "the rewrite was over before the gates changed: machine too slow for this test"
+            waitForBgrewriteaof r
+            assert_equal ok [s aof_last_bgrewrite_status]
+            set before [gp_digests $keys]
+            assert_equal OK [r debug loadaof]
+            assert_equal $before [gp_digests $keys]
             assert_equal 0 [count_log_message 0 "did not fit"]
             gp_assert_realized [gp_aof_commands [get_last_incr_aof_path r]]
         }
+    }
+
+    gp_test {AOF: a snapshot that takes over, and gates that stop by themselves, are the same after DEBUG LOADAOF} {
+        set took [gp_takeover a:took 420]
+        gp_collect $took 3
+        gp_begin 410
+        # With AUDIT 1 every request the gate could answer is a spot check:
+        # wrong answers make it stop.
+        gp_score a:revoked 1
+        gp_prove a:revoked
+        gp_classifier a:crevoked 100 1
+        gp_teach a:crevoked 100
+        gp_prove a:crevoked
+        foreach key {a:revoked a:crevoked} {
+            set kind [gp_info $key kind]
+            for {set i 0} {$i < 200 && [gp_info $key revocations] == 0} {incr i} {
+                lassign [gp_request $kind [expr {2 * $i + 1}]] question answer
+                lassign [r gpredict $key {*}$question] action id
+                assert_equal AUDIT $action
+                set wrong [expr {$kind eq "score" ? "CORRECT 0" : "LABEL ham"}]
+                assert_equal 1 [r glearn $key $id {*}$wrong]
+            }
+            assert_equal 1 [gp_info $key revocations]
+            gp_collect $key 2
+        }
+        set keys [list $took a:revoked a:crevoked]
+        set before [gp_digests $keys]
+        assert_equal OK [r debug loadaof]
+        assert_equal $before [gp_digests $keys]
+        assert_equal 1 [gp_info a:revoked revocations]
+        assert_equal 1 [gp_info a:crevoked revocations]
+        assert_equal 0 [count_log_message 0 "did not fit"]
     }
 
     gp_test {AOF: a DEBUG RELOAD in the middle of the history does not break it} {
@@ -1530,7 +1772,12 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         set keys [dict keys $zoo]
         assert_equal OK [r debug reload]
         # The gates go on from what the RDB file gave them: this is where
-        # they drop their proof and their waiting requests.
+        # they drop their proof and their waiting requests. Each starts
+        # with another command.
+        assert_equal OK [r greset az:reset]
+        assert_equal OK [r gresume az:spaused]
+        assert_equal OK [r gpause az:sact]
+        gp_teach az:cold 1
         foreach key $keys {
             assert_equal 0 [gp_answer $key [lindex [dict get $zoo $key] 0]]
             gp_ask $key
@@ -1544,27 +1791,31 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
 
     gp_test {AOF: after a restart every gate has the digest it had, and none answers before proving itself again} {
         gp_begin 406
-        set keys {}
-        foreach key [lsort [r keys *]] {
-            if {[r type $key] eq "gate-type"} { lappend keys $key }
-        }
-        assert {[llength $keys] >= 25}
-        # Gates that answer right now.
-        foreach key {rwno:classifier rwno:score a:c a:s} {
+        # Two gates that answer right now, next to everything the tests
+        # above left in the dataset.
+        gp_classifier z:c 100
+        gp_teach z:c 100
+        gp_score z:s
+        foreach key {z:c z:s} {
             gp_prove $key
             set a_question($key) [gp_until_accept $key]
             set a_old($key) [gp_collect $key 2]
             set a_used($key) [gp_max_number $key]
         }
+        r set z:string "not a gate"
+        set keys {}
+        foreach key [lsort [r keys *]] {
+            if {[r type $key] eq "gate-type"} { lappend keys $key }
+        }
         foreach key $keys { set a_info($key) [gp_info $key] }
         set before [gp_digests $keys]
         restart_server 0 true false
         assert_equal $before [gp_digests $keys]
-        assert_equal "not a gate" [r get w:string]
+        assert_equal "not a gate" [r get z:string]
         assert_equal 0 [count_log_message 0 "did not fit"]
         foreach key $keys { gp_assert_came_back $key $a_info($key) }
         gp_begin 407
-        foreach key {rwno:classifier rwno:score a:c a:s} {
+        foreach key {z:c z:s} {
             gp_not_answered $key $a_question($key)
             foreach pair $a_old($key) { assert_equal 0 [gp_answer $key $pair] }
             gp_prove $key
@@ -2045,6 +2296,45 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule $ga
         assert_equal 200 [expr {[dict get $count refused] + [dict get $count accepted]}]
         assert_equal PONG [r ping]
         if {$::verbose} { puts "damaged classifier payloads: $count" }
+    }
+
+    gp_test {RESTORE of a damaged payload: a refused payload, and a restored gate that is deleted, leave no memory behind} {
+        gp_begin 517
+        r flushall
+        r config set rdbcompression no
+        # A gate with three models and requests that hold their clues.
+        gp_classifier x:c 100 0.5
+        gp_teach x:c 100
+        gp_prove x:c
+        gp_teach x:c 100
+        gp_collect x:c 6
+        lassign [gp_dump_split [r dump x:c]] head blob version
+        set good [gp_dump_join $head $blob $version]
+        # Damage that is only noticed when nearly everything has been read.
+        set late [list \
+            [gp_dump_join $head [string range $blob 0 end-1] $version] \
+            [gp_dump_join $head [string range $blob 0 end-130] $version] \
+            [gp_dump_join $head "$blob\x00" $version]]
+        # Once, so that the buffers of the connection have their size.
+        foreach payload $late {
+            assert_error "*Bad data format*" {r restore x:leak 0 $payload}
+        }
+        assert_equal OK [r restore x:leak 0 $good]
+        gp_ask x:leak
+        assert_equal 1 [r del x:leak]
+        set before [s used_memory]
+        for {set i 0} {$i < 50} {incr i} {
+            foreach payload $late {
+                assert_error "*Bad data format*" {r restore x:leak 0 $payload}
+            }
+            assert_equal OK [r restore x:leak 0 $good]
+            gp_ask x:leak
+            assert_equal 1 [r del x:leak]
+        }
+        set grown [expr {[s used_memory] - $before}]
+        # One model alone is 32 KB: 150 refused payloads and 50 deleted gates
+        # that kept anything would show.
+        assert {$grown < 256 * 1024}
     }
 
     gp_test {RESTORE of a damaged payload: a gate that got in can still be saved and loaded once it has been used (counters at the top of their range)} {
