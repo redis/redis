@@ -2,7 +2,7 @@
 #
 #   make                 build gate.so
 #   make test-unit       build and run the standalone C unit tests
-#   make sim             build and run the certification Monte Carlo
+#   make sim             build and run the Monte Carlo simulations
 #   make test            unit tests + Redis integration tests (needs a built
 #                        ../../src/redis-server and tclsh)
 #   make clean
@@ -37,8 +37,8 @@ else
 endif
 
 # The library: plain C, no Redis dependency.
-LIB_SRCS = gate_alloc.c gate_stats.c gate_model.c gate_features.c gate_config.c gate_core.c gate_codec.c gate_args.c
-LIB_HDRS = gate_defs.h gate_stats.h gate_model.h gate_features.h gate_core.h gate_internal.h gate_codec.h gate_args.h
+LIB_SRCS = gate_alloc.c gate_stats.c gate_model.c gate_features.c gate_core.c gate_codec.c gate_args.c
+LIB_HDRS = gate_defs.h gate_stats.h gate_model.h gate_features.h gate_core.h gate_codec.h gate_args.h
 MODULE_OBJS = gate.xo $(LIB_SRCS:.c=.xo)
 
 all: gate.so
@@ -54,6 +54,7 @@ gate.so: $(MODULE_OBJS)
 # layers can be built and tested independently.
 T = tests/unit
 TEST_CC = $(CC) -I. -I$(T) $(STD) $(WARN) $(CFLAGS) $(SAN)
+CORE_SRCS = gate_alloc.c gate_stats.c gate_model.c gate_core.c
 
 $(T)/test_stats: $(T)/test_stats.c gate_alloc.c gate_stats.c gate_defs.h gate_stats.h $(T)/testutil.h
 	$(TEST_CC) -o $@ $(T)/test_stats.c gate_alloc.c gate_stats.c -lm
@@ -64,19 +65,16 @@ $(T)/test_model: $(T)/test_model.c gate_alloc.c gate_model.c gate_defs.h gate_mo
 $(T)/test_features: $(T)/test_features.c gate_alloc.c gate_features.c gate_defs.h gate_features.h $(T)/testutil.h
 	$(TEST_CC) -o $@ $(T)/test_features.c gate_alloc.c gate_features.c -lm
 
-CORE_SRCS = gate_alloc.c gate_stats.c gate_model.c gate_config.c gate_core.c
-$(T)/test_core: $(T)/test_core.c $(CORE_SRCS) $(LIB_HDRS) $(T)/testutil.h
+$(T)/test_core: $(T)/test_core.c $(CORE_SRCS) gate_defs.h gate_stats.h gate_model.h gate_core.h $(T)/testutil.h
 	$(TEST_CC) -o $@ $(T)/test_core.c $(CORE_SRCS) -lm
 
-CODEC_SRCS = $(CORE_SRCS) gate_codec.c
-$(T)/test_codec: $(T)/test_codec.c $(CODEC_SRCS) $(LIB_HDRS) $(T)/testutil.h
-	$(TEST_CC) -o $@ $(T)/test_codec.c $(CODEC_SRCS) -lm
+$(T)/test_args: $(T)/test_args.c $(CORE_SRCS) gate_args.c gate_args.h gate_features.h gate_core.h $(T)/testutil.h
+	$(TEST_CC) -o $@ $(T)/test_args.c $(CORE_SRCS) gate_args.c -lm
 
-ARGS_SRCS = gate_alloc.c gate_model.c gate_config.c gate_args.c
-$(T)/test_args: $(T)/test_args.c $(ARGS_SRCS) $(LIB_HDRS) $(T)/testutil.h
-	$(TEST_CC) -o $@ $(T)/test_args.c $(ARGS_SRCS) -lm
+$(T)/test_codec: $(T)/test_codec.c $(CORE_SRCS) gate_codec.c gate_codec.h gate_core.h $(T)/testutil.h
+	$(TEST_CC) -o $@ $(T)/test_codec.c $(CORE_SRCS) gate_codec.c -lm
 
-UNIT_TESTS = $(T)/test_stats $(T)/test_model $(T)/test_features $(T)/test_core $(T)/test_codec $(T)/test_args
+UNIT_TESTS = $(T)/test_stats $(T)/test_model $(T)/test_features $(T)/test_core $(T)/test_args $(T)/test_codec
 
 test-unit: $(UNIT_TESTS)
 	@set -e; for t in $(UNIT_TESTS); do echo "== $$t"; ./$$t; done
@@ -87,7 +85,7 @@ S = tests/sim
 $(S)/sim_certify: $(S)/sim_certify.c gate_alloc.c gate_stats.c gate_defs.h gate_stats.h $(T)/testutil.h
 	$(TEST_CC) -o $@ $(S)/sim_certify.c gate_alloc.c gate_stats.c -lm
 
-$(S)/sim_protocol: $(S)/sim_protocol.c $(CORE_SRCS) $(LIB_HDRS) $(T)/testutil.h
+$(S)/sim_protocol: $(S)/sim_protocol.c $(CORE_SRCS) gate_core.h $(T)/testutil.h
 	$(TEST_CC) -o $@ $(S)/sim_protocol.c $(CORE_SRCS) -lm
 
 sim: $(S)/sim_certify $(S)/sim_protocol
@@ -96,10 +94,10 @@ sim: $(S)/sim_certify $(S)/sim_protocol
 
 # --------------------------------------------------------- integration tests
 # Driven by the Redis Tcl test suite from the repository root.
+I = ../modules/gate/tests/integration
 test-integration: gate.so
-	cd ../.. && ./runtest --single gate/commands --single gate/protocol \
-	    --single gate/classifier --single gate/persistence \
-	    --single gate/replication
+	cd ../.. && ./runtest --single $(I)/commands --single $(I)/lifecycle \
+	    --single $(I)/persistence --single $(I)/replication
 
 test: test-unit test-integration
 
