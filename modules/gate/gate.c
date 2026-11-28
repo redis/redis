@@ -69,6 +69,11 @@ static uint64_t gateIncarnation;
  * stay 0; anything else means a replica diverged from its primary. */
 static unsigned long long gateApplyMismatches;
 
+/* A similarity computed in floating point can land a hair outside [0,1]
+ * (1.0000001): that is rounding, not a mistake, and is clamped. Anything
+ * further out is a caller error. */
+#define GATE_SCORE_SLACK 1e-6
+
 /* ------------------------------ Randomness ------------------------------- */
 
 static uint64_t gateTestState;
@@ -269,9 +274,13 @@ static int GPredict_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, 
             snprintf(err, sizeof(err), "this is a score gate: GPREDICT key SCORE score");
             ok = 0;
         } else if (!gateParseDouble(args[3].ptr, args[3].len, &score) ||
-                   score < 0.0 || score > 1.0) {
+                   score < -GATE_SCORE_SLACK || score > 1.0 + GATE_SCORE_SLACK) {
             snprintf(err, sizeof(err), "SCORE must be a number between 0 and 1");
             ok = 0;
+        } else if (score < 0.0) {
+            score = 0.0;
+        } else if (score > 1.0) {
+            score = 1.0;
         }
     }
     gateArgsRelease(args, stack);
