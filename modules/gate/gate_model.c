@@ -168,10 +168,10 @@ static double gateBinaryLoss(double z, double y) {
     return linear + log1p(exp(-fabs(z)));
 }
 
-/* Softmax of n >= 1 logits. Writes p[k] = softmax(z)[k], stores max_k z_k in
- * '*zmax' and returns log(sum_k exp(z_k - zmax)), a value in [0, log n], so
- * that log-sum-exp(z) = *zmax + result and log p_k = (z_k - *zmax) - result.
- * 'p' may alias 'z'.
+/* Softmax of n >= 1 logits, in place: on entry v[k] is the logit z_k, on
+ * return it is softmax(z)[k]. Stores max_k z_k in '*zmax' and returns
+ * log(sum_k exp(z_k - zmax)), a value in [0, log n], so that
+ * log-sum-exp(z) = *zmax + result and log p_k = (z_k - *zmax) - result.
  *
  * Subtracting the maximum makes every exponent non-positive, so nothing can
  * overflow, and makes the largest term exactly exp(0) = 1. That term is kept
@@ -181,33 +181,35 @@ static double gateBinaryLoss(double z, double y) {
  * multiclass loss of a confident, correct prediction as accurate as the
  * log1p(exp(-|z|)) of the binary one.
  *
- * It also guarantees p[kmax] = 1 / (1 + others) >= 1/n even after rounding
+ * It also guarantees v[kmax] = 1 / (1 + others) >= 1/n even after rounding
  * (others <= n - 1, and division is monotone), so the score of a prediction
  * never falls below the first threshold of the classifier grid. */
-static double gateSoftmaxShifted(const double *z, double *p, uint32_t n, double *zmax) {
+static double gateSoftmaxInPlace(double *v, uint32_t n, double *zmax) {
     uint32_t k, kmax = 0;
     double m, others = 0.0, total;
 
     for (k = 1; k < n; k++)
-        if (z[k] > z[kmax]) kmax = k;
-    m = z[kmax];
+        if (v[k] > v[kmax]) kmax = k;
+    m = v[kmax];
     for (k = 0; k < n; k++) {
         if (k == kmax) continue;
-        p[k] = exp(z[k] - m);
-        others += p[k];
+        v[k] = exp(v[k] - m);
+        others += v[k];
     }
     total = 1.0 + others;
-    p[kmax] = 1.0;
-    for (k = 0; k < n; k++) p[k] /= total;
+    v[kmax] = 1.0;
+    for (k = 0; k < n; k++) v[k] /= total;
     *zmax = m;
     return log1p(others);
 }
 
 double gateSoftmax(const double *z, double *p, uint32_t n) {
     double zmax, shifted;
+    uint32_t k;
 
-    if (n == 0) return -INFINITY; /* log of an empty sum */
-    shifted = gateSoftmaxShifted(z, p, n, &zmax);
+    if (n == 0) return -(double)INFINITY; /* log of an empty sum */
+    for (k = 0; k < n; k++) p[k] = z[k];
+    shifted = gateSoftmaxInPlace(p, n, &zmax);
     return zmax + shifted;
 }
 
@@ -251,7 +253,7 @@ static int gatePredictFailed(uint32_t nclasses, double *probs, double *score) {
 }
 
 int gateModelPredict(const gateModel *m, const gateSparse *x, double *probs, double *score) {
-    double z[GATE_MAX_CLASSES], pbuf[GATE_MAX_CLASSES];
+    double pbuf[GATE_MAX_CLASSES];
     double *p, zmax;
     uint32_t k, best;
 
@@ -276,12 +278,14 @@ int gateModelPredict(const gateModel *m, const gateSparse *x, double *probs, dou
         return 0;
     }
 
-    for (k = 0; k < m->nclasses; k++) {
-        z[k] = gateLogit(m->w + (size_t)k * m->dim, m->b[k], x);
-        if (!isfinite(z[k])) return gatePredictFailed(m->nclasses, probs, score);
-    }
+    /* The logits go straight into the output buffer (or its stack stand-in)
+     * and are turned into probabilities where they sit. */
     p = probs != NULL ? probs : pbuf;
-    gateSoftmaxShifted(z, p, m->nclasses, &zmax);
+    for (k = 0; k < m->nclasses; k++) {
+        p[k] = gateLogit(m->w + (size_t)k * m->dim, m->b[k], x);
+        if (!isfinite(p[k])) return gatePredictFailed(m->nclasses, probs, score);
+    }
+    gateSoftmaxInPlace(p, m->nclasses, &zmax);
     best = 0;
     for (k = 1; k < m->nclasses; k++)
         if (p[k] > p[best]) best = k; /* strict: a tie keeps the lowest index */
@@ -391,13 +395,15 @@ int gateModelLearn(gateModel *m, const gateSparse *x, const double *q,
         l = gateBinaryLoss(z[0], y);
         step[0] = eta * (y - gateSigmoid(z[0]));
     } else {
-        double zmax, shifted = gateSoftmaxShifted(z, step, nvec, &zmax);
+        double zmax, shifted;
 
+        for (v = 0; v < nvec; v++) step[v] = z[v];
+        shifted = gateSoftmaxInPlace(step, nvec, &zmax); /* step[] is p for now */
         l = 0.0;
         for (v = 0; v < nvec; v++) {
             /* -q_k log p_k with log p_k = (z_k - zmax) - shifted. Both
              * factors are non-negative, and the term stays finite where p_k
-             * itself underflows to 0. 'step' holds p until overwritten. */
+             * itself underflows to 0. */
             l += q[v] * (shifted + (zmax - z[v]));
             step[v] = eta * (q[v] - step[v]);
         }
