@@ -230,14 +230,13 @@ void gateObsLink(gate *g, gateObs *o) {
 
 /* Take the head off the eligible FIFO. It stays pending and keeps its flags:
  * the caller either consumes it or clears them. */
-static gateObs *gateFifoPop(gate *g) {
+static void gateFifoPop(gate *g) {
     gateObs *h = g->ehead;
 
     g->ehead = h->enext;
     if (g->ehead == NULL) g->etail = NULL;
     h->enext = NULL;
     g->neligible--;
-    return h;
 }
 
 /* Remove an observation from the pending list and the index. It must not be
