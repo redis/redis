@@ -8,7 +8,7 @@ tests/unit/test_stats
 tests/unit/test_model
 tests/unit/test_features
 tests/unit/test_core
+tests/unit/test_args
 tests/unit/test_codec
 tests/sim/sim_certify
-tests/unit/test_args
 tests/sim/sim_protocol

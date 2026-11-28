@@ -860,6 +860,50 @@ TEST(certifies_boundary) {
     CHECK(gateRegionCertifies(&r, gateBudgetLogThreshold(0.01, 1, 32)));
 }
 
+/* gateRegionCertifies() is defined by the mixture wealth: 1 iff it is finite
+ * and >= the threshold. Random evidence, with the thresholds placed where
+ * a shortcut could go wrong: on the mixture itself, on the best single bet
+ * (the mixture can be up to log(4) below it) and in between. */
+TEST(certifies_agrees_with_log_wealth) {
+    uint64_t rng = 0xce27;
+    gateRegion r;
+    int i, j, k, mismatches = 0, yes = 0, no = 0;
+
+    gateRegionInit(&r);
+    for (i = 0; i < 20000; i++) {
+        double spread = i % 4 == 0 ? 0.0 : (i % 4 == 1 ? 1e-9 : (i % 4 == 2 ? 2.0 : 40.0));
+        double base = (gate_test_uniform(&rng) - 0.5) * 60.0, max = -INFINITY, lw, thr[12];
+
+        for (j = 0; j < GATE_NBETS; j++) {
+            r.logw[j] = base + spread * gate_test_uniform(&rng);
+            if (r.logw[j] > max) max = r.logw[j];
+        }
+        lw = gateRegionLogWealth(&r);
+        thr[0] = lw;
+        thr[1] = nextafter(lw, INFINITY);
+        thr[2] = nextafter(lw, -INFINITY);
+        thr[3] = max;
+        thr[4] = nextafter(max, INFINITY);
+        thr[5] = nextafter(max, -INFINITY);
+        thr[6] = max - log(4.0);
+        thr[7] = 0.5 * (lw + max);
+        thr[8] = lw + (max - lw) * gate_test_uniform(&rng);
+        thr[9] = lw - 1e-12;
+        thr[10] = lw + 1e-12;
+        thr[11] = base + 50.0 * (gate_test_uniform(&rng) - 0.5);
+        for (k = 0; k < 12; k++) {
+            int expected = isfinite(lw) && lw >= thr[k];
+
+            if (gateRegionCertifies(&r, thr[k]) != expected) mismatches++;
+            if (expected) yes++; else no++;
+        }
+        /* The bounds the shortcut rests on. */
+        if (!(lw <= max && lw >= max - log(4.0) - 1e-12)) mismatches++;
+    }
+    CHECK_EQ_INT(mismatches, 0);
+    CHECK(yes > 20000 && no > 20000);   /* both answers well represented */
+}
+
 /* ----------------------------- Error budget ------------------------------ */
 
 #define G32 4294967296ull               /* 2^32 */
@@ -1704,6 +1748,7 @@ int main(void) {
     RUN(non_finite_wealth_never_certifies);
     RUN(invalid_alpha_never_certifies);
     RUN(certifies_boundary);
+    RUN(certifies_agrees_with_log_wealth);
     RUN(budget_generation_delta);
     RUN(budget_sum_never_exceeds_total);
     RUN(budget_log_threshold);

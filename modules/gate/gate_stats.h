@@ -15,8 +15,8 @@
  *      with a mixture of four fixed-fraction betting e-processes.
  *   2. The lifetime error budget: delta_g = delta_total / (g (g+1)) for the
  *      g-th frozen generation, split equally over the regions it tests.
- *   3. The deterministic threshold grids.
- *   4. The heuristic drift window used to revoke a serving policy.
+ *   3. The deterministic threshold grid.
+ *   4. The drift detector that withdraws a policy that got worse.
  *
  * THE TEST. For a region with risk target alpha and error indicators
  * E_1, E_2, ... in {0,1} (1 = the frozen prediction disagreed with the
@@ -96,52 +96,68 @@ double gateBudgetSpent(double delta_total, uint64_t g);
  * This is the log wealth a region of generation g must reach. */
 double gateBudgetLogThreshold(double delta_total, uint64_t g, uint32_t nregions);
 
-/* ---------------------------- Threshold grids ----------------------------
- * A grid is n strictly increasing thresholds fixed when the gate is created.
- * Region t accepts a score s iff s >= grid[t], so regions are nested and
- * grid[0] is the accept-everything region.
+/* ---------------------------- Threshold grid -----------------------------
+ * GATE_THRESHOLDS strictly increasing thresholds. Region t accepts a score
+ * s iff s >= grid[t], so regions are nested: region 0 is the widest, region
+ * GATE_THRESHOLDS-1 the most confident.
  *
- *   GATE_GRID_UNIFORM   SCORE mode. grid[t] = t / (n - 1): 0 ... 1.
- *   GATE_GRID_LOGIT     CLASSIFIER mode with K classes. The score is the
- *                       largest class probability, which lies in [1/K, 1].
- *                       The grid is uniform in log-odds from logit(1/K) to
- *                       logit(0.9999): grid[0] = 1/K exactly, grid[n-1] =
- *                       0.9999. This spends the resolution where confident
- *                       models actually put their scores (0.9, 0.99, 0.999).
- */
-#define GATE_GRID_UNIFORM 0
-#define GATE_GRID_LOGIT 1
-#define GATE_GRID_LOGIT_TOP 0.9999
-
-/* Fill grid[0..n-1]. Requires GATE_MIN_THRESHOLDS <= n <= GATE_MAX_THRESHOLDS
- * and, for the logit grid, nclasses >= 2. Returns GATE_OK / GATE_ERR. */
-int gateGridBuild(double *grid, uint32_t n, int kind, uint32_t nclasses);
+ * The grid is evenly spaced in log(1 - threshold) between 'lo' and 'hi':
+ *
+ *     grid[t] = 1 - (1 - lo) * ((1 - hi) / (1 - lo)) ^ (t / (T - 1))
+ *
+ * which puts the resolution where confident scores live (0.9, 0.99, 0.999).
+ * grid[0] is exactly 'lo' and grid[T-1] exactly 'hi'. Requires
+ * 0 <= lo < hi < 1; returns GATE_OK / GATE_ERR. */
+int gateGridBuild(double *grid, double lo, double hi);
 
 /* Number of thresholds t with grid[t] <= score, i.e. the score belongs to
  * regions 0 .. count-1. Returns 0 for a NaN score. O(log n). */
 uint32_t gateGridCount(const double *grid, uint32_t n, double score);
 
-/* ------------------------------ Drift window -----------------------------
- * Fixed window over the last GATE_DRIFT_WINDOW completed audits of accepted
- * traffic. This is an operational alarm, NOT a statistical guarantee. */
+/* ----------------------------- Drift detector ----------------------------
+ * A CUSUM e-detector over the spot checks of accepted traffic. For a risk
+ * target alpha it watches for the error rate rising to an alternative p1 >
+ * alpha with the likelihood ratio of one spot check,
+ *
+ *     e(E) = (p1 / alpha)^E * ((1 - p1) / (1 - alpha))^(1 - E),
+ *
+ * whose expectation is <= 1 whenever the true error rate is <= alpha. The
+ * statistic restarts from 1 whenever it falls below 1:
+ *
+ *     W <- max(W, 1) * e(E)
+ *
+ * Two alternatives are run side by side, p1 = 2 alpha and p1 = 4 alpha
+ * (each capped at (1 + alpha) / 2), and the alarm fires when their average
+ * reaches the alarm level A. While the error rate is at most alpha the
+ * expected number of spot checks before a false alarm is at least A; a
+ * gross failure (half the answers wrong) is caught in about a dozen.
+ * Everything is kept in log space. */
 
-#define GATE_DRIFT_WINDOW 256
-#define GATE_DRIFT_MIN 100
+#define GATE_DRIFT_ALTS 2
 
-typedef struct gateDriftWindow {
-    uint64_t bits[GATE_DRIFT_WINDOW / 64]; /* ring of error indicators */
-    uint32_t n;            /* valid entries in the ring, <= GATE_DRIFT_WINDOW */
-    uint32_t pos;          /* next slot to write */
-    uint32_t errors;       /* errors among the valid entries */
-    uint64_t total;        /* lifetime completed audits */
-    uint64_t total_errors; /* lifetime audit errors */
-} gateDriftWindow;
+typedef struct gateDriftBets {
+    double inc_ok[GATE_DRIFT_ALTS];  /* log e(0) per alternative (negative) */
+    double inc_err[GATE_DRIFT_ALTS]; /* log e(1) per alternative (positive) */
+} gateDriftBets;
 
-void gateDriftInit(gateDriftWindow *w);
+typedef struct gateDrift {
+    double logw[GATE_DRIFT_ALTS]; /* log statistic per alternative, >= ... */
+    uint64_t n;                   /* spot checks seen */
+    uint64_t errors;              /* of which disagreements */
+} gateDrift;
 
-/* Record one completed audit. Returns 1 when the alarm condition holds
- * after the push:  n >= GATE_DRIFT_MIN  and  errors > limit * n,
- * where 'limit' is the tolerated error fraction (alpha + margin). */
-int gateDriftPush(gateDriftWindow *w, int error, double limit);
+/* 'alpha' must be in (0,1); otherwise the increments are poisoned so that
+ * the detector alarms on the first sample (fail closed). */
+void gateDriftBetsInit(gateDriftBets *b, double alpha);
+void gateDriftInit(gateDrift *d);
+
+/* Record one spot check ('error' 0 or 1). Returns 1 when the alarm level
+ * 'log_alarm' (the natural log of A) is reached, or when the statistic is
+ * not a finite number. */
+int gateDriftPush(gateDrift *d, const gateDriftBets *b, int error, double log_alarm);
+
+/* Current value of the statistic, as the log of the average over the
+ * alternatives. 0 for a fresh detector. */
+double gateDriftLogStat(const gateDrift *d);
 
 #endif /* GATE_STATS_H */

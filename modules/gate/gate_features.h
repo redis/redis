@@ -1,5 +1,5 @@
 /*
- * Gate data type: deterministic feature extraction.
+ * Gate data type: clues. Text and named features -> hashed sparse vector.
  *
  * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
@@ -8,68 +8,63 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
  *
- * Maps one request (TEXT, VECTOR and/or named FEATURES sections) to a
- * coalesced sparse vector of dimension D = text_dim + vector_dim +
- * feature_dim. Each configured modality owns a disjoint index range, in
- * that order, so one modality can never collide with another:
+ * One request (a TEXT and optional named FEATURES) becomes one coalesced
+ * sparse vector over GATE_DIM hash buckets. The mapping is a pure function
+ * of the request bytes: no vocabulary, no state, no locale. It follows the
+ * reference design (words, word pairs, four-letter chunks and structural
+ * hints hashed with FNV-1a into 8,192 buckets) and is versioned as
+ * GATE_FEATURES_VERSION: frozen weights only mean something for the mapping
+ * they were trained with, so any change to the rules below must bump it.
  *
- *     [0, text_dim)                          hashed text features
- *     [text_dim, text_dim + vector_dim)      client embedding
- *     [text_dim + vector_dim, D)             hashed named features
- *
- * The mapping is a pure function of the schema and the request bytes: no
- * vocabulary, no state, no locale, no floating point environment. It is
- * versioned as GATE_FEATURES_VERSION; any change to the rules below must
- * bump it, because frozen weights are only meaningful for the mapping they
- * were trained with.
- *
- * HASH. H(domain, bytes) = fmix64(FNV-1a-64(domain byte || bytes)) where
- * FNV-1a-64 uses offset basis 0xcbf29ce484222325 and prime 0x100000001b3,
- * and fmix64 is the MurmurHash3 64-bit finalizer:
+ * HASH. H(domain, bytes) = fmix64(FNV-1a-64(domain byte || bytes)), with
+ * FNV-1a-64 offset basis 0xcbf29ce484222325 and prime 0x100000001b3, and
+ * fmix64 the MurmurHash3 finalizer:
  *
  *     h ^= h >> 33;  h *= 0xff51afd7ed558ccd;
  *     h ^= h >> 33;  h *= 0xc4ceb9fe1a85ec53;
  *     h ^= h >> 33;
  *
- * The finalizer is there because raw FNV-1a has weak low bits, which is
- * exactly what "hash % dim" consumes when dim is a power of two.
+ * (Raw FNV-1a has weak low bits, which is what "hash % 8192" consumes.)
+ * A clue with hash h lands in bucket h % GATE_DIM.
  *
- * TEXT (domain bytes 0x01 unigram, 0x02 bigram).
- *   1. The text is processed as raw bytes; it does not have to be valid
- *      UTF-8. ASCII 'A'-'Z' are lowercased. Nothing else is normalized.
- *   2. Token bytes are ASCII letters, ASCII digits and every byte >= 0x80
- *      (so a UTF-8 multi-byte sequence stays inside one token). Every other
- *      byte separates tokens. Tokens longer than GATE_MAX_TOKEN_BYTES are
- *      truncated to their first GATE_MAX_TOKEN_BYTES bytes.
- *   3. Features are the distinct tokens (unigrams: H(0x01, token)) and the
- *      distinct ordered pairs of adjacent tokens (bigrams:
- *      H(0x02, token1 || 0x00 || token2)). Presence is binary: repeating a
- *      token or a pair adds nothing. Distinctness is decided on the 64-bit
- *      hash.
- *   4. Feature h contributes +1 (bit 63 of h clear) or -1 (bit 63 set) to
- *      bucket h % text_dim. Contributions landing in one bucket are summed;
- *      buckets that sum to zero are dropped.
- *   5. The block is scaled to unit L2 norm, so the logit scale does not grow
- *      with message length. A text without tokens yields an empty block.
+ * TEXT. Only the first GATE_TEXT_READ_BYTES bytes are read ("the prefix");
+ * the text does not have to be valid UTF-8.
  *
- * VECTOR. A blob of exactly vector_dim little-endian IEEE-754 float32
- *   values, each finite with |v| <= GATE_MAX_VECTOR_VALUE. The block is
- *   scaled to unit L2 norm (an all-zero vector stays empty). No embedding is
- *   ever computed inside Redis.
+ *   1. ASCII 'A'-'Z' are lowercased. Nothing else is normalized.
+ *   2. Tokens. A word is a maximal run of word bytes: ASCII letters, ASCII
+ *      digits and every byte >= 0x80 (so a multi-byte character stays
+ *      inside one word); a word longer than GATE_MAX_TOKEN_BYTES is cut to
+ *      its first GATE_MAX_TOKEN_BYTES bytes. Each '?', '!' and '@' is a
+ *      token of its own. Every other byte only separates tokens.
+ *   3. Clues, each counted once however often it occurs (distinctness is
+ *      decided on the 64-bit hash):
+ *        word   H(0x01, token)                       for every token
+ *        pair   H(0x02, token1 || 0x00 || token2)    for adjacent tokens
+ *        chunk  H(0x03, tag || 4 bytes)              for every window of 4
+ *               consecutive bytes of a word longer than 4 bytes; tag is
+ *               '^' for the word's first window, '$' for its last, '.' for
+ *               the ones in between (so "shipped" and "shipping" share
+ *               "^ship" and ".hipp")
+ *        hint   H(0x04, name) for the structural hints:
+ *               "len0".."len4"  the length bucket of the WHOLE text
+ *                               (<= 16, <= 64, <= 256, <= 1024, longer)
+ *               "link"          the prefix contains "http://" or "https://"
+ *                               (ASCII case-insensitive)
+ *               "code"          the prefix contains three backticks
+ *   4. A clue adds +1 to its bucket if bit 63 of its hash is clear and -1
+ *      if it is set. Contributions to one bucket are summed; buckets that
+ *      sum to zero are dropped.
+ *   5. If the squared L2 norm of the result exceeds GATE_TEXT_NORM2_CAP it
+ *      is scaled down to exactly that norm, so a long message cannot
+ *      dominate the model. Short messages keep their +-1 values.
  *
- * FEATURES (domain byte 0x03). Each (name, value) pair contributes 'value'
- *   to bucket H(0x03, name) % feature_dim. Names are 1..GATE_MAX_NAME_BYTES
- *   bytes of valid UTF-8 without control characters; values are finite with
- *   |v| <= GATE_MAX_FEATURE_VALUE and are used as given (clients should
- *   scale them to roughly [-1, 1]). A name repeated in one request is an
- *   error. Two different names of one request that hash to the same bucket
- *   are an error too ("increase FEATUREDIM") instead of silently sharing a
- *   weight. Zero values are dropped.
+ * NAMED FEATURES. Each (name, value) adds 'value', clamped to
+ *   +-GATE_FEATURE_CLAMP, to bucket H(0x05, name) % GATE_DIM. A name given
+ *   twice in one request is an error. If the squared L2 norm of the named
+ *   part exceeds GATE_FEATURE_NORM2_CAP it is scaled down to that norm.
  *
- * A request must contain exactly the sections the schema configures: a
- * missing section and an unconfigured section are both errors. An empty
- * TEXT string or a FEATURES section with zero pairs is a present, empty
- * section.
+ * The text part and the named part are scaled separately and then merged
+ * bucket by bucket (summing; zero sums dropped).
  */
 
 #ifndef GATE_FEATURES_H
@@ -81,53 +76,25 @@
 
 #define GATE_FEATURES_VERSION 1
 
-#define GATE_INPUT_TEXT (1u << 0)
-#define GATE_INPUT_VECTOR (1u << 1)
-#define GATE_INPUT_FEATURES (1u << 2)
-
-/* Input schema of a CLASSIFIER gate. A dimension is 0 exactly when its
- * modality is not in 'inputs'. */
-typedef struct gateSchema {
-    uint32_t inputs;      /* mask of GATE_INPUT_* */
-    uint32_t text_dim;
-    uint32_t vector_dim;
-    uint32_t feature_dim;
-} gateSchema;
-
-/* Total model dimension D. */
-static inline uint32_t gateSchemaDim(const gateSchema *s) {
-    return s->text_dim + s->vector_dim + s->feature_dim;
-}
-
 typedef struct gateNamedFeature {
     const char *name;
     size_t name_len;
-    double value;
+    double value;      /* finite; the caller has validated it */
 } gateNamedFeature;
 
-/* One request. All pointers are borrowed for the duration of the call. */
-typedef struct gateInput {
-    uint32_t present;              /* mask of GATE_INPUT_* sections given */
-    const char *text;
-    size_t text_len;
-    const unsigned char *vector;   /* float32 little-endian blob */
-    size_t vector_len;             /* in bytes */
-    const gateNamedFeature *features;
-    uint32_t nfeatures;
-} gateInput;
-
-/* Build the coalesced feature vector of 'in' under schema 's' into 'out'
- * (which must be empty; on success the caller owns its arrays and releases
- * them with gateSparseFree()). On error returns GATE_ERR, leaves 'out'
- * empty and writes a human readable reason into 'err' (no trailing
- * newline), e.g. "missing TEXT section", "VECTOR must be 1536 bytes",
- * "feature names 'a' and 'b' collide; increase FEATUREDIM". */
-int gateFeaturize(const gateSchema *s, const gateInput *in, gateSparse *out,
-                  char *err, size_t errlen);
+/* Build the vector of one request into 'out' (which must be empty; on
+ * success the caller owns its arrays and frees them with gateSparseFree()).
+ * 'text' may be NULL only if text_len is 0. Returns GATE_OK, or GATE_ERR
+ * with 'out' left empty when a feature name is repeated, nfeatures exceeds
+ * GATE_MAX_FEATURES, or memory cannot be allocated; 'err' (if not NULL)
+ * then holds a short reason without a trailing newline. */
+int gateFeaturize(const char *text, size_t text_len,
+                  const gateNamedFeature *features, uint32_t nfeatures,
+                  gateSparse *out, char *err, size_t errlen);
 
 /* H(domain, bytes) as defined above. Exposed for test vectors. */
 uint64_t gateHash(uint8_t domain, const void *data, size_t len);
-/* Raw FNV-1a 64 of 'data' (no domain byte, no finalizer), for test vectors. */
+/* Raw FNV-1a 64 of 'data' (no domain byte, no finalizer). */
 uint64_t gateFnv1a64(const void *data, size_t len);
 
 #endif /* GATE_FEATURES_H */

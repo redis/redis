@@ -94,7 +94,7 @@ double gateRegionUpdate(gateRegion *r, const gateBets *b, int error) {
 }
 
 double gateRegionLogWealth(const gateRegion *r) {
-    double max = -INFINITY, sum = 0.0;
+    double max = -INFINITY, sum = 0.0, tail;
     int j;
 
     for (j = 0; j < GATE_NBETS; j++) {
@@ -117,16 +117,37 @@ double gateRegionLogWealth(const gateRegion *r) {
      * equal log wealths return that same value with no rounding at all, so
      * a fresh region reports a log wealth of exactly 0. */
     for (j = 0; j < GATE_NBETS; j++) sum += exp(r->logw[j] - max);
-    return max + log(0.25 * sum);
+    tail = log(0.25 * sum);
+    /* An average is never above its largest term. That is tail <= 0, true
+     * by itself with any exp() that does not exceed 1 for an argument <= 0;
+     * the clamp makes it unconditional, because gateRegionCertifies()
+     * builds on it. */
+    if (tail > 0.0) tail = 0.0;
+    return max + tail;
 }
 
 int gateRegionCertifies(const gateRegion *r, double log_threshold) {
-    double lw = gateRegionLogWealth(r);
+    double max = -INFINITY, lw;
+    int j;
 
-    /* The comparison alone already rejects a NaN wealth (and a NaN
-     * threshold): a comparison with NaN is false. isfinite() states the
+    for (j = 0; j < GATE_NBETS; j++) {
+        double v = r->logw[j];
+
+        if (!isfinite(v)) return 0; /* see gateRegionLogWealth() */
+        if (v > max) max = v;
+    }
+    /* The mixture cannot be above the best of the four bets (see above), so
+     * a region whose best bet is still short of the threshold is not
+     * certified, and saying so takes four comparisons instead of four
+     * exp() and a log(). This is the answer for nearly every region on
+     * nearly every sample, and this function runs for every region a
+     * sample falls in. The negated form also rejects a NaN threshold. */
+    if (!(max >= log_threshold)) return 0;
+
+    lw = gateRegionLogWealth(r);
+    /* The comparison alone already rejects a NaN: isfinite() states the
      * contract of the header explicitly and keeps it true even if the
-     * comparison is ever rewritten in a form that NaN would pass. */
+     * comparison is ever rewritten in a form that a NaN would pass. */
     return isfinite(lw) && lw >= log_threshold;
 }
 
@@ -177,53 +198,37 @@ double gateBudgetLogThreshold(double delta_total, uint64_t g, uint32_t nregions)
     return log(dg) + log(dg + 1.0) + log((double)nregions) - log(delta_total);
 }
 
-/* ---------------------------- Threshold grids ---------------------------- */
+/* ---------------------------- Threshold grid ----------------------------- */
 
-/* Two branches so that exp() only ever sees a non positive argument. */
-static double gateGridSigmoid(double x) {
-    if (x >= 0.0) {
-        return 1.0 / (1.0 + exp(-x));
-    } else {
-        double e = exp(x);
-        return e / (1.0 + e);
-    }
-}
-
-int gateGridBuild(double *grid, uint32_t n, int kind, uint32_t nclasses) {
-    uint32_t t;
+int gateGridBuild(double *grid, double lo, double hi) {
+    uint32_t t, n = GATE_THRESHOLDS;
 
     /* Validate everything before the first write: a rejected call leaves
-     * the caller's buffer untouched. */
+     * the caller's buffer untouched. The comparisons also reject NaN. */
     if (grid == NULL) return GATE_ERR;
-    if (n < GATE_MIN_THRESHOLDS || n > GATE_MAX_THRESHOLDS) return GATE_ERR;
-    if (kind != GATE_GRID_UNIFORM && kind != GATE_GRID_LOGIT) return GATE_ERR;
-    if (kind == GATE_GRID_LOGIT && nclasses < 2) return GATE_ERR;
+    if (!(lo >= 0.0 && lo < hi && hi < 1.0)) return GATE_ERR;
 
-    if (kind == GATE_GRID_UNIFORM) {
-        for (t = 0; t < n; t++) grid[t] = (double)t / (double)(n - 1);
-        grid[n - 1] = 1.0;
-    } else {
-        /* logit(1/K) = log((1/K) / (1 - 1/K)) = -log(K - 1), exact in K.
-         * For K = 2 this is 0, i.e. the grid starts at 0.5. */
-        double lo = -log((double)nclasses - 1.0);
-        double hi = log(GATE_GRID_LOGIT_TOP) - log1p(-GATE_GRID_LOGIT_TOP);
+    /* Interpolate log(1 - threshold) linearly from log(1 - lo) down to
+     * log(1 - hi). Both logs are finite because lo < hi < 1. */
+    {
+        double a = log1p(-lo), b = log1p(-hi);
 
-        for (t = 0; t < n; t++)
-            grid[t] = gateGridSigmoid(lo + (double)t * (hi - lo) / (double)(n - 1));
-        /* The interpolation reproduces the end points only up to rounding,
-         * and they have to be exact. grid[0] must be the correctly rounded
-         * 1/K, because that is the smallest value the largest of K
-         * probabilities can take: one ulp more and the accept-everything
-         * region would silently drop the least confident requests. */
-        grid[0] = 1.0 / (double)nclasses;
-        grid[n - 1] = GATE_GRID_LOGIT_TOP;
+        for (t = 0; t < n; t++) {
+            double u = (double)t / (double)(n - 1);
+
+            /* -expm1(x) = 1 - exp(x): keeps full precision when the
+             * threshold is close to 0 (x close to 0). */
+            grid[t] = -expm1(a + u * (b - a));
+        }
     }
+    /* The end points must be exact: grid[0] is the smallest score a region
+     * can admit (one ulp more and the widest region would silently drop
+     * the least confident requests) and grid[n-1] is the documented top. */
+    grid[0] = lo;
+    grid[n - 1] = hi;
 
     /* gateGridCount() and the nesting of the regions rely on a strictly
-     * increasing grid. The steps are orders of magnitude above the rounding
-     * (the closest pair, at the top of a 256 point two class grid, is still
-     * 3.7e-6 apart) so this cannot fail with a working libm; it also
-     * rejects a NaN. */
+     * increasing grid; this also rejects a NaN produced by a broken libm. */
     for (t = 1; t < n; t++) {
         if (!(grid[t] > grid[t - 1])) return GATE_ERR;
     }
@@ -252,46 +257,66 @@ uint32_t gateGridCount(const double *grid, uint32_t n, double score) {
     return lo;
 }
 
-/* ------------------------------ Drift window ----------------------------- */
+/* ----------------------------- Drift detector ---------------------------- */
 
-_Static_assert(GATE_DRIFT_WINDOW % 64 == 0, "the ring must fill whole 64 bit words");
-_Static_assert(GATE_DRIFT_MIN <= GATE_DRIFT_WINDOW, "the alarm could never be evaluated");
+static const double gateDriftMultiples[GATE_DRIFT_ALTS] = {2.0, 4.0};
 
-void gateDriftInit(gateDriftWindow *w) {
-    /* memset rather than field assignments so that the padding bytes are
-     * defined too and two windows with the same history are byte identical. */
-    memset(w, 0, sizeof(*w));
+void gateDriftBetsInit(gateDriftBets *b, double alpha) {
+    int k;
+
+    if (!(alpha > 0.0 && alpha < 1.0)) {
+        /* Not a risk target (also catches NaN): poison the increments so
+         * that the first sample raises the alarm. */
+        for (k = 0; k < GATE_DRIFT_ALTS; k++) b->inc_ok[k] = b->inc_err[k] = NAN;
+        return;
+    }
+    for (k = 0; k < GATE_DRIFT_ALTS; k++) {
+        /* The alternative must stay a probability above alpha: halfway
+         * between alpha and 1 is the cap for large alpha. */
+        double cap = 0.5 * (1.0 + alpha);
+        double p1 = gateDriftMultiples[k] * alpha;
+
+        if (p1 > cap) p1 = cap;
+        b->inc_err[k] = log(p1 / alpha);                 /* > 0 */
+        b->inc_ok[k] = log1p(-p1) - log1p(-alpha);       /* < 0 */
+    }
 }
 
-int gateDriftPush(gateDriftWindow *w, int error, double limit) {
-    /* 'pos' is always < GATE_DRIFT_WINDOW; the modulo only makes sure that a
-     * corrupted value cannot index outside the ring. */
-    uint32_t pos = w->pos % GATE_DRIFT_WINDOW;
-    uint64_t *word = &w->bits[pos / 64];
-    uint64_t mask = (uint64_t)1 << (pos % 64);
+void gateDriftInit(gateDrift *d) {
+    memset(d, 0, sizeof(*d)); /* log statistic 0 = statistic 1 */
+}
 
-    if (w->n >= GATE_DRIFT_WINDOW) {
-        /* The ring is full, so the slot about to be written holds the oldest
-         * sample: it leaves the window. */
-        if ((*word & mask) && w->errors > 0) w->errors--;
-    } else {
-        w->n++;
-    }
-    if (error) {
-        *word |= mask;
-        w->errors++;
-        w->total_errors++;
-    } else {
-        *word &= ~mask;
-    }
-    w->pos = (pos + 1) % GATE_DRIFT_WINDOW;
-    w->total++;
+double gateDriftLogStat(const gateDrift *d) {
+    double max = -INFINITY, sum = 0.0;
+    int k;
 
-    /* With fewer samples the empirical fraction is too noisy to act on: a
-     * single early error would be a rate of 100%. */
-    if (w->n < GATE_DRIFT_MIN) return 0;
-    /* errors > limit * n, written as the negation of "within the limit" so
-     * that a NaN limit raises the alarm instead of disabling the guard. For
-     * every other limit the two forms are the same comparison. */
-    return !((double)w->errors <= limit * (double)w->n);
+    for (k = 0; k < GATE_DRIFT_ALTS; k++) {
+        if (isnan(d->logw[k])) return d->logw[k];
+        if (d->logw[k] > max) max = d->logw[k];
+    }
+    if (isinf(max)) return max;
+    for (k = 0; k < GATE_DRIFT_ALTS; k++) sum += exp(d->logw[k] - max);
+    return max + log(sum / (double)GATE_DRIFT_ALTS);
+}
+
+int gateDriftPush(gateDrift *d, const gateDriftBets *b, int error, double log_alarm) {
+    const double *inc = error ? b->inc_err : b->inc_ok;
+    double stat;
+    int k;
+
+    for (k = 0; k < GATE_DRIFT_ALTS; k++) {
+        /* Restart from 1 (log 0) when below it: evidence that the policy
+         * was fine in the past must not delay an alarm about the present.
+         * A NaN is left alone so that it propagates to the alarm below. */
+        if (d->logw[k] < 0.0) d->logw[k] = 0.0;
+        d->logw[k] += inc[k];
+    }
+    d->n++;
+    if (error) d->errors++;
+
+    stat = gateDriftLogStat(d);
+    /* Written as the negation of "safely below the alarm" so that a NaN or
+     * infinite statistic, or a NaN alarm level, fires instead of silently
+     * disabling the detector. */
+    return !(isfinite(stat) && stat < log_alarm);
 }
