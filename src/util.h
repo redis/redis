@@ -72,6 +72,7 @@ int dirExists(char *dname);
 int dirIsEmpty(char *dname);
 int dirRemove(char *dname);
 int fileExist(char *filename);
+int pathContainsSymlink(const char *path);
 sds makePath(char *path, char *filename);
 int copyFile(char *source, char *destination);
 int fsyncFileDir(const char *filename);

@@ -3813,6 +3813,7 @@ void aofRemoveTempFile(pid_t childpid);
 int rewriteAppendOnlyFileBackground(void);
 int loadPreLoadAOFFile(char *file);
 int loadPreLoadManifestFile(char *file);
+int validatePreloadPath(const char *path);
 int loadAppendOnlyFiles(aofManifest *am);
 void upgradeAofIfNeeded(aofManifest *am);
 void stopAppendOnly(void);

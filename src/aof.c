@@ -838,79 +838,62 @@ static aofManifest *aofManifestFromPreloadFile(char *preload_path) {
     return am;
 }
 
-/* Check or install one preload manifest entry under its existing filename.
- * The check resolves the source once; installation uses that same path even
- * if an earlier entry changes a symlink in the source path. */
-static int aofInstallPreloadFile(char *absolute_preload_dir, char *file_name,
-                                 char *resolved_source, int check_only) {
+/* Reject symlink components in preload paths so lexical path comparisons stay
+ * unambiguous and hard-linking never installs or breaks symlinks. */
+static int rejectSymlinkPath(const char *desc, const char *path) {
+    int has_symlink = pathContainsSymlink(path);
+    if (has_symlink == 1) {
+        serverLog(LL_WARNING, "Preload does not support symlinks in %s: %s",
+                              desc, path);
+        return C_ERR;
+    }
+    if (has_symlink == -1) {
+        serverLog(LL_WARNING, "Can't inspect %s %s: %s",
+                              desc, path, strerror(errno));
+        return C_ERR;
+    }
+    return C_OK;
+}
+
+int validatePreloadPath(const char *path) {
+    return rejectSymlinkPath("preload file", path);
+}
+
+/* Validate that none of the BASE or INCR files referenced by a preload
+ * manifest are or traverse symlinks. */
+static int aofValidatePreloadManifest(char *absolute_preload_dir, aofManifest *am) {
+    if (am->base_aof_info) {
+        sds source_path = makePath(absolute_preload_dir, am->base_aof_info->file_name);
+        int ok = validatePreloadPath(source_path);
+        sdsfree(source_path);
+        if (ok != C_OK) return C_ERR;
+    }
+
+    listIter li;
+    listNode *ln;
+    listRewind(am->incr_aof_list, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        aofInfo *ai = listNodeValue(ln);
+        sds source_path = makePath(absolute_preload_dir, ai->file_name);
+        int ok = validatePreloadPath(source_path);
+        sdsfree(source_path);
+        if (ok != C_OK) return C_ERR;
+    }
+    return C_OK;
+}
+
+/* Install one preload manifest entry under its existing filename. Leave the
+ * file in place when source and target are the same path, otherwise replace
+ * the target without changing the manifest metadata. */
+static int aofInstallPreloadFile(char *absolute_preload_dir, char *file_name) {
     sds source_path = makePath(absolute_preload_dir, file_name);
     sds relative_path = makePath(server.aof_dirname, file_name);
     sds target_path = getAbsolutePath(relative_path);
     sdsfree(relative_path);
     int ret = C_ERR;
 
-    /* A path through a symlink can name the target despite a different string.
-     * A target symlink can be replaced without removing its resolved source. */
-    char resolved_target[PATH_MAX];
-    if (check_only && realpath(source_path, resolved_source) == NULL) {
-        serverLog(LL_WARNING, "Can't resolve preload file %s: %s",
-                  source_path, strerror(errno));
-        goto cleanup;
-    }
-    struct stat source_stat, target_stat;
-    int source_is_symlink = lstat(source_path, &source_stat) == 0 &&
-                            S_ISLNK(source_stat.st_mode);
-
-    /* A source symlink into the local AOF directory can become dangling when
-     * cleanup removes its target. Reject it before replacing any local file. */
-    if (source_is_symlink) {
-        sds source_dir = getFilePath(resolved_source);
-        if (sdslen(source_dir) == 0) source_dir = sdscat(source_dir, "/");
-        struct stat source_dir_stat, aof_dir_stat;
-        int dirs_ok = stat(source_dir, &source_dir_stat) == 0 &&
-                      stat(server.aof_dirname, &aof_dir_stat) == 0;
-        int source_is_local_file = dirs_ok &&
-            source_dir_stat.st_dev == aof_dir_stat.st_dev &&
-            source_dir_stat.st_ino == aof_dir_stat.st_ino;
-        sdsfree(source_dir);
-        if (!dirs_ok) {
-            serverLog(LL_WARNING, "Can't inspect preload source directory for %s",
-                      source_path);
-            goto cleanup;
-        }
-        if (source_is_local_file) {
-            serverLog(LL_WARNING, "Preload source symlink %s points into the append-only directory",
-                      source_path);
-            goto cleanup;
-        }
-    }
-
-    /* A regular local source is already installed. Replace a local symlink
-     * with a link to its resolved file so the AOF survives without its source. */
-    if (!strcmp(source_path, target_path) && !source_is_symlink) {
-        ret = C_OK;
-        goto cleanup;
-    }
-
-    if (realpath(target_path, resolved_target) != NULL &&
-        !strcmp(resolved_source, resolved_target))
-    {
-        /* Reusing an installed regular file cannot invalidate either path. */
-        if (source_is_symlink && lstat(target_path, &target_stat) == 0 &&
-            S_ISREG(target_stat.st_mode)) {
-            ret = C_OK;
-            goto cleanup;
-        }
-        /* Unlinking a destination symlink leaves the resolved file intact. */
-        if (lstat(target_path, &target_stat) != 0 ||
-            !S_ISLNK(target_stat.st_mode)) {
-            serverLog(LL_WARNING, "Preload file %s aliases append-only file %s",
-                      source_path, target_path);
-            goto cleanup;
-        }
-    }
-
-    if (check_only) {
+    /* Avoid unlinking the preload source when it is already at the target path. */
+    if (!strcmp(source_path, target_path)) {
         ret = C_OK;
         goto cleanup;
     }
@@ -922,11 +905,11 @@ static int aofInstallPreloadFile(char *absolute_preload_dir, char *file_name,
         goto cleanup;
     }
 
-    /* Link the resolved file, not a source symlink that cleanup may break. */
-    if (link(resolved_source, target_path) == -1) {
+    /* Prefer a hard link to avoid copying, and fall back to a full copy. */
+    if (link(source_path, target_path) == -1) {
         serverLog(LL_NOTICE, "Can't hard-link preload file %s as %s, copying it instead: %s",
                              source_path, target_path, strerror(errno));
-        if (copyFile(resolved_source, target_path) == -1) {
+        if (copyFile(source_path, target_path) == -1) {
             serverLog(LL_WARNING, "Can't copy preload file %s as %s: %s",
                                   source_path, target_path, strerror(errno));
             goto cleanup;
@@ -1036,6 +1019,10 @@ void aofSetupAfterPreloadFile(void) {
         return;
     }
 
+    if (rejectSymlinkPath("append-only directory", server.aof_dirname) != C_OK) {
+        exit(1);
+    }
+
     /* If preload-file points to the current local manifest, the normal startup
      * path can open its existing INCR and no migration is needed. Apply the
      * same replication-offset update as a normal local AOF load, including
@@ -1061,43 +1048,21 @@ void aofSetupAfterPreloadFile(void) {
     aofManifest *am = aofManifestFromPreloadFile(preload_path);
     listEmpty(am->history_aof_list); /* Discard HISTORY entries. */
 
-    /* Resolve all sources before installation changes any path in an AOF
-     * symlink chain. Keep those paths for the installation pass. */
-    char base_source[PATH_MAX];
-    if (am->base_aof_info &&
-        aofInstallPreloadFile(absolute_preload_dir, am->base_aof_info->file_name,
-                              base_source, 1) != C_OK)
-        exit(1);
+    /* Install the preload BASE in appendonlydir. */
+    if (am->base_aof_info) {
+        if (aofInstallPreloadFile(absolute_preload_dir, am->base_aof_info->file_name) != C_OK)
+            exit(1);
+    }
 
-    list *incr_sources = listCreate();
-    listSetFreeMethod(incr_sources, sdsfreegeneric);
+    /* Install every ordered INCR referenced by the preload manifest. */
     listIter li;
     listNode *ln;
     listRewind(am->incr_aof_list, &li);
     while ((ln = listNext(&li)) != NULL) {
         aofInfo *ai = listNodeValue(ln);
-        char resolved_source[PATH_MAX];
-        if (aofInstallPreloadFile(absolute_preload_dir, ai->file_name,
-                                  resolved_source, 1) != C_OK)
-            exit(1);
-        listAddNodeTail(incr_sources, sdsnew(resolved_source));
-    }
-
-    if (am->base_aof_info &&
-        aofInstallPreloadFile(absolute_preload_dir, am->base_aof_info->file_name,
-                              base_source, 0) != C_OK)
-        exit(1);
-    listIter source_iter;
-    listRewind(incr_sources, &source_iter);
-    listRewind(am->incr_aof_list, &li);
-    while ((ln = listNext(&li)) != NULL) {
-        aofInfo *ai = listNodeValue(ln);
-        char *resolved_source = listNodeValue(listNext(&source_iter));
-        if (aofInstallPreloadFile(absolute_preload_dir, ai->file_name,
-                                  resolved_source, 0) != C_OK)
+        if (aofInstallPreloadFile(absolute_preload_dir, ai->file_name) != C_OK)
             exit(1);
     }
-    listRelease(incr_sources);
 
     /* Remove files not owned by the preload manifest before choosing the new
      * INCR name, so obsolete local files do not consume sequence numbers. */
@@ -1879,13 +1844,19 @@ int loadPreLoadAOFFile(char *file) {
 
 int loadPreLoadManifestFile(char *file) {
     aofManifest* preload_am = aofLoadManifestFromFile(file);
+    sds preload_dir = getFilePath(file);
+    if (aofValidatePreloadManifest(preload_dir, preload_am) != C_OK) {
+        sdsfree(preload_dir);
+        aofManifestFree(preload_am);
+        exit(1);
+    }
 
     /* We change server.aof_filename temporarily to skip upgradeAofIfNeeded */
     char *tmp_aof_fullfilename = server.aof_filename;
     server.aof_filename = "";
     char *tmp_aof_dirname = server.aof_dirname;
     /* Load preload manifest entries relative to the preload file directory. */
-    server.aof_dirname = getFilePath(file);
+    server.aof_dirname = preload_dir;
     int ret = loadAppendOnlyFiles(preload_am);
     /* Update server.master_repl_offset if possible. */
     if (listLength(preload_am->incr_aof_list) > 0) {

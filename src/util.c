@@ -1131,6 +1131,41 @@ int fileExist(char *filename) {
     return stat(filename, &statbuf) == 0 && S_ISREG(statbuf.st_mode);
 }
 
+/* Return 1 if path or any of its parent components is a symlink, 0 if no
+ * existing component is a symlink, or -1 if lstat() fails for a reason other
+ * than ENOENT (with errno preserved). */
+int pathContainsSymlink(const char *path) {
+    sds prefix = sdsnew(path);
+    char *p = prefix;
+    struct stat sb;
+    int ret = 0;
+
+    while (*p == '/') p++;
+    while (*p != '\0') {
+        char *slash = strchr(p, '/');
+        if (slash != NULL) *slash = '\0';
+
+        if (lstat(prefix, &sb) == -1) {
+            if (errno != ENOENT) ret = -1;
+            break;
+        }
+        if (S_ISLNK(sb.st_mode)) {
+            ret = 1;
+            break;
+        }
+
+        if (slash == NULL) break;
+        *slash = '/';
+        p = slash + 1;
+        while (*p == '/') p++;
+    }
+
+    int saved_errno = errno;
+    sdsfree(prefix);
+    if (ret == -1) errno = saved_errno;
+    return ret;
+}
+
 int dirExists(char *dname) {
     struct stat statbuf;
     return stat(dname, &statbuf) == 0 && S_ISDIR(statbuf.st_mode);
