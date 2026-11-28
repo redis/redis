@@ -1711,8 +1711,10 @@ TEST(hostile_header) {
     PATCHED(ref, 4, 2, 2, "unsupported codec version");
     PATCHED(ref, 4, 0, 2, "unsupported codec version");
     PATCHED(ref, 4, 0x0100, 2, "unsupported codec version"); /* 1, big endian */
+    PATCHED(ref, 4, 0x0101, 2, "unsupported codec version");
     PATCHED(ref, 6, 2, 2, "unsupported features version");
     PATCHED(ref, 6, 0, 2, "unsupported features version");
+    PATCHED(ref, 6, 0x0101, 2, "unsupported features version");
 
     REJECT(NULL, 0, "truncated");
     REJECT(b.p, 0, "truncated");
@@ -1859,6 +1861,7 @@ TEST(hostile_requests) {
     HOSTILE(ref, "requests out of order", gateFindObservation(g, 2)->seq = 5);
     HOSTILE(ref, "requests out of order", g->next_seq = 9);
     HOSTILE(ref, "request from the future", g->newest->created_ms++);
+    HOSTILE(ref, "request from the future", set_all_times(g, -10); g->newest->created_ms = 0);
 
     HOSTILE(ref, "invalid request flags", g->oldest->flags = 1u << 6);
     HOSTILE(ref, "invalid request flags", g->oldest->flags = 1u << 31);
@@ -1945,6 +1948,7 @@ TEST(unusual_but_valid) {
 
     ACCEPTED(ref, g->now_ms = INT64_MAX - GATE_MAX_FEEDBACK_TIMEOUT_MS);
     ACCEPTED(ref, set_all_times(g, INT64_MIN));
+    ACCEPTED(ref, g->oldest->created_ms = -5); /* long before a clock that is positive */
     ACCEPTED(ref, g->lineage = g->epoch = ~0ull);
     ACCEPTED(ref, g->generations = INT64_MAX; g->next_seq = INT64_MAX);
     ACCEPTED(ref, g->candidate->samples = g->serving->audits = INT64_MAX);
@@ -2220,8 +2224,9 @@ static void exercise(gate *g, uint64_t seed, int again) {
     MUST(gateCheckInvariants(g, err, sizeof(err)));
     if (!again) return;
 
-    /* The four counters the decoder bounds may have been pushed over the
-     * bound by a blob that put them right below it. */
+    /* Except near the one edge the decoder cannot close: a blob may put
+     * one of the four counters it bounds right below the bound, and the
+     * core counts past it. */
     if (g->next_seq >= limit || g->generations >= limit) return;
     if (g->candidate && (g->candidate->samples >= limit || g->candidate->audits >= limit)) return;
     if (g->serving && (g->serving->samples >= limit || g->serving->audits >= limit)) return;
@@ -2273,9 +2278,13 @@ static void corrupt(gate *g, long count, uint64_t seed) {
                 pos = gate_test_rand64(&rng) % b.n;
             if (kind >= 6 && j > 0) pos = at[0] + (size_t)j;
             if (pos >= b.n) break;
-            if (kind >= 6) byte = (unsigned char)(run >> (8 * j));
-            else if (kind >= 3) byte = buf[pos] ^ (unsigned char)(1 + gate_test_rand64(&rng) % 255);
-            else byte = buf[pos] ^ (unsigned char)(1u << (r >> 8) % 8);
+            if (kind >= 6) {
+                byte = (unsigned char)(run >> (8 * j));
+            } else if (kind >= 3) {
+                byte = buf[pos] ^ (unsigned char)(1 + gate_test_rand64(&rng) % 255);
+            } else {
+                byte = buf[pos] ^ (unsigned char)(1u << (r >> 8) % 8);
+            }
             at[n] = pos;
             old[n++] = buf[pos];
             buf[pos] = byte;
@@ -2321,6 +2330,7 @@ TEST(random_corruptions) {
 
 int main(int argc, char **argv) {
     if (argc > 1) fuzz_count = strtol(argv[1], NULL, 10);
+    if (fuzz_count < 100) fuzz_count = 100;
 
     RUN(reference_score_gate);
     RUN(reference_classifier_gate);

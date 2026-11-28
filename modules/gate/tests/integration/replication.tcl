@@ -110,6 +110,37 @@ proc gr_assert_same {primary replicas keys {phase ""}} {
     }
 }
 
+# The whole dataset of every replica is the dataset of the primary: no key
+# more, no key less, nothing different.
+proc gr_assert_same_dataset {primary replicas {phase ""}} {
+    foreach replica $replicas {
+        wait_for_ofs_sync $primary $replica
+    }
+    set want [$primary debug digest]
+    set n 0
+    foreach replica $replicas {
+        incr n
+        assert_equal $want [$replica debug digest] "$phase: DEBUG DIGEST of replica #$n (second) against its primary (first)"
+    }
+}
+
+# What GINFO shows of a gate from the moment its primary knows that the
+# gate will drop its proof to the moment it has: everything but the request
+# counters and the bytes.
+proc gr_recovery_view {client key} {
+    dict remove [gr_replicated_info $client $key] memory
+}
+
+# The feedback the workload still owes, sent in request order: nothing it
+# asked keeps waiting.
+proc gr_workload_drain {client} {
+    foreach feedback $::gr_pending {
+        $client glearn {*}$feedback
+    }
+    set ::gr_pending {}
+    set ::gr_used {}
+}
+
 # The stats of a command in INFO COMMANDSTATS, whatever the case it is
 # reported in, or an empty string if the command was never called.
 proc gr_cmdstat {client cmd} {
@@ -215,6 +246,29 @@ proc gr_text {label n} {
     return "[lindex $words [expr {$n % $len}]] [lindex $words [expr {($n * 7 + 3) % $len}]] [lindex $words [expr {($n * 3 + 1) % $len}]]"
 }
 
+# Long texts: 60 words of 63 letters out of a pool of 400. Each gives a
+# classifier thousands of clues to keep while the request waits for its
+# feedback. (The whole command stays under 4096 bytes: the test client
+# sends a longer one in two writes, which costs 40 ms of TCP delay each.)
+set ::gr_long_words {}
+
+proc gr_long_text {n} {
+    if {[llength $::gr_long_words] == 0} {
+        for {set w 0} {$w < 400} {incr w} {
+            set word ""
+            for {set c 0} {$c < 63} {incr c} {
+                append word [string index abcdefghijklmnopqrstuvwxyz [gr_rand 26]]
+            }
+            lappend ::gr_long_words $word
+        }
+    }
+    set text ""
+    for {set w 0} {$w < 60} {incr w} {
+        append text [lindex $::gr_long_words [expr {($n * 67 + $w * 31 + $n * $w) % 400}]] " "
+    }
+    return $text
+}
+
 # One request to a score gate, answered at once by a teacher that agrees
 # with the cheap result when the score is at least 'good'. Returns the
 # action.
@@ -317,7 +371,7 @@ proc gr_workload_request {client gate} {
         incr ::gr_seen(NOFEEDBACK)
     } else {
         incr ::gr_seen($action)
-        if {!$lossy || [gr_rand 100] >= 15} {
+        if {!$lossy || [gr_rand 100] >= 4} {
             lappend ::gr_pending [list $key $id {*}$answer]
         }
     }
@@ -503,6 +557,24 @@ start_server [list overrides [list loadmodule $gatemodule]] {
             assert_equal {billing tech other} [gr_field $node cl:three classes]
             assert_equal {0.1 0.2 0} [gr_field $node cl:three alphas]
             assert_equal 64 [llength [gr_field $node cl:wide classes]]
+        }
+
+        # The widest gate learns a little, takes its first snapshot and
+        # has requests waiting: megabytes of weights on every node.
+        for {set n 0} {$n < 26} {incr n} {
+            $primary gadd cl:wide TEXT "sample number $n of [lindex $labels $n]" LABEL [lindex $labels $n]
+        }
+        for {set n 0} {$n < 3} {incr n} {
+            lassign [$primary gpredict cl:wide TEXT "sample number $n"] action id
+            assert_equal ABSTAIN $action
+            if {$n > 0} {
+                assert_equal 1 [$primary glearn cl:wide $id LABEL [lindex $labels $n]]
+            }
+        }
+        gr_assert_same $primary $replicas cl:wide "the widest gate"
+        foreach node $replicas {
+            assert_equal 28 [gr_field $node cl:wide learned]
+            assert_equal 1 [gr_field $node cl:wide candidate]
         }
 
         # A GCREATE that is refused creates nothing anywhere.
@@ -843,12 +915,25 @@ start_server [list overrides [list loadmodule $gatemodule]] {
     gr_test {Gate replication: a mixed workload of several thousand commands} {
         assert_equal OK [$primary gcreate mix:s1 ALPHA 0.2 DELTA 0.2 SCORE]
         assert_equal OK [$primary gcreate mix:s2 ALPHA 0.2 DELTA 0.2 AUDIT 0.5 SCORE]
+        $primary config set gate.snapshot-examples 60
         assert_equal OK [$primary gcreate mix:c1 ALPHA 0.2 DELTA 0.2 AUDIT 0.3 CLASSES 2 spam ham]
         assert_equal OK [$primary gcreate mix:c2 ALPHA 0.2 DELTA 0.2 CLASSES 3 billing tech other ALWAYSDEFER 1 other]
         $primary config set gate.feedback-timeout 100
         assert_equal OK [$primary gcreate mix:lossy:s ALPHA 0.2 DELTA 0.2 AUDIT 0.3 SCORE]
         assert_equal OK [$primary gcreate mix:lossy:c ALPHA 0.2 DELTA 0.2 AUDIT 0.3 CLASSES 2 spam ham]
         $primary config set gate.feedback-timeout 600000
+        $primary config set gate.snapshot-examples 20
+        # The classifiers start from some history, so that their first
+        # snapshot is worth testing.
+        for {set n 0} {$n < 30} {incr n} {
+            foreach label {spam ham} {
+                $primary gadd mix:c1 TEXT [gr_text $label $n] LABEL $label
+                $primary gadd mix:lossy:c TEXT [gr_text $label $n] LABEL $label
+            }
+            foreach label {billing tech} {
+                $primary gadd mix:c2 TEXT [gr_text $label $n] LABEL $label
+            }
+        }
         set mix {
             {mix:s1 score {} 0}
             {mix:s2 score {} 0}
@@ -856,18 +941,16 @@ start_server [list overrides [list loadmodule $gatemodule]] {
             {mix:c2 text {billing tech other} 0}
             {mix:lossy:s score {} 1}
             {mix:lossy:c text {spam ham} 1}
-            {sc:plain score {} 0}
             {sc:audit score {} 0}
             {cl:two text {spam ham} 0}
-            {cl:three text {billing tech other} 0}
         }
         set mixkeys {}
         foreach gate $mix {
             lappend mixkeys [lindex $gate 0]
         }
 
-        for {set round 1} {$round <= 8} {incr round} {
-            gr_workload $primary $mix 600
+        for {set round 1} {$round <= 10} {incr round} {
+            gr_workload $primary $mix 800
             # Whatever was paused answers again in the next round.
             foreach key $mixkeys {
                 $primary gresume $key
@@ -883,7 +966,7 @@ start_server [list overrides [list loadmodule $gatemodule]] {
                     assert_equal OK [$replica debug reload]
                     gr_assert_same $primary $replicas $mixkeys "replica reloaded"
                 }
-                6 {
+                7 {
                     assert_equal OK [$primary greset mix:s2]
                     assert_equal OK [$primary greset mix:c1]
                     gr_workload_forget {mix:s2 mix:c1}
@@ -896,8 +979,962 @@ start_server [list overrides [list loadmodule $gatemodule]] {
             assert {$count > 0}
         }
         assert {[gr_field $primary mix:lossy:s missing] > 0}
-        gr_assert_same $primary $replicas [concat $mixkeys {sc:order cl:order cl:wide to:score to:text to:active}] "after the mixed workload"
+        set allgates [concat $mixkeys {sc:plain sc:order cl:three cl:order cl:wide to:score to:text to:active}]
+        gr_assert_same $primary $replicas $allgates "after the mixed workload"
+    }
+
+    gr_test {Gate replication: RENAME, EXPIRE, DEL, DUMP and RESTORE of a gate} {
+        assert_equal OK [$primary gcreate tmp:a ALPHA 0.2 DELTA 0.2 SCORE]
+        lassign [$primary gpredict tmp:a SCORE 0.9] action id
+        assert_equal OK [$primary rename tmp:a tmp:b]
+        # An id belongs to the gate, not to its name.
+        assert_equal 1 [$primary glearn tmp:b $id CORRECT 1]
+        assert_equal 1 [$primary expire tmp:b 3600]
+        gr_assert_same $primary $replicas tmp:b "renamed gate"
+        foreach node $replicas {
+            assert_equal 0 [$node exists tmp:a]
+            assert {[$node ttl tmp:b] > 0}
+        }
+
+        # A copy made with DUMP and RESTORE reaches the replicas as it is.
+        # The primary cannot tell what the copy went through, so the copy
+        # drops its proof at its first write, on every node.
+        assert_equal OK [$primary restore tmp:copy 0 [$primary dump sc:audit]]
+        gr_assert_same_digests $primary $replicas tmp:copy "restored gate"
+        lassign [$primary gpredict tmp:copy SCORE 0.99] action id
+        assert_equal ABSTAIN $action
+        gr_assert_same $primary $replicas tmp:copy "restored gate after its first write"
+        foreach node $nodes {
+            assert {[gr_not_answering [gr_info $node tmp:copy]]}
+        }
+        assert_equal 1 [$primary glearn tmp:copy $id CORRECT 1]
+
+        assert_equal 2 [$primary del tmp:b tmp:copy]
+        wait_for_ofs_sync $primary $replica
+        wait_for_ofs_sync $primary $subreplica
+        foreach node $replicas {
+            assert_equal 0 [$node exists tmp:b tmp:copy]
+        }
+
+        # A gate created under the name of a deleted one is a new gate.
+        assert_equal OK [$primary gcreate tmp:b ALPHA 0.1 CLASSES 2 yes no]
+        gr_assert_same $primary $replicas tmp:b "gate created again"
+        foreach node $replicas {
+            assert_equal classifier [gr_field $node tmp:b kind]
+        }
+        assert_equal 1 [$primary del tmp:b]
+    }
+
+    gr_test {Gate replication: the stream carries what happened, never the commands} {
+        set repl [attach_to_replication_stream]
+        set changes 0
+
+        assert_equal OK [$primary gcreate st:score ALPHA 0.2 DELTA 0.2 SCORE]
+        assert_equal OK [$primary gcreate st:text ALPHA 0.2 DELTA 0.2 CLASSES 2 spam ham]
+        assert_equal 1 [$primary gadd st:text TEXT [gr_text spam 1] LABEL spam]
+        lassign [$primary gpredict st:score SCORE 0.9] action id
+        assert_equal 1 [$primary glearn st:score $id CORRECT 1]
+        lassign [$primary gpredict st:text TEXT [gr_text ham 1] FEATURES 1 depth 0.5] action id
+        assert_equal 1 [$primary glearn st:text $id LABEL ham]
+        assert_equal OK [$primary gpause st:score]
+        assert_equal OK [$primary gresume st:score]
+        incr changes 9
+
+        # A transaction.
+        $primary multi
+        $primary gpredict st:score SCORE 0.8
+        $primary gadd st:text TEXT [gr_text ham 2] LABEL ham
+        set replies [$primary exec]
+        assert_equal ABSTAIN [lindex $replies 0 0]
+        assert_equal 1 [$primary glearn st:score [lindex $replies 0 1] CORRECT 1]
+        incr changes 3
+
+        # A script.
+        assert_equal 1 [$primary eval {
+            local reply = redis.call('GPREDICT', KEYS[1], 'SCORE', ARGV[1])
+            return redis.call('GLEARN', KEYS[1], reply[2], 'CORRECT', '1')
+        } 1 st:score 0.7]
+        incr changes 2
+
+        assert_equal OK [$primary greset st:text]
+        incr changes
+
+        # Reads and refused commands change nothing, so nothing is sent.
+        $primary ginfo st:score
+        assert_error {ERR*} {$primary gpredict st:score SCORE 7}
+        assert_error {ERR*} {$primary gadd st:score TEXT x LABEL y}
+        assert_error {ERR*} {$primary glearn st:text $id LABEL nolabel}
+        assert_error {ERR*} {$primary gpredict st:text SCORE 0.5}
+        assert_equal 0 [$primary glearn st:score nonsense CORRECT 1]
+
+        $primary set gr:marker 1
+        set commands [gr_stream_until $repl {set gr:marker 1}]
+        close_replication_stream $repl
+        assert_equal 1 [$primary del gr:marker]
+
+        # Nothing but the internal command, and every command that changed
+        # a gate reached the stream.
+        set applied [gr_assert_stream_is_realized $commands {st:score st:text}]
+        assert {$applied >= $changes}
+        gr_assert_same $primary $replicas {st:score st:text} "after the watched commands"
+    }
+
+    gr_test {Gate replication: replicas execute the internal command only} {
+        wait_for_ofs_sync $primary $replica
+        wait_for_ofs_sync $primary $subreplica
+        foreach node $replicas {
+            assert {[gr_calls $node _gate.apply] > 1000}
+            foreach command [concat $::gr_public_writes eval] {
+                assert_equal 0 [gr_calls $node $command] "calls of $command on a replica"
+            }
+        }
+        foreach command $::gr_public_writes {
+            assert {[gr_calls $primary $command] > 0}
+        }
+        assert_equal 0 [gr_calls $primary _gate.apply]
+    }
+
+    gr_test {Gate replication: a read-only replica refuses every write and answers GINFO} {
+        set gates {sc:audit cl:two mix:s1 mix:c2}
+        gr_assert_same $primary $replicas $gates "before the refused commands"
+        # A request that waits for its feedback on the primary.
+        lassign [$primary gpredict sc:audit SCORE 0.99] action id
+        assert {$id ne {}}
+
+        foreach node $replicas {
+            assert_error {READONLY*} {$node gcreate new:gate ALPHA 0.1 SCORE}
+            assert_error {READONLY*} {$node gpredict sc:audit SCORE 0.9}
+            assert_error {READONLY*} {$node gpredict cl:two TEXT [gr_text spam 1]}
+            assert_error {READONLY*} {$node glearn sc:audit $id CORRECT 1}
+            assert_error {READONLY*} {$node gadd cl:two TEXT [gr_text spam 1] LABEL spam}
+            assert_error {READONLY*} {$node gpause sc:audit}
+            assert_error {READONLY*} {$node gresume sc:audit}
+            assert_error {READONLY*} {$node greset sc:audit}
+            assert_equal 0 [$node exists new:gate]
+        }
+        # What the replicas refused did not happen: the request still waits.
+        gr_assert_same $primary $replicas $gates "after the refused commands"
+        assert_equal 1 [$primary glearn sc:audit $id CORRECT 1]
+
+        # The stream command is not for clients, on any node.
+        foreach node $nodes {
+            assert_error {*unknown command*} {$node _gate.apply sc:audit PAUSE 0}
+        }
+        gr_assert_same $primary $replicas $gates "after the internal command was refused"
+
+        # GINFO on a replica is GINFO on its primary, in RESP3 as well.
+        set resp3 {}
+        foreach level {0 -1 -2} {
+            set client [redis_client $level]
+            $client hello 3
+            lappend resp3 $client
+        }
+        foreach key $gates {
+            set want [dict remove [[lindex $resp3 0] ginfo $key] {*}$::gr_primary_only]
+            assert_equal [dict get [gr_info $primary $key] state] [dict get $want state]
+            foreach client [lrange $resp3 1 end] {
+                assert_equal $want [dict remove [$client ginfo $key] {*}$::gr_primary_only] "GINFO $key in RESP3"
+            }
+        }
+        foreach client $resp3 {
+            $client close
+        }
+    }
+
+    gr_test {Gate replication: the AOF of a replica holds what the replica holds} {
+        set gates [concat $allgates {st:score st:text}]
+        gr_assert_same_digests $primary $replicas $gates "before loading the AOF"
+        # Everything the replica wrote to its AOF so far came from the
+        # stream: replaying it must give the same gates.
+        assert_equal OK [$replica debug loadaof]
+        gr_assert_same $primary $replicas $gates "after DEBUG LOADAOF on the replica"
+
+        # A rewritten AOF (as commands, then with an RDB preamble), with
+        # more operations appended after each rewrite.
+        foreach preamble {no yes} {
+            $replica config set aof-use-rdb-preamble $preamble
+            $replica bgrewriteaof
+            waitForBgrewriteaof $replica
+            gr_workload $primary $mix 400
+            gr_assert_same_digests $primary $replicas $gates "workload after the AOF rewrite (preamble $preamble)"
+            assert_equal OK [$replica debug loadaof]
+            gr_assert_same_digests $primary $replicas $gates "after DEBUG LOADAOF of a rewritten AOF (preamble $preamble)"
+            # The reloaded replica keeps following its primary.
+            gr_workload $primary $mix 200
+            gr_assert_same_digests $primary $replicas $gates "workload after DEBUG LOADAOF (preamble $preamble)"
+        }
+    }
+
+    gr_test {Gate replication: a primary that reloaded its gates tells its replicas what it no longer trusts} {
+        gr_workload_drain $primary
+        foreach key $mixkeys {
+            $primary gresume $key
+        }
+        gr_score_until_active $primary mix:s1 1500 0.5
+        gr_assert_same $primary $replicas $gates "before the primary reloads"
+        foreach node $nodes {
+            assert_equal ACTIVE [gr_field $node mix:s1 state]
+        }
+        # A spot check that waits for its feedback.
+        for {set n 0} {$n < 500} {incr n} {
+            lassign [$primary gpredict mix:s2 SCORE 0.99] action id
+            if {$id ne {}} break
+        }
+        assert {$id ne {}}
+
+        assert_equal OK [$primary debug reload]
+        # Nothing was written: the replicas hold what the primary reloaded.
+        gr_assert_same_digests $primary $replicas $gates "primary reloaded"
+
+        # The first write to a gate drops its proof and its waiting
+        # requests on the primary, and so it must on the replicas.
+        assert_equal 0 [$primary glearn mix:s2 $id CORRECT 1]
+        lassign [$primary gpredict mix:s1 SCORE 0.99] action id
+        assert_equal ABSTAIN $action
+        assert_equal 1 [$primary glearn mix:s1 $id CORRECT 1]
+        gr_assert_same $primary $replicas {mix:s1 mix:s2} "after the first writes of the reloaded primary"
+        foreach node $nodes {
+            assert {[gr_not_answering [gr_info $node mix:s1]]}
+            assert {[gr_not_answering [gr_info $node mix:s2]]}
+        }
+        # Every other gate follows at its own first write.
+        gr_workload $primary $mix 600
+        gr_assert_same_digests $primary $replicas $gates "workload after the primary reloaded"
+        # Nothing else differs either.
+        gr_assert_same_dataset $primary $replicas "at the end"
     }
 }
+}
+}
+
+# ------------------------------------------------- an ACCEPT writes nothing
+#
+# The dice are seeded here (gate.test-seed): the same requests are accepted
+# and the same are spot-checked in every run.
+
+start_server [list tags {"modules external:skip"} overrides [list loadmodule $gatemodule]] {
+start_server [list overrides [list loadmodule $gatemodule]] {
+    set primary [srv 0 client]
+    set primary_host [srv 0 host]
+    set primary_port [srv 0 port]
+    set replica [srv -1 client]
+    gr_watch -1
+
+    gr_test {Gate replication: an ACCEPT of a score gate replicates nothing} {
+        $primary config set gate.test-seed 20261128
+        $primary config set gate.snapshot-examples 60
+        $primary config set gate.feedback-timeout 600000
+        $replica replicaof $primary_host $primary_port
+        wait_for_sync $replica
+        # Nothing but gates may move the offset while it is watched.
+        $primary config set repl-ping-replica-period 3600
+
+        assert_equal OK [$primary gcreate ac:score ALPHA 0.2 DELTA 0.2 SCORE]
+        gr_score_until_active $primary ac:score
+        set threshold [lindex [gr_field $primary ac:score thresholds] 0]
+        assert {$threshold ne {} && $threshold < 0.9}
+        gr_assert_same $primary $replica ac:score "before the accepted requests"
+
+        set accepted 0
+        set audited 0
+        for {set n 0} {$n < 400} {incr n} {
+            set offset [status $primary master_repl_offset]
+            set unsaved [status $primary rdb_changes_since_last_save]
+            lassign [$primary gpredict ac:score SCORE 0.99] action id
+            if {$action eq "ACCEPT"} {
+                incr accepted
+                assert_equal {} $id
+                assert_equal $offset [status $primary master_repl_offset] "master_repl_offset after an ACCEPT"
+                assert_equal $unsaved [status $primary rdb_changes_since_last_save] "unsaved changes after an ACCEPT"
+            } else {
+                # A spot check: this one the replica must know about.
+                assert_equal AUDIT $action
+                incr audited
+                assert {[status $primary master_repl_offset] > $offset}
+                assert_equal 1 [$primary glearn ac:score $id CORRECT 1]
+            }
+        }
+        assert {$accepted > 300}
+        assert {$audited > 0}
+        gr_assert_same $primary $replica ac:score "after the accepted requests"
+        # The primary counted what it accepted. The replica never heard.
+        assert_equal $accepted [gr_field $primary ac:score accepted]
+        assert_equal 0 [gr_field $replica ac:score accepted]
+    }
+
+    gr_test {Gate replication: an ACCEPT of a classifier gate replicates nothing} {
+        assert_equal OK [$primary gcreate ac:text ALPHA 0.2 DELTA 0.2 CLASSES 2 spam ham]
+        for {set n 0} {$n < 30} {incr n} {
+            foreach label {spam ham} {
+                $primary gadd ac:text TEXT [gr_text $label $n] LABEL $label
+            }
+        }
+        gr_text_until_active $primary ac:text {spam ham}
+        gr_assert_same $primary $replica ac:text "before the accepted requests"
+
+        set accepted 0
+        for {set n 0} {$n < 400} {incr n} {
+            set label [lindex {spam ham} [expr {$n % 2}]]
+            set offset [status $primary master_repl_offset]
+            lassign [$primary gpredict ac:text TEXT [gr_text $label $n]] action answer
+            if {$action eq "ACCEPT"} {
+                incr accepted
+                assert {$answer eq "spam" || $answer eq "ham"}
+                assert_equal $offset [status $primary master_repl_offset] "master_repl_offset after an ACCEPT"
+            } elseif {$answer ne {}} {
+                assert {[status $primary master_repl_offset] > $offset}
+                assert_equal 1 [$primary glearn ac:text $answer LABEL $label]
+            }
+        }
+        assert {$accepted > 200}
+        gr_assert_same $primary $replica ac:text "after the accepted requests"
+        assert_equal $accepted [gr_field $primary ac:text accepted]
+        assert_equal 0 [gr_field $replica ac:text accepted]
+    }
+
+    gr_test {Gate replication: an ACCEPT that finds overdue feedback tells the replica} {
+        $primary config set gate.feedback-timeout 150
+        assert_equal OK [$primary gcreate ac:late ALPHA 0.2 DELTA 0.2 AUDIT 0.1 SCORE]
+        $primary config set gate.feedback-timeout 600000
+        for {set n 0} {$n < 600 && [gr_field $primary ac:late state] ne "ACTIVE"} {incr n} {
+            lassign [$primary gpredict ac:late SCORE 0.9] action id
+            $primary glearn ac:late $id CORRECT 1
+        }
+        assert_equal ACTIVE [gr_field $primary ac:late state]
+
+        set accepted 0
+        for {set round 1} {$round <= 4} {incr round} {
+            # A spot check that is never answered.
+            for {set n 0} {$n < 500} {incr n} {
+                lassign [$primary gpredict ac:late SCORE 0.9] action id
+                if {$action eq "AUDIT"} break
+            }
+            assert_equal AUDIT $action
+            after 200
+            # The next request is accepted, most of the time, and by itself
+            # an ACCEPT replicates nothing. But the gate has just found out
+            # that a spot check was never answered, and what it made of that
+            # is something the replica must have too.
+            lassign [$primary gpredict ac:late SCORE 0.9] action id
+            if {$action eq "ACCEPT"} {
+                incr accepted
+            } else {
+                $primary glearn ac:late $id CORRECT 1
+            }
+            gr_assert_same $primary $replica ac:late "round $round of overdue spot checks"
+        }
+        assert {$accepted > 0}
+        assert_equal OK [$primary gpause ac:late]
+        assert_equal OK [$primary gresume ac:late]
+        gr_assert_same $primary $replica ac:late "after the overdue spot checks"
+        assert_equal 4 [gr_field $primary ac:late missing]
+        assert_equal 4 [gr_field $replica ac:late missing]
+        $primary config set repl-ping-replica-period 10
+        gr_assert_same_dataset $primary $replica "at the end"
+    }
+}
+}
+
+# ----------------------------------------- a replica attached to live gates
+#
+# The gates exist, answer and have requests waiting before the replica is
+# attached: it gets them as a whole, through a full synchronization. Once
+# with the dataset loaded from a file, once loaded from the socket into a
+# database swapped in at the end (repl-diskless-load swapdb).
+
+foreach diskless_load {disabled swapdb} {
+start_server [list tags {"modules external:skip"} overrides [list loadmodule $gatemodule]] {
+start_server [list overrides [list loadmodule $gatemodule]] {
+    set primary [srv 0 client]
+    set primary_host [srv 0 host]
+    set primary_port [srv 0 port]
+    set replica [srv -1 client]
+    gr_watch -1
+    set ::gr_pending {}
+    set ::gr_used {}
+
+    gr_test "Gate replication: a replica attached to gates that already exist gets them whole (repl-diskless-load $diskless_load)" {
+        $primary config set gate.test-seed 0
+        $primary config set gate.snapshot-examples 40
+        $primary config set gate.feedback-timeout 600000
+        set waiting {}
+
+        # A score gate that answers, with spot checks waiting for feedback.
+        assert_equal OK [$primary gcreate late:active ALPHA 0.2 DELTA 0.2 AUDIT 0.5 SCORE]
+        gr_score_until_active $primary late:active
+        for {set n 0} {$n < 500 && [llength $waiting] < 12} {incr n} {
+            lassign [$primary gpredict late:active SCORE 0.95] action id
+            if {$action eq "AUDIT"} {
+                lappend waiting late:active $id CORRECT 1
+            }
+        }
+        assert_equal 12 [llength $waiting]
+
+        # A score gate half way: five answers wait behind a request that
+        # has none.
+        assert_equal OK [$primary gcreate late:calib ALPHA 0.2 DELTA 0.2 SCORE]
+        set ids {}
+        for {set n 0} {$n < 6} {incr n} {
+            lassign [$primary gpredict late:calib SCORE 0.8] action id
+            lappend ids $id
+        }
+        foreach id [lrange $ids 1 end] {
+            assert_equal 1 [$primary glearn late:calib $id CORRECT 1]
+        }
+        lappend waiting late:calib [lindex $ids 0] CORRECT 1
+
+        # A classifier that answers, with requests waiting.
+        assert_equal OK [$primary gcreate late:text ALPHA 0.2 DELTA 0.2 AUDIT 0.3 CLASSES 2 spam ham]
+        for {set n 0} {$n < 20} {incr n} {
+            foreach label {spam ham} {
+                $primary gadd late:text TEXT [gr_text $label $n] LABEL $label
+            }
+        }
+        gr_text_until_active $primary late:text {spam ham}
+        set asked 0
+        for {set n 0} {$n < 500 && $asked < 4} {incr n} {
+            set label [lindex {spam ham} [expr {$n % 2}]]
+            lassign [$primary gpredict late:text TEXT [gr_text $label $n]] action id
+            if {$action ne "ACCEPT" && $id ne {}} {
+                lappend waiting late:text $id LABEL $label
+                incr asked
+            }
+        }
+        assert_equal 4 $asked
+
+        # A classifier that has learned little: its requests wait with
+        # everything the model will need to learn from them.
+        assert_equal OK [$primary gcreate late:cold ALPHA 0.1 CLASSES 3 billing tech other]
+        for {set n 0} {$n < 5} {incr n} {
+            $primary gadd late:cold TEXT [gr_text billing $n] LABEL billing
+        }
+        lassign [$primary gpredict late:cold TEXT [gr_text tech 1] FEATURES 2 urgent 1 depth -0.5] action id
+        lappend waiting late:cold $id LABEL tech
+        lassign [$primary gpredict late:cold TEXT "[string repeat {kernel panic at boot? } 300]\x00\x01 https://example.com"] action id
+        lappend waiting late:cold $id LABEL tech
+        lassign [$primary gpredict late:cold TEXT ""] action id
+        lappend waiting late:cold $id LABEL other
+
+        # A gate that would answer, paused.
+        assert_equal OK [$primary gcreate late:paused ALPHA 0.2 DELTA 0.2 SCORE]
+        gr_score_until_active $primary late:paused
+        assert_equal OK [$primary gpause late:paused]
+
+        # A gate that was reset after it had answered.
+        assert_equal OK [$primary gcreate late:reset ALPHA 0.2 DELTA 0.2 SCORE]
+        gr_score_until_active $primary late:reset
+        assert_equal OK [$primary greset late:reset]
+        gr_score_request $primary late:reset 0.9
+
+        # A gate whose drift detector fired.
+        assert_equal OK [$primary gcreate late:drift ALPHA 0.2 DELTA 0.2 AUDIT 1 SCORE]
+        gr_score_until_active $primary late:drift
+        for {set n 0} {$n < 200 && [gr_field $primary late:drift revocations] == 0} {incr n} {
+            lassign [$primary gpredict late:drift SCORE 0.95] action id
+            $primary glearn late:drift $id CORRECT 0
+        }
+        assert_equal 1 [gr_field $primary late:drift revocations]
+
+        # A gate with a time to live.
+        assert_equal OK [$primary gcreate late:ttl ALPHA 0.2 DELTA 0.2 SCORE]
+        assert_equal 1 [$primary expire late:ttl 3600]
+
+        # A classifier with 64 labels: megabytes of weights, twice (the
+        # model that learns and its first snapshot).
+        set labels {}
+        for {set n 0} {$n < 64} {incr n} {
+            lappend labels "class-$n"
+        }
+        assert_equal OK [$primary gcreate late:wide ALPHA 0.1 CLASSES 64 {*}$labels]
+        for {set n 0} {$n < 64} {incr n} {
+            $primary gadd late:wide TEXT "words about class $n and [gr_text other $n]" LABEL "class-$n"
+        }
+        lassign [$primary gpredict late:wide TEXT "words about class 7"] action id
+        lappend waiting late:wide $id LABEL class-7
+
+        # A gate that is full: 4,096 requests wait for their feedback, and
+        # it takes no more.
+        assert_equal OK [$primary gcreate late:full ALPHA 0.2 DELTA 0.2 SCORE]
+        for {set n 0} {$n < 4096} {incr n} {
+            lassign [$primary gpredict late:full SCORE 0.9] action id
+            if {$n == 0} {
+                set oldest $id
+            }
+        }
+        assert_equal {ABSTAIN {}} [$primary gpredict late:full SCORE 0.9]
+
+        # A classifier whose waiting requests are long texts: as many as it
+        # will take, megabytes of clues.
+        assert_equal OK [$primary gcreate late:long ALPHA 0.2 CLASSES 2 spam ham]
+        set long {}
+        for {set n 0} {$n < 1000} {incr n} {
+            lassign [$primary gpredict late:long TEXT [gr_long_text $n]] action id
+            if {$id eq {}} break
+            lappend long $id
+        }
+        assert {[llength $long] > 100}
+
+        set gates {late:active late:calib late:text late:cold late:paused late:reset late:drift late:ttl late:wide}
+        set big {late:full late:long}
+        set everything [concat $gates $big]
+        set digests [$primary debug digest-value {*}$everything]
+
+        $replica config set repl-diskless-load $diskless_load
+        $replica replicaof $primary_host $primary_port
+        wait_for_sync $replica
+        assert_equal 1 [status $primary sync_full]
+        # Sending the gates did not change them.
+        assert_equal $digests [$primary debug digest-value {*}$everything]
+        gr_assert_same $primary $replica $everything "after the full synchronization"
+        assert_equal ACTIVE [gr_field $replica late:active state]
+        assert_equal ACTIVE [gr_field $replica late:text state]
+        assert_equal PAUSED [gr_field $replica late:paused state]
+        assert_equal 1 [gr_field $replica late:drift revocations]
+        assert {[$replica ttl late:ttl] > 0}
+    }
+
+    gr_test "Gate replication: feedback for requests made before the replica was attached (repl-diskless-load $diskless_load)" {
+        # The replica got the waiting requests with the gates: their
+        # feedback, sent now, is used by the primary and must do on the
+        # replica what it does on the primary.
+        foreach {key id word answer} $waiting {
+            assert_equal 1 [$primary glearn $key $id $word $answer] "GLEARN $key $id"
+        }
+        gr_assert_same $primary $replica $gates "feedback after the full synchronization"
+        foreach node [list $primary $replica] {
+            assert_equal 8 [gr_field $node late:cold learned]
+            assert_equal 6 [gr_field $node late:calib calibration-samples]
+        }
+
+        # The full gate has room for one request once one got its
+        # feedback, and for one only.
+        assert_equal 1 [$primary glearn late:full $oldest CORRECT 1]
+        lassign [$primary gpredict late:full SCORE 0.9] action id
+        assert_equal ABSTAIN $action
+        assert {$id ne {}}
+        assert_equal {ABSTAIN {}} [$primary gpredict late:full SCORE 0.9]
+        foreach id [lrange $long 0 19] {
+            assert_equal 1 [$primary glearn late:long $id LABEL spam]
+        }
+        lassign [$primary gpredict late:long TEXT [gr_long_text 2000]] action id
+        assert_equal ABSTAIN $action
+        gr_assert_same $primary $replica $big "the fullest gates after the full synchronization"
+        foreach node [list $primary $replica] {
+            assert_equal 20 [gr_field $node late:long learned]
+        }
+    }
+
+    set mix {
+        {late:active score {} 0}
+        {late:calib score {} 0}
+        {late:text text {spam ham} 0}
+        {late:cold text {billing tech other} 0}
+        {late:paused score {} 0}
+        {late:reset score {} 0}
+        {late:drift score {} 0}
+        {late:ttl score {} 0}
+    }
+
+    gr_test "Gate replication: a replica attached late stays equal under further workload (repl-diskless-load $diskless_load)" {
+        for {set round 1} {$round <= 3} {incr round} {
+            gr_workload $primary $mix 600
+            gr_assert_same $primary $replica $gates "workload after the full synchronization, round $round"
+        }
+    }
+
+    gr_test "Gate replication: a replica forced to synchronize again ends up equal (repl-diskless-load $diskless_load)" {
+        set sync_full [status $primary sync_full]
+        # Drop the link and, before the replica is back, write more than
+        # the backlog holds: the replica has to take the whole dataset
+        # again, this time while it holds gates of its own.
+        $primary config set repl-backlog-size 16384
+        $primary multi
+        $primary client kill type replica
+        for {set n 0} {$n < 40} {incr n} {
+            $primary gadd late:cold TEXT "[gr_text tech $n] [string repeat {filler } 150]" LABEL tech
+            $primary gpredict late:calib SCORE 0.9
+        }
+        $primary exec
+        wait_for_condition 100 100 {
+            [status $primary sync_full] > $sync_full
+        } else {
+            fail "the replica did not start a full synchronization"
+        }
+        wait_for_sync $replica
+        $primary config set repl-backlog-size 1048576
+        gr_assert_same $primary $replica $everything "after the second full synchronization"
+        gr_workload $primary $mix 400
+        gr_assert_same $primary $replica $gates "workload after the second full synchronization"
+    }
+
+    gr_test "Gate replication: a restarted replica with nothing on disk takes the gates again (repl-diskless-load $diskless_load)" {
+        set sync_full [status $primary sync_full]
+        # Remember whose replica this is, and leave no dataset behind: a
+        # replica that loaded its last synchronization from a file still
+        # has that file.
+        $replica config rewrite
+        file delete -force [file join [dict get [srv -1 config] dir] dump.rdb]
+        restart_server -1 true false
+        set replica [srv -1 client]
+        # The primary goes on while the replica finds its way back.
+        gr_workload $primary $mix 400
+        wait_for_sync $replica
+        assert_equal [expr {$sync_full + 1}] [status $primary sync_full]
+        gr_assert_same $primary $replica $everything "restarted replica"
+        gr_workload $primary $mix 400
+        gr_assert_same $primary $replica $gates "workload after the replica restarted"
+    }
+
+    gr_test "Gate replication: a restarted replica goes on from the gates it saved (repl-diskless-load $diskless_load)" {
+        # The replica saves its gates, and its place in the stream with
+        # them. What it applies afterwards is not in the file.
+        $replica bgsave
+        waitForBgsave $replica
+        gr_workload $primary $mix 400
+        gr_assert_same $primary $replica $gates "workload after the replica saved"
+
+        set sync_full [status $primary sync_full]
+        set sync_partial [status $primary sync_partial_ok]
+        restart_server -1 true false
+        set replica [srv -1 client]
+        gr_workload $primary $mix 400
+        wait_for_sync $replica
+        # It loaded the gates it had saved and asked only for what came
+        # after: all of that was applied to gates read from a file.
+        assert_equal $sync_full [status $primary sync_full]
+        assert_equal [expr {$sync_partial + 1}] [status $primary sync_partial_ok]
+        gr_assert_same $primary $replica $everything "restarted replica, partial resynchronization"
+        gr_workload $primary $mix 400
+        gr_assert_same $primary $replica $gates "workload after the partial resynchronization"
+        gr_assert_same_dataset $primary $replica "at the end"
+    }
+}
+}
+}
+
+# ------------------------------------------------------------------ failover
+#
+# Two servers that swap roles three times: REPLICAOF NO ONE on the replica,
+# FAILOVER back, and REPLICAOF NO ONE again while the primary still takes
+# writes. 'first' is the primary when the block starts, 'second' its replica.
+
+start_server [list tags {"modules external:skip"} overrides [list loadmodule $gatemodule]] {
+start_server [list overrides [list loadmodule $gatemodule]] {
+    set first [srv 0 client]
+    set first_host [srv 0 host]
+    set first_port [srv 0 port]
+    set second [srv -1 client]
+    set second_host [srv -1 host]
+    set second_port [srv -1 port]
+    gr_watch -1
+    set ::gr_pending {}
+    set ::gr_used {}
+
+    set gates {fo:score fo:text fo:calib fo:paused fo:cold}
+    set mix {
+        {fo:score score {} 0}
+        {fo:text text {spam ham} 0}
+        {fo:calib score {} 0}
+        {fo:paused score {} 0}
+        {fo:cold text {billing tech other} 0}
+    }
+    # A first request for each gate.
+    set probes {
+        fo:score {SCORE 0.99}
+        fo:text {TEXT {winner prize money}}
+        fo:calib {SCORE 0.99}
+        fo:paused {SCORE 0.99}
+        fo:cold {TEXT {invoice refund charge}}
+    }
+    set truth {
+        fo:score {CORRECT 1}
+        fo:text {LABEL spam}
+        fo:calib {CORRECT 1}
+        fo:paused {CORRECT 1}
+        fo:cold {LABEL billing}
+    }
+
+    gr_test {Gate failover: gates that answer and requests that wait, on a primary and its replica} {
+        $first config set gate.test-seed 0
+        $first config set gate.snapshot-examples 40
+        $first config set gate.feedback-timeout 600000
+        $second replicaof $first_host $first_port
+        wait_for_sync $second
+        set stale {}
+
+        # A score gate that answers, with spot checks waiting.
+        assert_equal OK [$first gcreate fo:score ALPHA 0.2 DELTA 0.2 AUDIT 0.5 SCORE]
+        gr_score_until_active $first fo:score
+        for {set n 0} {$n < 500 && [llength $stale] < 12} {incr n} {
+            lassign [$first gpredict fo:score SCORE 0.95] action id
+            if {$action eq "AUDIT"} {
+                lappend stale fo:score $id CORRECT 1
+            }
+        }
+        assert_equal 12 [llength $stale]
+
+        # A classifier that answers, with requests waiting.
+        assert_equal OK [$first gcreate fo:text ALPHA 0.2 DELTA 0.2 AUDIT 0.3 CLASSES 2 spam ham]
+        for {set n 0} {$n < 20} {incr n} {
+            foreach label {spam ham} {
+                $first gadd fo:text TEXT [gr_text $label $n] LABEL $label
+            }
+        }
+        gr_text_until_active $first fo:text {spam ham}
+        set asked 0
+        for {set n 0} {$n < 500 && $asked < 3} {incr n} {
+            set label [lindex {spam ham} [expr {$n % 2}]]
+            lassign [$first gpredict fo:text TEXT [gr_text $label $n]] action id
+            if {$action ne "ACCEPT" && $id ne {}} {
+                lappend stale fo:text $id LABEL $label
+                incr asked
+            }
+        }
+        assert_equal 3 $asked
+
+        # A score gate half way.
+        assert_equal OK [$first gcreate fo:calib ALPHA 0.2 DELTA 0.2 SCORE]
+        for {set n 0} {$n < 10} {incr n} {
+            gr_score_request $first fo:calib 0.9
+        }
+        for {set n 0} {$n < 3} {incr n} {
+            lassign [$first gpredict fo:calib SCORE 0.9] action id
+            lappend stale fo:calib $id CORRECT 1
+        }
+
+        # A gate that would answer, paused.
+        assert_equal OK [$first gcreate fo:paused ALPHA 0.2 DELTA 0.2 SCORE]
+        gr_score_until_active $first fo:paused
+        assert_equal OK [$first gpause fo:paused]
+
+        # A classifier that has not learned enough for a snapshot.
+        assert_equal OK [$first gcreate fo:cold ALPHA 0.2 DELTA 0.2 CLASSES 3 billing tech other]
+        for {set n 0} {$n < 6} {incr n} {
+            set label [lindex {billing tech} [expr {$n % 2}]]
+            $first gadd fo:cold TEXT [gr_text $label $n] LABEL $label
+        }
+        for {set n 0} {$n < 2} {incr n} {
+            lassign [$first gpredict fo:cold TEXT [gr_text other $n]] action id
+            lappend stale fo:cold $id LABEL other
+        }
+
+        gr_assert_same $first $second $gates "before the failover"
+        set before [dict create]
+        foreach key $gates {
+            dict set before $key [gr_info $second $key]
+        }
+        assert_equal ACTIVE [dict get $before fo:score state]
+        assert_equal ACTIVE [dict get $before fo:text state]
+        assert_equal CALIBRATING [dict get $before fo:calib state]
+        assert_equal PAUSED [dict get $before fo:paused state]
+        assert_equal COLD [dict get $before fo:cold state]
+    }
+
+    gr_test {Gate failover: a promoted replica shows that its gates no longer answer} {
+        assert_equal OK [$second replicaof no one]
+        assert_equal master [lindex [$second role] 0]
+        set announced [dict create]
+        foreach key $gates {
+            set info [gr_info $second $key]
+            dict set announced $key [gr_recovery_view $second $key]
+            assert {[gr_not_answering $info]}
+            assert {[dict get $info state] ne "ACTIVE"}
+            # The gate keeps its configuration and its model.
+            foreach field {kind alpha delta audit classes alphas learned} {
+                assert_equal [dict get $before $key $field] [dict get $info $field] "$field of $key"
+            }
+        }
+        assert_equal PAUSED [gr_field $second fo:paused state]
+        # Looking at a gate does not change it.
+        assert_equal [$first debug digest-value {*}$gates] [$second debug digest-value {*}$gates]
+    }
+
+    gr_test {Gate failover: feedback for requests of the old primary is not used, a first request is not answered} {
+        # For two of the gates, the first thing the new primary hears is
+        # feedback for a request the old primary made.
+        foreach {key id word answer} $stale {
+            if {$key eq "fo:score" || $key eq "fo:cold"} {
+                assert_equal 0 [$second glearn $key $id $word $answer] "GLEARN $key $id on the new primary"
+            }
+        }
+        # That feedback was not used. It made the gate drop its proof and
+        # its waiting requests, which is what GINFO had announced.
+        foreach key {fo:score fo:cold} {
+            assert_equal [dict get $announced $key] [gr_recovery_view $second $key] \
+                "GINFO $key before its first write (first) and after (second)"
+        }
+
+        # For every gate, a first request: the teacher must be asked.
+        set fresh {}
+        foreach {key request} $probes {
+            lassign [$second gpredict $key {*}$request] action id
+            assert_equal ABSTAIN $action "the first GPREDICT $key on the new primary"
+            if {$id ne {}} {
+                lappend fresh $key $id {*}[dict get $truth $key]
+            }
+        }
+        assert {[llength $fresh] > 0}
+
+        # No id of the old primary is good any more; those of the new are.
+        foreach {key id word answer} $stale {
+            assert_equal 0 [$second glearn $key $id $word $answer] "GLEARN $key $id on the new primary"
+        }
+        foreach {key id word answer} $fresh {
+            assert_equal 1 [$second glearn $key $id $word $answer] "GLEARN $key $id on the new primary"
+        }
+        foreach key $gates {
+            assert {[gr_not_answering [gr_info $second $key]]}
+        }
+    }
+
+    gr_test {Gate failover: the gates prove themselves again on the new primary} {
+        gr_score_until_active $second fo:score
+        # The model was kept: a snapshot of it is tested at once.
+        gr_text_until_active $second fo:text {spam ham}
+        foreach key {fo:score fo:text} {
+            set info [gr_info $second $key]
+            assert_equal ACTIVE [dict get $info state]
+            # A snapshot number is never reused, whatever the node.
+            assert {[dict get $info generation] > [dict get $before $key generation]}
+            assert {[dict get $info generation] > [dict get $before $key candidate]}
+        }
+        set accepted 0
+        for {set n 0} {$n < 200} {incr n} {
+            if {[gr_score_request $second fo:score 0.95] eq "ACCEPT"} {
+                incr accepted
+            }
+        }
+        assert {$accepted > 0}
+        # Paused it was, paused it stays, proving itself all the same.
+        gr_score_until_active $second fo:calib
+        for {set n 0} {$n < 100} {incr n} {
+            assert {[gr_score_request $second fo:paused 0.9] ne "ACCEPT"}
+        }
+        assert_equal PAUSED [gr_field $second fo:paused state]
+        assert {[gr_field $second fo:paused generation] > [dict get $before fo:paused generation]}
+    }
+
+    gr_test {Gate failover: the old primary, made a replica of the new one, converges} {
+        assert_equal OK [$first replicaof $second_host $second_port]
+        wait_for_sync $first
+        gr_watch 0
+        gr_assert_same $second $first $gates "the old primary as a replica"
+        assert_equal ACTIVE [gr_field $first fo:score state]
+    }
+
+    gr_test {Gate failover: FAILOVER back, the returning primary does not trust what it remembers} {
+        # Requests that wait on the primary of the moment.
+        set stale {}
+        for {set n 0} {$n < 500 && [llength $stale] < 12} {incr n} {
+            lassign [$second gpredict fo:score SCORE 0.95] action id
+            if {$action eq "AUDIT"} {
+                lappend stale fo:score $id CORRECT 1
+            }
+        }
+        assert_equal 12 [llength $stale]
+        for {set n 0} {$n < 500 && [llength $stale] < 20} {incr n} {
+            set label [lindex {spam ham} [expr {$n % 2}]]
+            lassign [$second gpredict fo:text TEXT [gr_text $label $n]] action id
+            if {$action ne "ACCEPT" && $id ne {}} {
+                lappend stale fo:text $id LABEL $label
+            }
+        }
+        assert_equal 20 [llength $stale]
+        gr_assert_same $second $first $gates "before FAILOVER"
+        set before [dict create]
+        foreach key $gates {
+            dict set before $key [gr_info $first $key]
+        }
+        assert_equal ACTIVE [dict get $before fo:score state]
+        assert_equal ACTIVE [dict get $before fo:text state]
+
+        assert_equal OK [$second failover to $first_host $first_port]
+        wait_for_condition 100 100 {
+            [status $second master_failover_state] eq "no-failover" &&
+            [lindex [$first role] 0] eq "master" &&
+            [status $second master_link_status] eq "up"
+        } else {
+            fail "FAILOVER to the old primary did not finish"
+        }
+        gr_watch -1
+
+        # These are the gates this server created and once answered for.
+        # It has been a replica since: nothing shows that it missed nothing.
+        foreach key $gates {
+            set info [gr_info $first $key]
+            assert {[gr_not_answering $info]}
+            assert {[dict get $info state] ne "ACTIVE"}
+            assert_equal [dict get $before $key learned] [dict get $info learned]
+        }
+        set fresh {}
+        foreach {key request} $probes {
+            lassign [$first gpredict $key {*}$request] action id
+            assert_equal ABSTAIN $action "the first GPREDICT $key on the returning primary"
+            if {$id ne {}} {
+                lappend fresh $key $id {*}[dict get $truth $key]
+            }
+        }
+        foreach {key id word answer} $stale {
+            assert_equal 0 [$first glearn $key $id $word $answer] "GLEARN $key $id on the returning primary"
+        }
+        foreach {key id word answer} $fresh {
+            assert_equal 1 [$first glearn $key $id $word $answer] "GLEARN $key $id on the returning primary"
+        }
+        gr_assert_same $first $second $gates "after FAILOVER"
+
+        for {set round 1} {$round <= 2} {incr round} {
+            gr_workload $first $mix 500
+            gr_assert_same $first $second $gates "workload after FAILOVER, round $round"
+        }
+    }
+
+    gr_test {Gate failover: writes the replica never saw are gone once it has taken over} {
+        gr_workload_drain $first
+        gr_assert_same $first $second $gates "before the second failover"
+        set learned [gr_field $second fo:cold learned]
+
+        # The replica is promoted while the primary still takes writes:
+        # these never reach it.
+        assert_equal OK [$second replicaof no one]
+        set lost {}
+        for {set n 0} {$n < 20} {incr n} {
+            lassign [$first gpredict fo:calib SCORE 0.9] action id
+            if {$id ne {}} {
+                lappend lost fo:calib $id CORRECT 1
+            }
+            $first gadd fo:cold TEXT [gr_text tech $n] LABEL tech
+        }
+        assert_equal OK [$first greset fo:score]
+        assert_equal [expr {$learned + 20}] [gr_field $first fo:cold learned]
+
+        # The new primary takes requests of its own.
+        foreach {key request} $probes {
+            lassign [$second gpredict $key {*}$request] action id
+            assert_equal ABSTAIN $action "the first GPREDICT $key on the new primary"
+            if {$id ne {}} {
+                assert_equal 1 [$second glearn $key $id {*}[dict get $truth $key]]
+            }
+        }
+        set kept [gr_field $second fo:cold learned]
+        assert {$kept <= $learned + 1}
+
+        # The old primary gives up and follows: what it did on its own
+        # never happened.
+        assert_equal OK [$first replicaof $second_host $second_port]
+        wait_for_sync $first
+        gr_watch 0
+        gr_assert_same $second $first $gates "after the writes that were lost"
+        assert_equal $kept [gr_field $first fo:cold learned]
+        foreach {key id word answer} $lost {
+            assert_equal 0 [$second glearn $key $id $word $answer] "GLEARN $key $id, issued by a primary that lost"
+        }
+        gr_assert_same $second $first $gates "feedback for writes that were lost"
+
+        for {set round 1} {$round <= 2} {incr round} {
+            gr_workload $second $mix 500
+            gr_assert_same $second $first $gates "workload after the second failover, round $round"
+        }
+        gr_assert_same_dataset $second $first "at the end"
+    }
 }
 }

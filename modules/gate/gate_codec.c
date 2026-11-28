@@ -21,9 +21,9 @@
  *               i64 feedback timeout
  *   ledger      u64 lineage, u64 epoch, i64 created_ms, i64 now_ms *,
  *               u64 generations, u8 paused, u64 snapshot_updates
- *   trainer     u8 present (1 for a classifier, else 0), then a model
- *   candidate   u8 present, then a generation
- *   serving     u8 present, then a generation
+ *   trainer     u8 present (1 for a classifier, else 0); if present, a model
+ *   candidate   u8 present; if present, a generation
+ *   serving     u8 present; if present, a generation
  *   requests    u64 next_seq, u32 count, then the waiting requests in
  *               ascending seq order
  *   counters    u64 requests *, accepted *, audited *, abstained *, full *,
@@ -43,6 +43,9 @@
  *
  * The fields marked * are written as zero for a digest. The bar and the
  * policy of a generation are not stored: the decoder computes them again.
+ * Weights, regions and drift detectors carry no count: it follows from the
+ * config and from GATE_DIM and GATE_THRESHOLDS, so changing either of those
+ * changes the format and needs a new GATE_CODEC_VERSION.
  *
  * WHAT THE DECODER ENFORCES. The limits of gate_defs.h, what the core needs
  * in order to be safe (the labels and buckets it indexes with, the numbers
@@ -64,6 +67,12 @@
  * such values do not exist and delete the checks. */
 #if defined(__FINITE_MATH_ONLY__) && __FINITE_MATH_ONLY__
 #error "gate_codec.c needs IEEE NaN and infinity semantics: do not build it with -ffast-math"
+#endif
+
+/* Arrays whose size follows from these constants carry no count. */
+#if GATE_CODEC_VERSION == 1 && \
+    (GATE_DIM != 8192u || GATE_THRESHOLDS != 32u || GATE_NBETS != 4 || GATE_DRIFT_ALTS != 2)
+#error "these constants shape the encoding: changing one needs a new GATE_CODEC_VERSION"
 #endif
 
 /* Little-endian stores and loads, spelled out byte by byte: right on any

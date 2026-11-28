@@ -82,8 +82,8 @@ class Meter:
     def __exit__(self, *exc):
         self.seconds = time.time() - self.t0
         stats = self.r.info("commandstats")
-        self.cmds = {k[len("cmdstat_"):]: v for k, v in stats.items()
-                     if k.startswith("cmdstat_g")}
+        self.cmds = {k[len("cmdstat_"):].lower(): v for k, v in stats.items()
+                     if k.lower().startswith("cmdstat_g")}
         self.bytes = self.r.info("replication")["master_repl_offset"] - self.offset
 
     def show(self, name, ops):
@@ -145,8 +145,10 @@ def main():
             m.show(f"classifier ACTIVE, {nbytes}-byte text", n)
 
         r.execute_command("GCREATE", "bench:score", "ALPHA", 0.05, "SCORE", *tiny)
-        while r.execute_command("GPREDICT", "bench:score", "SCORE", 0.99)[0] != b"ACCEPT":
-            _, arg = r.execute_command("GPREDICT", "bench:score", "SCORE", 0.99)
+        while True:
+            action, arg = r.execute_command("GPREDICT", "bench:score", "SCORE", 0.99)
+            if action == b"ACCEPT":
+                break
             if arg is not None:
                 r.execute_command("GLEARN", "bench:score", arg, "CORRECT", 1)
         with Meter(r) as m:
@@ -159,34 +161,38 @@ def main():
                 r.execute_command("GINFO", "bench:score")
         m.show("GINFO", n)
 
-        # -- throughput with pipelining, 50 connections
-        print("\nredis-benchmark, 50 clients, pipeline 16:")
+        # -- redis-benchmark: 50 connections, with and without pipelining
+        print("\nredis-benchmark, 50 clients (requests/s pipelined x16; latency unpipelined):")
         for name, cmd in (("GPREDICT score (ACCEPT)", ["GPREDICT", "bench:score", "SCORE", "0.99"]),
                           ("GPREDICT 60-byte text (ACCEPT)",
                            ["GPREDICT", "bench:clf60", "TEXT", text(rng, 60)]),
                           ("GPREDICT 600-byte text (ACCEPT)",
-                           ["GPREDICT", "bench:clf600", "TEXT", text(rng, 600)])):
-            out = subprocess.run([BENCH, "-p", str(PORT), "-q", "-n", "400000", "-c", "50",
-                                  "-P", "16", *cmd], capture_output=True, text=True).stdout
-            line = [l for l in out.replace("\r", "\n").splitlines() if "requests per second" in l]
-            print(f"  {name:<34} {line[-1].split(':', 1)[1].strip() if line else out.strip()}")
+                           ["GPREDICT", "bench:clf600", "TEXT", text(rng, 600)]),
+                          ("GINFO", ["GINFO", "bench:score"])):
+            def run(pipeline, n):
+                out = subprocess.run([BENCH, "-p", str(PORT), "--csv", "-n", str(n), "-c", "50",
+                                      "-P", str(pipeline), *cmd], capture_output=True, text=True).stdout
+                return out.strip().splitlines()[-1].replace('"', "").split(",")[-7:]
+            fast = run(16, 400000)
+            slow = run(1, 100000)
+            print(f"  {name:<32} {float(fast[0]):>10,.0f}/s   p50 {slow[3]} ms  p99 {slow[5]} ms")
 
-        # -- memory
+        # -- memory (gates whose every request was answered, then one that waits)
         print("\nmemory (MEMORY USAGE):")
         r.execute_command("GCREATE", "m:score", "ALPHA", 0.05, "SCORE")
         r.execute_command("GCREATE", "m:c2", "ALPHA", 0.05, "CLASSES", 2, "a", "b")
         r.execute_command("GCREATE", "m:c8", "ALPHA", 0.05, "CLASSES", 8, *"abcdefgh")
         r.execute_command("GCREATE", "m:c64", "ALPHA", 0.05, "CLASSES", 64,
                           *[f"l{i}" for i in range(64)])
-        for key, what in (("m:score", "score gate, new"), ("bench:score", "score gate, ACTIVE"),
+        for key, what in (("m:score", "score gate, new"), ("bench:score0", "score gate, ACTIVE"),
                           ("m:c2", "classifier, 2 labels, new"),
-                          ("bench:clf60", "classifier, 2 labels, ACTIVE"),
+                          ("bench:warm", "classifier, 2 labels, ACTIVE"),
                           ("m:c8", "classifier, 8 labels, new"),
                           ("m:c64", "classifier, 64 labels, new")):
             print(f"  {what:<34} {r.memory_usage(key):>10,} bytes")
-        for i in range(4096):
+        for i in range(3000):
             r.execute_command("GPREDICT", "m:c2", "TEXT", text(rng, 200))
-        print(f"  {'... with 4,096 waiting requests':<34} {r.memory_usage('m:c2'):>10,} bytes")
+        print(f"  {'... 3,000 unanswered 200-byte requests':<34} {r.memory_usage('m:c2'):>10,} bytes")
 
         ok = all(r.execute_command("DEBUG", "DIGEST-VALUE", k) ==
                  rep.execute_command("DEBUG", "DIGEST-VALUE", k)

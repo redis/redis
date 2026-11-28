@@ -261,6 +261,7 @@ static void simScoreRun(const simSetup *su, uint64_t seed, simResult *res) {
     if (gateConfigValidate(&cfg, err, sizeof(err)) != GATE_OK) simDie(err);
     g = gateCreate(&cfg, gate_test_rand64(&rng), gate_test_rand64(&rng), 0);
     if (g == NULL) simDie("out of memory");
+    gateConfigFree(&cfg);
 
     for (i = 0; i < SIM_HORIZON; i++) {
         const simWorld *w = su->broken && i >= SIM_FLIP ? su->broken : su->world;
@@ -669,7 +670,8 @@ static void simUsefulness(uint64_t runs, uint64_t seed) {
             su.truth = &tr;
             simScoreRow(&su, runs, seed, 200 + a * 10 + w, &row);
             simWilson(row.invalid, runs, &lo, &hi);
-            printf("    %.2f   %-11s  %6s %6s  %7.1f%% %7.1f%% %7.1f%%  %9s %10.3f  %6.2f%% of %2.0f%%   %-9llu  %llu of %llu\n",
+            printf("    %.2f   %-11s  %6s %6s  %7.1f%% %7.1f%% %7.1f%%  %9s %10.3f  %6.2f%% of %2.0f%%"
+                   "   %-9llu  %llu of %llu\n",
                    alphas[a], simUseful[w].name,
                    simFmt(b1, sizeof(b1), simQuantile(row.first, runs, 0.5)),
                    simFmt(b2, sizeof(b2), simQuantile(row.first, runs, 0.9)),

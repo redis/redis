@@ -49,12 +49,12 @@
  * after 7 wrong spot checks in a row ((128 + 2187) / 2 = 1157.5; 6 give
  * 396.5).
  *
- * The randomized test at the end compares the gate, operation by operation,
+ * The randomized tests at the end compare the gate, operation by operation,
  * with a second implementation of the rules of gate_core.h that is written
- * for obviousness instead of speed (one array, linear scans).
+ * for obviousness instead of speed (one array, linear scans), and with a
+ * second gate that is told only what a replica is told.
  */
 
-#include <float.h>
 #include "testutil.h"
 #include "gate_core.h"
 
@@ -150,6 +150,24 @@ static void inv(const gate *g) {
         gate_test_failures++;
         printf("  in %s: invariant broken: %s\n", gate_test_current, err);
     }
+}
+
+/* The serving / candidate generation, or a blank stand-in when the gate
+ * has none (number 0, every policy -99, no proof): a test that expects a
+ * generation then fails its checks instead of crashing the whole run. */
+static gateRegion blank_regions[GATE_MAX_CLASSES * T];
+static int32_t blank_policy[GATE_MAX_CLASSES]; /* set in main() */
+static gateDrift blank_drift[GATE_MAX_CLASSES];
+static const gateGeneration blank = {
+    .regions = blank_regions, .policy = blank_policy, .drift = blank_drift
+};
+
+static const gateGeneration *servingOf(const gate *g) {
+    return g->serving ? g->serving : &blank;
+}
+
+static const gateGeneration *candidateOf(const gate *g) {
+    return g->candidate ? g->candidate : &blank;
 }
 
 /* Log of the wealth a region of generation 'gen' must reach. */
@@ -343,7 +361,7 @@ static gate *activeScoreGate(int64_t now) {
     uint32_t i, n = needCorrect(ALPHA, barOf(1, 1, T, DELTA), 0);
 
     for (i = 0; i < n; i++) feed(g, now, U_PLAIN, 0.9, 1);
-    CHECK(g->serving != NULL && g->serving->policy[0] == 0);
+    CHECK(g->serving != NULL && servingOf(g)->policy[0] == 0);
     return g;
 }
 
@@ -354,7 +372,7 @@ static gate *trainedGate(uint32_t n) {
     uint32_t i;
 
     for (i = 0; i < n; i++) train(g, T0, (i & 1) ? &XB : &XA, (int32_t)(i & 1));
-    CHECK(g->candidate != NULL && g->candidate->gen == 1);
+    CHECK(g->candidate != NULL && candidateOf(g)->gen == 1);
     return g;
 }
 
@@ -560,6 +578,11 @@ TEST(expected_numbers) {
      * average passes 1000 at the fifth (216 and 2460.4), not at the fourth
      * (108 and 820.1). */
     CHECK_EQ_INT(alarmAfter(0.2, "xxxx...xxxxxxxx"), 12);
+    /* 6 wrong: 64 and 729 (396.5). Right: 48 and 364.5. Wrong: 96 and
+     * 1093.5 (594.75). Wrong: 192 and 3280.5. */
+    CHECK_EQ_INT(alarmAfter(0.2, "xxxxxx.xxx"), 9);
+    /* Right answers take the statistics below 1, where they start again. */
+    CHECK_EQ_INT(alarmAfter(0.2, "......xxxxxxxxx"), 13);
 }
 
 /* --------------------------------- Names --------------------------------- */
@@ -851,13 +874,13 @@ TEST(score_life) {
     /* Nothing to freeze: generation 1 is under test from the first moment. */
     CHECK(gateState(g) == GATE_STATE_CALIBRATING);
     CHECK(g->candidate != NULL && g->serving == NULL);
-    CHECK_EQ_INT(g->candidate->gen, 1);
+    CHECK_EQ_INT(candidateOf(g)->gen, 1);
     CHECK_EQ_INT(g->generations, 1);
-    CHECK_EQ_INT(g->candidate->frozen_ms, T0);
-    CHECK_EQ_INT(g->candidate->promoted_ms, 0);
-    CHECK_EQ_INT(g->candidate->budget, 0);
-    CHECK_NEAR(g->candidate->log_threshold, log(320.0), 1e-12);
-    CHECK_EQ_INT(g->candidate->policy[0], -1);
+    CHECK_EQ_INT(candidateOf(g)->frozen_ms, T0);
+    CHECK_EQ_INT(candidateOf(g)->promoted_ms, 0);
+    CHECK_EQ_INT(candidateOf(g)->budget, 0);
+    CHECK_NEAR(candidateOf(g)->log_threshold, log(320.0), 1e-12);
+    CHECK_EQ_INT(candidateOf(g)->policy[0], -1);
     CHECK(g->lineage == LINEAGE && g->epoch == EPOCH);
     CHECK(g->created_ms == T0 && g->now_ms == T0);
     CHECK(g->trainer.w == NULL);
@@ -890,11 +913,11 @@ TEST(score_life) {
     /* Three wrong answers: the regions 0..3 are in debt from now on. */
     for (i = 1; i <= 3; i++) CHECK_EQ_INT(answer(g, now, i, 0), 1);
     CHECK_EQ_INT(g->npending, 0);
-    CHECK_EQ_INT(g->candidate->samples, 3);
-    CHECK_EQ_INT(g->candidate->errors, 3);
+    CHECK_EQ_INT(candidateOf(g)->samples, 3);
+    CHECK_EQ_INT(candidateOf(g)->errors, 3);
     for (t = 0; t < T; t++) {
-        CHECK_EQ_INT(g->candidate->regions[t].n, t < 4 ? 3 : 0);
-        CHECK_EQ_INT(g->candidate->regions[t].errors, t < 4 ? 3 : 0);
+        CHECK_EQ_INT(candidateOf(g)->regions[t].n, t < 4 ? 3 : 0);
+        CHECK_EQ_INT(candidateOf(g)->regions[t].errors, t < 4 ? 3 : 0);
     }
 
     /* Correct answers at 0.9 feed the regions 0..11. The regions 4..11
@@ -909,19 +932,19 @@ TEST(score_life) {
         CHECK((gateState(g) == GATE_STATE_ACTIVE) == (i == need));
     }
     CHECK(g->serving != NULL && g->candidate == NULL);
-    CHECK_EQ_INT(g->serving->gen, 1);
+    CHECK_EQ_INT(servingOf(g)->gen, 1);
     CHECK_EQ_INT(g->generations, 1);
-    CHECK_EQ_INT(g->serving->promoted_ms, now);
+    CHECK_EQ_INT(servingOf(g)->promoted_ms, now);
     CHECK_EQ_INT(g->stats.promotions, 1);
-    CHECK_EQ_INT(g->serving->samples, 38);
-    CHECK_EQ_INT(g->serving->errors, 3);
+    CHECK_EQ_INT(servingOf(g)->samples, 38);
+    CHECK_EQ_INT(servingOf(g)->errors, 3);
     for (t = 0; t < T; t++) {
-        const gateRegion *reg = &g->serving->regions[t];
+        const gateRegion *reg = &servingOf(g)->regions[t];
 
         CHECK_EQ_INT(reg->certified_at, t >= 4 && t < 12 ? 35 : 0);
         CHECK_EQ_INT(reg->n, t < 4 ? 38 : (t < 12 ? 35 : 0));
     }
-    CHECK_EQ_INT(g->serving->policy[0], 4);
+    CHECK_EQ_INT(servingOf(g)->policy[0], 4);
     CHECK(gateRowThreshold(g, 0) == g->grid[4]);
     CHECK_NEAR(g->grid[4], 0.5515171854920451, 1e-12);
 
@@ -961,22 +984,22 @@ TEST(score_life) {
     /* A spot check of an answer counts as an audit; proof from below the
      * threshold does not, and never reaches the regions above its score. */
     CHECK_EQ_INT(answer(g, now, spot.seq, 1), 1);
-    CHECK_EQ_INT(g->serving->samples, 39);
-    CHECK_EQ_INT(g->serving->audits, 1);
+    CHECK_EQ_INT(servingOf(g)->samples, 39);
+    CHECK_EQ_INT(servingOf(g)->audits, 1);
     CHECK_EQ_INT(answer(g, now, low.seq, 0), 1);
-    CHECK_EQ_INT(g->serving->samples, 40);
-    CHECK_EQ_INT(g->serving->errors, 4);
-    CHECK_EQ_INT(g->serving->audits, 1);
-    CHECK_EQ_INT(g->serving->regions[0].errors, 4);
-    CHECK_EQ_INT(g->serving->regions[4].errors, 0);
+    CHECK_EQ_INT(servingOf(g)->samples, 40);
+    CHECK_EQ_INT(servingOf(g)->errors, 4);
+    CHECK_EQ_INT(servingOf(g)->audits, 1);
+    CHECK_EQ_INT(servingOf(g)->regions[0].errors, 4);
+    CHECK_EQ_INT(servingOf(g)->regions[4].errors, 0);
     CHECK_EQ_INT(answer(g, now, top.seq, 1), 1);
-    CHECK_EQ_INT(g->serving->audits, 2);
-    CHECK_EQ_INT(g->serving->audit_errors, 0);
-    CHECK_EQ_INT(g->serving->regions[T - 1].n, 1); /* 1.0 is in every region */
-    CHECK_EQ_INT(g->serving->drift[0].n, 2);
+    CHECK_EQ_INT(servingOf(g)->audits, 2);
+    CHECK_EQ_INT(servingOf(g)->audit_errors, 0);
+    CHECK_EQ_INT(servingOf(g)->regions[T - 1].n, 1); /* 1.0 is in every region */
+    CHECK_EQ_INT(servingOf(g)->drift[0].n, 2);
     CHECK_EQ_INT(g->stats.learned, 41);
     CHECK_EQ_INT(g->npending, 0);
-    CHECK_EQ_INT(g->serving->policy[0], 4);
+    CHECK_EQ_INT(servingOf(g)->policy[0], 4);
     gateFree(g);
 }
 
@@ -996,7 +1019,7 @@ TEST(continued_testing) {
     feed(g, now, U_PLAIN, 0.1, 0); /* and a second one in region 0 */
     for (i = 1; i <= n0; i++) feed(g, now, U_PLAIN, 0.9, 1);
     CHECK(gateState(g) == GATE_STATE_ACTIVE);
-    CHECK_EQ_INT(g->serving->policy[0], 4);
+    CHECK_EQ_INT(servingOf(g)->policy[0], 4);
 
     /* 0.3 is under the threshold 0.55: not answered, not proof. */
     for (i = 0; i < 4; i++) {
@@ -1011,7 +1034,7 @@ TEST(continued_testing) {
         r = ask(g, now, U_SPOT, 0.9);
         CHECK(r.action == GATE_ACTION_AUDIT);
         CHECK_EQ_INT(answer(g, now, r.seq, 1), 1);
-        CHECK_EQ_INT(g->serving->policy[0], i < n1 ? 4 : 1);
+        CHECK_EQ_INT(servingOf(g)->policy[0], i < n1 ? 4 : 1);
     }
     CHECK(gateRowThreshold(g, 0) == g->grid[1]);
     CHECK_NEAR(gateCoverage(g), 12.0 / 16.0, 1e-12);
@@ -1025,15 +1048,15 @@ TEST(continued_testing) {
     for (i = n1 + 1; i <= n2; i++) {
         r = ask(g, now, U_SPOT, 0.9);
         CHECK_EQ_INT(answer(g, now, r.seq, 1), 1);
-        CHECK_EQ_INT(g->serving->policy[0], i < n2 ? 1 : 0);
+        CHECK_EQ_INT(servingOf(g)->policy[0], i < n2 ? 1 : 0);
     }
     CHECK(gateRowThreshold(g, 0) == 0.0);
     r = ask(g, now, U_PLAIN, 0.0);
     CHECK(r.action == GATE_ACTION_ACCEPT);
     CHECK_NEAR(gateCoverage(g), 27.0 / 31.0, 1e-12);
-    CHECK_EQ_INT(g->serving->regions[4].certified_at, n0);
-    CHECK_EQ_INT(g->serving->regions[1].certified_at, n1 + 1);
-    CHECK_EQ_INT(g->serving->regions[0].certified_at, n2 + 2);
+    CHECK_EQ_INT(servingOf(g)->regions[4].certified_at, n0);
+    CHECK_EQ_INT(servingOf(g)->regions[1].certified_at, n1 + 1);
+    CHECK_EQ_INT(servingOf(g)->regions[0].certified_at, n2 + 2);
 
     /* A proof is "the wealth reached the bar once". Three wrong spot checks
      * take the wealth far below it again; what was proven stays proven. */
@@ -1041,10 +1064,10 @@ TEST(continued_testing) {
         r = ask(g, now, U_SPOT, 0.9);
         CHECK_EQ_INT(answer(g, now, r.seq, 0), 1);
     }
-    CHECK(!gateRegionCertifies(&g->serving->regions[0], g->serving->log_threshold));
-    CHECK_EQ_INT(g->serving->regions[0].certified_at, n2 + 2);
-    CHECK_EQ_INT(g->serving->policy[0], 0);
-    CHECK_EQ_INT(g->serving->audit_errors, 3);
+    CHECK(!gateRegionCertifies(&servingOf(g)->regions[0], servingOf(g)->log_threshold));
+    CHECK_EQ_INT(servingOf(g)->regions[0].certified_at, n2 + 2);
+    CHECK_EQ_INT(servingOf(g)->policy[0], 0);
+    CHECK_EQ_INT(servingOf(g)->audit_errors, 3);
     r = ask(g, now, U_PLAIN, 0.0);
     CHECK(r.action == GATE_ACTION_ACCEPT);
     CHECK_EQ_INT(g->stats.promotions, 1);
@@ -1062,7 +1085,7 @@ TEST(coverage_average) {
     CHECK(gateCoverage(g) == 0.0);
     feed(g, now, U_PLAIN, 0.5, 0);
     for (i = 0; i < 35; i++) feed(g, now, U_PLAIN, 0.9, 1);
-    CHECK(g->serving != NULL && g->serving->policy[0] == 4);
+    CHECK(g->serving != NULL && servingOf(g)->policy[0] == 4);
     CHECK(gateCoverage(g) == 0.0); /* starts over with the new generation */
 
     for (i = 0; i < GATE_COVERAGE_WINDOW; i++)
@@ -1105,7 +1128,7 @@ TEST(evaluate) {
     CHECK(gateEvaluate(g, &XB, 0.0, &ev) == GATE_OK);
     CHECK(ev.has_candidate == 1 && ev.has_serving == 0);
     CHECK_EQ_INT(ev.candidate.label, 1);
-    CHECK_EQ_INT(gateModelPredict(&g->candidate->model, &XB, NULL, &score), 1);
+    CHECK_EQ_INT(gateModelPredict(&candidateOf(g)->model, &XB, NULL, &score), 1);
     CHECK(ev.candidate.score == score);
     CHECK(score > 0.9 && score < 0.92); /* 0.909 after six examples each */
     /* It is the frozen copy that guesses, not the model that keeps learning. */
@@ -1171,28 +1194,28 @@ TEST(classifier_life) {
     CHECK_EQ_INT(answer(g, now, early[2].seq, 2), 1);
     CHECK(gateState(g) == GATE_STATE_CALIBRATING);
     CHECK(g->candidate != NULL && g->serving == NULL);
-    CHECK_EQ_INT(g->candidate->gen, 1);
+    CHECK_EQ_INT(candidateOf(g)->gen, 1);
     CHECK_EQ_INT(g->generations, 1);
-    CHECK_EQ_INT(g->candidate->model.updates, 240);
+    CHECK_EQ_INT(candidateOf(g)->model.updates, 240);
     CHECK_EQ_INT(g->snapshot_updates, 240);
-    CHECK(g->candidate->model.w != NULL && g->candidate->model.w != g->trainer.w);
+    CHECK(candidateOf(g)->model.w != NULL && candidateOf(g)->model.w != g->trainer.w);
     /* Two tested labels, four entry points each. */
-    CHECK_NEAR(g->candidate->log_threshold, log(80.0), 1e-12);
+    CHECK_NEAR(candidateOf(g)->log_threshold, log(80.0), 1e-12);
     /* 20 times what the most demanding label needs with its best bet: the
      * stricter one gains log(1.1) per answer, 4.382 / 0.0953 = 45.98. */
-    CHECK_EQ_INT(g->candidate->budget, 20 * 46);
+    CHECK_EQ_INT(candidateOf(g)->budget, 20 * 46);
 
     /* A request asked before the snapshot existed is not proof for it. */
     CHECK_EQ_INT(flagsOf(g, early[3].seq), 0);
     CHECK_EQ_INT(answer(g, now, early[3].seq, 0), 1);
     CHECK_EQ_INT(g->trainer.updates, 241);
-    CHECK_EQ_INT(g->candidate->samples, 0);
+    CHECK_EQ_INT(candidateOf(g)->samples, 0);
 
     /* The frozen model is sure about the three clue vectors: its scores
      * reach at least the lowest entry point (threshold index 7). */
-    CHECK_EQ_INT(gateModelPredict(&g->candidate->model, &XA, NULL, &sa), 0);
-    CHECK_EQ_INT(gateModelPredict(&g->candidate->model, &XB, NULL, &sb), 1);
-    CHECK_EQ_INT(gateModelPredict(&g->candidate->model, &XC, NULL, &sc), 2);
+    CHECK_EQ_INT(gateModelPredict(&candidateOf(g)->model, &XA, NULL, &sa), 0);
+    CHECK_EQ_INT(gateModelPredict(&candidateOf(g)->model, &XB, NULL, &sb), 1);
+    CHECK_EQ_INT(gateModelPredict(&candidateOf(g)->model, &XC, NULL, &sc), 2);
     CHECK(regionsOf(g, sa) >= 8 && regionsOf(g, sb) >= 8 && regionsOf(g, sc) >= 8);
 
     /* CALIBRATING: every request is proof for the label the snapshot
@@ -1209,22 +1232,22 @@ TEST(classifier_life) {
         if (i <= 5) feedText(g, now, U_PLAIN, &XC, 2);
     }
     CHECK(gateState(g) == GATE_STATE_CALIBRATING);
-    CHECK_EQ_INT(g->candidate->samples, 27 + 20 + 5);
-    CHECK_EQ_INT(g->candidate->errors, 0);
+    CHECK_EQ_INT(candidateOf(g)->samples, 27 + 20 + 5);
+    CHECK_EQ_INT(candidateOf(g)->errors, 0);
     for (t = 0; t < T; t++) {
-        CHECK_EQ_INT(g->candidate->regions[0 * T + t].n, t < regionsOf(g, sa) ? 27 : 0);
-        CHECK_EQ_INT(g->candidate->regions[1 * T + t].n, t < regionsOf(g, sb) ? 20 : 0);
-        CHECK_EQ_INT(g->candidate->regions[2 * T + t].n, 0); /* never tested */
+        CHECK_EQ_INT(candidateOf(g)->regions[0 * T + t].n, t < regionsOf(g, sa) ? 27 : 0);
+        CHECK_EQ_INT(candidateOf(g)->regions[1 * T + t].n, t < regionsOf(g, sb) ? 20 : 0);
+        CHECK_EQ_INT(candidateOf(g)->regions[2 * T + t].n, 0); /* never tested */
     }
     feedText(g, now, U_PLAIN, &XA, 0); /* the 28th */
     CHECK(gateState(g) == GATE_STATE_ACTIVE);
-    CHECK(g->serving != NULL && g->serving->gen == 1 && g->candidate == NULL);
+    CHECK(g->serving != NULL && servingOf(g)->gen == 1 && g->candidate == NULL);
     CHECK_EQ_INT(g->stats.promotions, 1);
     /* Every region the score reaches crossed together; from the entry
      * point 7 downwards they are proven. */
-    CHECK_EQ_INT(g->serving->policy[0], 0);
-    CHECK_EQ_INT(g->serving->policy[1], -1);
-    CHECK_EQ_INT(g->serving->policy[2], -1);
+    CHECK_EQ_INT(servingOf(g)->policy[0], 0);
+    CHECK_EQ_INT(servingOf(g)->policy[1], -1);
+    CHECK_EQ_INT(servingOf(g)->policy[2], -1);
     CHECK(gateRowThreshold(g, 0) == 1.0 / 3.0);
     CHECK(gateRowThreshold(g, 1) < 0.0 && gateRowThreshold(g, 2) < 0.0);
     CHECK(gateRowThreshold(g, 3) < 0.0); /* no such label */
@@ -1236,7 +1259,7 @@ TEST(classifier_life) {
     CHECK(r.action == GATE_ACTION_AUDIT && r.seq != 0 && r.label == -1);
     CHECK_EQ_INT(flagsOf(g, r.seq), GATE_OBS_AUDIT | GATE_OBS_WOULD_ACCEPT | GATE_OBS_SERV);
     CHECK_EQ_INT(answer(g, now, r.seq, 0), 1);
-    CHECK_EQ_INT(g->serving->audits, 1);
+    CHECK_EQ_INT(servingOf(g)->audits, 1);
     /* label1 has no proven threshold: everything goes to the teacher and
      * everything is proof, spot check or not. */
     r = askText(g, now, U_PLAIN, &XB);
@@ -1247,7 +1270,7 @@ TEST(classifier_life) {
     CHECK(r.action == GATE_ACTION_ABSTAIN && r.seq != 0);
     CHECK_EQ_INT(flagsOf(g, r.seq), GATE_OBS_AUDIT | GATE_OBS_SERV);
     CHECK_EQ_INT(answer(g, now, r.seq, 1), 1);
-    CHECK_EQ_INT(g->serving->regions[1 * T].n, 22);
+    CHECK_EQ_INT(servingOf(g)->regions[1 * T].n, 22);
     /* label2 is never answered and never tested: its requests only train. */
     r = askText(g, now, U_PLAIN, &XC);
     CHECK(r.action == GATE_ACTION_ABSTAIN && r.seq != 0);
@@ -1257,20 +1280,20 @@ TEST(classifier_life) {
     CHECK(r.action == GATE_ACTION_ABSTAIN && r.seq != 0);
     CHECK_EQ_INT(flagsOf(g, r.seq), GATE_OBS_AUDIT);
     CHECK_EQ_INT(answer(g, now, r.seq, 2), 1);
-    CHECK_EQ_INT(g->serving->samples, 53 + 3);
+    CHECK_EQ_INT(servingOf(g)->samples, 53 + 3);
 
     /* label1 gets its threshold at its own 60th correct answer. */
     for (i = 23; i <= need_b; i++) {
         feedText(g, now, (i & 1) ? U_SPOT : U_PLAIN, &XB, 1);
-        CHECK_EQ_INT(g->serving->policy[1], i < need_b ? -1 : 0);
+        CHECK_EQ_INT(servingOf(g)->policy[1], i < need_b ? -1 : 0);
     }
     r = askText(g, now, U_PLAIN, &XB);
     CHECK(r.action == GATE_ACTION_ACCEPT && r.label == 1 && r.seq == 0);
     r = askText(g, now, U_PLAIN, &XC);
     CHECK(r.action == GATE_ACTION_ABSTAIN);
     CHECK_EQ_INT(answer(g, now, r.seq, 2), 1);
-    for (t = 0; t < T; t++) CHECK_EQ_INT(g->serving->regions[2 * T + t].n, 0);
-    CHECK_EQ_INT(g->serving->policy[2], -1);
+    for (t = 0; t < T; t++) CHECK_EQ_INT(servingOf(g)->regions[2 * T + t].n, 0);
+    CHECK_EQ_INT(servingOf(g)->policy[2], -1);
     CHECK_EQ_INT(g->stats.promotions, 1);
     CHECK(g->candidate == NULL); /* 240 more examples have not been learned */
     gateFree(g);
@@ -1287,7 +1310,7 @@ TEST(frozen_guesses) {
     double score;
     uint32_t i;
 
-    CHECK_EQ_INT(gateModelPredict(&g->candidate->model, &XA, NULL, &score), 0);
+    CHECK_EQ_INT(gateModelPredict(&candidateOf(g)->model, &XA, NULL, &score), 0);
     r1 = askText(g, now, U_PLAIN, &XA);
     r2 = askText(g, now, U_PLAIN, &XA);
     o = gateFindObservation(g, r1.seq);
@@ -1299,20 +1322,20 @@ TEST(frozen_guesses) {
     for (i = 0; i < 60; i++) train(g, now, &XA, 1);
     CHECK_EQ_INT(gateModelPredict(&g->trainer, &XA, NULL, NULL), 1);
     CHECK(mixGeneration(0, g, g->candidate, 0) == before);
-    CHECK_EQ_INT(g->candidate->samples, 0);
+    CHECK_EQ_INT(candidateOf(g)->samples, 0);
 
     /* The teacher says label0: right for the guess recorded with the
      * request, although the live model would now say label1. */
     CHECK_EQ_INT(answer(g, now, r1.seq, 0), 1);
-    CHECK_EQ_INT(g->candidate->samples, 1);
-    CHECK_EQ_INT(g->candidate->errors, 0);
-    CHECK_EQ_INT(g->candidate->regions[0 * T].n, 1);
-    CHECK_EQ_INT(g->candidate->regions[1 * T].n, 0);
+    CHECK_EQ_INT(candidateOf(g)->samples, 1);
+    CHECK_EQ_INT(candidateOf(g)->errors, 0);
+    CHECK_EQ_INT(candidateOf(g)->regions[0 * T].n, 1);
+    CHECK_EQ_INT(candidateOf(g)->regions[1 * T].n, 0);
     /* And label1 is wrong for it, although the live model agrees. */
     CHECK_EQ_INT(answer(g, now, r2.seq, 1), 1);
-    CHECK_EQ_INT(g->candidate->errors, 1);
-    CHECK_EQ_INT(g->candidate->regions[0 * T].errors, 1);
-    CHECK_EQ_INT(g->candidate->regions[1 * T].n, 0);
+    CHECK_EQ_INT(candidateOf(g)->errors, 1);
+    CHECK_EQ_INT(candidateOf(g)->regions[0 * T].errors, 1);
+    CHECK_EQ_INT(candidateOf(g)->regions[1 * T].n, 0);
     gateFree(g);
 }
 
@@ -1331,11 +1354,11 @@ TEST(asked_before_snapshot) {
     CHECK_EQ_INT(flagsOf(g, before.seq), GATE_OBS_AUDIT | GATE_OBS_WOULD_ACCEPT | GATE_OBS_SERV);
     /* ...then the next snapshot is taken (40 examples after the first)... */
     for (i = 0; i < 12; i++) train(g, now, (i & 1) ? &XB : &XA, (int32_t)(i & 1));
-    CHECK(g->candidate != NULL && g->candidate->gen == 2);
+    CHECK(g->candidate != NULL && candidateOf(g)->gen == 2);
     /* ...and the answer is proof for generation 1 only. */
     CHECK_EQ_INT(answer(g, now, before.seq, 0), 1);
-    CHECK_EQ_INT(g->serving->samples, 29);
-    CHECK_EQ_INT(g->candidate->samples, 0);
+    CHECK_EQ_INT(servingOf(g)->samples, 29);
+    CHECK_EQ_INT(candidateOf(g)->samples, 0);
 
     /* With something serving, the candidate's proof is the spot checks. */
     after = askText(g, now, U_SPOT, &XA);
@@ -1345,8 +1368,8 @@ TEST(asked_before_snapshot) {
     CHECK_EQ_INT(flagsOf(g, other.seq), GATE_OBS_SERV);
     CHECK_EQ_INT(answer(g, now, after.seq, 0), 1);
     CHECK_EQ_INT(answer(g, now, other.seq, 1), 1);
-    CHECK_EQ_INT(g->candidate->samples, 1);
-    CHECK_EQ_INT(g->serving->samples, 31);
+    CHECK_EQ_INT(candidateOf(g)->samples, 1);
+    CHECK_EQ_INT(servingOf(g)->samples, 31);
     gateFree(g);
 }
 
@@ -1359,12 +1382,12 @@ TEST(proof_survives_promotion) {
     for (i = 0; i < 40; i++) r[i] = ask(g, now, U_PLAIN, 0.9);
     for (i = 0; i < 35; i++) CHECK_EQ_INT(answer(g, now, r[i].seq, 1), 1);
     CHECK(gateState(g) == GATE_STATE_ACTIVE);
-    CHECK_EQ_INT(g->serving->samples, 35);
+    CHECK_EQ_INT(servingOf(g)->samples, 35);
     /* Asked of the candidate, answered when it already serves. */
     for (i = 35; i < 40; i++) CHECK_EQ_INT(answer(g, now, r[i].seq, 1), 1);
-    CHECK_EQ_INT(g->serving->samples, 40);
-    CHECK_EQ_INT(g->serving->regions[0].n, 40);
-    CHECK_EQ_INT(g->serving->audits, 0);
+    CHECK_EQ_INT(servingOf(g)->samples, 40);
+    CHECK_EQ_INT(servingOf(g)->regions[0].n, 40);
+    CHECK_EQ_INT(servingOf(g)->audits, 0);
     gateFree(g);
 }
 
@@ -1381,7 +1404,7 @@ TEST(answers_wait_for_their_turn) {
     for (i = 39; i >= 1; i--) {
         CHECK_EQ_INT(answer(g, now, r[i].seq, 1), 1);
         CHECK(flagsOf(g, r[i].seq) & GATE_OBS_RESOLVED);
-        CHECK_EQ_INT(g->candidate->samples, 0);
+        CHECK_EQ_INT(candidateOf(g)->samples, 0);
         CHECK_EQ_INT(g->npending, 40);
     }
     CHECK(gateState(g) == GATE_STATE_CALIBRATING);
@@ -1389,8 +1412,8 @@ TEST(answers_wait_for_their_turn) {
      * 35th proved the threshold. */
     CHECK_EQ_INT(answer(g, now, r[0].seq, 1), 1);
     CHECK(gateState(g) == GATE_STATE_ACTIVE);
-    CHECK_EQ_INT(g->serving->samples, 40);
-    CHECK_EQ_INT(g->serving->regions[0].certified_at, 35);
+    CHECK_EQ_INT(servingOf(g)->samples, 40);
+    CHECK_EQ_INT(servingOf(g)->regions[0].certified_at, 35);
     CHECK_EQ_INT(g->npending, 0);
     CHECK_EQ_INT(g->stats.learned, 40);
     gateFree(g);
@@ -1404,7 +1427,7 @@ TEST(answers_wait_for_their_turn) {
     CHECK_EQ_INT(flagsOf(g, early.seq), 0);
     CHECK_EQ_INT(flagsOf(g, proof.seq), GATE_OBS_CAND);
     CHECK_EQ_INT(answer(g, now, proof.seq, 0), 1);
-    CHECK_EQ_INT(g->candidate->samples, 1);
+    CHECK_EQ_INT(candidateOf(g)->samples, 1);
     CHECK_EQ_INT(g->npending, 1);
     proof = askText(g, now, U_PLAIN, &XA);
     CHECK_EQ_INT(answer(g, now, early.seq, 0), 1);
@@ -1524,7 +1547,7 @@ TEST(answer_order_does_not_matter) {
     CHECK(g[0]->stats.missing >= 1);
     CHECK_EQ_INT(g[0]->stats.revocations, 1);
     CHECK_EQ_INT(g[0]->stats.promotions, 2);
-    CHECK(g[0]->serving != NULL && g[0]->serving->gen == 2);
+    CHECK(g[0]->serving != NULL && servingOf(g[0])->gen == 2);
     for (k = 0; k < 3; k++) gateFree(g[k]);
 }
 
@@ -1634,11 +1657,11 @@ TEST(feedback_ids) {
     CHECK_EQ_INT(g->pending_bytes, GATE_OBS_BYTES(1) + GATE_OBS_BYTES(0));
     o = gateFindObservation(g, r2.seq);
     CHECK(o != NULL && o->x.n == 0 && o->x.idx == NULL && o->x.val == NULL && o->result == 1);
-    CHECK_EQ_INT(g->candidate->samples, 0);
+    CHECK_EQ_INT(candidateOf(g)->samples, 0);
     CHECK_EQ_INT(answer(g, now, r2.seq, 1), 0);
     CHECK_EQ_INT(g->trainer.updates, 5);
     CHECK_EQ_INT(answer(g, now, r.seq, 0), 1);
-    CHECK_EQ_INT(g->candidate->samples, 2);
+    CHECK_EQ_INT(candidateOf(g)->samples, 2);
     CHECK_EQ_INT(g->npending, 0);
     CHECK_EQ_INT(g->pending_bytes, 0);
     CHECK_EQ_INT(answer(g, now, r.seq, 0), 0);
@@ -1688,7 +1711,7 @@ TEST(missing_answers) {
     lost = ask(g, now, U_PLAIN, 0.9);
     held = ask(g, now + 10, U_PLAIN, 0.9);
     CHECK_EQ_INT(answer(g, now + 20, held.seq, 1), 1);
-    CHECK_EQ_INT(g->candidate->samples, 34);
+    CHECK_EQ_INT(candidateOf(g)->samples, 34);
     CHECK_EQ_INT(gateMaintenanceDue(g, now + TIMEOUT - 1), 0);
     gateMaintain(g, now + TIMEOUT - 1);
     CHECK_EQ_INT(g->npending, 2);
@@ -1703,11 +1726,11 @@ TEST(missing_answers) {
     CHECK_EQ_INT(g->stats.missing, 1);
     CHECK_EQ_INT(g->stats.dropped, 0);
     CHECK(g->candidate == cand && g->serving == NULL); /* still the candidate */
-    CHECK_EQ_INT(g->candidate->samples, 36);
-    CHECK_EQ_INT(g->candidate->errors, 1);
-    CHECK_EQ_INT(g->candidate->regions[0].n, 36);
-    CHECK_EQ_INT(g->candidate->regions[0].errors, 1);
-    CHECK_EQ_INT(g->candidate->regions[12].n, 0);
+    CHECK_EQ_INT(candidateOf(g)->samples, 36);
+    CHECK_EQ_INT(candidateOf(g)->errors, 1);
+    CHECK_EQ_INT(candidateOf(g)->regions[0].n, 36);
+    CHECK_EQ_INT(candidateOf(g)->regions[0].errors, 1);
+    CHECK_EQ_INT(candidateOf(g)->regions[12].n, 0);
     CHECK_EQ_INT(answer(g, now + TIMEOUT, lost.seq, 1), 0); /* too late */
     CHECK_EQ_INT(g->stats.learned, 35);
 
@@ -1717,9 +1740,9 @@ TEST(missing_answers) {
     for (i = 0; i < 300; i++) CHECK(ask(g, now, U_PLAIN, 0.9).seq != 0);
     gateMaintain(g, now + TIMEOUT);
     inv(g);
-    CHECK(g->candidate == cand && g->candidate->gen == 1);
-    CHECK_EQ_INT(g->candidate->samples, 336);
-    CHECK_EQ_INT(g->candidate->errors, 301);
+    CHECK(g->candidate == cand && candidateOf(g)->gen == 1);
+    CHECK_EQ_INT(candidateOf(g)->samples, 336);
+    CHECK_EQ_INT(candidateOf(g)->errors, 301);
     CHECK_EQ_INT(g->stats.missing, 301);
     CHECK_EQ_INT(g->stats.retired + g->stats.revocations, 0);
     gateFree(g);
@@ -1765,8 +1788,8 @@ TEST(missing_is_a_wrong_answer) {
     now += TIMEOUT;
     for (k = 0; k < 2; k++) gateMaintain(g[k], now);
     sameProof(wrong, lost);
-    CHECK_EQ_INT(lost->candidate->samples, 40);
-    CHECK_EQ_INT(lost->candidate->errors, 2);
+    CHECK_EQ_INT(candidateOf(lost)->samples, 40);
+    CHECK_EQ_INT(candidateOf(lost)->errors, 2);
     CHECK_EQ_INT(lost->stats.missing, 2);
     CHECK_EQ_INT(wrong->stats.missing, 0);
 
@@ -1800,9 +1823,9 @@ TEST(missing_is_a_wrong_answer) {
         CHECK(g[k]->serving != NULL);
     }
     sameProof(wrong, lost);
-    CHECK_EQ_INT(lost->serving->audits, 6);
-    CHECK_EQ_INT(lost->serving->audit_errors, 2);
-    CHECK_EQ_INT(lost->serving->drift[0].errors, 2);
+    CHECK_EQ_INT(servingOf(lost)->audits, 6);
+    CHECK_EQ_INT(servingOf(lost)->audit_errors, 2);
+    CHECK_EQ_INT(servingOf(lost)->drift[0].errors, 2);
     CHECK_EQ_INT(lost->stats.missing, 4);
     gateFree(wrong);
     gateFree(lost);
@@ -1865,11 +1888,13 @@ TEST(entry_points) {
               gateRegionLogWealth(reg) == 0.0);
     }
     for (r = 0; r < 3; r++)
-        CHECK(gen->policy[r] == -1 && gen->drift[r].n == 0 && gateDriftLogStat(&gen->drift[r]) == 0.0);
+        CHECK(gen->policy[r] == -1 && gen->drift[r].n == 0 &&
+              gateDriftLogStat(&gen->drift[r]) == 0.0);
 
     /* Classifier: from the most confident threshold down, with an entry
      * point at every eighth. */
-    for (t = 0; t < T; t++) CHECK_EQ_INT(gateIsEntry(g, t), t == 7 || t == 15 || t == 23 || t == 31);
+    for (t = 0; t < T; t++)
+        CHECK_EQ_INT(gateIsEntry(g, t), t == 7 || t == 15 || t == 23 || t == 31);
     CHECK_EQ_INT(gateEntryPoints(g), 4);
     CHECK_EQ_INT(gateTestedRows(g), 2);
     CHECK_EQ_INT(policyOf(g, gen, 0, 0), -1);
@@ -1946,8 +1971,8 @@ TEST(crossed_is_not_proven) {
     }
     CHECK(gateState(g) == GATE_STATE_CALIBRATING);
     for (t = 0; t < T; t++)
-        CHECK_EQ_INT(g->candidate->regions[t].certified_at, t < 7 ? 28 : 0);
-    CHECK_EQ_INT(g->candidate->policy[0], -1);
+        CHECK_EQ_INT(candidateOf(g)->regions[t].certified_at, t < 7 ? 28 : 0);
+    CHECK_EQ_INT(candidateOf(g)->policy[0], -1);
     /* One level higher and the same proof counts at once. */
     for (i = 1; i <= 28; i++) {
         gateEval ev = guesses(g, -1, 0.0, 0, 0.88);
@@ -1956,7 +1981,7 @@ TEST(crossed_is_not_proven) {
         CHECK_EQ_INT(answer(g, now, r.seq, 0), 1);
         CHECK((g->serving != NULL) == (i == 28));
     }
-    CHECK_EQ_INT(g->serving->policy[0], 0);
+    CHECK_EQ_INT(servingOf(g)->policy[0], 0);
     gateFree(g);
 }
 
@@ -1968,22 +1993,22 @@ TEST(bar_per_generation) {
 
     /* Score gate: one row, 32 entry points. A reset starts the next
      * generation; the budget of the earlier ones is gone for good. */
-    CHECK_NEAR(g->candidate->log_threshold, log(2.0 * 32.0 / 0.2), 1e-12);
+    CHECK_NEAR(candidateOf(g)->log_threshold, log(2.0 * 32.0 / 0.2), 1e-12);
     CHECK_NEAR(gateBudgetSpentNow(g), DELTA * 1.0 / 2.0, 1e-15);
     gateReset(g, now, EPOCH2);
-    CHECK_EQ_INT(g->candidate->gen, 2);
-    CHECK_NEAR(g->candidate->log_threshold, log(6.0 * 32.0 / 0.2), 1e-12);
+    CHECK_EQ_INT(candidateOf(g)->gen, 2);
+    CHECK_NEAR(candidateOf(g)->log_threshold, log(6.0 * 32.0 / 0.2), 1e-12);
     CHECK_NEAR(gateBudgetSpentNow(g), DELTA * 2.0 / 3.0, 1e-15);
     gateReset(g, now, EPOCH3);
-    CHECK_EQ_INT(g->candidate->gen, 3);
-    CHECK_NEAR(g->candidate->log_threshold, log(12.0 * 32.0 / 0.2), 1e-12);
+    CHECK_EQ_INT(candidateOf(g)->gen, 3);
+    CHECK_NEAR(candidateOf(g)->log_threshold, log(12.0 * 32.0 / 0.2), 1e-12);
     CHECK_NEAR(gateBudgetSpentNow(g), DELTA * 3.0 / 4.0, 1e-15);
     gateFree(g);
 
     baseConfig(&cfg);
     cfg.delta = 0.01;
     g = create(&cfg);
-    CHECK_NEAR(g->candidate->log_threshold, log(2.0 * 32.0 / 0.01), 1e-12);
+    CHECK_NEAR(candidateOf(g)->log_threshold, log(2.0 * 32.0 / 0.01), 1e-12);
     gateFree(g);
 
     /* Classifier: tested labels times 4 entry points. A recovery keeps the
@@ -1992,16 +2017,16 @@ TEST(bar_per_generation) {
     g = classGate(3, 3);
     CHECK_NEAR(gateBudgetSpentNow(g), 0.0, 0.0);
     for (i = 0; i < 3; i++) train(g, now, &XA, 0);
-    CHECK_EQ_INT(g->candidate->gen, 1);
-    CHECK_NEAR(g->candidate->log_threshold, log(2.0 * 12.0 / 0.2), 1e-12);
-    CHECK_EQ_INT(g->candidate->budget, 20 * 24); /* 4.787 / 0.2029 = 23.6 */
+    CHECK_EQ_INT(candidateOf(g)->gen, 1);
+    CHECK_NEAR(candidateOf(g)->log_threshold, log(2.0 * 12.0 / 0.2), 1e-12);
+    CHECK_EQ_INT(candidateOf(g)->budget, 20 * 24); /* 4.787 / 0.2029 = 23.6 */
     gateRecover(g, now, EPOCH2);
-    CHECK_EQ_INT(g->candidate->gen, 2);
-    CHECK_NEAR(g->candidate->log_threshold, log(6.0 * 12.0 / 0.2), 1e-12);
-    CHECK_EQ_INT(g->candidate->budget, 20 * 30); /* 5.886 / 0.2029 = 29.004 */
+    CHECK_EQ_INT(candidateOf(g)->gen, 2);
+    CHECK_NEAR(candidateOf(g)->log_threshold, log(6.0 * 12.0 / 0.2), 1e-12);
+    CHECK_EQ_INT(candidateOf(g)->budget, 20 * 30); /* 5.886 / 0.2029 = 29.004 */
     gateRecover(g, now, EPOCH3);
-    CHECK_EQ_INT(g->candidate->gen, 3);
-    CHECK_NEAR(g->candidate->log_threshold, log(12.0 * 12.0 / 0.2), 1e-12);
+    CHECK_EQ_INT(candidateOf(g)->gen, 3);
+    CHECK_NEAR(candidateOf(g)->log_threshold, log(12.0 * 12.0 / 0.2), 1e-12);
     inv(g);
     gateFree(g);
 
@@ -2010,7 +2035,7 @@ TEST(bar_per_generation) {
     cfg.class_defer[1] = 1;
     g = create(&cfg);
     for (i = 0; i < 3; i++) train(g, now, &XA, 0);
-    CHECK_NEAR(g->candidate->log_threshold, log(2.0 * 8.0 / 0.2), 1e-12);
+    CHECK_NEAR(candidateOf(g)->log_threshold, log(2.0 * 8.0 / 0.2), 1e-12);
     gateFree(g);
 }
 
@@ -2018,13 +2043,13 @@ TEST(bar_per_generation) {
 
 TEST(replacing_needs_more_accepts) {
     gate *g = classGate(2, 5);
-    gatePredictResult r;
+    gatePredictResult r, late;
     int64_t now = T0;
     gateEval ev;
     uint32_t i;
 
     for (i = 0; i < 5; i++) train(g, now, &XA, 0);
-    CHECK_EQ_INT(g->candidate->budget, 20 * 22); /* 4.382 / 0.2029 = 21.6 */
+    CHECK_EQ_INT(candidateOf(g)->budget, 20 * 22); /* 4.382 / 0.2029 = 21.6 */
 
     /* Generation 1 guesses label0. Ten wrong guesses at 0.6 put its
      * regions 0 and 1 out of reach; 28 correct ones at 0.99 prove the
@@ -2042,12 +2067,12 @@ TEST(replacing_needs_more_accepts) {
         CHECK_EQ_INT(answer(g, now, r.seq, 0), 1);
         CHECK((g->serving != NULL) == (i == 28));
     }
-    CHECK_EQ_INT(g->serving->policy[0], 2);
+    CHECK_EQ_INT(servingOf(g)->policy[0], 2);
     /* 38 answers were learned since the first snapshot: the next one is
      * taken in the same breath. */
-    CHECK(g->candidate != NULL && g->candidate->gen == 2);
-    CHECK_NEAR(g->candidate->log_threshold, log(240.0), 1e-12);
-    CHECK_EQ_INT(g->candidate->budget, 20 * 28); /* 5.481 / 0.2029 = 27.006 */
+    CHECK(g->candidate != NULL && candidateOf(g)->gen == 2);
+    CHECK_NEAR(candidateOf(g)->log_threshold, log(240.0), 1e-12);
+    CHECK_EQ_INT(candidateOf(g)->budget, 20 * 28); /* 5.481 / 0.2029 = 27.006 */
 
     /* 34 spot checks that both generations would answer, all correct.
      * Generation 2 now has proven thresholds of its own (from 0.5), but it
@@ -2057,38 +2082,57 @@ TEST(replacing_needs_more_accepts) {
         r = askGuess(g, now, U_SPOT, &ev, &XA);
         CHECK(r.action == GATE_ACTION_AUDIT);
         CHECK_EQ_INT(answer(g, now, r.seq, 0), 1);
-        CHECK_EQ_INT(g->candidate->policy[0], i < 34 ? -1 : 0);
+        CHECK_EQ_INT(candidateOf(g)->policy[0], i < 34 ? -1 : 0);
     }
-    CHECK_EQ_INT(g->candidate->paired, 34);
-    CHECK_EQ_INT(g->candidate->regions[0].n, 34);
-    CHECK(g->serving->gen == 1 && g->candidate->gen == 2);
+    CHECK_EQ_INT(candidateOf(g)->paired, 34);
+    CHECK_EQ_INT(candidateOf(g)->regions[0].n, 34);
+    CHECK(servingOf(g)->gen == 1 && candidateOf(g)->gen == 2);
 
     /* One that generation 1 would answer and generation 2 would not (it
      * guesses label1, where it has proven nothing): one behind. */
     ev = guesses(g, 0, 0.99, 1, 0.7);
     r = askGuess(g, now, U_SPOT, &ev, &XA);
     CHECK_EQ_INT(answer(g, now, r.seq, 1), 1);
-    CHECK_EQ_INT(g->candidate->paired, 35);
-    CHECK(g->serving->gen == 1);
+    CHECK_EQ_INT(candidateOf(g)->paired, 35);
+    CHECK(servingOf(g)->gen == 1);
     /* One that only generation 2 would answer (0.6 is under generation
      * 1's threshold): level. Level is not more. */
     ev = guesses(g, 0, 0.6, 0, 0.99);
     r = askGuess(g, now, U_SPOT, &ev, &XA);
     CHECK(r.action == GATE_ACTION_ABSTAIN && r.seq != 0);
     CHECK_EQ_INT(answer(g, now, r.seq, 0), 1);
-    CHECK_EQ_INT(g->candidate->regions[0].n, 35);
-    CHECK_EQ_INT(g->candidate->paired, 35);
-    CHECK(g->serving->gen == 1 && g->serving->policy[0] == 2);
-    /* Another one: generation 2 takes over with this very answer. */
+    CHECK_EQ_INT(candidateOf(g)->regions[0].n, 35);
+    CHECK_EQ_INT(candidateOf(g)->paired, 35);
+    CHECK(servingOf(g)->gen == 1 && servingOf(g)->policy[0] == 2);
+    /* Another one, and a spot check that stays open: generation 1 guesses
+     * label1 for it (unproven: not answered), generation 2 label0. */
     r = askGuess(g, now, U_SPOT, &ev, &XA);
+    ev = guesses(g, 1, 0.8, 0, 0.99);
+    late = askGuess(g, now, U_SPOT, &ev, &XA);
+    CHECK_EQ_INT(flagsOf(g, late.seq), GATE_OBS_AUDIT | GATE_OBS_SERV | GATE_OBS_CAND);
+    CHECK_NEAR(gateCoverage(g), 35.0 / 38.0, 1e-12); /* generation 1: all but the last three */
+    /* Generation 2 takes over with this very answer. Its coverage is
+     * measured from nothing again. */
     CHECK_EQ_INT(answer(g, now, r.seq, 0), 1);
-    CHECK_EQ_INT(g->serving->gen, 2);
-    CHECK_EQ_INT(g->serving->policy[0], 0);
-    CHECK_EQ_INT(g->serving->paired, 0);
-    CHECK_EQ_INT(g->serving->budget, 0);
-    CHECK_EQ_INT(g->serving->promoted_ms, now);
+    CHECK_EQ_INT(servingOf(g)->gen, 2);
+    CHECK(g->stats.window == 0 && gateCoverage(g) == 0.0);
+    CHECK_EQ_INT(servingOf(g)->samples, 37);
+    /* The open spot check is still proof for generation 2, by what
+     * generation 2 guessed. What generation 1 guessed went with it, and
+     * generation 3 was not there to guess anything. */
+    CHECK_EQ_INT(answer(g, now, late.seq, 0), 1);
+    CHECK_EQ_INT(servingOf(g)->samples, 38);
+    CHECK_EQ_INT(servingOf(g)->errors, 0);
+    CHECK_EQ_INT(servingOf(g)->regions[0 * T].n, 37);
+    CHECK_EQ_INT(servingOf(g)->regions[1 * T].n, 1);
+    CHECK_EQ_INT(servingOf(g)->audits, 0);
+    CHECK_EQ_INT(candidateOf(g)->samples, 0);
+    CHECK_EQ_INT(servingOf(g)->policy[0], 0);
+    CHECK_EQ_INT(servingOf(g)->paired, 0);
+    CHECK_EQ_INT(servingOf(g)->budget, 0);
+    CHECK_EQ_INT(servingOf(g)->promoted_ms, now);
     CHECK_EQ_INT(g->stats.promotions, 2);
-    CHECK(g->candidate != NULL && g->candidate->gen == 3);
+    CHECK(g->candidate != NULL && candidateOf(g)->gen == 3);
     gateFree(g);
 }
 
@@ -2100,12 +2144,12 @@ TEST(candidate_budget) {
 
     /* The snapshot says label0 for XA and the teacher says label1 every
      * time. At 440 answers (20 x 22) without a proven threshold it goes. */
-    CHECK_EQ_INT(g->candidate->budget, 440);
+    CHECK_EQ_INT(candidateOf(g)->budget, 440);
     for (i = 1; i < 440; i++) {
         r = askText(g, now, U_PLAIN, &XA);
         CHECK_EQ_INT(answer(g, now, r.seq, 1), 1);
     }
-    CHECK(g->candidate != NULL && g->candidate->samples == 439 && g->candidate->errors == 439);
+    CHECK(g->candidate != NULL && candidateOf(g)->samples == 439 && candidateOf(g)->errors == 439);
     r = askText(g, now, U_PLAIN, &XA);
     late = askText(g, now, U_PLAIN, &XA); /* proof for it, answered after it is gone */
     CHECK_EQ_INT(flagsOf(g, late.seq), GATE_OBS_CAND);
@@ -2127,8 +2171,8 @@ TEST(candidate_budget) {
     for (i = 0; i < 58; i++) train(g, now, &XB, 1);
     CHECK(g->candidate == NULL);
     train(g, now, &XB, 1);
-    CHECK(g->candidate != NULL && g->candidate->gen == 2);
-    CHECK_EQ_INT(g->candidate->budget, 560);
+    CHECK(g->candidate != NULL && candidateOf(g)->gen == 2);
+    CHECK_EQ_INT(candidateOf(g)->budget, 560);
     gateFree(g);
 
     /* With a short step the examples are already there when the budget
@@ -2137,10 +2181,10 @@ TEST(candidate_budget) {
     for (i = 1; i <= 440; i++) {
         r = askText(g, now, U_PLAIN, &XA);
         CHECK_EQ_INT(answer(g, now, r.seq, 1), 1);
-        CHECK_EQ_INT(g->candidate->gen, i < 440 ? 1 : 2);
+        CHECK_EQ_INT(candidateOf(g)->gen, i < 440 ? 1 : 2);
     }
     CHECK_EQ_INT(g->stats.retired, 1);
-    CHECK_EQ_INT(g->candidate->samples, 0);
+    CHECK_EQ_INT(candidateOf(g)->samples, 0);
     gateFree(g);
 
     /* Lost answers use the budget up like wrong ones: 439 leave the
@@ -2151,7 +2195,7 @@ TEST(candidate_budget) {
     now += TIMEOUT;
     gateMaintain(g, now);
     inv(g);
-    CHECK(g->candidate != NULL && g->candidate->samples == 439);
+    CHECK(g->candidate != NULL && candidateOf(g)->samples == 439);
     CHECK_EQ_INT(g->stats.missing, 439);
     CHECK(askText(g, now, U_PLAIN, &XA).seq != 0);
     now += TIMEOUT;
@@ -2168,10 +2212,10 @@ TEST(score_candidate_has_no_budget) {
     gate *g = scoreGate();
     uint32_t i;
 
-    CHECK_EQ_INT(g->candidate->budget, 0);
+    CHECK_EQ_INT(candidateOf(g)->budget, 0);
     for (i = 0; i < 2000; i++) feed(g, T0, U_PLAIN, 1.0, 0);
-    CHECK(g->candidate != NULL && g->candidate->gen == 1);
-    CHECK_EQ_INT(g->candidate->samples, 2000);
+    CHECK(g->candidate != NULL && candidateOf(g)->gen == 1);
+    CHECK_EQ_INT(candidateOf(g)->samples, 2000);
     CHECK_EQ_INT(g->stats.retired, 0);
     CHECK(gateState(g) == GATE_STATE_CALIBRATING);
     gateFree(g);
@@ -2180,11 +2224,15 @@ TEST(score_candidate_has_no_budget) {
 /* ---------------------------------- Drift -------------------------------- */
 
 TEST(drift_score) {
-    static const char pattern[] = "xxxx...xxxxx";
+    static const struct {
+        const char *pattern; /* 'x' a wrong spot check, '.' a right one */
+        uint32_t alarm;
+    } cases[] = {{"xxxx...xxxxx", 12}, {"xxxxxx.xx", 9}, {"......xxxxxxx", 13}};
     int64_t now = T0;
     gate *g = activeScoreGate(now);
     gatePredictResult r, waiting;
     uint32_t i;
+    size_t c;
 
     /* Seven wrong spot checks in a row (file comment): the gate answers
      * until the seventh arrives. */
@@ -2199,8 +2247,8 @@ TEST(drift_score) {
         CHECK_EQ_INT(answer(g, now, r.seq, 0), 1);
         if (i < 7) {
             CHECK(gateState(g) == GATE_STATE_ACTIVE);
-            CHECK_EQ_INT(g->serving->audits, i);
-            CHECK_EQ_INT(g->serving->audit_errors, i);
+            CHECK_EQ_INT(servingOf(g)->audits, i);
+            CHECK_EQ_INT(servingOf(g)->audit_errors, i);
             CHECK(ask(g, now, U_PLAIN, 0.9).action == GATE_ACTION_ACCEPT);
         }
     }
@@ -2208,10 +2256,10 @@ TEST(drift_score) {
      * relearn, the next one is under test already. */
     CHECK(g->serving == NULL);
     CHECK(gateState(g) == GATE_STATE_CALIBRATING);
-    CHECK(g->candidate != NULL && g->candidate->gen == 2);
+    CHECK(g->candidate != NULL && candidateOf(g)->gen == 2);
     CHECK_EQ_INT(g->generations, 2);
-    CHECK_EQ_INT(g->candidate->samples, 0);
-    CHECK_NEAR(g->candidate->log_threshold, log(960.0), 1e-12);
+    CHECK_EQ_INT(candidateOf(g)->samples, 0);
+    CHECK_NEAR(candidateOf(g)->log_threshold, log(960.0), 1e-12);
     CHECK_EQ_INT(g->stats.revocations, 1);
     CHECK(gateCoverage(g) == 0.0);
     CHECK(ask(g, now, U_PLAIN, 0.9).action == GATE_ACTION_ABSTAIN);
@@ -2222,30 +2270,34 @@ TEST(drift_score) {
     CHECK_EQ_INT(g->stats.dropped, 1);
     gateFree(g);
 
-    /* Correct spot checks in between only delay it: 12 by the detector's
-     * own arithmetic (see expected_numbers). */
-    g = activeScoreGate(now);
-    CHECK_EQ_INT(alarmAfter(ALPHA, pattern), 12);
-    for (i = 1; i <= 12; i++) {
-        r = ask(g, now, U_SPOT, 0.9);
-        CHECK_EQ_INT(answer(g, now, r.seq, pattern[i - 1] == '.'), 1);
-        CHECK((g->serving != NULL) == (i < 12));
+    /* Other histories, each on a fresh gate; the step at which the alarm
+     * fires is derived by hand in expected_numbers. Correct spot checks in
+     * between delay it; a clean past does not. */
+    for (c = 0; c < COUNTOF(cases); c++) {
+        g = activeScoreGate(now);
+        CHECK_EQ_INT(alarmAfter(ALPHA, cases[c].pattern), cases[c].alarm);
+        CHECK_EQ_INT(strlen(cases[c].pattern), cases[c].alarm);
+        for (i = 1; i <= cases[c].alarm; i++) {
+            r = ask(g, now, U_SPOT, 0.9);
+            CHECK_EQ_INT(answer(g, now, r.seq, cases[c].pattern[i - 1] == '.'), 1);
+            CHECK((g->serving != NULL) == (i < cases[c].alarm));
+        }
+        CHECK_EQ_INT(g->stats.revocations, 1);
+        gateFree(g);
     }
-    CHECK_EQ_INT(g->stats.revocations, 1);
     /* Only spot checks of answers count. Wrong proof from below the
      * threshold, however much, is not drift. */
-    gateFree(g);
     g = scoreGate();
     feed(g, now, U_PLAIN, 0.5, 0);
     for (i = 0; i < 35; i++) feed(g, now, U_PLAIN, 0.9, 1);
-    CHECK_EQ_INT(g->serving->policy[0], 4);
+    CHECK_EQ_INT(servingOf(g)->policy[0], 4);
     for (i = 0; i < 50; i++) {
         r = ask(g, now, U_SPOT, 0.5);
         CHECK(r.action == GATE_ACTION_ABSTAIN);
         CHECK_EQ_INT(answer(g, now, r.seq, 0), 1);
     }
-    CHECK(g->serving != NULL && g->serving->audits == 0 && g->serving->drift[0].n == 0);
-    CHECK_EQ_INT(g->serving->errors, 51);
+    CHECK(g->serving != NULL && servingOf(g)->audits == 0 && servingOf(g)->drift[0].n == 0);
+    CHECK_EQ_INT(servingOf(g)->errors, 51);
     gateFree(g);
 }
 
@@ -2256,11 +2308,22 @@ TEST(drift_classifier) {
     uint32_t i, nonzero = 0;
 
     for (i = 0; i < 28; i++) feedText(g, now, U_PLAIN, &XA, 0);
+    for (i = 0; i < 28; i++) feedText(g, now, U_PLAIN, &XB, 1);
     CHECK(gateState(g) == GATE_STATE_ACTIVE);
-    CHECK(g->serving->gen == 1 && g->serving->policy[0] == 0);
-    CHECK(g->candidate != NULL && g->candidate->gen == 2);
-    CHECK_EQ_INT(g->trainer.updates, 40);
+    CHECK(servingOf(g)->gen == 1 && servingOf(g)->policy[0] == 0 && servingOf(g)->policy[1] == 0);
+    CHECK(g->candidate != NULL && candidateOf(g)->gen == 2);
+    CHECK_EQ_INT(g->trainer.updates, 68);
 
+    /* Each label is watched by its own detector: six wrong spot checks of
+     * label1 answers are one short of an alarm, and stay one short however
+     * label0 does. */
+    for (i = 0; i < 6; i++) {
+        r = askText(g, now, U_SPOT, &XB);
+        CHECK(r.action == GATE_ACTION_AUDIT);
+        CHECK_EQ_INT(answer(g, now, r.seq, 0), 1);
+    }
+    CHECK(g->serving != NULL);
+    CHECK(servingOf(g)->drift[1].errors == 6 && servingOf(g)->drift[0].n == 0);
     /* The teacher starts calling XA label1. */
     for (i = 1; i <= 7; i++) {
         r = askText(g, now, U_SPOT, &XA);
@@ -2285,7 +2348,7 @@ TEST(drift_classifier) {
         CHECK(g->candidate == NULL);
         train(g, now, (i & 1) ? &XB : &XA, (int32_t)(i & 1));
     }
-    CHECK(g->candidate != NULL && g->candidate->gen == 3);
+    CHECK(g->candidate != NULL && candidateOf(g)->gen == 3);
     CHECK_EQ_INT(g->generations, 3);
     gateFree(g);
 }
@@ -2379,6 +2442,9 @@ TEST(full_by_bytes) {
     /* The largest clue vector there is: all 8192 buckets. */
     const uint64_t per = sizeof(gateObs) + (uint64_t)GATE_DIM * (sizeof(uint32_t) + sizeof(float));
     const uint32_t fit = (uint32_t)((GATE_MAX_PENDING_BYTES + per - 1) / per);
+    /* What the last of them may bring to land on the limit exactly. */
+    const uint64_t room = GATE_MAX_PENDING_BYTES - (fit - 1) * per - sizeof(gateObs);
+    const int exact = room % 8 == 0 && room <= 8 * (uint64_t)GATE_DIM;
     gate *g = classGate(2, 4);
     gatePredictResult r;
     gateSparse big;
@@ -2396,16 +2462,20 @@ TEST(full_by_bytes) {
     }
     for (i = 0; i < 4; i++) train(g, now, &XA, 0);
 
-    /* 16 MiB of stored clues is 256 such requests, far below 4096. */
+    /* 16 MiB of stored clues is 256 such requests, far below 4096. The
+     * last one is cut down so that the gate holds the limit to the byte:
+     * that is full already. */
     CHECK_EQ_INT(fit, 256);
     for (i = 1; i <= fit; i++) {
+        if (i == fit && exact) big.n = (uint32_t)(room / 8);
         r = askText(g, now, U_PLAIN, &big);
         CHECK(r.seq != 0);
         CHECK_EQ_INT(gateFull(g), i == fit);
         if (i == 1) first = r.seq;
     }
+    big.n = GATE_DIM;
     CHECK_EQ_INT(g->npending, fit);
-    CHECK_EQ_INT(g->pending_bytes, fit * per);
+    if (exact) CHECK_EQ_INT(g->pending_bytes, GATE_MAX_PENDING_BYTES);
     CHECK_EQ_INT(gateMemoryUsage(g), expectBytes(g));
     r = askText(g, now, U_PLAIN, &XA);
     CHECK(r.action == GATE_ACTION_ABSTAIN && r.seq == 0);
@@ -2413,7 +2483,6 @@ TEST(full_by_bytes) {
     /* An answer releases the clues it came for. */
     CHECK_EQ_INT(answer(g, now, first, 0), 1);
     CHECK(!gateFull(g));
-    CHECK_EQ_INT(g->pending_bytes, (fit - 1) * per);
     CHECK(askText(g, now, U_PLAIN, &XA).seq != 0);
     gateFree(g);
     free(big.idx);
@@ -2432,7 +2501,7 @@ TEST(pause) {
     CHECK(gateState(g) == GATE_STATE_PAUSED);
     /* Shadow mode: the proof goes on and the snapshot is promoted. */
     for (i = 0; i < 35; i++) feed(g, now, U_PLAIN, 0.9, 1);
-    CHECK(g->serving != NULL && g->serving->policy[0] == 0);
+    CHECK(g->serving != NULL && servingOf(g)->policy[0] == 0);
     CHECK_EQ_INT(g->stats.promotions, 1);
     CHECK(gateState(g) == GATE_STATE_PAUSED);
     CHECK(gateRowThreshold(g, 0) == 0.0);
@@ -2445,8 +2514,8 @@ TEST(pause) {
     CHECK(r.action == GATE_ACTION_ABSTAIN && r.seq != 0);
     CHECK_EQ_INT(flagsOf(g, r.seq), GATE_OBS_AUDIT | GATE_OBS_WOULD_ACCEPT | GATE_OBS_SERV);
     CHECK_EQ_INT(answer(g, now, r.seq, 0), 1);
-    CHECK_EQ_INT(g->serving->audits, 1);
-    CHECK_EQ_INT(g->serving->audit_errors, 1);
+    CHECK_EQ_INT(servingOf(g)->audits, 1);
+    CHECK_EQ_INT(servingOf(g)->audit_errors, 1);
     CHECK_EQ_INT(g->stats.accepted, 0);
     CHECK_EQ_INT(g->stats.audited, 0);
     CHECK_EQ_INT(g->stats.abstained, 37);
@@ -2477,8 +2546,8 @@ static gate *busyClassifier(int64_t now, gatePredictResult *waiting) {
     uint32_t i;
 
     for (i = 0; i < 28; i++) feedText(g, now, U_PLAIN, &XA, 0);
-    CHECK(g->serving != NULL && g->serving->gen == 1);
-    CHECK(g->candidate != NULL && g->candidate->gen == 2);
+    CHECK(g->serving != NULL && servingOf(g)->gen == 1);
+    CHECK(g->candidate != NULL && candidateOf(g)->gen == 2);
     waiting[0] = askText(g, now, U_SPOT, &XA);
     waiting[1] = askText(g, now, U_PLAIN, &XB);
     CHECK(waiting[0].seq != 0 && waiting[1].seq != 0);
@@ -2523,8 +2592,8 @@ TEST(reset) {
         CHECK(g->candidate == NULL);
         train(g, now, (i & 1) ? &XB : &XA, (int32_t)(i & 1));
     }
-    CHECK(g->candidate != NULL && g->candidate->gen == 3);
-    CHECK_NEAR(g->candidate->log_threshold, log(12.0 * 8.0 / 0.2), 1e-12);
+    CHECK(g->candidate != NULL && candidateOf(g)->gen == 3);
+    CHECK_NEAR(candidateOf(g)->log_threshold, log(12.0 * 8.0 / 0.2), 1e-12);
     gateFree(g);
 
     /* A score gate starts its next test right away. */
@@ -2533,8 +2602,8 @@ TEST(reset) {
     gateReset(g, now, EPOCH2);
     inv(g);
     CHECK(gateState(g) == GATE_STATE_CALIBRATING);
-    CHECK(g->serving == NULL && g->candidate != NULL && g->candidate->gen == 2);
-    CHECK_EQ_INT(g->candidate->samples, 0);
+    CHECK(g->serving == NULL && g->candidate != NULL && candidateOf(g)->gen == 2);
+    CHECK_EQ_INT(candidateOf(g)->samples, 0);
     CHECK_EQ_INT(g->npending, 0);
     CHECK(memcmp(&g->stats, &zero, sizeof(zero)) == 0);
     CHECK(ask(g, now, U_PLAIN, 0.9).action == GATE_ACTION_ABSTAIN);
@@ -2561,13 +2630,13 @@ TEST(recover) {
     /* ...the model is not, so it is frozen again on the spot, under the
      * next number... */
     CHECK(gateState(g) == GATE_STATE_CALIBRATING);
-    CHECK(g->candidate != NULL && g->candidate->gen == 3);
+    CHECK(g->candidate != NULL && candidateOf(g)->gen == 3);
     CHECK_EQ_INT(g->generations, 3);
-    CHECK_EQ_INT(g->candidate->samples, 0);
-    CHECK_EQ_INT(g->candidate->frozen_ms, now);
+    CHECK_EQ_INT(candidateOf(g)->samples, 0);
+    CHECK_EQ_INT(candidateOf(g)->frozen_ms, now);
     CHECK_EQ_INT(g->trainer.updates, 40);
     CHECK(mixModel(0, &g->trainer, 0) == weights);
-    CHECK(mixModel(0, &g->candidate->model, 0) == weights);
+    CHECK(mixModel(0, &candidateOf(g)->model, 0) == weights);
     CHECK_EQ_INT(g->snapshot_updates, 40);
     /* ...and the counters are history, not proof. */
     CHECK_EQ_INT(g->stats.requests, st.requests);
@@ -2591,7 +2660,7 @@ TEST(recover) {
         CHECK(g->candidate == NULL);
         train(g, now, &XB, 1);
     }
-    CHECK(g->candidate != NULL && g->candidate->gen == 1);
+    CHECK(g->candidate != NULL && candidateOf(g)->gen == 1);
     gateFree(g);
 
     g = activeScoreGate(now);
@@ -2599,7 +2668,7 @@ TEST(recover) {
     gateRecover(g, now, EPOCH2);
     inv(g);
     CHECK(gateState(g) == GATE_STATE_CALIBRATING);
-    CHECK(g->serving == NULL && g->candidate != NULL && g->candidate->gen == 2);
+    CHECK(g->serving == NULL && g->candidate != NULL && candidateOf(g)->gen == 2);
     CHECK_EQ_INT(g->stats.requests, st.requests);
     CHECK_EQ_INT(g->stats.promotions, 1);
     gateFree(g);
@@ -2780,7 +2849,7 @@ TEST(clock) {
     gateRecover(g, T0, EPOCH2);
     gateReset(g, T0, EPOCH3);
     CHECK_EQ_INT(g->now_ms, T0 + 100 + TIMEOUT);
-    CHECK_EQ_INT(g->candidate->frozen_ms, T0 + 100 + TIMEOUT);
+    CHECK_EQ_INT(candidateOf(g)->frozen_ms, T0 + 100 + TIMEOUT);
     inv(g);
     gateFree(g);
 
@@ -2828,7 +2897,7 @@ TEST(maintenance_due) {
     CHECK(g->candidate == NULL && g->serving == NULL);
     CHECK_EQ_INT(gateMaintenanceDue(g, 0), 1);
     gateMaintain(g, 5);
-    CHECK(g->candidate != NULL && g->candidate->gen == 1);
+    CHECK(g->candidate != NULL && candidateOf(g)->gen == 1);
     CHECK_EQ_INT(gateMaintenanceDue(g, 5), 0);
     inv(g);
     gateFree(g);
@@ -2976,10 +3045,10 @@ TEST(constructors) {
 
     /* And it is a working gate: the answers find their requests. */
     CHECK_EQ_INT(gateLearn(g, 10, 0, 12, 1), 1);
-    CHECK_EQ_INT(g->candidate->samples, 0);
+    CHECK_EQ_INT(candidateOf(g)->samples, 0);
     CHECK_EQ_INT(gateLearn(g, 10, 0, 5, 1), 1);
-    CHECK_EQ_INT(g->candidate->samples, 2);
-    CHECK_EQ_INT(g->candidate->errors, 1);
+    CHECK_EQ_INT(candidateOf(g)->samples, 2);
+    CHECK_EQ_INT(candidateOf(g)->errors, 1);
     CHECK_EQ_INT(gateLearn(g, 10, 0, 9, 0), 1);
     CHECK_EQ_INT(g->npending, 0);
     CHECK_EQ_INT(g->trainer.updates, 3);
@@ -3029,7 +3098,7 @@ TEST(allocation_failures) {
                 inv(g);
                 CHECK_EQ_INT(gateMaintenanceDue(g, T0), 1);
                 gateMaintain(g, T0);
-                CHECK(g->candidate != NULL && g->candidate->gen == 1);
+                CHECK(g->candidate != NULL && candidateOf(g)->gen == 1);
             }
             if (g) inv(g);
             gateFree(g);
@@ -3077,7 +3146,7 @@ TEST(allocation_failures) {
     fail_in = -1;
     fail_forever = 0;
     gateMaintain(g, T0);
-    CHECK(g->candidate != NULL && g->candidate->gen == 1 && g->generations == 1);
+    CHECK(g->candidate != NULL && candidateOf(g)->gen == 1 && g->generations == 1);
     CHECK_EQ_INT(gateMaintenanceDue(g, T0), 0);
     inv(g);
     gateSparseFree(&x);
@@ -3523,7 +3592,8 @@ static const char *modelDiff(const model *m, const gate *g, int requests) {
         const modelReq *q = &m->req[i];
         uint32_t flags = (q->audit ? GATE_OBS_AUDIT : 0) | (q->would ? GATE_OBS_WOULD_ACCEPT : 0) |
                          (q->cand ? GATE_OBS_CAND : 0) | (q->serv ? GATE_OBS_SERV : 0) |
-                         (q->answered ? GATE_OBS_RESOLVED : 0) | (q->missing ? GATE_OBS_MISSING : 0);
+                         (q->answered ? GATE_OBS_RESOLVED : 0) |
+                         (q->missing ? GATE_OBS_MISSING : 0);
 
         evidence += q->cand || q->serv;
         if (!requests) continue;
@@ -3577,6 +3647,7 @@ typedef struct soak {
     gate *g, *replica;
     model m;
     int classifier;
+    int made_up;        /* guesses are drawn, not asked of the frozen models */
     uint64_t rng;
     int64_t now;
     uint32_t op;
@@ -3591,7 +3662,7 @@ typedef struct soak {
     int failed;
     uint64_t frozen[SOAK_GENS]; /* hash of each snapshot's weights, first seen */
     /* Where the walk went. */
-    uint64_t accepts, audits, promotions, revocations, retired, missing, dropped;
+    uint64_t accepts, audits, promotions, takeovers, revocations, retired, missing, dropped;
     uint64_t full, full_bytes, untrained, moved_down, resets, recoveries, maintained;
 } soak;
 
@@ -3666,7 +3737,8 @@ static void soakMaintain(soak *s, int64_t wall) {
 
     gateMaintain(s->g, wall);
     if (verify && due != (fingerprint(s->g, SKIP_CLOCK | SKIP_WEIGHTS) != before))
-        soakFail(s, "maintain", due ? "due, but nothing changed" : "not due, but something changed");
+        soakFail(s, "maintain",
+                 due ? "due, but nothing changed" : "not due, but something changed");
     if (s->g->now_ms != eff) soakFail(s, "maintain", "clock");
     if (due) {
         gateMaintain(s->replica, eff);
@@ -3696,6 +3768,7 @@ static void soakTally(soak *s, const soakBefore *b) {
     uint32_t r;
 
     if (g->stats.promotions > b->st.promotions) s->promotions++;
+    if (g->stats.promotions > b->st.promotions && b->serving) s->takeovers++;
     if (g->stats.revocations > b->st.revocations) s->revocations++;
     if (g->stats.retired > b->st.retired) s->retired++;
     if (g->stats.missing > b->st.missing) s->missing++;
@@ -3754,6 +3827,20 @@ static double soakScore(soak *s, int32_t *truth) {
     return score;
 }
 
+/* Guesses no model made, to get what models rarely give: a candidate that
+ * is the more confident of the two (and right when it is), so that it comes
+ * to accept more than the serving generation and takes over. */
+static gateEval soakMadeUp(soak *s, int32_t *truth) {
+    static const double scores[7] = {0.4, 0.6, 0.8, 0.9, 0.97, 0.995, 1.0};
+    int32_t cand = (int32_t)soakRand(s, 3);
+    int32_t serv = soakRand(s, 10) ? cand : (int32_t)soakRand(s, 3);
+    double cand_score = scores[soakRand(s, 7)], serv_score = scores[soakRand(s, 4)];
+    double right = s->broken ? 0.3 : (cand_score >= 0.9 ? 0.97 : 0.6);
+
+    *truth = gate_test_uniform(&s->rng) < right ? cand : (int32_t)soakRand(s, 3);
+    return guesses(s->g, serv, serv_score, cand, cand_score);
+}
+
 static void soakRemember(soak *s, uint64_t seq, int32_t truth) {
     soakId *id;
 
@@ -3791,17 +3878,22 @@ static void soakPredict(soak *s, double u) {
     }
     if (gateEvaluate(g, s->classifier ? &x : NULL, score, &ev) != GATE_OK)
         soakFail(s, "predict", "gateEvaluate failed");
-    if (s->classifier) {
+    if (s->made_up) {
+        ev = soakMadeUp(s, &truth);
+        if (gateSparseCopy(&mine, &x) != GATE_OK) die("out of memory");
+    } else if (s->classifier) {
         /* The guesses are those of the frozen models. */
         double sc;
 
         if (ev.has_serving != (g->serving != NULL) || ev.has_candidate != (g->candidate != NULL))
             soakFail(s, "predict", "guesses for generations that are not there");
-        if (g->serving && (gateModelPredict(&g->serving->model, &x, NULL, &sc) != ev.serving.label ||
-                           sc != ev.serving.score))
+        if (g->serving &&
+            (gateModelPredict(&g->serving->model, &x, NULL, &sc) != ev.serving.label ||
+             sc != ev.serving.score))
             soakFail(s, "predict", "serving guess");
-        if (g->candidate && (gateModelPredict(&g->candidate->model, &x, NULL, &sc) !=
-                             ev.candidate.label || sc != ev.candidate.score))
+        if (g->candidate &&
+            (gateModelPredict(&g->candidate->model, &x, NULL, &sc) != ev.candidate.label ||
+             sc != ev.candidate.score))
             soakFail(s, "predict", "candidate guess");
         if (gateSparseCopy(&mine, &x) != GATE_OK) die("out of memory");
     }
@@ -3955,6 +4047,9 @@ static void soakStep(soak *s) {
     case 1: u = s->cfg.audit; break; /* the largest draw that is no spot check */
     default: break;
     }
+    /* A candidate lives on spot checks: give the one that is to take over
+     * more of them. */
+    if (s->made_up && soakRand(s, 2)) u *= s->cfg.audit;
     if (s->broken) s->broken--;
     if (s->lossy) s->lossy--;
     if (s->burst) {
@@ -3992,12 +4087,16 @@ static void soakStep(soak *s) {
     }
 }
 
-static void soakRun(soak *s, int classifier, uint64_t seed, uint32_t ops) {
+/* 'kind': 0 a score gate, 1 a classifier, 2 a classifier with made-up
+ * guesses. */
+static void soakRun(soak *s, int kind, uint64_t seed, uint32_t ops) {
+    int classifier = kind != 0;
     char err[128];
     uint32_t i;
 
     memset(s, 0, sizeof(*s));
     s->classifier = classifier;
+    s->made_up = kind == 2;
     s->rng = seed;
     s->now = T0;
     if (classifier) {
@@ -4043,6 +4142,7 @@ static void soakAdd(soak *sum, const soak *s) {
     sum->accepts += s->accepts;
     sum->audits += s->audits;
     sum->promotions += s->promotions;
+    sum->takeovers += s->takeovers;
     sum->revocations += s->revocations;
     sum->retired += s->retired;
     sum->missing += s->missing;
@@ -4098,8 +4198,26 @@ TEST(soak_classifier) {
     CHECK(sum.resets >= 3 && sum.recoveries >= 3);
 }
 
+TEST(soak_takeovers) {
+    static const uint64_t seeds[] = {5, 6};
+    soak s, sum;
+    size_t i;
+
+    memset(&sum, 0, sizeof(sum));
+    for (i = 0; i < COUNTOF(seeds); i++) {
+        soakRun(&s, 2, seeds[i], 30000);
+        soakAdd(&sum, &s);
+    }
+    CHECK(sum.promotions >= 10);
+    CHECK(sum.takeovers >= 3); /* a candidate replacing a serving generation */
+    CHECK(sum.revocations >= 1);
+}
+
 int main(void) {
+    uint32_t r;
+
     gateSetAllocator(testMalloc, testCalloc, testRealloc, testFree);
+    for (r = 0; r < GATE_MAX_CLASSES; r++) blank_policy[r] = -99;
 
     RUN_LEAKFREE(expected_numbers);
     RUN_LEAKFREE(names);
@@ -4146,5 +4264,6 @@ int main(void) {
     RUN_LEAKFREE(allocation_failures);
     RUN_LEAKFREE(soak_score);
     RUN_LEAKFREE(soak_classifier);
+    RUN_LEAKFREE(soak_takeovers);
     return TEST_REPORT();
 }
